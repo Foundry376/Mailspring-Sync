@@ -198,8 +198,8 @@
 				43167F0D1EF5F63700D8E282 /* Models */,
 				436489971EF32A81007816EC /* MailStore.hpp */,
 				436489961EF32A81007816EC /* MailStore.cpp */,
-				436489931EF32866007816EC /* MailUtils.cpp */,
 				436489941EF32866007816EC /* MailUtils.hpp */,
+				436489931EF32866007816EC /* MailUtils.cpp */,
 				436489921EF31AC0007816EC /* constants.h */,
 				436489911EF30E1F007816EC /* sha256.h */,
 				4364899C1EF3449A007816EC /* nlohmann */,
@@ -502,7 +502,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				DEVELOPMENT_TEAM = X9RJ36K9D4;
-				HEADER_SEARCH_PATHS = "${PROJECT_DIR}/Vendor/SQLiteCpp/include";
+				HEADER_SEARCH_PATHS = (
+					"${PROJECT_DIR}/Vendor",
+					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -511,7 +514,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				DEVELOPMENT_TEAM = X9RJ36K9D4;
-				HEADER_SEARCH_PATHS = "${PROJECT_DIR}/Vendor/SQLiteCpp/include";
+				HEADER_SEARCH_PATHS = (
+					"${PROJECT_DIR}/Vendor",
+					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;

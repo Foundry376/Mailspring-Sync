@@ -44,6 +44,10 @@ double Message::date() {
     return _date;
 }
 
+std::string Message::subject() {
+    return _subject;
+}
+
 void Message::setThreadId(std::string threadId) {
     _threadId = threadId;
 }

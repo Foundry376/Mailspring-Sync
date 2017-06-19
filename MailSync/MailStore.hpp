@@ -50,6 +50,8 @@ public:
 
     void remove(MailModel * model);
 
+    uint32_t fetchMessageUIDAtDepth(Folder & folder, int depth);
+
     std::map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
     
     std::map<uint32_t, Message *> fetchMessagesWithUIDs(std::vector<uint32_t> & uids, Folder & folder);

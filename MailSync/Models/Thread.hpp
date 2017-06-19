@@ -21,16 +21,20 @@
 
 class Thread : public MailModel {
     
-public:
     int _unread;
     int _starred;
     double _firstMessageDate;
     double _lastMessageDate;
     double _lastMessageReceivedDate;
     double _lastMessageSentDate;
+    std::string _subject;
     
+public:
     Thread(SQLite::Statement & query);
     Thread(Message msg);
+
+    std::string subject();
+    void setSubject(std::string s);
     int unread();
     void setUnread(int u);
     int starred();

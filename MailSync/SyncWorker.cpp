@@ -11,6 +11,7 @@
 #include "MailUtils.hpp"
 #include "Folder.hpp"
 
+
 #define AS_MCSTR(X)         mailcore::String(X.c_str())
 
 using namespace mailcore;
@@ -18,17 +19,18 @@ using namespace mailcore;
 class Progress : public IMAPProgressCallback {
 public:
     void bodyProgress(IMAPSession * session, unsigned int current, unsigned int maximum) {
-        std::cout << "\nProgress: " << current;
+        std::cout << "Progress: " << current << "\n";
     }
     
     void itemsProgress(IMAPSession * session, unsigned int current, unsigned int maximum) {
-        std::cout << "\nProgress on Item: " << current;
+        std::cout << "Progress on Item: " << current << "\n";
     }
 };
 
 SyncWorker::SyncWorker() :
     store(new MailStore()),
     stream(new CommStream((char *)"/tmp/cmail.sock")),
+    logger(spdlog::stdout_color_mt("console")),
     session(IMAPSession())
 {
     session.setUsername(MCSTR("cypresstest@yahoo.com"));
@@ -78,7 +80,7 @@ void SyncWorker::syncNow() {
                 session.storedCapabilities()->containsIndex(IMAPCapabilityXYMHighestModseq)) {
                 this->syncFolderChangesViaCondstore(*folder, remoteStatus);
             } else {
-//                this->syncFolderShallow(*folder, remoteStatus);
+                this->syncFolderShallow(*folder, remoteStatus);
             }
         }
         
@@ -87,12 +89,12 @@ void SyncWorker::syncNow() {
 }
 
 std::vector<Folder *> SyncWorker::syncFolders() {
-    std::cout << "\nSyncing folder list";
+    logger->info("Syncing folder list...");
     
     ErrorCode err = ErrorCode::ErrorNone;
     Array * results = session.fetchAllFolders(&err);
     if (err) {
-        std::cout << err;
+        logger->error("Could not fetch folder list. ", err);
         throw "syncFolders: An error occurred. ";
     }
     
@@ -157,8 +159,8 @@ std::vector<Folder *> SyncWorker::syncFolders() {
  Pull down all message attributes in the folder. For each range, compare against our local
  versions to determine 1) new, 2) changed, 3) deleted.
  */
-void SyncWorker::syncFolderFullScan(Folder & folder, IMAPFolderStatus & remoteStatus) {
-    
+void SyncWorker::syncFolderFullScan(Folder & folder, IMAPFolderStatus & remoteStatus)
+{
     int chunkSize = 10000;
     int uidMax = remoteStatus.uidNext();
 
@@ -179,12 +181,21 @@ void SyncWorker::syncFolderFullScan(Folder & folder, IMAPFolderStatus & remoteSt
     folder.localStatus()["last_deep_scan"] = time(0);
 }
 
-void SyncWorker::syncFolderRange(Folder & folder, Range range) {
+void SyncWorker::syncFolderShallow(Folder & folder, IMAPFolderStatus & remoteStatus)
+{    
+    int uidStart = store->fetchMessageUIDAtDepth(folder, 499);
+    int uidNext = remoteStatus.uidNext();
+    syncFolderRange(folder, RangeMake(uidStart, uidNext - uidStart));
+    folder.localStatus()["fetchedmax"] = uidNext;
+}
+
+void SyncWorker::syncFolderRange(Folder & folder, Range range)
+{
     IMAPMessagesRequestKind kind = (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
     IndexSet * set = IndexSet::indexSetWithRange(range);
     IMAPProgressCallback * cb = new Progress();
 
-    std::cout << "\nSyncing folder " << folder.path() << " range " << range.location;
+    logger->info("Syncing folder {} (UIDS {} - {})", folder.path(), range.location, range.location + range.length);
 
     // Step 1: Fetch the remote UID range
     ErrorCode err = ErrorCode::ErrorNone;
@@ -192,7 +203,7 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range) {
     String path = AS_MCSTR(folder.path());
     Array * remote = session.fetchMessagesByUID(&path, kind, set, cb, &err);
     if (err) {
-        std::cout << err;
+        logger->error("Could not fetch messages in folder.", err);
         return;
     }
 

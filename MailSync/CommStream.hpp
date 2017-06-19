@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include "json.hpp"
 #include "MailStore.hpp"
+#include "spdlog/spdlog.h"
 
 using json = nlohmann::json;
 
