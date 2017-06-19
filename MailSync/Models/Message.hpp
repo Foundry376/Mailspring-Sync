@@ -37,6 +37,7 @@ public:
     bool isUnread();
     bool isStarred();
     double date();
+    std::string subject();
     
     void setThreadId(std::string threadId);
     std::string getHeaderMessageId();

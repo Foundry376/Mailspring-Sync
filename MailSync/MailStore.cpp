@@ -171,6 +171,17 @@ void MailStore::updateMessageAttributes(MessageAttributes local, IMAPMessage * r
     }
 }
 
+uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, int depth) {
+    SQLite::Statement query(this->_db, "SELECT folderImapUID FROM messages WHERE folderId = ? ORDER BY folderImapUID DESC LIMIT 1 OFFSET ?");
+    query.bind(1, folder.id());
+    query.bind(2, depth);
+    if (query.executeStep()) {
+        return query.getColumn("folderImapUID").getUInt();
+    }
+    return 1;
+}
+
+
 std::map<uint32_t, Message *> MailStore::fetchMessagesWithUIDs(std::vector<uint32_t> & uids, Folder & folder) {
     std::map<uint32_t, Message *> results;
     if (uids.size() == 0) {

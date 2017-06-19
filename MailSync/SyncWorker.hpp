@@ -20,11 +20,13 @@
 #include "CommStream.hpp"
 #include "Folder.hpp"
 
+using namespace mailcore;
 
 class SyncWorker {
-    mailcore::IMAPSession session;
+    IMAPSession session;
     MailStore * store;
     CommStream * stream;
+    std::shared_ptr<spdlog::logger> logger;
     
 public:
     SyncWorker();
@@ -33,15 +35,15 @@ public:
 
     std::vector<Folder *> syncFolders();
 
-    void syncFolderFullScan(Folder & folder, mailcore::IMAPFolderStatus & remoteStatus);
+    void syncFolderFullScan(Folder & folder, IMAPFolderStatus & remoteStatus);
         
-    void syncFolderRange(Folder & folder, mailcore::Range range);
+    void syncFolderRange(Folder & folder, Range range);
 
-    void syncFolderChangesViaCondstore(Folder & folder, mailcore::IMAPFolderStatus & remoteStatus);
+    void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus);
 
-    void syncFolderShallow(Folder & folder);
+    void syncFolderShallow(Folder & folder, IMAPFolderStatus & remoteStatus);
     
-    void fetchMessagesInFolder(mailcore::String * folder, std::string folderId, mailcore::Range range);
+    void fetchMessagesInFolder(String * folder, std::string folderId, Range range);
 };
 
 
