@@ -62,10 +62,19 @@ void CommStream::sendJSON(json msgJSON) {
     }
 }
 
-void CommStream::didPersistModels(std::string modelName, std::vector<std::string> * ids) {
+void CommStream::didPersistModel(MailModel * model) {
     json msg = {
-        {"pi", 3.141},
-        {"model", modelName},
+        {"event", "persist"},
+        {"model", model->toJSON()},
     };
     sendJSON(msg);
 }
+
+void CommStream::didUnpersistModel(MailModel * model) {
+    json msg = {
+        {"event", "unpersist"},
+        {"model", model->toJSON()},
+    };
+    sendJSON(msg);
+}
+

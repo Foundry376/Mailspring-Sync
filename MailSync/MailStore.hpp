@@ -31,7 +31,8 @@ struct MessageAttributes {
 // Base class
 class MailStoreObserver {
 public:
-    virtual void didPersistModels(std::string modelName, std::vector<std::string> * ids) = 0;
+    virtual void didPersistModel(MailModel * model) = 0;
+    virtual void didUnpersistModel(MailModel * model) = 0;
 };
 
 

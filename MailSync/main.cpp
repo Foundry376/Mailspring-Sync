@@ -27,9 +27,9 @@ int main(int argc, const char * argv[]) {
     
     spdlog::set_pattern("%l: [%L] %v");
     
-//    while(true) {
+    while(true) {
         worker->syncNow();
-//    }
-    std::cout << "Hello, World!\n";
+        sleep(60);
+    }
     return 0;
 }

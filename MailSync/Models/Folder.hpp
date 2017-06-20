@@ -24,7 +24,7 @@ protected:
     json _localStatus;
     
 public:
-    Folder(std::string id, int version);
+    Folder(std::string id, std::string accountId, int version);
     Folder(SQLite::Statement & query);
 
     json & localStatus();
@@ -38,6 +38,8 @@ public:
     std::string tableName();
     std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
+
+    json toJSON();
 };
 
 #endif /* Folder_hpp */

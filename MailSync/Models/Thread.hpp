@@ -19,6 +19,10 @@
 #include "MailModel.hpp"
 #include "Message.hpp"
 
+#include "json.hpp"
+
+using json = nlohmann::json;
+
 class Thread : public MailModel {
     
     int _unread;
@@ -45,6 +49,8 @@ public:
     std::string tableName();
     std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
+
+    json toJSON();
 };
 
 #endif /* Thread_hpp */

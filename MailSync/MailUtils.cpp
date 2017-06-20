@@ -10,6 +10,21 @@
 #include "sha256.h"
 #include "constants.h"
 
+
+json MailUtils::merge(const json &a, const json &b)
+{
+    json result = a.flatten();
+    json tmp = b.flatten();
+    
+    for (json::iterator it = tmp.begin(); it != tmp.end(); ++it)
+    {
+        result[it.key()] = it.value();
+    }
+    
+    return result.unflatten();
+}
+
+
 int MailUtils::compareEmails(void * a, void * b, void * context) {
     return ((mailcore::String*)a)->compare((mailcore::String*)b);
 }

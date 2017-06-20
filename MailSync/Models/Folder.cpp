@@ -7,9 +7,10 @@
 //
 
 #include "Folder.hpp"
+#include "MailUtils.hpp"
 
-Folder::Folder(std::string id, int version) :
-MailModel(id, version)
+Folder::Folder(std::string id, std::string accountId, int version) :
+MailModel(id, accountId, version)
 {
 }
 
@@ -23,7 +24,7 @@ _path(query.getColumn("path").getString())
 
 
 json & Folder::localStatus() {
-    return _localStatus;
+    return this->_localStatus;
 }
 
 std::string Folder::path() {
@@ -43,19 +44,28 @@ void Folder::setRole(std::string role) {
 }
 
 std::string Folder::tableName() {
-    return "folders";
+    return "Folder";
 }
 
 std::vector<std::string> Folder::columnsForQuery() {
-    return std::vector<std::string>{"id", "version", "path", "localStatus", "role"};
+    return std::vector<std::string>{"id", "data", "accountId", "version", "path", "localStatus", "role"};
 }
 
 void Folder::bindToQuery(SQLite::Statement & query) {
-    query.bind(":id", _id);
-    query.bind(":version", _version);
+    MailModel::bindToQuery(query);
     query.bind(":path", _path);
     query.bind(":role", _role);
     query.bind(":localStatus", _localStatus.dump());
+}
+
+json Folder::toJSON()
+{
+    return MailUtils::merge(MailModel::toJSON(), {
+        {"object", "folder"},
+        {"path", _path},
+        {"role", _role},
+        {"localStatus", _localStatus}
+    });
 }
 
 
