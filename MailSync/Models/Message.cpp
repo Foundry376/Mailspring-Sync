@@ -10,6 +10,8 @@
 #include "MailUtils.hpp"
 #include "Folder.hpp"
 
+std::string Message::TABLE_NAME = "Message";
+
 Message::Message(mailcore::IMAPMessage * msg, Folder & folder) :
 MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
 {
@@ -57,7 +59,7 @@ std::string Message::getHeaderMessageId() {
 }
 
 std::string Message::tableName() {
-    return "Message";
+    return Message::TABLE_NAME;
 }
 
 std::vector<std::string> Message::columnsForQuery() {

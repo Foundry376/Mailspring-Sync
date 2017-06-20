@@ -11,6 +11,8 @@
 
 #define DEFAULT_SUBJECT "unassigned"
 
+std::string Thread::TABLE_NAME = "Thread";
+
 Thread::Thread(SQLite::Statement & query) :
     MailModel(query),
     _unread(query.getColumn("unread").getInt()),
@@ -94,7 +96,7 @@ void Thread::upsertReferences(SQLite::Database & db, std::string headerMessageId
 }
 
 std::string Thread::tableName() {
-    return "Thread";
+    return Thread::TABLE_NAME;
 }
 
 std::vector<std::string> Thread::columnsForQuery() {

@@ -28,6 +28,9 @@ protected:
     int _version;
     
 public:
+    static std::string TABLE_NAME;
+    virtual std::string tableName();
+
     MailModel(std::string id, std::string accountId, int version);
     MailModel(SQLite::Statement & query);
     
@@ -38,7 +41,6 @@ public:
 
     virtual void bindToQuery(SQLite::Statement & query);
 
-    virtual std::string tableName() = 0;
     virtual std::vector<std::string> columnsForQuery() = 0;
 
     virtual json toJSON();

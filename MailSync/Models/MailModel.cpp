@@ -8,6 +8,7 @@
 
 #include "MailModel.hpp"
 
+std::string MailModel::TABLE_NAME = "MailModel";
 
 MailModel::MailModel(std::string id, std::string accountId, int version) :
     _id(id),
@@ -44,6 +45,12 @@ int MailModel::version()
 void MailModel::incrementVersion()
 {
     _version ++;
+}
+
+
+std::string MailModel::tableName()
+{
+    return TABLE_NAME;
 }
 
 json MailModel::toJSON()

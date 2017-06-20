@@ -11,6 +11,7 @@
 		43167F091EF5F59E00D8E282 /* Message.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F071EF5F59E00D8E282 /* Message.cpp */; };
 		43167F0C1EF5F5C100D8E282 /* Thread.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0A1EF5F5C100D8E282 /* Thread.cpp */; };
 		43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0E1EF5F6C700D8E282 /* Folder.cpp */; };
+		4346BCE51EF91305009477FE /* Query.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4346BCE31EF91305009477FE /* Query.cpp */; };
 		436489341EF2E905007816EC /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489331EF2E905007816EC /* main.cpp */; };
 		436489551EF2E945007816EC /* MailCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4364894E1EF2E90D007816EC /* MailCore.framework */; };
 		436489581EF2E94B007816EC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489571EF2E94B007816EC /* Security.framework */; };
@@ -116,6 +117,8 @@
 		43167F0B1EF5F5C100D8E282 /* Thread.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Thread.hpp; sourceTree = "<group>"; };
 		43167F0E1EF5F6C700D8E282 /* Folder.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Folder.cpp; sourceTree = "<group>"; };
 		43167F0F1EF5F6C700D8E282 /* Folder.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Folder.hpp; sourceTree = "<group>"; };
+		4346BCE31EF91305009477FE /* Query.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Query.cpp; sourceTree = "<group>"; };
+		4346BCE41EF91305009477FE /* Query.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Query.hpp; sourceTree = "<group>"; };
 		436489301EF2E905007816EC /* MailSync */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MailSync; sourceTree = BUILT_PRODUCTS_DIR; };
 		436489331EF2E905007816EC /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 		4364893A1EF2E90D007816EC /* mailcore2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = mailcore2.xcodeproj; path = "../mailcore2/build-mac/mailcore2.xcodeproj"; sourceTree = "<group>"; };
@@ -195,6 +198,8 @@
 				4364899E1EF35572007816EC /* SyncWorker.cpp */,
 				4364899A1EF335A9007816EC /* CommStream.hpp */,
 				436489991EF335A9007816EC /* CommStream.cpp */,
+				4346BCE31EF91305009477FE /* Query.cpp */,
+				4346BCE41EF91305009477FE /* Query.hpp */,
 				43167F0D1EF5F63700D8E282 /* Models */,
 				436489971EF32A81007816EC /* MailStore.hpp */,
 				436489961EF32A81007816EC /* MailStore.cpp */,
@@ -382,6 +387,7 @@
 				43167EFF1EF5F57C00D8E282 /* MailModel.cpp in Sources */,
 				43167F091EF5F59E00D8E282 /* Message.cpp in Sources */,
 				436489891EF2F905007816EC /* Column.cpp in Sources */,
+				4346BCE51EF91305009477FE /* Query.cpp in Sources */,
 				4364899B1EF335A9007816EC /* CommStream.cpp in Sources */,
 				436489A01EF35572007816EC /* SyncWorker.cpp in Sources */,
 				436489951EF32866007816EC /* MailUtils.cpp in Sources */,
@@ -503,8 +509,8 @@
 			buildSettings = {
 				DEVELOPMENT_TEAM = X9RJ36K9D4;
 				HEADER_SEARCH_PATHS = (
-					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
+					"${PROJECT_DIR}/Vendor",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -515,8 +521,8 @@
 			buildSettings = {
 				DEVELOPMENT_TEAM = X9RJ36K9D4;
 				HEADER_SEARCH_PATHS = (
-					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
+					"${PROJECT_DIR}/Vendor",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
