@@ -27,6 +27,7 @@ public:
     }
 };
 
+
 SyncWorker::SyncWorker() :
     store(new MailStore()),
     stream(new CommStream((char *)"/tmp/cmail.sock")),
@@ -42,8 +43,9 @@ SyncWorker::SyncWorker() :
     store->addObserver(stream);
 }
 
-void SyncWorker::syncNow() {
-    std::vector<Folder*> folders = this->syncFolders();
+void SyncWorker::syncNow()
+{
+    std::vector<Folder*> folders = syncFolders();
     
     for (Folder * folder : folders) {
         json & localStatus = folder->localStatus();
@@ -67,28 +69,30 @@ void SyncWorker::syncNow() {
             throw "blow up the world";
         }
         
-
         // Step 2: Decide which sync approach to use.
         time_t lastDeepScan = localStatus.count("last_deep_scan") ? localStatus["last_deep_scan"].get<time_t>() : 0;
 
         if (time(0) - lastDeepScan > 5000) {
             // Retrieve all attributes of all messages, compare them with local. Populates
             // the entire folder quickly, but with no message bodies.
-            this->syncFolderFullScan(*folder, remoteStatus);
+            syncFolderFullScan(*folder, remoteStatus);
         } else {
             if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore) ||
                 session.storedCapabilities()->containsIndex(IMAPCapabilityXYMHighestModseq)) {
-                this->syncFolderChangesViaCondstore(*folder, remoteStatus);
+                syncFolderChangesViaCondstore(*folder, remoteStatus);
             } else {
-                this->syncFolderShallow(*folder, remoteStatus);
+                syncFolderShallow(*folder, remoteStatus);
             }
         }
         
-        this->store->save(folder);
+        store->save(folder);
     }
+    
+    logger->info("Sync loop complete.");
 }
 
-std::vector<Folder *> SyncWorker::syncFolders() {
+std::vector<Folder *> SyncWorker::syncFolders()
+{
     logger->info("Syncing folder list...");
     
     ErrorCode err = ErrorCode::ErrorNone;
@@ -122,7 +126,7 @@ std::vector<Folder *> SyncWorker::syncFolders() {
                 store->save(localFolder);
             }
         } else {
-            localFolder = new Folder(remoteId, 0);
+            localFolder = new Folder(remoteId, "1", 0);
             localFolder->setPath(remotePath);
             localFolder->setRole(remoteRole);
             store->save(localFolder);
@@ -191,11 +195,11 @@ void SyncWorker::syncFolderShallow(Folder & folder, IMAPFolderStatus & remoteSta
 
 void SyncWorker::syncFolderRange(Folder & folder, Range range)
 {
+    logger->info("Syncing folder {} (UIDS {} - {})", folder.path(), range.location, range.location + range.length);
+    
     IMAPMessagesRequestKind kind = (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
     IndexSet * set = IndexSet::indexSetWithRange(range);
     IMAPProgressCallback * cb = new Progress();
-
-    logger->info("Syncing folder {} (UIDS {} - {})", folder.path(), range.location, range.location + range.length);
 
     // Step 1: Fetch the remote UID range
     ErrorCode err = ErrorCode::ErrorNone;
@@ -233,7 +237,10 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
 }
 
 
-void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus) {
+void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus)
+{
+    logger->info("Syncing folder {} changes via condstore...", folder.path());
+    
     IMAPMessagesRequestKind kind = (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
     IndexSet * uids = IndexSet::indexSetWithRange(RangeMake(1, UINT64_MAX));
     IMAPProgressCallback * cb = new Progress();

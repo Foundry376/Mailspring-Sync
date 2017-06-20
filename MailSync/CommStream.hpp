@@ -24,7 +24,8 @@ public:
 
     void sendJSON(json msg);
 
-    void didPersistModels(std::string modelName, std::vector<std::string> * ids);
+    void didPersistModel(MailModel * model);
+    void didUnpersistModel(MailModel * model);
 };
 
 #endif /* CommStream_hpp */

@@ -18,6 +18,10 @@
 #include "MailModel.hpp"
 #include "Folder.hpp"
 
+#include "json.hpp"
+
+using json = nlohmann::json;
+
 class Message : public MailModel {
     bool _unread;
     bool _starred;
@@ -47,6 +51,8 @@ public:
     void bindToQuery(SQLite::Statement & query);
     
     void updateAttributes(mailcore::IMAPMessage * msg);
+    
+    json toJSON();
 };
 
 #endif /* Message_hpp */

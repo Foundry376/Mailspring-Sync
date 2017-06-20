@@ -11,10 +11,13 @@
 
 #include <iostream>
 #include <string>
+#include <stdio.h>
 #include <MailCore/MailCore.h>
 #include <SQLiteCpp/SQLiteCpp.h>
+#include "json.hpp"
 
-#include <stdio.h>
+using json = nlohmann::json;
+
 
 class MailUtils {
 
@@ -22,6 +25,7 @@ private:
     static int compareEmails(void * a, void * b, void * context);
 
 public:
+    static json merge(const json &a, const json &b);
     static std::string timestampForTime(time_t time);
   
     static std::vector<uint32_t> uidsOfArray(mailcore::Array * array);

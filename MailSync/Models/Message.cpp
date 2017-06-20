@@ -11,7 +11,7 @@
 #include "Folder.hpp"
 
 Message::Message(mailcore::IMAPMessage * msg, Folder & folder) :
-MailModel(MailUtils::idForMessage(msg), 0)
+MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
 {
     _folderId = folder.id();
     updateAttributes(msg);
@@ -57,16 +57,15 @@ std::string Message::getHeaderMessageId() {
 }
 
 std::string Message::tableName() {
-    return "messages";
+    return "Message";
 }
 
 std::vector<std::string> Message::columnsForQuery() {
-    return std::vector<std::string>{"id", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "isSent", "unread", "starred", "folderImapUID", "folderImapXGMLabels", "folderId", "threadId"};
+    return std::vector<std::string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "isSent", "unread", "starred", "folderImapUID", "folderImapXGMLabels", "folderId", "threadId"};
 }
 
 void Message::bindToQuery(SQLite::Statement & query) {
-    query.bind(":id", _id);
-    query.bind(":version", _version);
+    MailModel::bindToQuery(query);
     query.bind(":date", _date);
     query.bind(":unread", _unread);
     query.bind(":starred", _starred);
@@ -94,5 +93,19 @@ void Message::updateAttributes(mailcore::IMAPMessage * msg) {
     if (mgMsgId) {
         _gMsgId = mgMsgId->UTF8Characters();
     }
-
 }
+
+json Message::toJSON()
+{
+    return MailUtils::merge(MailModel::toJSON(), {
+        {"object", "message"},
+        {"date", _date},
+        {"unread", _unread},
+        {"starred", _starred},
+        {"headerMessageId", _headerMessageId},
+        {"subject", _subject},
+        {"folderId", _folderId},
+        {"threadId", _threadId}
+    });
+}
+

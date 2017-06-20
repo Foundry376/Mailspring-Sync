@@ -7,6 +7,7 @@
 //
 
 #include "Thread.hpp"
+#include "MailUtils.hpp"
 
 #define DEFAULT_SUBJECT "unassigned"
 
@@ -15,16 +16,16 @@ Thread::Thread(SQLite::Statement & query) :
     _unread(query.getColumn("unread").getInt()),
     _starred(query.getColumn("starred").getInt()),
     _subject(query.getColumn("subject").getString()),
-    _firstMessageDate(query.getColumn("firstMessageDate").getDouble()),
-    _lastMessageDate(query.getColumn("lastMessageDate").getDouble()),
-    _lastMessageReceivedDate(query.getColumn("lastMessageReceivedDate").getDouble()),
-    _lastMessageSentDate(query.getColumn("lastMessageSentDate").getDouble())
+    _firstMessageDate(query.getColumn("firstMessageTimestamp").getDouble()),
+    _lastMessageDate(query.getColumn("lastMessageTimestamp").getDouble()),
+    _lastMessageReceivedDate(query.getColumn("lastMessageReceivedTimestamp").getDouble()),
+    _lastMessageSentDate(query.getColumn("lastMessageSentTimestamp").getDouble())
 {
     
 }
 
 Thread::Thread(Message msg) :
-    MailModel("t:" + msg.id(), 0),
+    MailModel("t:" + msg.id(), msg.accountId(), 0),
     _unread(0),
     _starred(0),
     _subject(DEFAULT_SUBJECT)
@@ -80,7 +81,7 @@ void Thread::upsertReferences(SQLite::Database & db, std::string headerMessageId
     for (int i = 0; i < references->count(); i ++) {
         qmarks = qmarks + ",(?, ?)";
     }
-    SQLite::Statement query(db, "INSERT OR IGNORE INTO threads_references (threadId, headerMessageId) VALUES " + qmarks);
+    SQLite::Statement query(db, "INSERT OR IGNORE INTO ThreadReference (threadId, headerMessageId) VALUES " + qmarks);
     int x = 1;
     query.bind(x++, _id);
     query.bind(x++, headerMessageId);
@@ -93,23 +94,35 @@ void Thread::upsertReferences(SQLite::Database & db, std::string headerMessageId
 }
 
 std::string Thread::tableName() {
-    return "threads";
+    return "Thread";
 }
 
 std::vector<std::string> Thread::columnsForQuery() {
-    return std::vector<std::string>{"id", "version", "unread", "starred", "subject", "lastMessageDate", "lastMessageReceivedDate", "lastMessageSentDate", "firstMessageDate"};
+    return std::vector<std::string>{"id", "data", "accountId", "version", "unread", "starred", "subject", "lastMessageTimestamp", "lastMessageReceivedTimestamp", "lastMessageSentTimestamp", "firstMessageTimestamp"};
 }
 
 void Thread::bindToQuery(SQLite::Statement & query) {
-    query.bind(":id", _id);
-    query.bind(":version", _version);
+    MailModel::bindToQuery(query);
     query.bind(":unread", _unread);
     query.bind(":starred", _starred);
     query.bind(":subject", _subject);
-    query.bind(":lastMessageDate", _lastMessageDate);
-    query.bind(":lastMessageSentDate", _lastMessageSentDate);
-    query.bind(":lastMessageReceivedDate", _lastMessageReceivedDate);
-    query.bind(":firstMessageDate", _firstMessageDate);
+    query.bind(":lastMessageTimestamp", _lastMessageDate);
+    query.bind(":lastMessageSentTimestamp", _lastMessageSentDate);
+    query.bind(":lastMessageReceivedTimestamp", _lastMessageReceivedDate);
+    query.bind(":firstMessageTimestamp", _firstMessageDate);
 }
 
 
+json Thread::toJSON()
+{
+    return MailUtils::merge(MailModel::toJSON(), {
+        {"object", "thread"},
+        {"unread", _unread},
+        {"starred", _starred},
+        {"subject", _subject},
+        {"lastMessageTimestamp", _lastMessageDate},
+        {"lastMessageSentTimestamp", _lastMessageSentDate},
+        {"lastMessageReceivedTimestamp", _lastMessageReceivedDate},
+        {"firstMessageTimestamp", _firstMessageDate},
+    });
+}
