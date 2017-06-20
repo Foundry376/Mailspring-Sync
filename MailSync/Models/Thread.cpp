@@ -78,23 +78,6 @@ void Thread::addMessage(Message & msg) {
     }
 }
 
-void Thread::upsertReferences(SQLite::Database & db, std::string headerMessageId, mailcore::Array * references) {
-    std::string qmarks{"(?, ?)"};
-    for (int i = 0; i < references->count(); i ++) {
-        qmarks = qmarks + ",(?, ?)";
-    }
-    SQLite::Statement query(db, "INSERT OR IGNORE INTO ThreadReference (threadId, headerMessageId) VALUES " + qmarks);
-    int x = 1;
-    query.bind(x++, _id);
-    query.bind(x++, headerMessageId);
-    for (int i = 0; i < references->count(); i ++) {
-        mailcore::String * address = (mailcore::String*)references->objectAtIndex(i);
-        query.bind(x++, _id);
-        query.bind(x++, address->UTF8Characters());
-    }
-    query.exec();
-}
-
 std::string Thread::tableName() {
     return Thread::TABLE_NAME;
 }
