@@ -17,6 +17,7 @@
 #include <MailCore/MailCore.h>
 
 #include "MailStore.hpp"
+#include "MailProcessor.hpp"
 #include "CommStream.hpp"
 #include "Folder.hpp"
 
@@ -26,6 +27,7 @@ class SyncWorker {
     IMAPSession session;
     MailStore * store;
     CommStream * stream;
+    MailProcessor * processor;
     std::shared_ptr<spdlog::logger> logger;
     
 public:

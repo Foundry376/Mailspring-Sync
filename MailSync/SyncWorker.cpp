@@ -32,6 +32,7 @@ SyncWorker::SyncWorker() :
     store(new MailStore()),
     stream(new CommStream((char *)"/tmp/cmail.sock")),
     logger(spdlog::stdout_color_mt("console")),
+    processor(new MailProcessor(store)),
     session(IMAPSession())
 {
     session.setUsername(MCSTR("cypresstest@yahoo.com"));
@@ -220,7 +221,7 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
         IMAPMessage * remoteMsg = (IMAPMessage *)remote->objectAtIndex(ii);
         if (local.count(remoteMsg->uid()) == 0) {
             // Found new message
-            store->insertMessage(remoteMsg, folder);
+            processor->insertMessage(remoteMsg, folder);
         } else {
             // Updating existing message attributes
             MessageAttributes localAttrs = local[remoteMsg->uid()];
@@ -230,12 +231,13 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
     }
     
     // The messages left in localmap are the ones the server didn't give us.
-    // They have been deleted.
+    // They have been deleted. Unpersist them.
     std::vector<uint32_t> deletedUIDs {};
     for(auto const &ent : local) {
         deletedUIDs.push_back(ent.first);
     }
-    store->deleteMessagesWithUIDs(deletedUIDs, folder);
+    Query query = Query().equal("folderId", folder.id()).equal("folderImapUID", deletedUIDs);
+    store->remove<Message>(query);
 }
 
 
@@ -268,7 +270,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
         if (local.count(uid) == 0) {
             // Found new message
-            store->insertMessage(modifiedMsg, folder);
+            processor->insertMessage(modifiedMsg, folder);
         } else {
             // Updating existing message attributes
             Message * existing = local[uid].get();
@@ -280,7 +282,8 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     // for deleted messages, collect UIDs and destroy
     if (result->vanishedMessages() != NULL) {
         std::vector<uint32_t> deletedUIDs = MailUtils::uidsOfIndexSet(result->vanishedMessages());
-        store->deleteMessagesWithUIDs(deletedUIDs, folder);
+        Query query = Query().equal("folderId", folder.id()).equal("folderImapUID", deletedUIDs);
+        store->remove<Message>(query);
     }
 
     folder.localStatus()["highestmodseq"] = remoteStatus.highestModSeqValue();

@@ -44,11 +44,9 @@ class MailStore {
 public:
     MailStore();
     
-    void insertMessage(mailcore::IMAPMessage * mMsg, Folder & folder);
-        
+    SQLite::Database & db();
+    
     void save(MailModel * model);
-
-    void remove(MailModel * model);
 
     uint32_t fetchMessageUIDAtDepth(Folder & folder, int depth);
 
@@ -56,13 +54,12 @@ public:
         
     void updateMessageAttributes(MessageAttributes local, mailcore::IMAPMessage * remoteMsg, Folder & folder);
     
-    void deleteMessagesWithUIDs(std::vector<uint32_t> & uids, Folder & folder);
-
     void addObserver(MailStoreObserver * observer);
     
     // Template methods which must be defined in header file
     
-    template<typename ModelClass> std::unique_ptr<ModelClass> find(Query & query) {
+    template<typename ModelClass>
+    std::unique_ptr<ModelClass> find(Query & query) {
         SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql() + " LIMIT 1");
         query.bind(statement);
         if (statement.executeStep()) {
@@ -71,7 +68,21 @@ public:
         return std::unique_ptr<ModelClass>(nullptr);
     }
     
-    template<typename ModelClass> std::map<std::string, std::shared_ptr<ModelClass>> findAllMap(Query & query, const char* keyField) {
+    template<typename ModelClass>
+    std::vector<std::shared_ptr<ModelClass>> findAll(Query & query) {
+        SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql());
+        query.bind(statement);
+        
+        std::vector<std::shared_ptr<ModelClass>> results;
+        while (statement.executeStep()) {
+            results.push_back(std::make_shared<ModelClass>(statement));
+        }
+        
+        return results;
+    }
+    
+    template<typename ModelClass>
+    std::map<std::string, std::shared_ptr<ModelClass>> findAllMap(Query & query, const char* keyField) {
         SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql());
         query.bind(statement);
 
@@ -83,7 +94,8 @@ public:
         return results;
     }
     
-    template<typename ModelClass> std::map<uint32_t, std::shared_ptr<ModelClass>> findAllUINTMap(Query & query, const char* keyField) {
+    template<typename ModelClass>
+    std::map<uint32_t, std::shared_ptr<ModelClass>> findAllUINTMap(Query & query, const char* keyField) {
         SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql());
         query.bind(statement);
 
@@ -93,6 +105,23 @@ public:
         }
         
         return results;
+    }
+    
+    void remove(MailModel * model);
+    
+    template<typename ModelClass>
+    void remove(Query & query) {
+        auto results = findAll<ModelClass>(query);
+
+        SQLite::Statement statement(this->_db, "DELETE FROM " + ModelClass::TABLE_NAME + query.sql());
+        query.bind(statement);
+        statement.exec();
+        
+        for (auto & result : results) {
+            for (auto & observer : this->_observers) {
+                observer->didUnpersistModel(result.get());
+            }
+        }
     }
     
 
