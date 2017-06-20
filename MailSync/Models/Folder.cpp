@@ -9,6 +9,8 @@
 #include "Folder.hpp"
 #include "MailUtils.hpp"
 
+std::string Folder::TABLE_NAME = "Folder";
+
 Folder::Folder(std::string id, std::string accountId, int version) :
 MailModel(id, accountId, version)
 {
@@ -21,7 +23,6 @@ _path(query.getColumn("path").getString())
 {
     
 }
-
 
 json & Folder::localStatus() {
     return this->_localStatus;
@@ -44,7 +45,7 @@ void Folder::setRole(std::string role) {
 }
 
 std::string Folder::tableName() {
-    return "Folder";
+    return Folder::TABLE_NAME;
 }
 
 std::vector<std::string> Folder::columnsForQuery() {

@@ -24,6 +24,8 @@ protected:
     json _localStatus;
     
 public:
+    static std::string TABLE_NAME;
+
     Folder(std::string id, std::string accountId, int version);
     Folder(SQLite::Statement & query);
 

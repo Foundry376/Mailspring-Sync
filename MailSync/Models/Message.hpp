@@ -35,6 +35,8 @@ class Message : public MailModel {
     std::string _gMsgId;
     
 public:
+    static std::string TABLE_NAME;
+
     Message(mailcore::IMAPMessage * msg, Folder & folder);
     Message(SQLite::Statement & query);
     

@@ -33,7 +33,7 @@ public:
     
     void syncNow();
 
-    std::vector<Folder *> syncFolders();
+    std::vector<std::shared_ptr<Folder>> syncFolders();
 
     void syncFolderFullScan(Folder & folder, IMAPFolderStatus & remoteStatus);
         

@@ -34,6 +34,8 @@ class Thread : public MailModel {
     std::string _subject;
     
 public:
+    static std::string TABLE_NAME;
+
     Thread(SQLite::Statement & query);
     Thread(Message msg);
 

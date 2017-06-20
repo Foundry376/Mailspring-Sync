@@ -45,9 +45,9 @@ SyncWorker::SyncWorker() :
 
 void SyncWorker::syncNow()
 {
-    std::vector<Folder*> folders = syncFolders();
+    std::vector<std::shared_ptr<Folder>> folders = syncFolders();
     
-    for (Folder * folder : folders) {
+    for (auto & folder : folders) {
         json & localStatus = folder->localStatus();
 
         String path = AS_MCSTR(folder->path());
@@ -85,13 +85,13 @@ void SyncWorker::syncNow()
             }
         }
         
-        store->save(folder);
+        store->save(folder.get());
     }
     
     logger->info("Sync loop complete.");
 }
 
-std::vector<Folder *> SyncWorker::syncFolders()
+std::vector<std::shared_ptr<Folder>> SyncWorker::syncFolders()
 {
     logger->info("Syncing folder list...");
     
@@ -102,8 +102,10 @@ std::vector<Folder *> SyncWorker::syncFolders()
         throw "syncFolders: An error occurred. ";
     }
     
-    std::map<std::string, Folder *> allLocalFolders = store->getFoldersById();
-    std::vector<Folder *> collected{};
+    Query q = Query();
+    auto allLocalFolders = store->findAllMap<Folder>(q, "id");
+
+    std::vector<std::shared_ptr<Folder>> collected{};
     
     for (int ii = results->count() - 1; ii >= 0; ii--) {
         IMAPFolder * remoteFolder = (IMAPFolder *)results->objectAtIndex(ii);
@@ -116,20 +118,20 @@ std::vector<Folder *> SyncWorker::syncFolders()
         std::string remoteRole = MailUtils::roleForFolder(remoteFolder);
         std::string remotePath = remoteFolder->path()->UTF8Characters();
         
-        Folder * localFolder = NULL;
+        std::shared_ptr<Folder> localFolder;
         if (allLocalFolders.count(remoteId) > 0) {
             localFolder = allLocalFolders[remoteId];
             
             if ((localFolder->role() != remoteRole) || (localFolder->role() != remoteRole)) {
                 localFolder->setPath(remotePath);
                 localFolder->setRole(remoteRole);
-                store->save(localFolder);
+                store->save(localFolder.get());
             }
         } else {
-            localFolder = new Folder(remoteId, "1", 0);
+            localFolder = std::make_shared<Folder>(Folder(remoteId, "1", 0));
             localFolder->setPath(remotePath);
             localFolder->setRole(remoteRole);
-            store->save(localFolder);
+            store->save(localFolder.get());
         }
         
         collected.push_back(localFolder);
@@ -138,7 +140,7 @@ std::vector<Folder *> SyncWorker::syncFolders()
     
     // delete any folders no longer present on the remote
     for (auto const item : allLocalFolders) {
-        store->remove(item.second);
+        store->remove(item.second.get());
     }
     
     return collected;
@@ -214,7 +216,7 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
     // Step 2: Fetch the local UID range
     std::map<uint32_t, MessageAttributes> local = store->fetchMessagesAttributesInRange(range, folder);
     
-    for (int ii = 1; ii < remote->count(); ii++) {
+    for (int ii = 0; ii < remote->count(); ii++) {
         IMAPMessage * remoteMsg = (IMAPMessage *)remote->objectAtIndex(ii);
         if (local.count(remoteMsg->uid()) == 0) {
             // Found new message
@@ -254,7 +256,11 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     // for modified messages, fetch local copy and apply changes
     Array * modified = result->modifiedOrAddedMessages();
     std::vector<uint32_t> modifiedUIDs = MailUtils::uidsOfArray(modified);
-    std::map<uint32_t, Message*> local = store->fetchMessagesWithUIDs(modifiedUIDs, folder);
+    
+    Query query = Query()
+        .equal("folderId", folder.id())
+        .equal("folderImapUID", modifiedUIDs);
+    std::map<uint32_t, std::shared_ptr<Message>> local = store->findAllUINTMap<Message>(query, "folderImapUID");
 
     for (int ii = 0; ii < modified->count(); ii ++) {
         IMAPMessage * modifiedMsg = (IMAPMessage *)modified->objectAtIndex(ii);
@@ -265,7 +271,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
             store->insertMessage(modifiedMsg, folder);
         } else {
             // Updating existing message attributes
-            Message * existing = local[uid];
+            Message * existing = local[uid].get();
             existing->updateAttributes(modifiedMsg);
             store->save(existing);
         }
