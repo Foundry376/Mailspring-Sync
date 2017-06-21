@@ -21,6 +21,7 @@
 #include "json.hpp"
 
 using json = nlohmann::json;
+using namespace std;
 
 class Message : public MailModel {
     bool _unread;
@@ -28,14 +29,14 @@ class Message : public MailModel {
     double _date;
     uint32_t _folderImapUID;
     
-    std::string _folderId;
-    std::string _threadId;
-    std::string _headerMessageId;
-    std::string _subject;
-    std::string _gMsgId;
+    string _folderId;
+    string _threadId;
+    string _headerMessageId;
+    string _subject;
+    string _gMsgId;
     
 public:
-    static std::string TABLE_NAME;
+    static string TABLE_NAME;
 
     Message(mailcore::IMAPMessage * msg, Folder & folder);
     Message(SQLite::Statement & query);
@@ -43,13 +44,13 @@ public:
     bool isUnread();
     bool isStarred();
     double date();
-    std::string subject();
+    string subject();
     
-    void setThreadId(std::string threadId);
-    std::string getHeaderMessageId();
+    void setThreadId(string threadId);
+    string getHeaderMessageId();
     
-    std::string tableName();
-    std::vector<std::string> columnsForQuery();
+    string tableName();
+    vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
     
     void updateAttributes(mailcore::IMAPMessage * msg);

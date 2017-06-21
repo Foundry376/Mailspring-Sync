@@ -11,7 +11,9 @@
 
 #define DEFAULT_SUBJECT "unassigned"
 
-std::string Thread::TABLE_NAME = "Thread";
+using namespace std;
+
+string Thread::TABLE_NAME = "Thread";
 
 Thread::Thread(SQLite::Statement & query) :
     MailModel(query),
@@ -35,11 +37,11 @@ Thread::Thread(Message msg) :
     addMessage(msg);
 }
 
-std::string Thread::subject() {
+string Thread::subject() {
     return _subject;
 }
 
-void Thread::setSubject(std::string s) {
+void Thread::setSubject(string s) {
     _subject = s;
 }
 
@@ -78,12 +80,12 @@ void Thread::addMessage(Message & msg) {
     }
 }
 
-std::string Thread::tableName() {
+string Thread::tableName() {
     return Thread::TABLE_NAME;
 }
 
-std::vector<std::string> Thread::columnsForQuery() {
-    return std::vector<std::string>{"id", "data", "accountId", "version", "unread", "starred", "subject", "lastMessageTimestamp", "lastMessageReceivedTimestamp", "lastMessageSentTimestamp", "firstMessageTimestamp"};
+vector<string> Thread::columnsForQuery() {
+    return vector<string>{"id", "data", "accountId", "version", "unread", "starred", "subject", "lastMessageTimestamp", "lastMessageReceivedTimestamp", "lastMessageSentTimestamp", "firstMessageTimestamp"};
 }
 
 void Thread::bindToQuery(SQLite::Statement & query) {

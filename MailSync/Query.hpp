@@ -18,16 +18,17 @@
 #include "json.hpp"
 
 using json = nlohmann::json;
+using namespace std;
 
 
 class Query {
     json clauses;
     
 public:
-    Query & equal(std::string col, std::string val);
-    Query & equal(std::string col, double val);
-    Query & equal(std::string col, std::vector<std::string> & val);
-    Query & equal(std::string col, std::vector<uint32_t> & val);
+    Query & equal(string col, string val);
+    Query & equal(string col, double val);
+    Query & equal(string col, vector<string> & val);
+    Query & equal(string col, vector<uint32_t> & val);
 
     std::string sql();
 

@@ -19,29 +19,30 @@
 #include "json.hpp"
 
 using json = nlohmann::json;
+using namespace std;
 
 class MailModel {
 protected:
-    std::string _id;
-    std::string _accountId;
-    std::string _data;
+    string _id;
+    string _accountId;
+    string _data;
     int _version;
     
 public:
-    static std::string TABLE_NAME;
-    virtual std::string tableName();
+    static string TABLE_NAME;
+    virtual string tableName();
 
-    MailModel(std::string id, std::string accountId, int version);
+    MailModel(string id, string accountId, int version);
     MailModel(SQLite::Statement & query);
     
-    std::string id();
-    std::string accountId();
+    string id();
+    string accountId();
     int version();
     void incrementVersion();
 
     virtual void bindToQuery(SQLite::Statement & query);
 
-    virtual std::vector<std::string> columnsForQuery() = 0;
+    virtual vector<string> columnsForQuery() = 0;
 
     virtual json toJSON();
 };

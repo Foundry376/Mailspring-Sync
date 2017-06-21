@@ -17,7 +17,8 @@
 #include "json.hpp"
 
 using json = nlohmann::json;
-
+using namespace std;
+using namespace mailcore;
 
 class MailUtils {
 
@@ -26,14 +27,14 @@ private:
 
 public:
     static json merge(const json &a, const json &b);
-    static std::string timestampForTime(time_t time);
+    static string timestampForTime(time_t time);
   
-    static std::vector<uint32_t> uidsOfArray(mailcore::Array * array);
-    static std::vector<uint32_t> uidsOfIndexSet(mailcore::IndexSet * set);
+    static vector<uint32_t> uidsOfArray(Array * array);
+    static vector<uint32_t> uidsOfIndexSet(IndexSet * set);
 
-    static std::string roleForFolder(mailcore::IMAPFolder * folder);
-    static std::string idForFolder(mailcore::IMAPFolder * folder);
-    static std::string idForMessage(mailcore::IMAPMessage * msg);
+    static string roleForFolder(IMAPFolder * folder);
+    static string idForFolder(IMAPFolder * folder);
+    static string idForMessage(IMAPMessage * msg);
 };
 
 #endif /* MailUtils_hpp */

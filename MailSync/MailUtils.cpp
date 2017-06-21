@@ -10,6 +10,8 @@
 #include "sha256.h"
 #include "constants.h"
 
+using namespace std;
+using namespace mailcore;
 
 json MailUtils::merge(const json &a, const json &b)
 {
@@ -26,45 +28,45 @@ json MailUtils::merge(const json &a, const json &b)
 
 
 int MailUtils::compareEmails(void * a, void * b, void * context) {
-    return ((mailcore::String*)a)->compare((mailcore::String*)b);
+    return ((String*)a)->compare((String*)b);
 }
 
-std::string MailUtils::timestampForTime(time_t time) {
-    std::tm * ptm = std::localtime(&time);
+string MailUtils::timestampForTime(time_t time) {
+    tm * ptm = localtime(&time);
     char buffer[32];
-    std::strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", ptm);
-    return std::string(buffer);
+    strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", ptm);
+    return string(buffer);
 }
 
-std::string MailUtils::roleForFolder(mailcore::IMAPFolder * folder) {
-    mailcore::IMAPFolderFlag flags = folder->flags();
-    if (flags & mailcore::IMAPFolderFlagAll) {
+string MailUtils::roleForFolder(IMAPFolder * folder) {
+    IMAPFolderFlag flags = folder->flags();
+    if (flags & IMAPFolderFlagAll) {
         return "all";
     }
-    if (flags & mailcore::IMAPFolderFlagSentMail) {
+    if (flags & IMAPFolderFlagSentMail) {
         return "sent";
     }
-    if (flags & mailcore::IMAPFolderFlagDrafts) {
+    if (flags & IMAPFolderFlagDrafts) {
         return "drafts";
     }
-    if (flags & mailcore::IMAPFolderFlagJunk) {
+    if (flags & IMAPFolderFlagJunk) {
         return "spam";
     }
-    if (flags & mailcore::IMAPFolderFlagSpam) {
+    if (flags & IMAPFolderFlagSpam) {
         return "spam";
     }
-    if (flags & mailcore::IMAPFolderFlagImportant) {
+    if (flags & IMAPFolderFlagImportant) {
         return "important";
     }
-    if (flags & mailcore::IMAPFolderFlagStarred) {
+    if (flags & IMAPFolderFlagStarred) {
         return "starred";
     }
-    if (flags & mailcore::IMAPFolderFlagInbox) {
+    if (flags & IMAPFolderFlagInbox) {
         return "inbox";
     }
     
-    std::string path = std::string(folder->path()->UTF8Characters());
-    std::transform(path.begin(), path.end(), path.begin(), ::tolower);
+    string path = string(folder->path()->UTF8Characters());
+    transform(path.begin(), path.end(), path.begin(), ::tolower);
     
     if (COMMON_FOLDER_NAMES.find(path) != COMMON_FOLDER_NAMES.end()) {
         return COMMON_FOLDER_NAMES[path];
@@ -72,52 +74,52 @@ std::string MailUtils::roleForFolder(mailcore::IMAPFolder * folder) {
     return "";
 }
 
-std::vector<uint32_t> MailUtils::uidsOfIndexSet(mailcore::IndexSet * set) {
-    std::vector<uint32_t> uids {};
-    mailcore::Range * range = set->allRanges();
+vector<uint32_t> MailUtils::uidsOfIndexSet(IndexSet * set) {
+    vector<uint32_t> uids {};
+    Range * range = set->allRanges();
     for (int ii = 0; ii < set->rangesCount(); ii++) {
         for (int x = 0; x < range->length; x ++) {
             uids.push_back((uint32_t)(range->location + x));
         }
-        range += sizeof(mailcore::Range *);
+        range += sizeof(Range *);
     }
     return uids;
 }
 
-std::vector<uint32_t> MailUtils::uidsOfArray(mailcore::Array * array) {
-    std::vector<uint32_t> uids {};
+vector<uint32_t> MailUtils::uidsOfArray(Array * array) {
+    vector<uint32_t> uids {};
     for (int ii = 0; ii < array->count(); ii++) {
-        uids.push_back(((mailcore::IMAPMessage*)array->objectAtIndex(ii))->uid());
+        uids.push_back(((IMAPMessage*)array->objectAtIndex(ii))->uid());
     }
     return uids;
 }
 
-std::string MailUtils::idForFolder(mailcore::IMAPFolder * folder) {
-    std::vector<unsigned char> hash(32);
-    std::string src_str = std::string(folder->path()->UTF8Characters());
+string MailUtils::idForFolder(IMAPFolder * folder) {
+    vector<unsigned char> hash(32);
+    string src_str = string(folder->path()->UTF8Characters());
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return picosha2::bytes_to_hex_string(hash.begin(), hash.end());
 }
 
-std::string MailUtils::idForMessage(mailcore::IMAPMessage * msg) {
-    mailcore::Array * addresses = new mailcore::Array();
+string MailUtils::idForMessage(IMAPMessage * msg) {
+    Array * addresses = new Array();
     addresses->addObjectsFromArray(msg->header()->to());
     addresses->addObjectsFromArray(msg->header()->cc());
     addresses->addObjectsFromArray(msg->header()->bcc());
     
-    mailcore::Array * emails = new mailcore::Array();
+    Array * emails = new Array();
     for (int i = 0; i < addresses->count(); i ++) {
-        mailcore::Address * addr = (mailcore::Address*)addresses->objectAtIndex(i);
+        Address * addr = (Address*)addresses->objectAtIndex(i);
         emails->addObject(addr->mailbox());
     }
     
     emails->sortArray(compareEmails, NULL);
     
-    mailcore::String * participants = emails->componentsJoinedByString(MCSTR(""));
-    mailcore::String * messageID = msg->header()->isMessageIDAutoGenerated() ? MCSTR("") : msg->header()->messageID();
-    mailcore::String * subject = msg->header()->subject();
+    String * participants = emails->componentsJoinedByString(MCSTR(""));
+    String * messageID = msg->header()->isMessageIDAutoGenerated() ? MCSTR("") : msg->header()->messageID();
+    String * subject = msg->header()->subject();
     
-    std::string src_str = timestampForTime(msg->header()->date());
+    string src_str = timestampForTime(msg->header()->date());
     if (subject) {
         src_str = src_str.append(subject->UTF8Characters());
     }
@@ -126,7 +128,7 @@ std::string MailUtils::idForMessage(mailcore::IMAPMessage * msg) {
     src_str = src_str.append("-");
     src_str = src_str.append(messageID->UTF8Characters());
     
-    std::vector<unsigned char> hash(32);
+    vector<unsigned char> hash(32);
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return picosha2::bytes_to_hex_string(hash.begin(), hash.end());
 }

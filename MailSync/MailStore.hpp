@@ -21,6 +21,7 @@
 #include "Query.hpp"
 
 using json = nlohmann::json;
+using namespace std;
 
 struct MessageAttributes {
     uint32_t uid;
@@ -39,7 +40,7 @@ public:
 
 class MailStore {
     SQLite::Database _db;
-    std::vector<MailStoreObserver*> _observers;
+    vector<MailStoreObserver*> _observers;
     
 public:
     MailStore();
@@ -50,7 +51,7 @@ public:
 
     uint32_t fetchMessageUIDAtDepth(Folder & folder, int depth);
 
-    std::map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
+    map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
         
     void updateMessageAttributes(MessageAttributes local, mailcore::IMAPMessage * remoteMsg, Folder & folder);
     
@@ -59,49 +60,49 @@ public:
     // Template methods which must be defined in header file
     
     template<typename ModelClass>
-    std::unique_ptr<ModelClass> find(Query & query) {
+    unique_ptr<ModelClass> find(Query & query) {
         SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql() + " LIMIT 1");
         query.bind(statement);
         if (statement.executeStep()) {
-            return std::unique_ptr<ModelClass>(new ModelClass(statement));
+            return unique_ptr<ModelClass>(new ModelClass(statement));
         }
-        return std::unique_ptr<ModelClass>(nullptr);
+        return unique_ptr<ModelClass>(nullptr);
     }
     
     template<typename ModelClass>
-    std::vector<std::shared_ptr<ModelClass>> findAll(Query & query) {
+    vector<shared_ptr<ModelClass>> findAll(Query & query) {
         SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql());
         query.bind(statement);
         
-        std::vector<std::shared_ptr<ModelClass>> results;
+        vector<shared_ptr<ModelClass>> results;
         while (statement.executeStep()) {
-            results.push_back(std::make_shared<ModelClass>(statement));
-        }
-        
-        return results;
-    }
-    
-    template<typename ModelClass>
-    std::map<std::string, std::shared_ptr<ModelClass>> findAllMap(Query & query, const char* keyField) {
-        SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql());
-        query.bind(statement);
-
-        std::map<std::string, std::shared_ptr<ModelClass>> results;
-        while (statement.executeStep()) {
-            results[statement.getColumn(keyField).getString()] = std::make_shared<ModelClass>(statement);
+            results.push_back(make_shared<ModelClass>(statement));
         }
         
         return results;
     }
     
     template<typename ModelClass>
-    std::map<uint32_t, std::shared_ptr<ModelClass>> findAllUINTMap(Query & query, const char* keyField) {
+    map<string, shared_ptr<ModelClass>> findAllMap(Query & query, const char* keyField) {
         SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql());
         query.bind(statement);
 
-        std::map<uint32_t, std::shared_ptr<ModelClass>> results;
+        map<string, shared_ptr<ModelClass>> results;
         while (statement.executeStep()) {
-            results[statement.getColumn(keyField).getUInt()] = std::make_shared<ModelClass>(statement);
+            results[statement.getColumn(keyField).getString()] = make_shared<ModelClass>(statement);
+        }
+        
+        return results;
+    }
+    
+    template<typename ModelClass>
+    map<uint32_t, shared_ptr<ModelClass>> findAllUINTMap(Query & query, const char* keyField) {
+        SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql());
+        query.bind(statement);
+
+        map<uint32_t, shared_ptr<ModelClass>> results;
+        while (statement.executeStep()) {
+            results[statement.getColumn(keyField).getUInt()] = make_shared<ModelClass>(statement);
         }
         
         return results;
@@ -126,7 +127,7 @@ public:
     
 
 private:
-    void notify(std::string type);
+    void notify(string type);
 };
 
 

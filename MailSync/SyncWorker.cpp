@@ -15,15 +15,16 @@
 #define AS_MCSTR(X)         mailcore::String(X.c_str())
 
 using namespace mailcore;
+using namespace std;
 
 class Progress : public IMAPProgressCallback {
 public:
     void bodyProgress(IMAPSession * session, unsigned int current, unsigned int maximum) {
-        std::cout << "Progress: " << current << "\n";
+        cout << "Progress: " << current << "\n";
     }
     
     void itemsProgress(IMAPSession * session, unsigned int current, unsigned int maximum) {
-        std::cout << "Progress on Item: " << current << "\n";
+        cout << "Progress on Item: " << current << "\n";
     }
 };
 
@@ -46,7 +47,7 @@ SyncWorker::SyncWorker() :
 
 void SyncWorker::syncNow()
 {
-    std::vector<std::shared_ptr<Folder>> folders = syncFolders();
+    vector<shared_ptr<Folder>> folders = syncFolders();
     
     for (auto & folder : folders) {
         json & localStatus = folder->localStatus();
@@ -92,7 +93,7 @@ void SyncWorker::syncNow()
     logger->info("Sync loop complete.");
 }
 
-std::vector<std::shared_ptr<Folder>> SyncWorker::syncFolders()
+vector<shared_ptr<Folder>> SyncWorker::syncFolders()
 {
     logger->info("Syncing folder list...");
     
@@ -106,7 +107,7 @@ std::vector<std::shared_ptr<Folder>> SyncWorker::syncFolders()
     Query q = Query();
     auto allLocalFolders = store->findAllMap<Folder>(q, "id");
 
-    std::vector<std::shared_ptr<Folder>> collected{};
+    vector<shared_ptr<Folder>> collected{};
     
     for (int ii = results->count() - 1; ii >= 0; ii--) {
         IMAPFolder * remoteFolder = (IMAPFolder *)results->objectAtIndex(ii);
@@ -115,11 +116,11 @@ std::vector<std::shared_ptr<Folder>> SyncWorker::syncFolders()
             continue;
         }
 
-        std::string remoteId = MailUtils::idForFolder(remoteFolder);
-        std::string remoteRole = MailUtils::roleForFolder(remoteFolder);
-        std::string remotePath = remoteFolder->path()->UTF8Characters();
+        string remoteId = MailUtils::idForFolder(remoteFolder);
+        string remoteRole = MailUtils::roleForFolder(remoteFolder);
+        string remotePath = remoteFolder->path()->UTF8Characters();
         
-        std::shared_ptr<Folder> localFolder;
+        shared_ptr<Folder> localFolder;
         if (allLocalFolders.count(remoteId) > 0) {
             localFolder = allLocalFolders[remoteId];
             
@@ -129,7 +130,7 @@ std::vector<std::shared_ptr<Folder>> SyncWorker::syncFolders()
                 store->save(localFolder.get());
             }
         } else {
-            localFolder = std::make_shared<Folder>(Folder(remoteId, "1", 0));
+            localFolder = make_shared<Folder>(Folder(remoteId, "1", 0));
             localFolder->setPath(remotePath);
             localFolder->setRole(remoteRole);
             store->save(localFolder.get());
@@ -179,7 +180,7 @@ void SyncWorker::syncFolderFullScan(Folder & folder, IMAPFolderStatus & remoteSt
         syncFolderRange(folder, RangeMake(1, uidMax));
     } else {
         while (uidMax > 1) {
-            int uidMin = std::max(1, uidMax - chunkSize);
+            int uidMin = max(1, uidMax - chunkSize);
             syncFolderRange(folder, RangeMake(uidMin, uidMax - uidMin));
             uidMax = uidMin;
         }
@@ -215,7 +216,7 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
     }
 
     // Step 2: Fetch the local UID range
-    std::map<uint32_t, MessageAttributes> local = store->fetchMessagesAttributesInRange(range, folder);
+    map<uint32_t, MessageAttributes> local = store->fetchMessagesAttributesInRange(range, folder);
     
     for (int ii = 0; ii < remote->count(); ii++) {
         IMAPMessage * remoteMsg = (IMAPMessage *)remote->objectAtIndex(ii);
@@ -232,7 +233,7 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
     
     // The messages left in localmap are the ones the server didn't give us.
     // They have been deleted. Unpersist them.
-    std::vector<uint32_t> deletedUIDs {};
+    vector<uint32_t> deletedUIDs {};
     for(auto const &ent : local) {
         deletedUIDs.push_back(ent.first);
     }
@@ -257,12 +258,12 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
     // for modified messages, fetch local copy and apply changes
     Array * modified = result->modifiedOrAddedMessages();
-    std::vector<uint32_t> modifiedUIDs = MailUtils::uidsOfArray(modified);
+    vector<uint32_t> modifiedUIDs = MailUtils::uidsOfArray(modified);
     
     Query query = Query()
         .equal("folderId", folder.id())
         .equal("folderImapUID", modifiedUIDs);
-    std::map<uint32_t, std::shared_ptr<Message>> local = store->findAllUINTMap<Message>(query, "folderImapUID");
+    map<uint32_t, shared_ptr<Message>> local = store->findAllUINTMap<Message>(query, "folderImapUID");
 
     for (int ii = 0; ii < modified->count(); ii ++) {
         IMAPMessage * modifiedMsg = (IMAPMessage *)modified->objectAtIndex(ii);
@@ -281,7 +282,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     
     // for deleted messages, collect UIDs and destroy
     if (result->vanishedMessages() != NULL) {
-        std::vector<uint32_t> deletedUIDs = MailUtils::uidsOfIndexSet(result->vanishedMessages());
+        vector<uint32_t> deletedUIDs = MailUtils::uidsOfIndexSet(result->vanishedMessages());
         Query query = Query().equal("folderId", folder.id()).equal("folderImapUID", deletedUIDs);
         store->remove<Message>(query);
     }

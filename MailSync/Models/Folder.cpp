@@ -9,9 +9,11 @@
 #include "Folder.hpp"
 #include "MailUtils.hpp"
 
-std::string Folder::TABLE_NAME = "Folder";
+using namespace std;
 
-Folder::Folder(std::string id, std::string accountId, int version) :
+string Folder::TABLE_NAME = "Folder";
+
+Folder::Folder(string id, string accountId, int version) :
 MailModel(id, accountId, version)
 {
 }
@@ -28,28 +30,28 @@ json & Folder::localStatus() {
     return this->_localStatus;
 }
 
-std::string Folder::path() {
+string Folder::path() {
     return _path;
 }
 
-void Folder::setPath(std::string path) {
+void Folder::setPath(string path) {
     _path = path;
 }
 
-std::string Folder::role() {
+string Folder::role() {
     return _role;
 }
 
-void Folder::setRole(std::string role) {
+void Folder::setRole(string role) {
     _role = role;
 }
 
-std::string Folder::tableName() {
+string Folder::tableName() {
     return Folder::TABLE_NAME;
 }
 
-std::vector<std::string> Folder::columnsForQuery() {
-    return std::vector<std::string>{"id", "data", "accountId", "version", "path", "localStatus", "role"};
+vector<string> Folder::columnsForQuery() {
+    return vector<string>{"id", "data", "accountId", "version", "path", "localStatus", "role"};
 }
 
 void Folder::bindToQuery(SQLite::Statement & query) {
