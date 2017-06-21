@@ -42,7 +42,11 @@ public:
     Message(SQLite::Statement & query);
     
     bool isUnread();
+    void setUnread(bool u);
+
     bool isStarred();
+    void setStarred(bool s);
+    
     double date();
     string subject();
     
@@ -52,9 +56,7 @@ public:
     string tableName();
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
-    
-    void updateAttributes(mailcore::IMAPMessage * msg);
-    
+        
     json toJSON();
 };
 

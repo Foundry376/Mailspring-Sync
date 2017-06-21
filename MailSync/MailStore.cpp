@@ -16,6 +16,23 @@
 using namespace mailcore;
 using namespace std;
 
+#pragma mark MessageAttributes
+
+MessageAttributes MessageAttributesForMessage(mailcore::IMAPMessage * msg) {
+    auto m = MessageAttributes{};
+    m.uid = msg->uid();
+    m.unread = bool(!(msg->flags() & mailcore::MessageFlagSeen));
+    m.starred = bool(msg->flags() & mailcore::MessageFlagFlagged);
+    return m;
+}
+
+bool MessageAttributesMatch(MessageAttributes a, MessageAttributes b) {
+    return a.unread == b.unread && a.starred == b.starred && a.uid == b.uid;
+}
+
+
+#pragma mark MailStore
+
 MailStore::MailStore() :
     _db("/Users/bengotow/.nylas-dev/edgehill.db", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE)
 {
@@ -108,7 +125,7 @@ SQLite::Database & MailStore::db()
 }
 
 map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range range, Folder & folder) {
-    SQLite::Statement query(this->_db, "SELECT id, version, unread, starred, folderImapUID, folderImapXGMLabels FROM Message WHERE folderId = ? AND folderImapUID >= ? AND folderImapUID <= ?");
+    SQLite::Statement query(this->_db, "SELECT id, unread, starred, folderImapUID, folderImapXGMLabels FROM Message WHERE folderId = ? AND folderImapUID >= ? AND folderImapUID <= ?");
     query.bind(1, folder.id());
     query.bind(2, (long long)(range.location));
     query.bind(3, (long long)(range.location + range.length));
@@ -119,31 +136,12 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
         MessageAttributes attrs{};
         uint32_t uid = (uint32_t)query.getColumn("folderImapUID").getInt64();
         attrs.uid = uid;
-        attrs.version = query.getColumn("version").getInt();
-        attrs.flagged = query.getColumn("starred").getInt() != 0;
-        attrs.seen = query.getColumn("unread").getInt() == 0;
+        attrs.starred = query.getColumn("starred").getInt() != 0;
+        attrs.unread = query.getColumn("unread").getInt() != 0;
         results[uid] = attrs;
     }
     
     return results;
-}
-
-void MailStore::updateMessageAttributes(MessageAttributes local, IMAPMessage * remoteMsg, Folder & folder) {
-    cout << "\n";
-    cout << remoteMsg->flags();
-    bool remoteFlagged = remoteMsg->flags() & MessageFlagFlagged;
-    bool remoteSeen = remoteMsg->flags() & MessageFlagSeen;
-    
-    if ((local.flagged != remoteFlagged) || (local.seen != remoteSeen)) {
-        cout << "\nUpdating attributes for one message.";
-        SQLite::Statement query(this->_db, "UPDATE Message SET unread = ?, starred = ?, version = ? WHERE folderId = ? AND folderImapUID = ?");
-        query.bind(1, !remoteSeen);
-        query.bind(2, remoteFlagged);
-        query.bind(3, local.version + 1);
-        query.bind(4, folder.id());
-        query.bind(5, local.uid);
-        query.exec();
-    }
 }
 
 uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, int depth) {

@@ -25,10 +25,13 @@ using namespace std;
 
 struct MessageAttributes {
     uint32_t uid;
-    int version;
-    bool seen;
-    bool flagged;
+    bool unread;
+    bool starred;
 };
+
+MessageAttributes MessageAttributesForMessage(mailcore::IMAPMessage * msg);
+bool MessageAttributesMatch(MessageAttributes a, MessageAttributes b);
+
 
 // Base class
 class MailStoreObserver {
@@ -52,8 +55,6 @@ public:
     uint32_t fetchMessageUIDAtDepth(Folder & folder, int depth);
 
     map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
-        
-    void updateMessageAttributes(MessageAttributes local, mailcore::IMAPMessage * remoteMsg, Folder & folder);
     
     void addObserver(MailStoreObserver * observer);
     

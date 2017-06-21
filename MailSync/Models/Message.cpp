@@ -18,7 +18,15 @@ Message::Message(mailcore::IMAPMessage * msg, Folder & folder) :
 MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
 {
     _folderId = folder.id();
-    updateAttributes(msg);
+    _date = (double)msg->header()->receivedDate();
+    _headerMessageId = msg->header()->messageID()->UTF8Characters();
+    _subject = msg->header()->subject()->UTF8Characters();
+    _folderImapUID = msg->uid();
+        
+    mailcore::String * mgMsgId = msg->header()->extraHeaderValueForName(MCSTR("X-GM-MSGID"));
+    if (mgMsgId) {
+        _gMsgId = mgMsgId->UTF8Characters();
+    }
 }
 
 Message::Message(SQLite::Statement & query) :
@@ -38,6 +46,14 @@ Message::Message(SQLite::Statement & query) :
 
 bool Message::isUnread() {
     return _unread;
+}
+
+void Message::setUnread(bool u) {
+    _unread = u;
+}
+
+void Message::setStarred(bool s) {
+    _starred = s;
 }
 
 bool Message::isStarred() {
@@ -79,24 +95,6 @@ void Message::bindToQuery(SQLite::Statement & query) {
     query.bind(":folderId", _folderId);
     query.bind(":threadId", _threadId);
     query.bind(":gMsgId", _gMsgId);
-}
-
-
-void Message::updateAttributes(mailcore::IMAPMessage * msg) {
-    if (_id != MailUtils::idForMessage(msg)) {
-        throw "Assertion Failure: updateAttributes given a msg with a different ID";
-    }
-    _unread = !(msg->flags() & mailcore::MessageFlagSeen);
-    _starred = msg->flags() & mailcore::MessageFlagFlagged;
-    _date = (double)msg->header()->receivedDate();
-    _headerMessageId = msg->header()->messageID()->UTF8Characters();
-    _subject = msg->header()->subject()->UTF8Characters();
-    _folderImapUID = msg->uid();
-    
-    mailcore::String * mgMsgId = msg->header()->extraHeaderValueForName(MCSTR("X-GM-MSGID"));
-    if (mgMsgId) {
-        _gMsgId = mgMsgId->UTF8Characters();
-    }
 }
 
 json Message::toJSON()
