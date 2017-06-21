@@ -16,29 +16,30 @@
 #include "MailModel.hpp"
 
 using json = nlohmann::json;
+using namespace std;
 
 class Folder : public MailModel {
 protected:
-    std::string _path;
-    std::string _role;
+    string _path;
+    string _role;
     json _localStatus;
     
 public:
-    static std::string TABLE_NAME;
+    static string TABLE_NAME;
 
-    Folder(std::string id, std::string accountId, int version);
+    Folder(string id, string accountId, int version);
     Folder(SQLite::Statement & query);
 
     json & localStatus();
     
-    std::string path();
-    void setPath(std::string path);
+    string path();
+    void setPath(string path);
     
-    std::string role();
-    void setRole(std::string role);
+    string role();
+    void setRole(string role);
   
-    std::string tableName();
-    std::vector<std::string> columnsForQuery();
+    string tableName();
+    vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
 
     json toJSON();

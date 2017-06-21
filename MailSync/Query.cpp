@@ -12,30 +12,31 @@
 #include "json.hpp"
 
 using json = nlohmann::json;
+using namespace std;
 
 
-Query & Query::equal(std::string col, std::string val) {
+Query & Query::equal(string col, string val) {
     clauses[col] = val;
     return *this;
 }
 
-Query & Query::equal(std::string col, double val) {
+Query & Query::equal(string col, double val) {
     clauses[col] = val;
     return *this;
 }
 
-Query & Query::equal(std::string col, std::vector<std::string> & val) {
+Query & Query::equal(string col, vector<string> & val) {
     clauses[col] = val;
     return *this;
 }
 
-Query & Query::equal(std::string col, std::vector<uint32_t> & val) {
+Query & Query::equal(string col, vector<uint32_t> & val) {
     clauses[col] = val;
     return *this;
 }
 
-std::string Query::sql() {
-    std::string result = "";
+string Query::sql() {
+    string result = "";
 
     if (clauses.size() > 0) {
         result += " WHERE ";
@@ -49,7 +50,7 @@ std::string Query::sql() {
                     result += "0 = 1";
                     continue;
                 }
-                std::string qmarks{"?,"};
+                string qmarks{"?,"};
                 for (int i = 1; i < it.value().size(); i ++) {
                     qmarks = qmarks + "?,";
                 }
@@ -71,7 +72,7 @@ void Query::bind(SQLite::Statement & query) {
                 if (at->is_number()) {
                     query.bind(ii++, at->get<double>());
                 } else if (at->is_string()) {
-                    query.bind(ii++, at->get<std::string>());
+                    query.bind(ii++, at->get<string>());
                 } else {
                     throw "Unsure of how to bind json to sqlite";
                 }
@@ -80,7 +81,7 @@ void Query::bind(SQLite::Statement & query) {
             if (it.value().is_number()) {
                 query.bind(ii++, it.value().get<double>());
             } else if (it.value().is_string()) {
-                query.bind(ii++, it.value().get<std::string>());
+                query.bind(ii++, it.value().get<string>());
             } else {
                 throw "Unsure of how to bind json to sqlite";
             }

@@ -10,7 +10,9 @@
 #include "MailUtils.hpp"
 #include "Folder.hpp"
 
-std::string Message::TABLE_NAME = "Message";
+using namespace std;
+
+string Message::TABLE_NAME = "Message";
 
 Message::Message(mailcore::IMAPMessage * msg, Folder & folder) :
 MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
@@ -46,24 +48,24 @@ double Message::date() {
     return _date;
 }
 
-std::string Message::subject() {
+string Message::subject() {
     return _subject;
 }
 
-void Message::setThreadId(std::string threadId) {
+void Message::setThreadId(string threadId) {
     _threadId = threadId;
 }
 
-std::string Message::getHeaderMessageId() {
+string Message::getHeaderMessageId() {
     return _headerMessageId;
 }
 
-std::string Message::tableName() {
+string Message::tableName() {
     return Message::TABLE_NAME;
 }
 
-std::vector<std::string> Message::columnsForQuery() {
-    return std::vector<std::string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "isSent", "unread", "starred", "folderImapUID", "folderImapXGMLabels", "folderId", "threadId"};
+vector<string> Message::columnsForQuery() {
+    return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "isSent", "unread", "starred", "folderImapUID", "folderImapXGMLabels", "folderId", "threadId"};
 }
 
 void Message::bindToQuery(SQLite::Statement & query) {

@@ -24,15 +24,16 @@
 #include "MailStore.hpp"
 
 using namespace mailcore;
+using namespace std;
 
 class MailProcessor {
     MailStore * store;
-    std::shared_ptr<spdlog::logger> logger;
+    shared_ptr<spdlog::logger> logger;
 
 public:
     MailProcessor(MailStore * store);
     void insertMessage(IMAPMessage * mMsg, Folder & folder);
-    void upsertThreadReferences(std::string threadId, std::string headerMessageId, Array * references);
+    void upsertThreadReferences(string threadId, string headerMessageId, Array * references);
 };
 
 #endif /* MailProcessor_hpp */

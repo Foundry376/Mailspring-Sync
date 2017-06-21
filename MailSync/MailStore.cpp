@@ -14,6 +14,7 @@
 #import "Thread.hpp"
 
 using namespace mailcore;
+using namespace std;
 
 MailStore::MailStore() :
     _db("/Users/bengotow/.nylas-dev/edgehill.db", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE)
@@ -106,13 +107,13 @@ SQLite::Database & MailStore::db()
     return this->_db;
 }
 
-std::map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range range, Folder & folder) {
+map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range range, Folder & folder) {
     SQLite::Statement query(this->_db, "SELECT id, version, unread, starred, folderImapUID, folderImapXGMLabels FROM Message WHERE folderId = ? AND folderImapUID >= ? AND folderImapUID <= ?");
     query.bind(1, folder.id());
     query.bind(2, (long long)(range.location));
     query.bind(3, (long long)(range.location + range.length));
     
-    std::map<uint32_t, MessageAttributes> results {};
+    map<uint32_t, MessageAttributes> results {};
 
     while (query.executeStep()) {
         MessageAttributes attrs{};
@@ -128,13 +129,13 @@ std::map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(
 }
 
 void MailStore::updateMessageAttributes(MessageAttributes local, IMAPMessage * remoteMsg, Folder & folder) {
-    std::cout << "\n";
-    std::cout << remoteMsg->flags();
+    cout << "\n";
+    cout << remoteMsg->flags();
     bool remoteFlagged = remoteMsg->flags() & MessageFlagFlagged;
     bool remoteSeen = remoteMsg->flags() & MessageFlagSeen;
     
     if ((local.flagged != remoteFlagged) || (local.seen != remoteSeen)) {
-        std::cout << "\nUpdating attributes for one message.";
+        cout << "\nUpdating attributes for one message.";
         SQLite::Statement query(this->_db, "UPDATE Message SET unread = ?, starred = ?, version = ? WHERE folderId = ? AND folderImapUID = ?");
         query.bind(1, !remoteSeen);
         query.bind(2, remoteFlagged);
@@ -159,7 +160,7 @@ void MailStore::save(MailModel * model) {
     model->incrementVersion();
     
     if (model->version() > 1) {
-        std::string pairs{""};
+        string pairs{""};
         for (const auto col : model->columnsForQuery()) {
             if (col == "id") {
                 continue;
@@ -173,8 +174,8 @@ void MailStore::save(MailModel * model) {
         query.exec();
 
     } else {
-        std::string cols{""};
-        std::string values{""};
+        string cols{""};
+        string values{""};
         for (const auto col : model->columnsForQuery()) {
             cols += col + ",";
             values += ":" + col + ",";

@@ -8,9 +8,11 @@
 
 #include "MailModel.hpp"
 
-std::string MailModel::TABLE_NAME = "MailModel";
+using namespace std;
 
-MailModel::MailModel(std::string id, std::string accountId, int version) :
+string MailModel::TABLE_NAME = "MailModel";
+
+MailModel::MailModel(string id, string accountId, int version) :
     _id(id),
     _data("{}"),
     _accountId(accountId),
@@ -27,12 +29,12 @@ MailModel::MailModel(SQLite::Statement & query) :
 {
 }
 
-std::string MailModel::id()
+string MailModel::id()
 {
     return _id;
 }
 
-std::string MailModel::accountId()
+string MailModel::accountId()
 {
     return _accountId;
 }
@@ -47,8 +49,7 @@ void MailModel::incrementVersion()
     _version ++;
 }
 
-
-std::string MailModel::tableName()
+string MailModel::tableName()
 {
     return TABLE_NAME;
 }

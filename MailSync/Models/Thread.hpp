@@ -22,6 +22,8 @@
 #include "json.hpp"
 
 using json = nlohmann::json;
+using namespace std;
+
 
 class Thread : public MailModel {
     
@@ -31,25 +33,25 @@ class Thread : public MailModel {
     double _lastMessageDate;
     double _lastMessageReceivedDate;
     double _lastMessageSentDate;
-    std::string _subject;
+    string _subject;
     
 public:
-    static std::string TABLE_NAME;
+    static string TABLE_NAME;
 
     Thread(SQLite::Statement & query);
     Thread(Message msg);
 
-    std::string subject();
-    void setSubject(std::string s);
+    string subject();
+    void setSubject(string s);
     int unread();
     void setUnread(int u);
     int starred();
     void setStarred(int s);
     void addMessage(Message & msg);
-    void upsertReferences(SQLite::Database & db, std::string headerMessageId, mailcore::Array * references);
+    void upsertReferences(SQLite::Database & db, string headerMessageId, mailcore::Array * references);
 
-    std::string tableName();
-    std::vector<std::string> columnsForQuery();
+    string tableName();
+    vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
 
     json toJSON();
