@@ -11,6 +11,7 @@
 using namespace std;
 
 MailProcessor::MailProcessor(MailStore * store) :
+    store(store),
     logger(spdlog::stdout_color_mt("processor"))
 {
 
@@ -19,9 +20,9 @@ MailProcessor::MailProcessor(MailStore * store) :
 
 void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
     Message msg(mMsg, folder);
-    
-    //    Where<string>::equal("a", "b");
-    
+
+    logger->info("🔹 Inserting message with subject: {}", msg.subject());
+
     // first, find or build a thread for this message
     String * gThrId = mMsg->header()->extraHeaderValueForName(new String("X-GM-THRID"));
     Array * references = mMsg->header()->references();
@@ -64,6 +65,19 @@ void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
     
     msg.setThreadId(thread->id());
     store->save(&msg);
+}
+
+void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder)
+{
+    logger->info("🔸 Updating message with subject: {}", local->subject());
+
+    // Step 1: Update the message
+    auto updated = MessageAttributesForMessage(remote);
+    local->setUnread(updated.unread);
+    local->setStarred(updated.starred);
+    store->save(local);
+    
+    // Step 2: Recompute properties of the thread as necessary
 }
 
 void MailProcessor::upsertThreadReferences(string threadId, string headerMessageId, mailcore::Array * references) {
