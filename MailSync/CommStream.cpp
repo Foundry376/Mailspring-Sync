@@ -53,6 +53,36 @@ CommStream::~CommStream() {
     close(_socket);
 }
 
+void CommStream::readXBytes(unsigned int x, void* buffer)
+{
+    int bytesRead = 0;
+    int result;
+    while (bytesRead < x) {
+        result = read(_socket, (char *)buffer + bytesRead, x - bytesRead);
+        if (result < 1) {
+            perror("read");
+            exit(1);
+        }
+        
+        bytesRead += result;
+    }
+}
+
+json CommStream::waitForJSON() {
+    unsigned int length = 0;
+    char* buffer = 0;
+
+    // we assume that sizeof(length) will return 4 here.
+    readXBytes(sizeof(length), (void*)(&length));
+    buffer = new char[length];
+    readXBytes(length, (void*)buffer);
+    
+    // Then process the data as needed.
+    json j = json::parse(buffer);
+    delete [] buffer;
+    return j;
+}
+
 void CommStream::sendJSON(json & msgJSON) {
     std::string str = msgJSON.dump() + "\n";
     const char * chars = str.c_str();

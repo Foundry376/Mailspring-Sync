@@ -21,17 +21,47 @@
 
 using json = nlohmann::json;
 
+CommStream * stream = nullptr;
+SyncWorker * bgWorker = nullptr;
+SyncWorker * fgWorker = nullptr;
 
-int main(int argc, const char * argv[]) {
-    SyncWorker * worker = new SyncWorker();
-    
-    spdlog::set_pattern("%l: [%L] %v");
+void runBackgroundSyncWorker() {
     
     while(true) {
         // run in a hard loop until it returns false, indicating continuation
-        // is not necessary.
-        while(worker->syncNow()) {}
-        sleep(60);
+        // is not necessary. Then sync and sleep for a bit. Interval can be long
+        // because we're idling in another thread.
+        while(bgWorker->syncNow()) {}
+        sleep(120);
     }
+}
+
+void runForegroundSyncWorker() {
+    fgWorker->idleOnInbox();
+}
+
+void onClientMessage() {
+    
+}
+
+int main(int argc, const char * argv[]) {
+    spdlog::set_pattern("%l: [%L] %v");
+
+    stream = new CommStream((char *)"/tmp/cmail.sock");
+    bgWorker = new SyncWorker("bg", stream);
+    fgWorker = new SyncWorker("fg", stream);
+
+//    std::thread t1(runBackgroundSyncWorker);
+    
+    std::thread t2(runForegroundSyncWorker);
+    
+    while(true) {
+        json packet = stream->waitForJSON();
+        fgWorker->idleInterrupt();
+    }
+
+    //    t1.join();
+    t2.join();
+    
     return 0;
 }
