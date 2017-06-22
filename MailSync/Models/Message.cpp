@@ -60,6 +60,8 @@ Message::Message(SQLite::Statement & query) :
 
 }
 
+// mutable attributes
+
 bool Message::isUnread() {
     return _data["unread"].get<bool>();
 }
@@ -100,6 +102,24 @@ void Message::setSnippet(string s) {
     _data["snippet"] = s;
 }
 
+uint32_t Message::folderImapUID() {
+    return _data["folderImapUID"].get<uint32_t>();
+}
+
+void Message::setFolderImapUID(uint32_t v) {
+    _data["folderImapUID"] = v;
+}
+
+json Message::folder() {
+    return _data["folder"];
+}
+
+void Message::setFolder(Folder & folder) {
+    _data["folder"] = folder.toJSON();
+}
+
+// immutable attributes
+
 json & Message::to() {
     return _data["to"];
 }
@@ -122,14 +142,6 @@ time_t Message::date() {
 
 string Message::subject() {
     return _data["subject"].get<string>();
-}
-
-uint32_t Message::folderImapUID() {
-    return _data["folderImapUID"].get<uint32_t>();
-}
-
-json Message::folder() {
-    return _data["folder"];
 }
 
 string Message::folderId() {

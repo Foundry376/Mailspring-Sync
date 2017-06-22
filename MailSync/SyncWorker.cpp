@@ -44,7 +44,7 @@ SyncWorker::SyncWorker() :
 //    session.setConnectionType(ConnectionType::ConnectionTypeTLS);
 //    session.setPort(993);
     session.setUsername(MCSTR("bengotow@gmail.com"));
-    session.setPassword(MCSTR("akvaiewqwhdzcgmbh"));
+    session.setPassword(MCSTR("kvaiewqwhdzcgmbh"));
     session.setHostname(MCSTR("imap.gmail.com"));
     session.setConnectionType(ConnectionType::ConnectionTypeTLS);
     session.setPort(993);
@@ -99,14 +99,11 @@ bool SyncWorker::syncNow()
         // and then we need to do it periodically to find deleted messages.
         bool fullScanInProgress = syncFolderFullScanIncremental(*folder, remoteStatus);
 
-        if (fullScanInProgress == false) {
-            // Retrieve CONDSTORE changes to the mailbox if possible.
-            // Otherwise, do a shallow sync of the last N messages.
-            if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
-                syncFolderChangesViaCondstore(*folder, remoteStatus);
-            } else {
-                syncFolderChangesViaShallowScan(*folder, remoteStatus);
-            }
+        // Retrieve changes, at least to the last N messages or via CONDSTORE when possible.
+        if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
+            syncFolderChangesViaCondstore(*folder, remoteStatus);
+        } else {
+            syncFolderChangesViaShallowScan(*folder, remoteStatus);
         }
 
         // Retrieve some message bodies. We do this concurrently with the full header
@@ -280,50 +277,62 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
         logger->error("IMAP Error Occurred: {}", err);
         return;
     }
+    
+    // Note: This is currently optimized for the idle case. IT fetches all UIDs + attributes,
+    // and then for things it doesn't find it fetches again by ID. This means that during
+    // initial sync it fetches, finds none, fetches again by ID, finds none, then inserts.
+    // However during stable sync it never loads more than UIDs and attributes and a /few/ by ID.
 
+    // Alternative idea: Let it try to insert all the time, just catch SQLIte exception
+    // and do an update instead?
+    
     // Step 2: Fetch the local attributes (unread, starred, etc.) for the same UID range
     map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(range, folder));
-    vector<uint32_t> localUIDsModified {};
+    vector<string> changedOrMissingIDs {};
+    map<string, IMAPMessage *> changedOrMissingRemotes;
     
     for (int ii = remote->count() - 1; ii >= 0; ii--) {
         IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
         uint32_t remoteUID = remoteMsg->uid();
 
-        // Step 3: Process new messages, mark when we find existing messages
-        // with incorrect / out-of-date attributes.
-        if (local.count(remoteUID) == 0) {
-            processor->insertMessage(remoteMsg, folder);
+        // Step 3: Collect messages that are different or not in our local UID set.
+        bool notInFolder = (local.count(remoteUID) == 0);
+        bool notSame = (!MessageAttributesMatch(local[remoteUID], MessageAttributesForMessage(remoteMsg)));
 
-        } else if (!MessageAttributesMatch(local[remoteUID], MessageAttributesForMessage(remoteMsg))) {
-            localUIDsModified.push_back(remoteUID);
+        if (notInFolder || notSame) {
+            string id = MailUtils::idForMessage(remoteMsg);
+            changedOrMissingIDs.push_back(id);
+            changedOrMissingRemotes[id] = remoteMsg;
         }
         
         local.erase(remoteUID);
     }
     
-    // Step 4: Retrieve and apply updates to existing messages. They need to be loaded fully
-    // so we can change their flags and generate the event.
-    Query modified = Query().equal("folderId", folder.id()).equal("folderImapUID", localUIDsModified);
-    auto localMessages = store->findAllUINTMap<Message>(modified, "folderImapUID");
+    // Step 4: Load the messages that were modified or not found in the folder by ID.
+    // (they may be in another folder locally.) They need to be loaded fully
+    // so we can change their flags and generate the deltas.
+    Query q = Query().equal("id", changedOrMissingIDs);
+    auto localMessages = store->findAllMap<Message>(q, "id");
     
-    for (int ii = 0; ii < remote->count(); ii++) {
-        IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
-        uint32_t remoteUID = remoteMsg->uid();
-        
-        if (localMessages.count(remoteUID) > 0) {
-            // Updating existing message attributes
-            processor->updateMessage(localMessages[remoteUID].get(), remoteMsg, folder);
+    for (const auto id : changedOrMissingIDs) {
+        IMAPMessage * remoteMsg = changedOrMissingRemotes[id];
+        if (localMessages.count(id)) {
+            processor->updateMessage(localMessages[id].get(), remoteMsg, folder);
+        } else {
+            processor->insertMessage(remoteMsg, folder);
         }
     }
     
-    // Step 5: Delete. The messages left in local map are the ones the server didn't give us.
-    // They have been deleted. Unpersist them.
+    // Step 5: Unlink. The messages left in local map are the ones we had in the range,
+    // which the server reported were no longer there. Remove their folderImapUID.
+    // We'll delete them later if they don't appear in another folder during sync.
     vector<uint32_t> deletedUIDs {};
     for(auto const &ent : local) {
         deletedUIDs.push_back(ent.first);
     }
-    Query deleted = Query().equal("folderId", folder.id()).equal("folderImapUID", deletedUIDs);
-    store->remove<Message>(deleted);
+    Query qd = Query().equal("folderId", folder.id()).equal("folderImapUID", deletedUIDs);
+    auto deletedMsgs = store->findAll<Message>(qd);
+    processor->unlinkMessagesFromFolder(deletedMsgs);
 }
 
 void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus)
@@ -354,24 +363,23 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     }
 
     // for modified messages, fetch local copy and apply changes
-    Array * modified = result->modifiedOrAddedMessages();
-    vector<uint32_t> modifiedUIDs = MailUtils::uidsOfArray(modified);
+    Array * modifiedOrAdded = result->modifiedOrAddedMessages();
+    vector<string> modifiedOrAddedIDs = MailUtils::messageIdsOfArray(modifiedOrAdded);
     
-    Query query = Query()
-        .equal("folderId", folder.id())
-        .equal("folderImapUID", modifiedUIDs);
-    map<uint32_t, shared_ptr<Message>> local = store->findAllUINTMap<Message>(query, "folderImapUID");
+    Query query = Query().equal("id", modifiedOrAddedIDs);
+    map<string, shared_ptr<Message>> local = store->findAllMap<Message>(query, "id");
 
-    for (int ii = 0; ii < modified->count(); ii ++) {
-        IMAPMessage * modifiedMsg = (IMAPMessage *)modified->objectAtIndex(ii);
-        uint32_t uid = modifiedMsg->uid();
+    for (int ii = 0; ii < modifiedOrAdded->count(); ii ++) {
+        IMAPMessage * msg = (IMAPMessage *)modifiedOrAdded->objectAtIndex(ii);
+        string id = MailUtils::idForMessage(msg);
 
-        if (local.count(uid) == 0) {
-            // Found new message
-            processor->insertMessage(modifiedMsg, folder);
+        if (local.count(id) == 0) {
+            // Found message with an ID we've never seen in any folder. Add it!
+            processor->insertMessage(msg, folder);
         } else {
-            // Updating existing message attributes
-            processor->updateMessage(local[uid].get(), modifiedMsg, folder);
+            // Found message with an existing ID. Update it's attributes & folderId.
+            // Note: Could potentially have moved from another folder!
+            processor->updateMessage(local[id].get(), msg, folder);
         }
     }
     
@@ -379,7 +387,8 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     if (result->vanishedMessages() != NULL) {
         vector<uint32_t> deletedUIDs = MailUtils::uidsOfIndexSet(result->vanishedMessages());
         Query query = Query().equal("folderId", folder.id()).equal("folderImapUID", deletedUIDs);
-        store->remove<Message>(query);
+        auto deletedMsgs = store->findAll<Message>(query);
+        processor->unlinkMessagesFromFolder(deletedMsgs);
     }
 
     folder.localStatus()["uidnext"] = remoteUIDNext;

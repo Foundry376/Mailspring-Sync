@@ -84,6 +84,8 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     auto updated = MessageAttributesForMessage(remote);
     local->setUnread(updated.unread);
     local->setStarred(updated.starred);
+    local->setFolderImapUID(updated.uid);
+    local->setFolder(folder);
     auto jlabels = json(updated.labels);
     local->setFolderImapXGMLabels(jlabels);
     
@@ -93,6 +95,43 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     // Step 5: Save
     store->save(local);
     store->save(thread.get());
+}
+
+void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages)
+{
+    // TODO Unloop
+    auto allLabels = store->allLabelsCache();
+    Folder gone("--none--", "", 0);
+    
+    vector<string> threadIds{};
+    for (const auto local : localMessages) {
+        threadIds.push_back(local->threadId());
+    }
+    
+    auto q = Query().equal("id", threadIds);
+    auto threads = store->findAllMap<Thread>(q, "id");
+
+    for (const auto local : localMessages) {
+        // Step 1: Find the thread
+        Thread * thread = nullptr;
+        if (threads.count(local->threadId())) {
+            thread = threads[local->threadId()].get();
+        }
+
+        // Step 2: Decrement starred / unread / label counters on thread
+        if (thread) { thread->prepareToReaddMessage(local.get(), allLabels); }
+
+        local->setFolderImapUID(0);
+        local->setFolder(gone);
+
+        // Step 4: Increment starred / urnead / label counters on thread
+        if (thread) { thread->addMessage(local.get(), allLabels); }
+        
+        // Step 5: Save
+        store->save(local.get());
+
+        if (thread) { store->save(thread); }
+    }
 }
 
 void MailProcessor::upsertThreadReferences(string threadId, string headerMessageId, mailcore::Array * references) {

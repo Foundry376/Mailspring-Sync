@@ -28,7 +28,9 @@ int main(int argc, const char * argv[]) {
     spdlog::set_pattern("%l: [%L] %v");
     
     while(true) {
-        worker->syncNow();
+        // run in a hard loop until it returns false, indicating continuation
+        // is not necessary.
+        while(worker->syncNow()) {}
         sleep(60);
     }
     return 0;
