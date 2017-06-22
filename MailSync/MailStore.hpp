@@ -17,6 +17,7 @@
 #include "json.hpp"
 
 #include "Folder.hpp"
+#include "Label.hpp"
 #include "Message.hpp"
 #include "Query.hpp"
 
@@ -27,6 +28,7 @@ struct MessageAttributes {
     uint32_t uid;
     bool unread;
     bool starred;
+    vector<string> labels;
 };
 
 MessageAttributes MessageAttributesForMessage(mailcore::IMAPMessage * msg);
@@ -44,7 +46,9 @@ public:
 class MailStore {
     SQLite::Database _db;
     vector<MailStoreObserver*> _observers;
-    
+    vector<shared_ptr<Label>> _labelCache;
+    bool _labelCacheInvalid;
+
 public:
     MailStore();
     
@@ -52,17 +56,19 @@ public:
     
     void save(MailModel * model);
 
-    uint32_t fetchMessageUIDAtDepth(Folder & folder, int depth);
+    uint32_t fetchMessageUIDAtDepth(Folder & folder, int depth, int before = UINT32_MAX);
 
     map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
     
+    vector<shared_ptr<Label>> allLabelsCache();
+
     void addObserver(MailStoreObserver * observer);
     
     // Template methods which must be defined in header file
     
     template<typename ModelClass>
     unique_ptr<ModelClass> find(Query & query) {
-        SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql() + " LIMIT 1");
+        SQLite::Statement statement(this->_db, "SELECT data FROM " + ModelClass::TABLE_NAME + query.sql() + " LIMIT 1");
         query.bind(statement);
         if (statement.executeStep()) {
             return unique_ptr<ModelClass>(new ModelClass(statement));
@@ -72,7 +78,7 @@ public:
     
     template<typename ModelClass>
     vector<shared_ptr<ModelClass>> findAll(Query & query) {
-        SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql());
+        SQLite::Statement statement(this->_db, "SELECT data FROM " + ModelClass::TABLE_NAME + query.sql());
         query.bind(statement);
         
         vector<shared_ptr<ModelClass>> results;
@@ -84,26 +90,26 @@ public:
     }
     
     template<typename ModelClass>
-    map<string, shared_ptr<ModelClass>> findAllMap(Query & query, const char* keyField) {
-        SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql());
+    map<string, shared_ptr<ModelClass>> findAllMap(Query & query, std::string keyField) {
+        SQLite::Statement statement(this->_db, "SELECT " + keyField + ", data FROM " + ModelClass::TABLE_NAME + query.sql());
         query.bind(statement);
 
         map<string, shared_ptr<ModelClass>> results;
         while (statement.executeStep()) {
-            results[statement.getColumn(keyField).getString()] = make_shared<ModelClass>(statement);
+            results[statement.getColumn(keyField.c_str()).getString()] = make_shared<ModelClass>(statement);
         }
         
         return results;
     }
     
     template<typename ModelClass>
-    map<uint32_t, shared_ptr<ModelClass>> findAllUINTMap(Query & query, const char* keyField) {
-        SQLite::Statement statement(this->_db, "SELECT * FROM " + ModelClass::TABLE_NAME + query.sql());
+    map<uint32_t, shared_ptr<ModelClass>> findAllUINTMap(Query & query, std::string keyField) {
+        SQLite::Statement statement(this->_db, "SELECT " + keyField + ", data FROM " + ModelClass::TABLE_NAME + query.sql());
         query.bind(statement);
 
         map<uint32_t, shared_ptr<ModelClass>> results;
         while (statement.executeStep()) {
-            results[statement.getColumn(keyField).getUInt()] = make_shared<ModelClass>(statement);
+            results[statement.getColumn(keyField.c_str()).getUInt()] = make_shared<ModelClass>(statement);
         }
         
         return results;

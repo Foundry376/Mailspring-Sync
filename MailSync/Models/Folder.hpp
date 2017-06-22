@@ -19,10 +19,6 @@ using json = nlohmann::json;
 using namespace std;
 
 class Folder : public MailModel {
-protected:
-    string _path;
-    string _role;
-    json _localStatus;
     
 public:
     static string TABLE_NAME;
@@ -35,14 +31,12 @@ public:
     string path();
     void setPath(string path);
     
-    string role();
+    string role() const;
     void setRole(string role);
   
     string tableName();
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
-
-    json toJSON();
 };
 
 #endif /* Folder_hpp */

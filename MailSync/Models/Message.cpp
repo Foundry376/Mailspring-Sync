@@ -9,6 +9,7 @@
 #include "Message.hpp"
 #include "MailUtils.hpp"
 #include "Folder.hpp"
+#include "MailStore.hpp"
 
 using namespace std;
 
@@ -17,63 +18,130 @@ string Message::TABLE_NAME = "Message";
 Message::Message(mailcore::IMAPMessage * msg, Folder & folder) :
 MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
 {
-    _folderId = folder.id();
-    _date = (double)msg->header()->receivedDate();
-    _headerMessageId = msg->header()->messageID()->UTF8Characters();
-    _subject = msg->header()->subject()->UTF8Characters();
-    _folderImapUID = msg->uid();
-        
-    mailcore::String * mgMsgId = msg->header()->extraHeaderValueForName(MCSTR("X-GM-MSGID"));
-    if (mgMsgId) {
-        _gMsgId = mgMsgId->UTF8Characters();
+    _data["folder"] = folder.toJSON();
+    _data["date"] = msg->header()->date();
+    _data["headerMessageId"] = msg->header()->messageID()->UTF8Characters();
+    _data["subject"] = msg->header()->subject() ? msg->header()->subject()->UTF8Characters() : "No Subject";
+    _data["folderImapUID"] = msg->uid();
+    _data["gMsgId"] = to_string(msg->gmailMessageID());
+
+    MessageAttributes attrs = MessageAttributesForMessage(msg);
+    _data["unread"] = attrs.unread;
+    _data["starred"] = attrs.starred;
+    _data["labels"] = attrs.labels;
+    
+    // inflate the participant fields
+    _data["from"] = json::array();
+    _data["from"] += MailUtils::contactJSONFromAddress(msg->header()->from());
+
+    map<string, void*> fields = {
+        {"to", msg->header()->to()},
+        {"cc", msg->header()->cc()},
+        {"bcc", msg->header()->bcc()},
+    };
+    
+    for (auto const pair : fields) {
+        string field = pair.first;
+        Array * arr = (Array *)pair.second;
+        _data[field] = json::array();
+
+        if (arr != nullptr) {
+            for (int ii = 0; ii < arr->count(); ii ++) {
+                Address * addr = (Address *)arr->objectAtIndex(ii);
+                _data[field].push_back(MailUtils::contactJSONFromAddress(addr));
+            }
+        }
     }
 }
 
 Message::Message(SQLite::Statement & query) :
-    MailModel(query),
-    _date(query.getColumn("date").getDouble()),
-    _unread(query.getColumn("unread").getInt()),
-    _starred(query.getColumn("starred").getInt()),
-    _subject(query.getColumn("subject").getString()),
-    _headerMessageId(query.getColumn("headerMessageId").getString()),
-    _folderImapUID(query.getColumn("folderImapUID").getUInt()),
-    _folderId(query.getColumn("folderId").getString()),
-    _threadId(query.getColumn("threadId").getString()),
-    _gMsgId(query.getColumn("gMsgId").getString())
+    MailModel(query)
 {
 
 }
 
 bool Message::isUnread() {
-    return _unread;
+    return _data["unread"].get<bool>();
 }
 
 void Message::setUnread(bool u) {
-    _unread = u;
-}
-
-void Message::setStarred(bool s) {
-    _starred = s;
+    _data["unread"] = u;
 }
 
 bool Message::isStarred() {
-    return _starred;
+    return _data["starred"].get<bool>();
 }
 
-double Message::date() {
-    return _date;
+void Message::setStarred(bool s) {
+    _data["starred"] = s;
 }
 
-string Message::subject() {
-    return _subject;
+json & Message::folderImapXGMLabels() {
+    return _data["labels"];
+}
+
+void Message::setFolderImapXGMLabels(json & labels) {
+    _data["labels"] = labels;
+}
+
+string Message::threadId() {
+    return _data["threadId"].get<string>();
 }
 
 void Message::setThreadId(string threadId) {
-    _threadId = threadId;
+    _data["threadId"] = threadId;
 }
 
-string Message::getHeaderMessageId() {
-    return _headerMessageId;
+string Message::snippet() {
+    return _data["snippet"].get<string>();
+}
+
+void Message::setSnippet(string s) {
+    _data["snippet"] = s;
+}
+
+json & Message::to() {
+    return _data["to"];
+}
+
+json & Message::cc(){
+    return _data["cc"];
+}
+
+json & Message::bcc(){
+    return _data["bcc"];
+}
+
+json & Message::from() {
+    return _data["from"];
+}
+
+time_t Message::date() {
+    return _data["date"].get<time_t>();
+}
+
+string Message::subject() {
+    return _data["subject"].get<string>();
+}
+
+uint32_t Message::folderImapUID() {
+    return _data["folderImapUID"].get<uint32_t>();
+}
+
+json Message::folder() {
+    return _data["folder"];
+}
+
+string Message::folderId() {
+    return _data["folder"]["id"].get<string>();
+}
+
+string Message::gMsgId() {
+    return _data["gMsgId"].get<string>();
+}
+
+string Message::headerMessageId() {
+    return _data["headerMessageId"].get<string>();
 }
 
 string Message::tableName() {
@@ -86,28 +154,14 @@ vector<string> Message::columnsForQuery() {
 
 void Message::bindToQuery(SQLite::Statement & query) {
     MailModel::bindToQuery(query);
-    query.bind(":date", _date);
-    query.bind(":unread", _unread);
-    query.bind(":starred", _starred);
-    query.bind(":headerMessageId", _headerMessageId);
-    query.bind(":subject", _subject);
-    query.bind(":folderImapUID", _folderImapUID);
-    query.bind(":folderId", _folderId);
-    query.bind(":threadId", _threadId);
-    query.bind(":gMsgId", _gMsgId);
+    query.bind(":date", (double)date());
+    query.bind(":unread", isUnread());
+    query.bind(":starred", isStarred());
+    query.bind(":headerMessageId", headerMessageId());
+    query.bind(":subject", subject());
+    query.bind(":folderImapUID", folderImapUID());
+    query.bind(":folderImapXGMLabels", folderImapXGMLabels().dump());
+    query.bind(":folderId", folderId());
+    query.bind(":threadId", threadId());
+    query.bind(":gMsgId", gMsgId());
 }
-
-json Message::toJSON()
-{
-    return MailUtils::merge(MailModel::toJSON(), {
-        {"object", "message"},
-        {"date", _date},
-        {"unread", _unread},
-        {"starred", _starred},
-        {"headerMessageId", _headerMessageId},
-        {"subject", _subject},
-        {"folderId", _folderId},
-        {"threadId", _threadId}
-    });
-}
-

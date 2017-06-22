@@ -24,17 +24,7 @@ using json = nlohmann::json;
 using namespace std;
 
 class Message : public MailModel {
-    bool _unread;
-    bool _starred;
-    double _date;
-    uint32_t _folderImapUID;
-    
-    string _folderId;
-    string _threadId;
-    string _headerMessageId;
-    string _subject;
-    string _gMsgId;
-    
+
 public:
     static string TABLE_NAME;
 
@@ -47,17 +37,31 @@ public:
     bool isStarred();
     void setStarred(bool s);
     
-    double date();
-    string subject();
-    
+    string threadId();
     void setThreadId(string threadId);
-    string getHeaderMessageId();
+
+    string snippet();
+    void setSnippet(string s);
+
+    json & folderImapXGMLabels();
+    void setFolderImapXGMLabels(json & labels);
+
+    json & to();
+    json & cc();
+    json & bcc();
+    json & from();
+    
+    time_t date();
+    string subject();
+    uint32_t folderImapUID();
+    json folder();
+    string folderId();
+    string gMsgId();
+    string headerMessageId();
     
     string tableName();
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
-        
-    json toJSON();
 };
 
 #endif /* Message_hpp */

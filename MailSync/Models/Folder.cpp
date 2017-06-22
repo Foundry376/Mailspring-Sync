@@ -14,36 +14,35 @@ using namespace std;
 string Folder::TABLE_NAME = "Folder";
 
 Folder::Folder(string id, string accountId, int version) :
-MailModel(id, accountId, version)
+    MailModel(id, accountId, version)
 {
+    _data["path"] = "";
+    _data["role"] = "";
 }
 
 Folder::Folder(SQLite::Statement & query) :
-MailModel(query),
-_localStatus(json::parse(query.getColumn("localStatus").getString())),
-_path(query.getColumn("path").getString())
+    MailModel(query)
 {
-    
 }
 
 json & Folder::localStatus() {
-    return this->_localStatus;
+    return _data["localStatus"];
 }
 
 string Folder::path() {
-    return _path;
+    return _data["path"].get<string>();
 }
 
 void Folder::setPath(string path) {
-    _path = path;
+    _data["path"] = path;
 }
 
-string Folder::role() {
-    return _role;
+string Folder::role() const {
+    return _data["role"].get<string>();
 }
 
 void Folder::setRole(string role) {
-    _role = role;
+    _data["role"] = role;
 }
 
 string Folder::tableName() {
@@ -51,24 +50,11 @@ string Folder::tableName() {
 }
 
 vector<string> Folder::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "path", "localStatus", "role"};
+    return vector<string>{"id", "data", "accountId", "version", "path", "role"};
 }
 
 void Folder::bindToQuery(SQLite::Statement & query) {
     MailModel::bindToQuery(query);
-    query.bind(":path", _path);
-    query.bind(":role", _role);
-    query.bind(":localStatus", _localStatus.dump());
+    query.bind(":path", path());
+    query.bind(":role", role());
 }
-
-json Folder::toJSON()
-{
-    return MailUtils::merge(MailModel::toJSON(), {
-        {"object", "folder"},
-        {"path", _path},
-        {"role", _role},
-        {"localStatus", _localStatus}
-    });
-}
-
-

@@ -17,6 +17,7 @@
 #include <SQLiteCpp/SQLiteCpp.h>
 
 #include "MailModel.hpp"
+#include "Label.hpp"
 #include "Message.hpp"
 
 #include "json.hpp"
@@ -27,34 +28,45 @@ using namespace std;
 
 class Thread : public MailModel {
     
-    int _unread;
-    int _starred;
-    double _firstMessageDate;
-    double _lastMessageDate;
-    double _lastMessageReceivedDate;
-    double _lastMessageSentDate;
-    string _subject;
-    
 public:
     static string TABLE_NAME;
 
     Thread(SQLite::Statement & query);
-    Thread(Message msg);
-
+    Thread(Message msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allLabels);
+    
     string subject();
     void setSubject(string s);
     int unread();
     void setUnread(int u);
     int starred();
     void setStarred(int s);
-    void addMessage(Message & msg);
+    
+    json & participants();
+    string gThrId();
+    bool inAllMail();
+    time_t lastMessageTimestamp();
+    time_t firstMessageTimestamp();
+    time_t lastMessageReceivedTimestamp();
+    time_t lastMessageSentTimestamp();
+
+    json & folders();
+    void setFolders(json folders);
+    
+    json & labels();
+
+    void addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels);
+    void prepareToReaddMessage(Message * msg, vector<shared_ptr<Label>> & allLabels);
+
     void upsertReferences(SQLite::Database & db, string headerMessageId, mailcore::Array * references);
 
     string tableName();
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
+    void writeAssociations(SQLite::Database & db);
 
-    json toJSON();
+private:
+    void addMissingParticipants(std::map<std::string, bool> & existing, json & incoming);
+
 };
 
 #endif /* Thread_hpp */

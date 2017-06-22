@@ -43,9 +43,13 @@ public:
 
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus);
 
-    void syncFolderShallow(Folder & folder, IMAPFolderStatus & remoteStatus);
+    void syncFolderChangesViaShallowScan(Folder & folder, IMAPFolderStatus & remoteStatus);
     
-    void fetchMessagesInFolder(String * folder, std::string folderId, Range range);
+    void fetchRangeInFolder(String * folder, std::string folderId, Range range);
+
+    void syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
+
+    void syncMessageBody(Folder & folder, Message & message);
 };
 
 

@@ -13,40 +13,39 @@ using namespace std;
 string MailModel::TABLE_NAME = "MailModel";
 
 MailModel::MailModel(string id, string accountId, int version) :
-    _id(id),
-    _data("{}"),
-    _accountId(accountId),
-    _version(version)
+    _data({{"id", id},{"accountId", accountId}, {"version", version}})
 {
-    
 }
 
 MailModel::MailModel(SQLite::Statement & query) :
-    _id(query.getColumn("id").getString()),
-    _data(query.getColumn("data").getString()),
-    _accountId(query.getColumn("accountId").getString()),
-    _version(query.getColumn("version").getInt())
+    _data(json::parse(query.getColumn("data").getString()))
+{
+}
+
+
+MailModel::MailModel(json json) :
+    _data(json)
 {
 }
 
 string MailModel::id()
 {
-    return _id;
+    return _data["id"].get<std::string>();
 }
 
 string MailModel::accountId()
 {
-    return _accountId;
+    return _data["accountId"].get<std::string>();
 }
 
 int MailModel::version()
 {
-    return _version;
+    return _data["version"].get<int>();
 }
 
 void MailModel::incrementVersion()
 {
-    _version ++;
+    _data["version"] = _data["version"].get<int>() + 1;
 }
 
 string MailModel::tableName()
@@ -56,19 +55,20 @@ string MailModel::tableName()
 
 json MailModel::toJSON()
 {
-    return {
-        {"id", _id},
-        {"accountId", _accountId},
-        {"version", _version},
-    };
+    _data["__constructorName"] = this->tableName();
+    return _data;
 }
 
 
 void MailModel::bindToQuery(SQLite::Statement & query) {
-    query.bind(":id", _id);
+    query.bind(":id", id());
     query.bind(":data", this->toJSON().dump());
-    query.bind(":accountId", _accountId);
-    query.bind(":version", _version);
+    query.bind(":accountId", accountId());
+    query.bind(":version", version());
+}
+
+void MailModel::writeAssociations(SQLite::Database & db) {
+    
 }
 
 
