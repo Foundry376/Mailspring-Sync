@@ -145,6 +145,8 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         }
     }
     
+    store->beginTransaction();
+
     Query q = Query();
     auto allLocalFolders = store->findAllMap<Folder>(q, "id");
     auto allLocalLabels = store->findAllMap<Label>(q, "id");
@@ -197,7 +199,9 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     for (auto const item : allLocalLabels) {
         store->remove(item.second.get());
     }
-    
+ 
+    store->commitTransaction();
+
     return foldersToSync;
 }
 

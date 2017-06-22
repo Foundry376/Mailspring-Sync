@@ -33,6 +33,8 @@ void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
     shared_ptr<Thread> thread;
     auto allLabels = store->allLabelsCache();
 
+    store->beginTransaction();
+
     if (mMsg->gmailThreadID()) {
         Query query = Query().equal("gThrId", to_string(mMsg->gmailThreadID()));
         thread = store->find<Thread>(query);
@@ -62,6 +64,8 @@ void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
     
     msg.setThreadId(thread->id());
     store->save(&msg);
+
+    store->commitTransaction();
 }
 
 // thread has many folderIds with a reference count
@@ -71,6 +75,8 @@ void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
 void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder)
 {
     logger->info("🔸 Updating message with subject: {}", local->subject());
+
+    store->beginTransaction();
 
     // Step 1: Find the thread
     Query query = Query().equal("id", local->threadId());
@@ -95,6 +101,8 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     // Step 5: Save
     store->save(local);
     store->save(thread.get());
+
+    store->commitTransaction();
 }
 
 void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages)
