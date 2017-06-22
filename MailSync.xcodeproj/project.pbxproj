@@ -520,6 +520,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				DEVELOPMENT_TEAM = X9RJ36K9D4;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+					"SQLITE_ENABLE_FTS5=1",
+				);
 				HEADER_SEARCH_PATHS = (
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",

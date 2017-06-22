@@ -8,6 +8,7 @@
 
 #include "MailStore.hpp"
 #include "MailUtils.hpp"
+#include "constants.h"
 
 #import "Folder.hpp"
 #import "Message.hpp"
@@ -50,90 +51,9 @@ MailStore::MailStore() :
     _labelCacheInvalid(true),
     _labelCache()
 {
-    SQLite::Statement mQuery(this->_db, "CREATE TABLE IF NOT EXISTS Message ("
-                             "id VARCHAR(65) PRIMARY KEY,"
-                             "accountId VARCHAR(65),"
-                             "version INTEGER,"
-                             "data TEXT,"
-                             "headerMessageId VARCHAR(255),"
-                             "gMsgId VARCHAR(255),"
-                             "gThrId VARCHAR(255),"
-                             "subject VARCHAR(500),"
-                             "date DATETIME,"
-                             "draft TINYINT(1),"
-                             "isSent TINYINT(1),"
-                             "unread TINYINT(1),"
-                             "starred TINYINT(1),"
-                             "replyToMessageId VARCHAR(255),"
-                             "folderImapUID INTEGER,"
-                             "folderImapXGMLabels TEXT,"
-                             "folderId VARCHAR(65),"
-                             "threadId VARCHAR(65))");
-    mQuery.exec();
-    
-    
-    SQLite::Statement fQuery(this->_db, "CREATE TABLE IF NOT EXISTS Folder ("
-                             "id VARCHAR(65) PRIMARY KEY,"
-                             "accountId VARCHAR(65),"
-                             "version INTEGER,"
-                             "data TEXT,"
-                             "path VARCHAR(255),"
-                             "role VARCHAR(255),"
-                             "createdAt DATETIME,"
-                             "updatedAt DATETIME)");
-    fQuery.exec();
-    
-    SQLite::Statement lQuery(this->_db, "CREATE TABLE IF NOT EXISTS Label ("
-                             "id VARCHAR(65) PRIMARY KEY,"
-                             "accountId VARCHAR(65),"
-                             "version INTEGER,"
-                             "data TEXT,"
-                             "path VARCHAR(255),"
-                             "role VARCHAR(255),"
-                             "createdAt DATETIME,"
-                             "updatedAt DATETIME)");
-    lQuery.exec();
-    
-    SQLite::Statement tQuery(this->_db, "CREATE TABLE IF NOT EXISTS Thread ("
-                             "id VARCHAR(65) PRIMARY KEY,"
-                             "accountId VARCHAR(65),"
-                             "version INTEGER,"
-                             "data TEXT,"
-                             "gThrId VARCHAR(20),"
-                             "subject VARCHAR(500),"
-                             "snippet VARCHAR(255),"
-                             "unread INTEGER,"
-                             "starred INTEGER,"
-                             "firstMessageTimestamp DATETIME,"
-                             "lastMessageTimestamp DATETIME,"
-                             "lastMessageReceivedTimestamp DATETIME,"
-                             "lastMessageSentTimestamp DATETIME,"
-                             "inAllMail TINYINT(1),"
-                             "isSearchIndexed TINYINT(1),"
-                             "participants TEXT,"
-                             "hasAttachments INTEGER)");
-    tQuery.exec();
-    
-    // TODO add unique keys
-
-    SQLite::Statement tfQuery(this->_db, "CREATE TABLE IF NOT EXISTS ThreadCategory ("
-                              "id VARCHAR(65),"
-                              "value VARCHAR(65),"
-                              "inAllMail TINYINT(1),"
-                              "unread TINYINT(1),"
-                              "lastMessageReceivedTimestamp DATETIME,"
-                              "lastMessageSentTimestamp DATETIME,"
-                              "categoryId VARCHAR(65),"
-                              "PRIMARY KEY (id, value))");
-    tfQuery.exec();
-    
-    SQLite::Statement trQuery(this->_db, "CREATE TABLE IF NOT EXISTS ThreadReference ("
-                             "threadId VARCHAR(65),"
-                             "headerMessageId VARCHAR(255),"
-                             "PRIMARY KEY (threadId, headerMessageId))");
-    trQuery.exec();
-
-    Query q;
+    for (string sql : SETUP_QUERIES) {
+        SQLite::Statement(_db, sql).exec();
+    }
 }
 
 
