@@ -33,11 +33,11 @@ class SyncWorker {
 public:
     SyncWorker();
     
-    void syncNow();
+    bool syncNow();
 
-    std::vector<std::shared_ptr<Folder>> syncFolders();
+    std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
 
-    void syncFolderFullScan(Folder & folder, IMAPFolderStatus & remoteStatus);
+    bool syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
         
     void syncFolderRange(Folder & folder, Range range);
 
@@ -47,7 +47,7 @@ public:
     
     void fetchRangeInFolder(String * folder, std::string folderId, Range range);
 
-    void syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
+    bool syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
 
     void syncMessageBody(Folder & folder, Message & message);
 };

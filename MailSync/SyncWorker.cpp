@@ -52,13 +52,14 @@ SyncWorker::SyncWorker() :
     store->addObserver(stream);
 }
 
-void SyncWorker::syncNow()
+bool SyncWorker::syncNow()
 {
     // allocated mailcore objects freed when `pool` is removed from the stack.
     // We create pools within sync but they stack so why not..
     AutoreleasePool pool;
+    bool syncAgainImmediately = false;
 
-    vector<shared_ptr<Folder>> folders = syncFolders();
+    vector<shared_ptr<Folder>> folders = syncFoldersAndLabels();
     
     // Identify folders to sync. On Gmail, labels are mapped to IMAP folders and
     // we only want to sync all, spam, and trash.
@@ -84,39 +85,45 @@ void SyncWorker::syncNow()
 
         // Step 1: Check folder UIDValidity
         if (localStatus.empty()) {
+            // We're about to fetch the top N UIDs in the folder and start working backwards in time.
+            // When we eventually finish and start using CONDSTORE, this will be the highestmodseq
+            // from the /oldest/ synced block of UIDs, ensuring we see changes.
+            localStatus["highestmodseq"] = remoteStatus.highestModSeqValue();
             localStatus["uidvalidity"] = remoteStatus.uidValidity();
         }
         if (localStatus["uidvalidity"].get<uint32_t>() != remoteStatus.uidValidity()) {
             throw "blow up the world";
         }
         
-        // Step 2: Decide which sync approach to use.
-        time_t lastDeepScan = localStatus.count("last_deep_scan") ? localStatus["last_deep_scan"].get<time_t>() : 0;
+        // Retrieve all attributes of all messages in the folder. We need to do this initially,
+        // and then we need to do it periodically to find deleted messages.
+        bool fullScanInProgress = syncFolderFullScanIncremental(*folder, remoteStatus);
 
-        if (time(0) - lastDeepScan > TEN_MINUTES) {
-            // Retrieve all attributes of all messages in the folder. We need to do this initially,
-            // and then we need to do it periodically to find deleted messages.
-            syncFolderFullScan(*folder, remoteStatus);
-        } else {
-            // Retrieve all changes to the mailbox if possible. Otherwise, do a shallow sync of
-            // the last N messages.
+        if (fullScanInProgress == false) {
+            // Retrieve CONDSTORE changes to the mailbox if possible.
+            // Otherwise, do a shallow sync of the last N messages.
             if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
                 syncFolderChangesViaCondstore(*folder, remoteStatus);
             } else {
                 syncFolderChangesViaShallowScan(*folder, remoteStatus);
             }
-            
-            // Retrieve some message bodies
-            syncMessageBodies(*folder, remoteStatus);
         }
+
+        // Retrieve some message bodies. We do this concurrently with the full header
+        // scan so the user sees snippets on some messages quickly.
+        bool bodiesInProgress = syncMessageBodies(*folder, remoteStatus);
         
+        syncAgainImmediately = syncAgainImmediately || bodiesInProgress || fullScanInProgress;
+
         store->save(folder.get());
     }
     
     logger->info("Sync loop complete.");
+    
+    return syncAgainImmediately;
 }
 
-vector<shared_ptr<Folder>> SyncWorker::syncFolders()
+vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 {
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
@@ -201,31 +208,46 @@ vector<shared_ptr<Folder>> SyncWorker::syncFolders()
 /*
  Pull down all message attributes in the folder. For each range, compare against our local
  versions to determine 1) new, 2) changed, 3) deleted.
+ 
+ @return True if work was performed, False if finished.
  */
-void SyncWorker::syncFolderFullScan(Folder & folder, IMAPFolderStatus & remoteStatus)
+bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus & remoteStatus)
 {
-    uint32_t chunkSize = 5000;
-    uint32_t uidMax = remoteStatus.uidNext();
-    uint64_t modSeq = remoteStatus.highestModSeqValue();
+    json & ls = folder.localStatus();
+
+    // For condstore accounts, we only do a deep scan once
+    // For other accounts we deep scan every ten minutes to find flag changes / deletions deep in thh folder.
+    uint32_t deepScanMinUID = ls.count("deepScanMinUID") ? ls["deepScanMinUID"].get<uint32_t>() : UINT32_MAX;
+    time_t deepScanTime = ls.count("deepScanTime") ? ls["deepScanTime"].get<time_t>() : 0;
+    bool condstoreSupported = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
+
+    if ((deepScanMinUID == UINT32_MAX) || (!condstoreSupported && (time(0) - deepScanTime > TEN_MINUTES))) {
+        ls["uidnext"] = remoteStatus.uidNext();
+        deepScanMinUID = remoteStatus.uidNext();
+    }
+    
+    if (deepScanMinUID == 1) {
+        return false;
+    }
 
     // The UID value space is sparse, meaning there can be huge gaps where there are no
     // messages. If the folder indicates UIDNext is 100000 but there are only 100 messages,
     // go ahead and fetch them all in one chunk. Otherwise, scan the UID space in chunks,
     // ensuring we never bite off more than we can chew.
+    uint32_t chunkSize = 5000;
+    uint32_t nextMinUID = deepScanMinUID > chunkSize ? deepScanMinUID - chunkSize : 1;
     if (remoteStatus.messageCount() < chunkSize) {
-        syncFolderRange(folder, RangeMake(1, uidMax));
-    } else {
-        while (uidMax > 1) {
-            uint32_t uidMin = uidMax > chunkSize ? uidMax - chunkSize : 1;
-            syncFolderRange(folder, RangeMake(uidMin, uidMax - uidMin));
-            uidMax = uidMin;
-        }
+        nextMinUID = 1;
     }
     
+    syncFolderRange(folder, RangeMake(nextMinUID, deepScanMinUID - nextMinUID));
+
     // The values we /started/ paginating with, unsure if they change behind our back
-    folder.localStatus()["highestmodseq"] = modSeq;
-    folder.localStatus()["uidnext"] = uidMax;
-    folder.localStatus()["last_deep_scan"] = time(0);
+    // As long as deepScanMinId is still > 1, this function will be run again
+    ls["deepScanMinUID"] = nextMinUID;
+    ls["deepScanTime"] = time(0);
+    
+    return true;
 }
 
 /*
@@ -311,7 +333,8 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
     uint64_t modseq = folder.localStatus()["highestmodseq"].get<uint64_t>();
     uint64_t remoteModseq = remoteStatus.highestModSeqValue();
-    
+    uint32_t remoteUIDNext = remoteStatus.uidNext();
+
     if (modseq == remoteModseq) {
         logger->info("Syncing folder {}: highestmodseq matches, no changes.", folder.path());
         return;
@@ -359,10 +382,14 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
         store->remove<Message>(query);
     }
 
+    folder.localStatus()["uidnext"] = remoteUIDNext;
     folder.localStatus()["highestmodseq"] = remoteModseq;
 }
 
-void SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus) {
+/*
+ Syncs the top N missing message bodies. Returns true if it did work, false if it did nothing.
+ */
+bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus) {
     SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.folderId = ? AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 10");
     missing.bind(1, folder.id());
     vector<Message> results{};
@@ -373,6 +400,8 @@ void SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
     for (auto result : results) {
         syncMessageBody(folder, result);
     }
+    
+    return results.size() > 0;
 }
 
 void SyncWorker::syncMessageBody(Folder & folder, Message & message) {
