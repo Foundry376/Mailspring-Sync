@@ -139,10 +139,20 @@ vector<uint32_t> MailUtils::uidsOfIndexSet(IndexSet * set) {
 
 vector<uint32_t> MailUtils::uidsOfArray(Array * array) {
     vector<uint32_t> uids {};
+    uids.reserve(array->count());
     for (int ii = 0; ii < array->count(); ii++) {
         uids.push_back(((IMAPMessage*)array->objectAtIndex(ii))->uid());
     }
     return uids;
+}
+
+vector<string> MailUtils::messageIdsOfArray(Array * array) {
+    vector<string> ids {};
+    ids.reserve(array->count());
+    for (int ii = 0; ii < array->count(); ii++) {
+        ids.push_back(MailUtils::idForMessage((IMAPMessage*)array->objectAtIndex(ii)));
+    }
+    return ids;
 }
 
 string MailUtils::idForFolder(IMAPFolder * folder) {

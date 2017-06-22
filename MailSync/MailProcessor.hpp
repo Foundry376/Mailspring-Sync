@@ -34,6 +34,7 @@ public:
     MailProcessor(MailStore * store);
     void insertMessage(IMAPMessage * mMsg, Folder & folder);
     void updateMessage(Message * local, IMAPMessage * remote, Folder & folder);
+    void unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages);
 
 private:
     void upsertThreadReferences(string threadId, string headerMessageId, Array * references);

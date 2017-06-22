@@ -34,6 +34,7 @@ public:
   
     static vector<uint32_t> uidsOfArray(Array * array);
     static vector<uint32_t> uidsOfIndexSet(IndexSet * set);
+    static vector<string> messageIdsOfArray(Array * array);
 
     static string roleForFolder(IMAPFolder * folder);
     static string idForFolder(IMAPFolder * folder);

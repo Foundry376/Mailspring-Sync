@@ -31,6 +31,8 @@ public:
     Message(mailcore::IMAPMessage * msg, Folder & folder);
     Message(SQLite::Statement & query);
     
+    // mutable attributes
+
     bool isUnread();
     void setUnread(bool u);
 
@@ -46,6 +48,14 @@ public:
     json & folderImapXGMLabels();
     void setFolderImapXGMLabels(json & labels);
 
+    uint32_t folderImapUID();
+    void setFolderImapUID(uint32_t v);
+
+    json folder();
+    void setFolder(Folder & folder);
+
+    // immutable attributes
+
     json & to();
     json & cc();
     json & bcc();
@@ -53,8 +63,6 @@ public:
     
     time_t date();
     string subject();
-    uint32_t folderImapUID();
-    json folder();
     string folderId();
     string gMsgId();
     string headerMessageId();
