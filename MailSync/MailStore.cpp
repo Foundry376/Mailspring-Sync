@@ -45,6 +45,8 @@ bool MessageAttributesMatch(MessageAttributes a, MessageAttributes b) {
 
 MailStore::MailStore() :
     _db("/Users/bengotow/.nylas-dev/edgehill.db", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE),
+    _stmtBeginTransaction(_db, "BEGIN IMMEDIATE TRANSACTION"),
+    _stmtCommitTransaction(_db, "COMMIT"),
     _labelCacheInvalid(true),
     _labelCache()
 {
@@ -185,6 +187,16 @@ vector<shared_ptr<Label>> MailStore::allLabelsCache() {
         _labelCacheInvalid = false;
     }
     return _labelCache;
+}
+
+void MailStore::beginTransaction() {
+    _stmtBeginTransaction.exec();
+    _stmtBeginTransaction.reset();
+}
+
+void MailStore::commitTransaction() {
+    _stmtCommitTransaction.exec();
+    _stmtCommitTransaction.reset();
 }
 
 void MailStore::save(MailModel * model) {

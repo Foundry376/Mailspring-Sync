@@ -45,6 +45,8 @@ public:
 
 class MailStore {
     SQLite::Database _db;
+    SQLite::Statement _stmtBeginTransaction;
+    SQLite::Statement _stmtCommitTransaction;
     vector<MailStoreObserver*> _observers;
     vector<shared_ptr<Label>> _labelCache;
     bool _labelCacheInvalid;
@@ -53,7 +55,11 @@ public:
     MailStore();
     
     SQLite::Database & db();
-    
+
+    void beginTransaction();
+
+    void commitTransaction();
+
     void save(MailModel * model);
 
     uint32_t fetchMessageUIDAtDepth(Folder & folder, int depth, int before = UINT32_MAX);
