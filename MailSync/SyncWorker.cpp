@@ -235,7 +235,7 @@ bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus
     // messages. If the folder indicates UIDNext is 100000 but there are only 100 messages,
     // go ahead and fetch them all in one chunk. Otherwise, scan the UID space in chunks,
     // ensuring we never bite off more than we can chew.
-    uint32_t chunkSize = 5000;
+    uint32_t chunkSize = 500; // TODO WORK AROUND SQLITE_MAX_VARIABLE_NUMBER
     uint32_t nextMinUID = deepScanMinUID > chunkSize ? deepScanMinUID - chunkSize : 1;
     if (remoteStatus.messageCount() < chunkSize) {
         nextMinUID = 1;
