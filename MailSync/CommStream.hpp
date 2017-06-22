@@ -22,7 +22,7 @@ public:
     CommStream(char * socket_path);
     ~CommStream();
 
-    void sendJSON(json msg);
+    void sendJSON(json & msg);
 
     void didPersistModel(MailModel * model);
     void didUnpersistModel(MailModel * model);

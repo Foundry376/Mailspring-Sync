@@ -53,27 +53,37 @@ CommStream::~CommStream() {
     close(_socket);
 }
 
-void CommStream::sendJSON(json msgJSON) {
-    const char * chars = msgJSON.dump().c_str();
+void CommStream::sendJSON(json & msgJSON) {
+    std::string str = msgJSON.dump() + "\n";
+    const char * chars = str.c_str();
 
-    if (send(_socket, chars, strlen(chars), 0) == -1) {
-        perror("send");
-        exit(1);
+    size_t total = 0;
+    size_t length = strlen(chars);
+    while (total < strlen(chars)) {
+        ssize_t n = send(_socket, chars + total, length, 0);
+        if (n < 0) {
+            perror("send");
+            exit(1);
+        }
+        total += n;
+        length -= n;
     }
 }
 
 void CommStream::didPersistModel(MailModel * model) {
     json msg = {
-        {"event", "persist"},
-        {"model", model->toJSON()},
+        {"type", "persist"},
+        {"objectClass", model->tableName()},
+        {"object", model->toJSON()},
     };
     sendJSON(msg);
 }
 
 void CommStream::didUnpersistModel(MailModel * model) {
     json msg = {
-        {"event", "unpersist"},
-        {"model", model->toJSON()},
+        {"type", "unpersist"},
+        {"objectClass", model->tableName()},
+        {"object", model->toJSON()},
     };
     sendJSON(msg);
 }

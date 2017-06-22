@@ -10,6 +10,7 @@
 #include <SQLiteCpp/SQLiteCpp.h>
 
 #include "json.hpp"
+#include "MailUtils.hpp"
 
 using json = nlohmann::json;
 using namespace std;
@@ -50,12 +51,7 @@ string Query::sql() {
                     result += "0 = 1";
                     continue;
                 }
-                string qmarks{"?,"};
-                for (int i = 1; i < it.value().size(); i ++) {
-                    qmarks = qmarks + "?,";
-                }
-                qmarks.pop_back();
-                result += it.key() + " IN (" + qmarks + ")";
+                result += it.key() + " IN (" + MailUtils::qmarks(it.value().size()) + ")";
             } else {
                 result += it.key() + " = ?";
             }

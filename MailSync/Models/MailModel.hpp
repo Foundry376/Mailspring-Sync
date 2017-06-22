@@ -22,18 +22,14 @@ using json = nlohmann::json;
 using namespace std;
 
 class MailModel {
-protected:
-    string _id;
-    string _accountId;
-    string _data;
-    int _version;
-    
 public:
+    json _data;
     static string TABLE_NAME;
     virtual string tableName();
 
     MailModel(string id, string accountId, int version);
     MailModel(SQLite::Statement & query);
+    MailModel(json json);
     
     string id();
     string accountId();
@@ -41,7 +37,9 @@ public:
     void incrementVersion();
 
     virtual void bindToQuery(SQLite::Statement & query);
-
+    
+    virtual void writeAssociations(SQLite::Database & db);
+    
     virtual vector<string> columnsForQuery() = 0;
 
     virtual json toJSON();

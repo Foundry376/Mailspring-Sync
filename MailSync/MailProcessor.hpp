@@ -34,7 +34,10 @@ public:
     MailProcessor(MailStore * store);
     void insertMessage(IMAPMessage * mMsg, Folder & folder);
     void updateMessage(Message * local, IMAPMessage * remote, Folder & folder);
+
+private:
     void upsertThreadReferences(string threadId, string headerMessageId, Array * references);
+    shared_ptr<Label> labelForXGMLabelName(string mlname);
 };
 
 #endif /* MailProcessor_hpp */

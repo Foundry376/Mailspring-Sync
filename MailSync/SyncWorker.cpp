@@ -10,9 +10,11 @@
 #include "SyncWorker.hpp"
 #include "MailUtils.hpp"
 #include "Folder.hpp"
-
+#include "Label.hpp"
 
 #define AS_MCSTR(X)         mailcore::String(X.c_str())
+#define KIND_ALL_HEADERS    (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID)
+#define TEN_MINUTES         60 * 10
 
 using namespace mailcore;
 using namespace std;
@@ -36,9 +38,14 @@ SyncWorker::SyncWorker() :
     processor(new MailProcessor(store)),
     session(IMAPSession())
 {
-    session.setUsername(MCSTR("cypresstest@yahoo.com"));
-    session.setPassword(MCSTR("IHate2Gmail"));
-    session.setHostname(MCSTR("imap.mail.yahoo.com"));
+//    session.setUsername(MCSTR("cypresstest@yahoo.com"));
+//    session.setPassword(MCSTR("IHate2Gmail"));
+//    session.setHostname(MCSTR("imap.mail.yahoo.com"));
+//    session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+//    session.setPort(993);
+    session.setUsername(MCSTR("bengotow@gmail.com"));
+    session.setPassword(MCSTR("akvaiewqwhdzcgmbh"));
+    session.setHostname(MCSTR("imap.gmail.com"));
     session.setConnectionType(ConnectionType::ConnectionTypeTLS);
     session.setPort(993);
     
@@ -47,7 +54,22 @@ SyncWorker::SyncWorker() :
 
 void SyncWorker::syncNow()
 {
+    // allocated mailcore objects freed when `pool` is removed from the stack.
+    // We create pools within sync but they stack so why not..
+    AutoreleasePool pool;
+
     vector<shared_ptr<Folder>> folders = syncFolders();
+    
+    // Identify folders to sync. On Gmail, labels are mapped to IMAP folders and
+    // we only want to sync all, spam, and trash.
+    
+    array<string, 7> roleOrder{"inbox", "sent", "drafts", "all", "archive", "trash", "spam"};
+    sort(folders.begin(), folders.end(), [&roleOrder](const shared_ptr<Folder> lhs, const shared_ptr<Folder> rhs) {
+        ptrdiff_t lhsRank = find(roleOrder.begin(), roleOrder.end(), lhs->role()) - roleOrder.begin();
+        ptrdiff_t rhsRank = find(roleOrder.begin(), roleOrder.end(), rhs->role()) - roleOrder.begin();
+        return lhsRank < rhsRank;
+    });
+
     
     for (auto & folder : folders) {
         json & localStatus = folder->localStatus();
@@ -71,7 +93,7 @@ void SyncWorker::syncNow()
         // Step 2: Decide which sync approach to use.
         time_t lastDeepScan = localStatus.count("last_deep_scan") ? localStatus["last_deep_scan"].get<time_t>() : 0;
 
-        if (time(0) - lastDeepScan > 5000) {
+        if (time(0) - lastDeepScan > TEN_MINUTES) {
             // Retrieve all attributes of all messages in the folder. We need to do this initially,
             // and then we need to do it periodically to find deleted messages.
             syncFolderFullScan(*folder, remoteStatus);
@@ -81,8 +103,11 @@ void SyncWorker::syncNow()
             if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
                 syncFolderChangesViaCondstore(*folder, remoteStatus);
             } else {
-                syncFolderShallow(*folder, remoteStatus);
+                syncFolderChangesViaShallowScan(*folder, remoteStatus);
             }
+            
+            // Retrieve some message bodies
+            syncMessageBodies(*folder, remoteStatus);
         }
         
         store->save(folder.get());
@@ -93,57 +118,83 @@ void SyncWorker::syncNow()
 
 vector<shared_ptr<Folder>> SyncWorker::syncFolders()
 {
+    // allocated mailcore objects freed when `pool` is removed from the stack
+    AutoreleasePool pool;
+
     logger->info("Syncing folder list...");
     
     ErrorCode err = ErrorCode::ErrorNone;
-    Array * results = session.fetchAllFolders(&err);
+    Array * remoteFolders = session.fetchAllFolders(&err);
     if (err) {
-        logger->error("Could not fetch folder list. ", err);
+        logger->error("Could not fetch folder list. IMAP Error Occurred: {}", err);
         throw "syncFolders: An error occurred. ";
+    }
+    
+    // Look through the folders for a Gmail /all folder
+    bool allFolderPresent = false;
+    for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+        IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+        string remoteRole = MailUtils::roleForFolder(remote);
+        if (remoteRole == "all") {
+            allFolderPresent = true;
+            break;
+        }
     }
     
     Query q = Query();
     auto allLocalFolders = store->findAllMap<Folder>(q, "id");
-
-    vector<shared_ptr<Folder>> collected{};
+    auto allLocalLabels = store->findAllMap<Label>(q, "id");
+    vector<shared_ptr<Folder>> foldersToSync{};
     
-    for (int ii = results->count() - 1; ii >= 0; ii--) {
-        IMAPFolder * remoteFolder = (IMAPFolder *)results->objectAtIndex(ii);
-        if (remoteFolder->flags() & IMAPFolderFlagNoSelect) {
-            results->removeObjectAtIndex(ii);
+    for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+        IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+        if (remote->flags() & IMAPFolderFlagNoSelect) {
+            remoteFolders->removeObjectAtIndex(ii);
             continue;
         }
 
-        string remoteId = MailUtils::idForFolder(remoteFolder);
-        string remoteRole = MailUtils::roleForFolder(remoteFolder);
-        string remotePath = remoteFolder->path()->UTF8Characters();
+        string remoteRole = MailUtils::roleForFolder(remote);
+        string remoteId = MailUtils::idForFolder(remote);
+        string remotePath = remote->path()->UTF8Characters();
         
-        shared_ptr<Folder> localFolder;
-        if (allLocalFolders.count(remoteId) > 0) {
-            localFolder = allLocalFolders[remoteId];
-            
-            if ((localFolder->role() != remoteRole) || (localFolder->role() != remoteRole)) {
-                localFolder->setPath(remotePath);
-                localFolder->setRole(remoteRole);
-                store->save(localFolder.get());
+        shared_ptr<Folder> local;
+        
+        if (allFolderPresent && (remoteRole != "all") && (remoteRole != "spam") && (remoteRole != "trash")) {
+            // Treat as a label
+            if (allLocalLabels.count(remoteId) > 0) {
+                local = allLocalLabels[remoteId];
+                allLocalLabels.erase(remoteId);
+            } else {
+                local = make_shared<Label>(Label(remoteId, "1", 0));
             }
+
         } else {
-            localFolder = make_shared<Folder>(Folder(remoteId, "1", 0));
-            localFolder->setPath(remotePath);
-            localFolder->setRole(remoteRole);
-            store->save(localFolder.get());
+            // Treat as a folder
+            if (allLocalFolders.count(remoteId) > 0) {
+                local = allLocalFolders[remoteId];
+                allLocalFolders.erase(remoteId);
+            } else {
+                local = make_shared<Folder>(Folder(remoteId, "1", 0));
+            }
+            foldersToSync.push_back(local);
         }
         
-        collected.push_back(localFolder);
-        allLocalFolders.erase(remoteId);
+        if ((local->role() != remoteRole) || (local->path() != remotePath)) {
+            local->setPath(remotePath);
+            local->setRole(remoteRole);
+            store->save(local.get());
+        }
     }
     
-    // delete any folders no longer present on the remote
+    // delete any folders / labels no longer present on the remote
     for (auto const item : allLocalFolders) {
         store->remove(item.second.get());
     }
+    for (auto const item : allLocalLabels) {
+        store->remove(item.second.get());
+    }
     
-    return collected;
+    return foldersToSync;
 }
 
 
@@ -153,7 +204,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFolders()
  */
 void SyncWorker::syncFolderFullScan(Folder & folder, IMAPFolderStatus & remoteStatus)
 {
-    uint32_t chunkSize = 10000;
+    uint32_t chunkSize = 5000;
     uint32_t uidMax = remoteStatus.uidNext();
     uint64_t modSeq = remoteStatus.highestModSeqValue();
 
@@ -181,7 +232,7 @@ void SyncWorker::syncFolderFullScan(Folder & folder, IMAPFolderStatus & remoteSt
  Pull down just the most recent N messages in the folder, where N is from the current
  UIDNext of the folder down to the 500th message we previously synced.
  */
-void SyncWorker::syncFolderShallow(Folder & folder, IMAPFolderStatus & remoteStatus)
+void SyncWorker::syncFolderChangesViaShallowScan(Folder & folder, IMAPFolderStatus & remoteStatus)
 {    
     int uidStart = store->fetchMessageUIDAtDepth(folder, 499);
     int uidNext = remoteStatus.uidNext();
@@ -191,18 +242,20 @@ void SyncWorker::syncFolderShallow(Folder & folder, IMAPFolderStatus & remoteSta
 
 void SyncWorker::syncFolderRange(Folder & folder, Range range)
 {
+    // allocated mailcore objects freed when `pool` is removed from the stack
+    AutoreleasePool pool;
+    
     logger->info("Syncing folder {} (UIDS {} - {})", folder.path(), range.location, range.location + range.length);
     
-    IMAPMessagesRequestKind kind = (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
     IndexSet * set = IndexSet::indexSetWithRange(range);
     IMAPProgressCallback * cb = new Progress();
 
     // Step 1: Fetch the remote UID range
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(folder.path()));
-    Array * remote = session.fetchMessagesByUID(&path, kind, set, cb, &err);
+    Array * remote = session.fetchMessagesByUID(&path, KIND_ALL_HEADERS, set, cb, &err);
     if (err) {
-        logger->error("Could not fetch messages in folder.", err);
+        logger->error("IMAP Error Occurred: {}", err);
         return;
     }
 
@@ -210,7 +263,7 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
     map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(range, folder));
     vector<uint32_t> localUIDsModified {};
     
-    for (int ii = 0; ii < remote->count(); ii++) {
+    for (int ii = remote->count() - 1; ii >= 0; ii--) {
         IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
         uint32_t remoteUID = remoteMsg->uid();
 
@@ -253,6 +306,9 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
 
 void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus)
 {
+    // allocated mailcore objects freed when `pool` is removed from the stack
+    AutoreleasePool pool;
+
     uint64_t modseq = folder.localStatus()["highestmodseq"].get<uint64_t>();
     uint64_t remoteModseq = remoteStatus.highestModSeqValue();
     
@@ -263,13 +319,16 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
     logger->info("Syncing folder {}: highestmodseq changed, requesting changes...", folder.path());
     
-    IMAPMessagesRequestKind kind = (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
     IndexSet * uids = IndexSet::indexSetWithRange(RangeMake(1, UINT64_MAX));
     IMAPProgressCallback * cb = new Progress();
 
     ErrorCode err = ErrorCode::ErrorNone;
     String path(AS_MCSTR(folder.path()));
-    IMAPSyncResult * result = session.syncMessagesByUID(&path, kind, uids, modseq, cb, &err);
+    IMAPSyncResult * result = session.syncMessagesByUID(&path, KIND_ALL_HEADERS, uids, modseq, cb, &err);
+    if (err != ErrorCode::ErrorNone) {
+        logger->error("IMAP Error Occurred: {}", err);
+        return;
+    }
 
     // for modified messages, fetch local copy and apply changes
     Array * modified = result->modifiedOrAddedMessages();
@@ -303,4 +362,43 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     folder.localStatus()["highestmodseq"] = remoteModseq;
 }
 
+void SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus) {
+    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.folderId = ? AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 10");
+    missing.bind(1, folder.id());
+    vector<Message> results{};
+    while (missing.executeStep()) {
+        results.push_back(Message(missing));
+    }
+    
+    for (auto result : results) {
+        syncMessageBody(folder, result);
+    }
+}
 
+void SyncWorker::syncMessageBody(Folder & folder, Message & message) {
+    // allocated mailcore objects freed when `pool` is removed from the stack
+    AutoreleasePool pool;
+    
+    IMAPProgressCallback * cb = new Progress();
+    ErrorCode err = ErrorCode::ErrorNone;
+    String path(AS_MCSTR(folder.path()));
+    
+    Data * data = session.fetchMessageByUID(&path, message.folderImapUID(), cb, &err);
+    if (err) {
+        logger->error("IMAP Error Occurred: {}", err);
+        return;
+    }
+    MessageParser * messageParser = MessageParser::messageParserWithData(data);
+    String * text = messageParser->plainTextBodyRendering(true);
+    String * html = messageParser->htmlBodyRendering();
+
+    // write it to the MessageBodies table
+    SQLite::Statement insert(store->db(), "INSERT INTO MessageBody (id, value) VALUES (?, ?)");
+    insert.bind(1, message.id());
+    insert.bind(2, html->UTF8Characters());
+    insert.exec();
+    
+    // write the message snippet. This also gives us the database trigger!
+    message.setSnippet(text->substringToIndex(400)->UTF8Characters());
+    store->save(&message);
+}

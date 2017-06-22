@@ -28,6 +28,7 @@
 		4364899B1EF335A9007816EC /* CommStream.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489991EF335A9007816EC /* CommStream.cpp */; };
 		436489A01EF35572007816EC /* SyncWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4364899E1EF35572007816EC /* SyncWorker.cpp */; };
 		43CA94161EF9E610006685D0 /* MailProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA94141EF9E610006685D0 /* MailProcessor.cpp */; };
+		43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA941E1EFB9E88006685D0 /* Label.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -145,6 +146,8 @@
 		4364899F1EF35572007816EC /* SyncWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = SyncWorker.hpp; sourceTree = "<group>"; };
 		43CA94141EF9E610006685D0 /* MailProcessor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MailProcessor.cpp; sourceTree = "<group>"; };
 		43CA94151EF9E610006685D0 /* MailProcessor.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MailProcessor.hpp; sourceTree = "<group>"; };
+		43CA941E1EFB9E88006685D0 /* Label.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Label.cpp; sourceTree = "<group>"; };
+		43CA94201EFB9E8C006685D0 /* Label.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Label.hpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -169,6 +172,8 @@
 				43167F0A1EF5F5C100D8E282 /* Thread.cpp */,
 				43167F0F1EF5F6C700D8E282 /* Folder.hpp */,
 				43167F0E1EF5F6C700D8E282 /* Folder.cpp */,
+				43CA94201EFB9E8C006685D0 /* Label.hpp */,
+				43CA941E1EFB9E88006685D0 /* Label.cpp */,
 				43167F081EF5F59E00D8E282 /* Message.hpp */,
 				43167F071EF5F59E00D8E282 /* Message.cpp */,
 			);
@@ -401,6 +406,7 @@
 				43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */,
 				4364898A1EF2F905007816EC /* Database.cpp in Sources */,
 				43167F0C1EF5F5C100D8E282 /* Thread.cpp in Sources */,
+				43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */,
 				4364898C1EF2F905007816EC /* Statement.cpp in Sources */,
 				4364898B1EF2F905007816EC /* Exception.cpp in Sources */,
 				4364898D1EF2F905007816EC /* Transaction.cpp in Sources */,
@@ -518,6 +524,10 @@
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
 				);
+				OTHER_CPLUSPLUSFLAGS = (
+					"$(OTHER_CFLAGS)",
+					"-fno-inline",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -529,6 +539,10 @@
 				HEADER_SEARCH_PATHS = (
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
+				);
+				OTHER_CPLUSPLUSFLAGS = (
+					"$(OTHER_CFLAGS)",
+					"-fno-inline",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
