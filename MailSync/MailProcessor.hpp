@@ -31,7 +31,7 @@ class MailProcessor {
     shared_ptr<spdlog::logger> logger;
 
 public:
-    MailProcessor(MailStore * store);
+    MailProcessor(string name, MailStore * store);
     void insertMessage(IMAPMessage * mMsg, Folder & folder);
     void updateMessage(Message * local, IMAPMessage * remote, Folder & folder);
     void unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages);

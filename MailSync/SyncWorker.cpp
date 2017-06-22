@@ -31,11 +31,11 @@ public:
 };
 
 
-SyncWorker::SyncWorker() :
+SyncWorker::SyncWorker(string name, CommStream * stream) :
     store(new MailStore()),
-    stream(new CommStream((char *)"/tmp/cmail.sock")),
-    logger(spdlog::stdout_color_mt("console")),
-    processor(new MailProcessor(store)),
+    stream(stream),
+    logger(spdlog::stdout_color_mt(name)),
+    processor(new MailProcessor(name + "_p", store)),
     session(IMAPSession())
 {
 //    session.setUsername(MCSTR("cypresstest@yahoo.com"));
@@ -50,6 +50,59 @@ SyncWorker::SyncWorker() :
     session.setPort(993);
     
     store->addObserver(stream);
+}
+
+void SyncWorker::idleInterrupt()
+{
+    session.interruptIdle();
+}
+
+void SyncWorker::idleOnInbox()
+{
+    Query q = Query().equal("role", "inbox");
+    auto inbox = store->find<Folder>(q);
+    if (inbox.get() == nullptr) {
+        Query q = Query().equal("role", "all");
+        inbox = store->find<Folder>(q);
+        if (inbox.get() == nullptr) {
+            throw "No inbox to idle on!";
+        }
+    }
+
+    ErrorCode err = ErrorCode::ErrorNone;
+    session.connectIfNeeded(&err);
+    if (err != ErrorCode::ErrorNone) {
+        throw err;
+    }
+
+    if (session.setupIdle()) {
+        logger->info("Idling on folder {}", inbox->path());
+        String path = AS_MCSTR(inbox->path());
+        session.idle(&path, 0, &err);
+        session.unsetupIdle();
+        logger->info("Idle exited with code {}", err);
+    }
+    
+    // We might have mail! Check ASAP.
+
+    auto refreshedFolders = syncFoldersAndLabels();
+    q = Query().equal("id", inbox->id());
+    inbox = store->find<Folder>(q);
+    if (inbox.get() == nullptr) {
+        logger->error("Idling folder has disappeared? That's weird...");
+        return;
+    }
+
+    String path = AS_MCSTR(inbox->path());
+    IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
+    if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
+        syncFolderChangesViaCondstore(*inbox, remoteStatus);
+    } else {
+        syncFolderChangesViaShallowScan(*inbox, remoteStatus);
+    }
+    
+    // Run some tasks
+    
 }
 
 bool SyncWorker::syncNow()

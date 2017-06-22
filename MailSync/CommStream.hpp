@@ -23,9 +23,13 @@ public:
     ~CommStream();
 
     void sendJSON(json & msg);
+    json waitForJSON();
 
     void didPersistModel(MailModel * model);
     void didUnpersistModel(MailModel * model);
+    
+private:
+    void readXBytes(unsigned int x, void* buffer);
 };
 
 #endif /* CommStream_hpp */

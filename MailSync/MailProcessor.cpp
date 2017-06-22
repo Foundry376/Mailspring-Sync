@@ -12,9 +12,9 @@
 using namespace std;
 using nlohmann::json;
 
-MailProcessor::MailProcessor(MailStore * store) :
+MailProcessor::MailProcessor(string name, MailStore * store) :
     store(store),
-    logger(spdlog::stdout_color_mt("processor"))
+    logger(spdlog::stdout_color_mt(name))
 {
 
 }

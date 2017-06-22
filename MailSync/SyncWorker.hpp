@@ -31,10 +31,13 @@ class SyncWorker {
     std::shared_ptr<spdlog::logger> logger;
     
 public:
-    SyncWorker();
+    SyncWorker(string name, CommStream * stream);
     
     bool syncNow();
 
+    void idleInterrupt();
+    void idleOnInbox();
+    
     std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
 
     bool syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
