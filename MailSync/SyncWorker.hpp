@@ -36,7 +36,7 @@ public:
     bool syncNow();
 
     void idleInterrupt();
-    void idleOnInbox();
+    void idleCycle();
     
     std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
 

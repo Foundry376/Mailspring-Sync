@@ -6,38 +6,40 @@
 //  Copyright © 2017 Foundry 376. All rights reserved.
 //
 
-#ifndef Folder_hpp
-#define Folder_hpp
+#ifndef Task_hpp
+#define Task_hpp
 
 #include <stdio.h>
 #include <string>
 #include "json.hpp"
+#include "spdlog/spdlog.h"
 
 #include "MailModel.hpp"
+#include "MailStore.hpp"
+#include <MailCore/MailCore.h>
 
 using json = nlohmann::json;
 using namespace std;
+using namespace mailcore;
 
-class Folder : public MailModel {
+class Task : public MailModel {
+    MailStore * store;
+    shared_ptr<spdlog::logger> logger;
     
 public:
     static string TABLE_NAME;
 
-    Folder(json & json);
-    Folder(string id, string accountId, int version);
-    Folder(SQLite::Statement & query);
-
-    json & localStatus();
-    
-    string path();
-    void setPath(string path);
-    
-    string role() const;
-    void setRole(string role);
+    Task(json json);
+    Task(SQLite::Statement & query);
   
+    json & data();
     string tableName();
+    string constructorName();
+    string status();
+    void setStatus(string s);
+
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
 };
 
-#endif /* Folder_hpp */
+#endif /* Task_hpp */

@@ -55,13 +55,13 @@ CommStream::~CommStream() {
 
 void CommStream::readXBytes(unsigned int x, void* buffer)
 {
-    int bytesRead = 0;
-    int result;
+    ssize_t bytesRead = 0;
+    ssize_t result;
     while (bytesRead < x) {
         result = read(_socket, (char *)buffer + bytesRead, x - bytesRead);
         if (result < 1) {
             perror("read");
-            exit(1);
+            throw "read interrupted";
         }
         
         bytesRead += result;
@@ -69,18 +69,23 @@ void CommStream::readXBytes(unsigned int x, void* buffer)
 }
 
 json CommStream::waitForJSON() {
-    unsigned int length = 0;
-    char* buffer = 0;
+    try {
+        unsigned int length = 0;
+        char* buffer = 0;
 
-    // we assume that sizeof(length) will return 4 here.
-    readXBytes(sizeof(length), (void*)(&length));
-    buffer = new char[length];
-    readXBytes(length, (void*)buffer);
-    
-    // Then process the data as needed.
-    json j = json::parse(buffer);
-    delete [] buffer;
-    return j;
+        // we assume that sizeof(length) will return 4 here.
+        readXBytes(sizeof(length), (void*)(&length));
+        buffer = new char[length + 1];
+        buffer[length] = '\0';
+        readXBytes(length, (void*)buffer);
+        
+        // Then process the data as needed.
+        json j = json::parse(buffer);
+        delete [] buffer;
+        return j;
+    } catch (char const * e) {
+        return {};
+    }
 }
 
 void CommStream::sendJSON(json & msgJSON) {

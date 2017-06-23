@@ -146,7 +146,7 @@ static std::vector<std::string> SETUP_QUERIES = {
     
     "CREATE TABLE IF NOT EXISTS `ProviderSyncbackRequest` (id TEXT PRIMARY KEY, data BLOB, accountId TEXT, type TEXT)",
     
-    "CREATE TABLE IF NOT EXISTS `Task` (id TEXT PRIMARY KEY, data BLOB, accountId TEXT)",
+    "CREATE TABLE IF NOT EXISTS `Task` (id TEXT PRIMARY KEY, version INTEGER, data BLOB, accountId TEXT, status VARCHAR(255))",
 };
 
 

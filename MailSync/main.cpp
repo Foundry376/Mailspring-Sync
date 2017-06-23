@@ -17,7 +17,8 @@
 #include "MailStore.hpp"
 #include "CommStream.hpp"
 #include "SyncWorker.hpp"
-
+#include "Task.hpp"
+#include "TaskProcessor.hpp"
 
 using json = nlohmann::json;
 
@@ -25,23 +26,59 @@ CommStream * stream = nullptr;
 SyncWorker * bgWorker = nullptr;
 SyncWorker * fgWorker = nullptr;
 
+
+void runForegroundSyncWorker() {
+    while(true) {
+        // run tasks, sync changes, idle, repeat
+        fgWorker->idleCycle();
+    }
+}
+
 void runBackgroundSyncWorker() {
+    bool firstLoop = true;
+    std::thread * foreground = nullptr;
     
     while(true) {
         // run in a hard loop until it returns false, indicating continuation
         // is not necessary. Then sync and sleep for a bit. Interval can be long
         // because we're idling in another thread.
-        while(bgWorker->syncNow()) {}
+        bool moreToSync = true;
+        while(moreToSync) {
+            moreToSync = bgWorker->syncNow();
+
+            // start the "foreground" idle worker after we've completed a single
+            // pass through all the folders. This ensures we have the folder list
+            // and the uidnext / highestmodseq etc are populated.
+            if (firstLoop) {
+                foreground = new std::thread(runForegroundSyncWorker);
+                firstLoop = false;
+            }
+        }
         sleep(120);
     }
 }
 
-void runForegroundSyncWorker() {
-    fgWorker->idleOnInbox();
-}
+void runMainThread() {
+    auto logger = spdlog::stdout_color_mt("main");
 
-void onClientMessage() {
+    MailStore store;
+    store.addObserver(stream);
     
+    TaskProcessor processor{&store, logger, nullptr};
+    
+    while(true) {
+        json packet = stream->waitForJSON();
+        
+        if (packet.count("type") && packet["type"].get<string>() == "task-queued") {
+            packet["task"]["version"] = 0;
+
+            Task task{packet["task"]};
+            processor.performLocal(&task);
+        }
+        
+        // interrupt the foreground sync worker to do the remote part of the task
+        fgWorker->idleInterrupt();
+    }
 }
 
 int main(int argc, const char * argv[]) {
@@ -51,17 +88,8 @@ int main(int argc, const char * argv[]) {
     bgWorker = new SyncWorker("bg", stream);
     fgWorker = new SyncWorker("fg", stream);
 
-//    std::thread t1(runBackgroundSyncWorker);
-    
-    std::thread t2(runForegroundSyncWorker);
-    
-    while(true) {
-        json packet = stream->waitForJSON();
-        fgWorker->idleInterrupt();
-    }
-
-    //    t1.join();
-    t2.join();
+    std::thread t1(runForegroundSyncWorker); // SHOUDL BE BACKGROUND
+    runMainThread();
     
     return 0;
 }

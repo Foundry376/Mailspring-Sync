@@ -13,6 +13,10 @@ using namespace std;
 
 string Folder::TABLE_NAME = "Folder";
 
+Folder::Folder(json & json) : MailModel(json) {
+    
+}
+
 Folder::Folder(string id, string accountId, int version) :
     MailModel(id, accountId, version)
 {

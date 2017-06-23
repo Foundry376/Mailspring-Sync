@@ -72,6 +72,8 @@ void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
 // when message is moved, subtract + add to folder ref counts?
 // keep in JSON?
 
+// TODO: The JS side is clearing attributes placed in the JSON by the native side. Not cool
+
 void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder)
 {
     logger->info("🔸 Updating message with subject: {}", local->subject());
