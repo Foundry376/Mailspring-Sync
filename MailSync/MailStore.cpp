@@ -51,6 +51,8 @@ MailStore::MailStore() :
     _labelCacheInvalid(true),
     _labelCache()
 {
+    _db.setBusyTimeout(10 * 1000);
+    
     for (string sql : SETUP_QUERIES) {
         SQLite::Statement(_db, sql).exec();
     }

@@ -11,6 +11,8 @@
 #include "MailUtils.hpp"
 #include "Folder.hpp"
 #include "Label.hpp"
+#include "Task.hpp"
+#include "TaskProcessor.hpp"
 
 #define AS_MCSTR(X)         mailcore::String(X.c_str())
 #define KIND_ALL_HEADERS    (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID)
@@ -57,15 +59,25 @@ void SyncWorker::idleInterrupt()
     session.interruptIdle();
 }
 
-void SyncWorker::idleOnInbox()
+void SyncWorker::idleCycle()
 {
-    Query q = Query().equal("role", "inbox");
+    // Run any tasks ready for performRemote
+
+    Query q = Query().equal("status", "remote");
+    auto tasks = store->findAll<Task>(q);
+    TaskProcessor processor { store, logger, &session };
+    for (const auto task : tasks) {
+        processor.performRemote(task.get());
+    }
+
+    q = Query().equal("role", "inbox");
     auto inbox = store->find<Folder>(q);
     if (inbox.get() == nullptr) {
         Query q = Query().equal("role", "all");
         inbox = store->find<Folder>(q);
         if (inbox.get() == nullptr) {
-            throw "No inbox to idle on!";
+            logger->error("No inbox to idle on!");
+            return;
         }
     }
 
@@ -75,16 +87,8 @@ void SyncWorker::idleOnInbox()
         throw err;
     }
 
-    if (session.setupIdle()) {
-        logger->info("Idling on folder {}", inbox->path());
-        String path = AS_MCSTR(inbox->path());
-        session.idle(&path, 0, &err);
-        session.unsetupIdle();
-        logger->info("Idle exited with code {}", err);
-    }
+    // Check for mail in the folder
     
-    // We might have mail! Check ASAP.
-
     auto refreshedFolders = syncFoldersAndLabels();
     q = Query().equal("id", inbox->id());
     inbox = store->find<Folder>(q);
@@ -101,9 +105,18 @@ void SyncWorker::idleOnInbox()
         syncFolderChangesViaShallowScan(*inbox, remoteStatus);
     }
     
-    // Run some tasks
+    // Idle on the folder
     
+    if (session.setupIdle()) {
+        logger->info("Idling on folder {}", inbox->path());
+        String path = AS_MCSTR(inbox->path());
+        session.idle(&path, 0, &err);
+        session.unsetupIdle();
+        logger->info("Idle exited with code {}", err);
+    }
 }
+
+// Background Behaviors
 
 bool SyncWorker::syncNow()
 {

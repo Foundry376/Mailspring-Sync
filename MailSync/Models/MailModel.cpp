@@ -55,7 +55,10 @@ string MailModel::tableName()
 
 json MailModel::toJSON()
 {
-    _data["__constructorName"] = this->tableName();
+    // note: do not override for Task!
+    if (!_data.count("__constructorName")) {
+        _data["__constructorName"] = this->tableName();
+    }
     return _data;
 }
 

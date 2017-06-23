@@ -29,6 +29,8 @@
 		436489A01EF35572007816EC /* SyncWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4364899E1EF35572007816EC /* SyncWorker.cpp */; };
 		43CA94161EF9E610006685D0 /* MailProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA94141EF9E610006685D0 /* MailProcessor.cpp */; };
 		43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA941E1EFB9E88006685D0 /* Label.cpp */; };
+		43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED31EFCEB6F0046589B /* Task.cpp */; };
+		43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -148,6 +150,10 @@
 		43CA94151EF9E610006685D0 /* MailProcessor.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MailProcessor.hpp; sourceTree = "<group>"; };
 		43CA941E1EFB9E88006685D0 /* Label.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Label.cpp; sourceTree = "<group>"; };
 		43CA94201EFB9E8C006685D0 /* Label.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Label.hpp; sourceTree = "<group>"; };
+		43EAFED21EFCEB550046589B /* Task.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Task.hpp; sourceTree = "<group>"; };
+		43EAFED31EFCEB6F0046589B /* Task.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Task.cpp; sourceTree = "<group>"; };
+		43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TaskProcessor.cpp; path = MailSync/TaskProcessor.cpp; sourceTree = SOURCE_ROOT; };
+		43EAFED71EFDAA8D0046589B /* TaskProcessor.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = TaskProcessor.hpp; path = MailSync/TaskProcessor.hpp; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -170,6 +176,8 @@
 				43167EFD1EF5F57C00D8E282 /* MailModel.cpp */,
 				43167F0B1EF5F5C100D8E282 /* Thread.hpp */,
 				43167F0A1EF5F5C100D8E282 /* Thread.cpp */,
+				43EAFED21EFCEB550046589B /* Task.hpp */,
+				43EAFED31EFCEB6F0046589B /* Task.cpp */,
 				43167F0F1EF5F6C700D8E282 /* Folder.hpp */,
 				43167F0E1EF5F6C700D8E282 /* Folder.cpp */,
 				43CA94201EFB9E8C006685D0 /* Label.hpp */,
@@ -208,6 +216,8 @@
 				436489991EF335A9007816EC /* CommStream.cpp */,
 				4346BCE31EF91305009477FE /* Query.cpp */,
 				4346BCE41EF91305009477FE /* Query.hpp */,
+				43EAFED71EFDAA8D0046589B /* TaskProcessor.hpp */,
+				43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */,
 				43167F0D1EF5F63700D8E282 /* Models */,
 				436489971EF32A81007816EC /* MailStore.hpp */,
 				436489961EF32A81007816EC /* MailStore.cpp */,
@@ -398,6 +408,8 @@
 				43167F091EF5F59E00D8E282 /* Message.cpp in Sources */,
 				436489891EF2F905007816EC /* Column.cpp in Sources */,
 				43CA94161EF9E610006685D0 /* MailProcessor.cpp in Sources */,
+				43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */,
+				43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */,
 				4346BCE51EF91305009477FE /* Query.cpp in Sources */,
 				4364899B1EF335A9007816EC /* CommStream.cpp in Sources */,
 				436489A01EF35572007816EC /* SyncWorker.cpp in Sources */,
@@ -529,6 +541,7 @@
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
 				);
+				OTHER_CFLAGS = "-DHAVE_USLEEP=1";
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-fno-inline",
@@ -545,6 +558,7 @@
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
 				);
+				OTHER_CFLAGS = "-DHAVE_USLEEP=1";
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-fno-inline",
