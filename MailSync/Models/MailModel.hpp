@@ -43,6 +43,7 @@ public:
     virtual vector<string> columnsForQuery() = 0;
 
     virtual json toJSON();
+    virtual json toJSONDispatch();
 };
 
 #endif /* MailModel_hpp */

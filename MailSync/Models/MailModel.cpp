@@ -62,6 +62,10 @@ json MailModel::toJSON()
     return _data;
 }
 
+json MailModel::toJSONDispatch()
+{
+    return this->toJSON();
+}
 
 void MailModel::bindToQuery(SQLite::Statement & query) {
     query.bind(":id", id());

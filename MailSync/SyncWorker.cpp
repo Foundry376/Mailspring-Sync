@@ -59,60 +59,74 @@ void SyncWorker::idleInterrupt()
     session.interruptIdle();
 }
 
-void SyncWorker::idleCycle()
+void SyncWorker::idleCycle(bool * shouldExit)
 {
     // Run any tasks ready for performRemote
+    while(!*shouldExit) {
+        Query q = Query().equal("status", "remote");
+        auto tasks = store->findAll<Task>(q);
+        TaskProcessor processor { store, logger, &session };
+        for (const auto task : tasks) {
+            processor.performRemote(task.get());
+        }
 
-    Query q = Query().equal("status", "remote");
-    auto tasks = store->findAll<Task>(q);
-    TaskProcessor processor { store, logger, &session };
-    for (const auto task : tasks) {
-        processor.performRemote(task.get());
-    }
-
-    q = Query().equal("role", "inbox");
-    auto inbox = store->find<Folder>(q);
-    if (inbox.get() == nullptr) {
-        Query q = Query().equal("role", "all");
-        inbox = store->find<Folder>(q);
-        if (inbox.get() == nullptr) {
-            logger->error("No inbox to idle on!");
+        if (*shouldExit) {
             return;
         }
-    }
+        q = Query().equal("role", "inbox");
+        auto inbox = store->find<Folder>(q);
+        if (inbox.get() == nullptr) {
+            Query q = Query().equal("role", "all");
+            inbox = store->find<Folder>(q);
+            if (inbox.get() == nullptr) {
+                logger->error("No inbox to idle on!");
+                return;
+            }
+        }
 
-    ErrorCode err = ErrorCode::ErrorNone;
-    session.connectIfNeeded(&err);
-    if (err != ErrorCode::ErrorNone) {
-        throw err;
-    }
+        if (*shouldExit) {
+            return;
+        }
+        ErrorCode err = ErrorCode::ErrorNone;
+        session.connectIfNeeded(&err);
+        if (err != ErrorCode::ErrorNone) {
+            throw err;
+        }
 
-    // Check for mail in the folder
-    
-    auto refreshedFolders = syncFoldersAndLabels();
-    q = Query().equal("id", inbox->id());
-    inbox = store->find<Folder>(q);
-    if (inbox.get() == nullptr) {
-        logger->error("Idling folder has disappeared? That's weird...");
-        return;
-    }
+        // Check for mail in the folder
+        
+        if (*shouldExit) {
+            return;
+        }
+        auto refreshedFolders = syncFoldersAndLabels();
+        q = Query().equal("id", inbox->id());
+        inbox = store->find<Folder>(q);
+        if (inbox.get() == nullptr) {
+            logger->error("Idling folder has disappeared? That's weird...");
+            return;
+        }
 
-    String path = AS_MCSTR(inbox->path());
-    IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
-    if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
-        syncFolderChangesViaCondstore(*inbox, remoteStatus);
-    } else {
-        syncFolderChangesViaShallowScan(*inbox, remoteStatus);
-    }
-    
-    // Idle on the folder
-    
-    if (session.setupIdle()) {
-        logger->info("Idling on folder {}", inbox->path());
         String path = AS_MCSTR(inbox->path());
-        session.idle(&path, 0, &err);
-        session.unsetupIdle();
-        logger->info("Idle exited with code {}", err);
+        IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
+        if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
+            syncFolderChangesViaCondstore(*inbox, remoteStatus);
+        } else {
+            syncFolderChangesViaShallowScan(*inbox, remoteStatus);
+        }
+        store->save(inbox.get());
+
+        // Idle on the folder
+        
+        if (*shouldExit) {
+            return;
+        }
+        if (session.setupIdle()) {
+            logger->info("Idling on folder {}", inbox->path());
+            String path = AS_MCSTR(inbox->path());
+            session.idle(&path, 0, &err);
+            session.unsetupIdle();
+            logger->info("Idle exited with code {}", err);
+        }
     }
 }
 
@@ -477,21 +491,21 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
     }
     
     for (auto result : results) {
-        syncMessageBody(folder, result);
+        syncMessageBody(folder.path(), &result);
     }
     
     return results.size() > 0;
 }
 
-void SyncWorker::syncMessageBody(Folder & folder, Message & message) {
+void SyncWorker::syncMessageBody(string folderPath, Message * message) {
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
     
     IMAPProgressCallback * cb = new Progress();
     ErrorCode err = ErrorCode::ErrorNone;
-    String path(AS_MCSTR(folder.path()));
+    String path(AS_MCSTR(folderPath));
     
-    Data * data = session.fetchMessageByUID(&path, message.folderImapUID(), cb, &err);
+    Data * data = session.fetchMessageByUID(&path, message->folderImapUID(), cb, &err);
     if (err) {
         logger->error("IMAP Error Occurred: {}", err);
         return;
@@ -499,14 +513,17 @@ void SyncWorker::syncMessageBody(Folder & folder, Message & message) {
     MessageParser * messageParser = MessageParser::messageParserWithData(data);
     String * text = messageParser->plainTextBodyRendering(true);
     String * html = messageParser->htmlBodyRendering();
+    
+    auto chars = html->UTF8Characters();
 
     // write it to the MessageBodies table
-    SQLite::Statement insert(store->db(), "INSERT INTO MessageBody (id, value) VALUES (?, ?)");
-    insert.bind(1, message.id());
-    insert.bind(2, html->UTF8Characters());
+    SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
+    insert.bind(1, message->id());
+    insert.bind(2, chars);
     insert.exec();
     
     // write the message snippet. This also gives us the database trigger!
-    message.setSnippet(text->substringToIndex(400)->UTF8Characters());
-    store->save(&message);
+    message->setSnippet(text->substringToIndex(400)->UTF8Characters());
+    message->setBodyForDispatch(chars);
+    store->save(message);
 }

@@ -154,7 +154,7 @@ void TaskProcessor::performLocal(Task * task) {
         
     } else if (cname == "ChangeLabelsTask") {
         performLocalChangeOnMessages(task, _applyLabels);
-        
+    
     } else {
         logger->error("Unsure of how to process this task type {}", cname);
     }

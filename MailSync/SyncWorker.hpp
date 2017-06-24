@@ -36,7 +36,7 @@ public:
     bool syncNow();
 
     void idleInterrupt();
-    void idleCycle();
+    void idleCycle(bool * shouldExit);
     
     std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
 
@@ -52,7 +52,7 @@ public:
 
     bool syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
 
-    void syncMessageBody(Folder & folder, Message & message);
+    void syncMessageBody(string folderPath, Message * message);
 };
 
 
