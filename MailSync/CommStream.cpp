@@ -109,7 +109,7 @@ void CommStream::didPersistModel(MailModel * model) {
     json msg = {
         {"type", "persist"},
         {"objectClass", model->tableName()},
-        {"object", model->toJSON()},
+        {"object", model->toJSONDispatch()},
     };
     sendJSON(msg);
 }
@@ -118,7 +118,7 @@ void CommStream::didUnpersistModel(MailModel * model) {
     json msg = {
         {"type", "unpersist"},
         {"objectClass", model->tableName()},
-        {"object", model->toJSON()},
+        {"object", model->toJSONDispatch()},
     };
     sendJSON(msg);
 }

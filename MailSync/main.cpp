@@ -25,18 +25,18 @@ using json = nlohmann::json;
 CommStream * stream = nullptr;
 SyncWorker * bgWorker = nullptr;
 SyncWorker * fgWorker = nullptr;
+bool fgWorkerExit = false;
 
+std::thread * fgThread = nullptr;
+std::thread * bgThread = nullptr;
 
 void runForegroundSyncWorker() {
-    while(true) {
-        // run tasks, sync changes, idle, repeat
-        fgWorker->idleCycle();
-    }
+    // run tasks, sync changes, idle, repeat
+    fgWorker->idleCycle(&fgWorkerExit);
 }
 
 void runBackgroundSyncWorker() {
     bool firstLoop = true;
-    std::thread * foreground = nullptr;
     
     while(true) {
         // run in a hard loop until it returns false, indicating continuation
@@ -50,7 +50,7 @@ void runBackgroundSyncWorker() {
             // pass through all the folders. This ensures we have the folder list
             // and the uidnext / highestmodseq etc are populated.
             if (firstLoop) {
-                foreground = new std::thread(runForegroundSyncWorker);
+                fgThread = new std::thread(runForegroundSyncWorker);
                 firstLoop = false;
             }
         }
@@ -67,6 +67,7 @@ void runMainThread() {
     TaskProcessor processor{&store, logger, nullptr};
     
     while(true) {
+        AutoreleasePool pool;
         json packet = stream->waitForJSON();
         
         if (packet.count("type") && packet["type"].get<string>() == "task-queued") {
@@ -74,10 +75,32 @@ void runMainThread() {
 
             Task task{packet["task"]};
             processor.performLocal(&task);
+    
+            // interrupt the foreground sync worker to do the remote part of the task
+            fgWorker->idleInterrupt();
         }
-        
-        // interrupt the foreground sync worker to do the remote part of the task
-        fgWorker->idleInterrupt();
+
+        if (packet.count("type") && packet["type"].get<string>() == "need-bodies") {
+            // interrupt the foreground sync worker to do the remote part of the task
+            logger->info("Received bodies request. Interrupting idle...");
+            fgWorkerExit = true;
+            fgWorker->idleInterrupt();
+            fgThread->join();
+
+            vector<string> ids{};
+            for (auto id : packet["ids"]) {
+                ids.push_back(id.get<string>());
+            }
+            Query byId = Query().equal("id", ids);
+            auto msgs = store.findAll<Message>(byId);
+            for (auto msg : msgs) {
+                logger->info("Fetching body for message ID {}", msg->id());
+                auto folderPath = msg->folder()["path"].get<string>();
+                fgWorker->syncMessageBody(folderPath, msg.get());
+            }
+            fgWorkerExit = false;
+            fgThread = new std::thread(runForegroundSyncWorker); // SHOUDL BE BACKGROUND
+        }
     }
 }
 
@@ -88,7 +111,7 @@ int main(int argc, const char * argv[]) {
     bgWorker = new SyncWorker("bg", stream);
     fgWorker = new SyncWorker("fg", stream);
 
-    std::thread t1(runForegroundSyncWorker); // SHOUDL BE BACKGROUND
+    fgThread = new std::thread(runForegroundSyncWorker); // SHOUDL BE BACKGROUND
     runMainThread();
     
     return 0;

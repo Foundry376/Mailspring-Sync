@@ -102,6 +102,10 @@ void Message::setSnippet(string s) {
     _data["snippet"] = s;
 }
 
+void Message::setBodyForDispatch(string s) {
+    _bodyForDispatch = s;
+}
+
 uint32_t Message::folderImapUID() {
     return _data["folderImapUID"].get<uint32_t>();
 }
@@ -176,4 +180,12 @@ void Message::bindToQuery(SQLite::Statement & query) {
     query.bind(":folderId", folderId());
     query.bind(":threadId", threadId());
     query.bind(":gMsgId", gMsgId());
+}
+
+json Message::toJSONDispatch() {
+    json j = toJSON();
+    if (_bodyForDispatch.length() > 0) {
+        j["body"] = _bodyForDispatch;
+    }
+    return j;
 }

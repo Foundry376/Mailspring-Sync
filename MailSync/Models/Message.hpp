@@ -25,9 +25,11 @@ using namespace std;
 
 class Message : public MailModel {
 
+    string _bodyForDispatch;
+
 public:
     static string TABLE_NAME;
-
+    
     Message(mailcore::IMAPMessage * msg, Folder & folder);
     Message(SQLite::Statement & query);
     
@@ -44,6 +46,8 @@ public:
 
     string snippet();
     void setSnippet(string s);
+
+    void setBodyForDispatch(string s);
 
     json & folderImapXGMLabels();
     void setFolderImapXGMLabels(json & labels);
@@ -70,6 +74,8 @@ public:
     string tableName();
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
+    json toJSONDispatch();
+
 };
 
 #endif /* Message_hpp */
