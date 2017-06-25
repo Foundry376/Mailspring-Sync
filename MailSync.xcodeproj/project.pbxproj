@@ -31,6 +31,7 @@
 		43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA941E1EFB9E88006685D0 /* Label.cpp */; };
 		43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED31EFCEB6F0046589B /* Task.cpp */; };
 		43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */; };
+		43EAFEDA1EFEF7110046589B /* File.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED91EFEF7110046589B /* File.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -154,6 +155,8 @@
 		43EAFED31EFCEB6F0046589B /* Task.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Task.cpp; sourceTree = "<group>"; };
 		43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TaskProcessor.cpp; path = MailSync/TaskProcessor.cpp; sourceTree = SOURCE_ROOT; };
 		43EAFED71EFDAA8D0046589B /* TaskProcessor.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = TaskProcessor.hpp; path = MailSync/TaskProcessor.hpp; sourceTree = SOURCE_ROOT; };
+		43EAFED81EFEF7090046589B /* File.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = File.hpp; sourceTree = "<group>"; };
+		43EAFED91EFEF7110046589B /* File.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = File.cpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -176,6 +179,8 @@
 				43167EFD1EF5F57C00D8E282 /* MailModel.cpp */,
 				43167F0B1EF5F5C100D8E282 /* Thread.hpp */,
 				43167F0A1EF5F5C100D8E282 /* Thread.cpp */,
+				43EAFED81EFEF7090046589B /* File.hpp */,
+				43EAFED91EFEF7110046589B /* File.cpp */,
 				43EAFED21EFCEB550046589B /* Task.hpp */,
 				43EAFED31EFCEB6F0046589B /* Task.cpp */,
 				43167F0F1EF5F6C700D8E282 /* Folder.hpp */,
@@ -413,6 +418,7 @@
 				4346BCE51EF91305009477FE /* Query.cpp in Sources */,
 				4364899B1EF335A9007816EC /* CommStream.cpp in Sources */,
 				436489A01EF35572007816EC /* SyncWorker.cpp in Sources */,
+				43EAFEDA1EFEF7110046589B /* File.cpp in Sources */,
 				436489951EF32866007816EC /* MailUtils.cpp in Sources */,
 				436489341EF2E905007816EC /* main.cpp in Sources */,
 				43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */,
@@ -541,7 +547,10 @@
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
 				);
-				OTHER_CFLAGS = "-DHAVE_USLEEP=1";
+				OTHER_CFLAGS = (
+					"-DHAVE_USLEEP=1",
+					"-Wno-ambiguous-macro",
+				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-fno-inline",
@@ -558,7 +567,10 @@
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
 				);
-				OTHER_CFLAGS = "-DHAVE_USLEEP=1";
+				OTHER_CFLAGS = (
+					"-DHAVE_USLEEP=1",
+					"-Wno-ambiguous-macro",
+				);
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-fno-inline",

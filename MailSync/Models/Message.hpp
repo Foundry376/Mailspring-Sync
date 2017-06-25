@@ -23,6 +23,8 @@
 using json = nlohmann::json;
 using namespace std;
 
+class File;
+
 class Message : public MailModel {
 
     string _bodyForDispatch;
@@ -46,6 +48,9 @@ public:
 
     string snippet();
     void setSnippet(string s);
+
+    json files();
+    void setFiles(vector<File> & files);
 
     void setBodyForDispatch(string s);
 

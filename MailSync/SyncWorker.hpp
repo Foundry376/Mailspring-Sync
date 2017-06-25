@@ -30,13 +30,17 @@ class SyncWorker {
     MailProcessor * processor;
     std::shared_ptr<spdlog::logger> logger;
     
+    bool idleShouldReloop;
+    vector<string> idleFetchBodyIDs;
+
 public:
     SyncWorker(string name, CommStream * stream);
     
     bool syncNow();
 
     void idleInterrupt();
-    void idleCycle(bool * shouldExit);
+    void idleQueueBodiesToSync(vector<string> & ids);
+    void idleCycle();
     
     std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
 

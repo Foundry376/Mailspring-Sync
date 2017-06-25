@@ -6,8 +6,8 @@
 //  Copyright © 2017 Foundry 376. All rights reserved.
 //
 
-#ifndef Task_hpp
-#define Task_hpp
+#ifndef File_hpp
+#define File_hpp
 
 #include <stdio.h>
 #include <string>
@@ -15,27 +15,31 @@
 #include "spdlog/spdlog.h"
 
 #include "MailModel.hpp"
+#include "MailStore.hpp"
+#include <MailCore/MailCore.h>
 
 using json = nlohmann::json;
 using namespace std;
 using namespace mailcore;
 
-class Task : public MailModel {
+class Message;
+
+class File : public MailModel {
     
 public:
     static string TABLE_NAME;
 
-    Task(json json);
-    Task(SQLite::Statement & query);
+    File(Message * msg, Attachment * a);
+    File(json json);
+    File(SQLite::Statement & query);
   
-    json & data();
+    string filename();
+                          
     string tableName();
     string constructorName();
-    string status();
-    void setStatus(string s);
 
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement & query);
 };
 
-#endif /* Task_hpp */
+#endif /* File_hpp */

@@ -11,6 +11,7 @@
 #include "MailUtils.hpp"
 #include "Folder.hpp"
 #include "Label.hpp"
+#include "File.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
 
@@ -56,13 +57,39 @@ SyncWorker::SyncWorker(string name, CommStream * stream) :
 
 void SyncWorker::idleInterrupt()
 {
+    idleShouldReloop = true;
     session.interruptIdle();
 }
 
-void SyncWorker::idleCycle(bool * shouldExit)
+void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
+    idleShouldReloop = true;
+    for (string & id : ids) {
+        idleFetchBodyIDs.push_back(id);
+    }
+}
+
+void SyncWorker::idleCycle()
 {
-    // Run any tasks ready for performRemote
-    while(!*shouldExit) {
+    while(true) {
+        // Run body requests
+        while (idleFetchBodyIDs.size() > 0) {
+            string id = idleFetchBodyIDs.back();
+            idleFetchBodyIDs.pop_back();
+            Query byId = Query().equal("id", id);
+            auto msg = store->find<Message>(byId);
+            if (msg.get() != nullptr) {
+                logger->info("Fetching body for message ID {}", msg->id());
+                auto folderPath = msg->folder()["path"].get<string>();
+                syncMessageBody(folderPath, msg.get());
+            }
+        }
+
+        if (idleShouldReloop) {
+            idleShouldReloop = false;
+            continue;
+        }
+
+        // Run tasks ready for perform Remote
         Query q = Query().equal("status", "remote");
         auto tasks = store->findAll<Task>(q);
         TaskProcessor processor { store, logger, &session };
@@ -70,8 +97,9 @@ void SyncWorker::idleCycle(bool * shouldExit)
             processor.performRemote(task.get());
         }
 
-        if (*shouldExit) {
-            return;
+        if (idleShouldReloop) {
+            idleShouldReloop = false;
+            continue;
         }
         q = Query().equal("role", "inbox");
         auto inbox = store->find<Folder>(q);
@@ -84,8 +112,9 @@ void SyncWorker::idleCycle(bool * shouldExit)
             }
         }
 
-        if (*shouldExit) {
-            return;
+        if (idleShouldReloop) {
+            idleShouldReloop = false;
+            continue;
         }
         ErrorCode err = ErrorCode::ErrorNone;
         session.connectIfNeeded(&err);
@@ -95,8 +124,9 @@ void SyncWorker::idleCycle(bool * shouldExit)
 
         // Check for mail in the folder
         
-        if (*shouldExit) {
-            return;
+        if (idleShouldReloop) {
+            idleShouldReloop = false;
+            continue;
         }
         auto refreshedFolders = syncFoldersAndLabels();
         q = Query().equal("id", inbox->id());
@@ -117,8 +147,9 @@ void SyncWorker::idleCycle(bool * shouldExit)
 
         // Idle on the folder
         
-        if (*shouldExit) {
-            return;
+        if (idleShouldReloop) {
+            idleShouldReloop = false;
+            continue;
         }
         if (session.setupIdle()) {
             logger->info("Idling on folder {}", inbox->path());
@@ -268,18 +299,29 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         if ((local->role() != remoteRole) || (local->path() != remotePath)) {
             local->setPath(remotePath);
             local->setRole(remoteRole);
+            
+            // place items into the thread counts table
+            SQLite::Statement count(store->db(), "INSERT OR IGNORE INTO ThreadCounts (categoryId, unread, total) VALUES (?, 0, 0)");
+            count.bind(1, local->id());
+            count.exec();
             store->save(local.get());
         }
     }
     
     // delete any folders / labels no longer present on the remote
     for (auto const item : allLocalFolders) {
+        SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
+        count.bind(1, item.second->id());
+        count.exec();
         store->remove(item.second.get());
     }
     for (auto const item : allLocalLabels) {
+        SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
+        count.bind(1, item.second->id());
+        count.exec();
         store->remove(item.second.get());
     }
- 
+
     store->commitTransaction();
 
     return foldersToSync;
@@ -483,8 +525,9 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
  Syncs the top N missing message bodies. Returns true if it did work, false if it did nothing.
  */
 bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus) {
-    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.folderId = ? AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 10");
+    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.folderId = ? AND Message.date > ? AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 10");
     missing.bind(1, folder.id());
+    missing.bind(2, (double)(time(0) - 24 * 60 * 60 * 30)); // one month TODO pref!
     vector<Message> results{};
     while (missing.executeStep()) {
         results.push_back(Message(missing));
@@ -514,16 +557,46 @@ void SyncWorker::syncMessageBody(string folderPath, Message * message) {
     String * text = messageParser->plainTextBodyRendering(true);
     String * html = messageParser->htmlBodyRendering();
     
+    // build file containers for the attachments
+    Array * attachments = messageParser->attachments();
+    vector<File> files;
+    for (int ii = 0; ii < attachments->count(); ii ++) {
+        Attachment * a = (Attachment *)attachments->objectAtIndex(ii);
+        File f = File(message, a);
+        
+        bool duplicate = false;
+        for (auto & other : files) {
+            if (other.id() == f.id()) {
+                duplicate = true;
+                logger->info("Attachment is duplicate: {}", f.toJSON().dump());
+                break;
+            }
+        }
+        if (!duplicate) {
+            files.push_back(f);
+        }
+    }
+
     auto chars = html->UTF8Characters();
 
-    // write it to the MessageBodies table
+    store->beginTransaction();
+    
+    // write body to the MessageBodies table
     SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
     insert.bind(1, message->id());
     insert.bind(2, chars);
     insert.exec();
     
+    // write files to the files table
+    for (auto & file : files) {
+        store->save(&file);
+    }
+    
     // write the message snippet. This also gives us the database trigger!
     message->setSnippet(text->substringToIndex(400)->UTF8Characters());
     message->setBodyForDispatch(chars);
+    message->setFiles(files);
+
     store->save(message);
+    store->commitTransaction();
 }

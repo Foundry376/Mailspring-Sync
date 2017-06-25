@@ -39,7 +39,8 @@ public:
     static string roleForFolder(IMAPFolder * folder);
     static string idForFolder(IMAPFolder * folder);
     static string idForMessage(IMAPMessage * msg);
-
+    static string idForFile(string messageId, Attachment * attachment);
+              
     static shared_ptr<Label> labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> & allLabels);
 
     static string qmarks(size_t count);
