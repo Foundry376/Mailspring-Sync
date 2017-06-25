@@ -131,10 +131,9 @@ static std::vector<std::string> SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `MessageBody` (id TEXT PRIMARY KEY, `value` TEXT)",
     "CREATE UNIQUE INDEX IF NOT EXISTS MessageBodyIndex ON MessageBody(id)",
     
-    "CREATE TABLE IF NOT EXISTS `Contact` (id TEXT PRIMARY KEY, data BLOB, accountId TEXT, name TEXT, email TEXT, isSearchIndexed INTEGER DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS `Contact` (id TEXT PRIMARY KEY, data BLOB, accountId TEXT, name TEXT, email TEXT, version INTEGER, refs INTEGER DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS ContactEmailIndex ON Contact(email)",
     "CREATE INDEX IF NOT EXISTS ContactAccountEmailIndex ON Contact(accountId, email)",
-    "CREATE INDEX IF NOT EXISTS ContactIsSearchIndexedIndex ON `Contact` (isSearchIndexed, id)",
 
     "CREATE VIRTUAL TABLE IF NOT EXISTS `ContactSearch` USING fts5(tokenize = 'porter unicode61', content_id UNINDEXED, content)",
 

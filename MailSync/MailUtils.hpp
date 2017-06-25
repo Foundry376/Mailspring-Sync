@@ -29,6 +29,7 @@ private:
 public:
     static json merge(const json &a, const json &b);
     static json contactJSONFromAddress(Address * addr);
+    static string contactKeyForEmail(string email);
 
     static string timestampForTime(time_t time);
   

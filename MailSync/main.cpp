@@ -99,7 +99,7 @@ int main(int argc, const char * argv[]) {
     bgWorker = new SyncWorker("bg", stream);
     fgWorker = new SyncWorker("fg", stream);
 
-    fgThread = new std::thread(runForegroundSyncWorker); // SHOUDL BE BACKGROUND
+    fgThread = new std::thread(runBackgroundSyncWorker); // SHOUDL BE BACKGROUND
     runMainThread();
     
     return 0;

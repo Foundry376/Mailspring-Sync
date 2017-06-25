@@ -20,6 +20,7 @@
 #include "Message.hpp"
 #include "Query.hpp"
 #include "Thread.hpp"
+#include "Contact.hpp"
 
 #include "MailStore.hpp"
 
@@ -32,12 +33,14 @@ class MailProcessor {
 
 public:
     MailProcessor(string name, MailStore * store);
+    void insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder);
     void insertMessage(IMAPMessage * mMsg, Folder & folder);
     void updateMessage(Message * local, IMAPMessage * remote, Folder & folder);
     void unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages);
 
 private:
     void upsertThreadReferences(string threadId, string headerMessageId, Array * references);
+    void upsertContacts(Message * message);
     shared_ptr<Label> labelForXGMLabelName(string mlname);
 };
 
