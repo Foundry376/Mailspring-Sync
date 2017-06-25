@@ -537,49 +537,5 @@ void SyncWorker::syncMessageBody(string folderPath, Message * message) {
         return;
     }
     MessageParser * messageParser = MessageParser::messageParserWithData(data);
-    String * text = messageParser->plainTextBodyRendering(true);
-    String * html = messageParser->htmlBodyRendering();
-    
-    // build file containers for the attachments
-    Array * attachments = messageParser->attachments();
-    vector<File> files;
-    for (int ii = 0; ii < attachments->count(); ii ++) {
-        Attachment * a = (Attachment *)attachments->objectAtIndex(ii);
-        File f = File(message, a);
-        
-        bool duplicate = false;
-        for (auto & other : files) {
-            if (other.id() == f.id()) {
-                duplicate = true;
-                logger->info("Attachment is duplicate: {}", f.toJSON().dump());
-                break;
-            }
-        }
-        if (!duplicate) {
-            files.push_back(f);
-        }
-    }
-
-    auto chars = html->UTF8Characters();
-
-    store->beginTransaction();
-    
-    // write body to the MessageBodies table
-    SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
-    insert.bind(1, message->id());
-    insert.bind(2, chars);
-    insert.exec();
-    
-    // write files to the files table
-    for (auto & file : files) {
-        store->save(&file);
-    }
-    
-    // write the message snippet. This also gives us the database trigger!
-    message->setSnippet(text->substringToIndex(400)->UTF8Characters());
-    message->setBodyForDispatch(chars);
-    message->setFiles(files);
-
-    store->save(message);
-    store->commitTransaction();
+    processor->retrievedMessageBody(message, messageParser);
 }

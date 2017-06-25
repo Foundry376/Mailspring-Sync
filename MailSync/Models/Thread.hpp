@@ -45,6 +45,9 @@ public:
     void setStarred(int s);
     int attachmentCount();
     void setAttachmentCount(int s);
+    
+    uint64_t searchRowId();
+    void setSearchRowId(uint64_t s);
 
     json & participants();
     string gThrId();

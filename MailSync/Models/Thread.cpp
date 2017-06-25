@@ -32,6 +32,7 @@ Thread::Thread(Message msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allL
     _data["unread"] = 0;
     _data["starred"] = 0;
     _data["attachmentCount"] = 0;
+    _data["searchRowId"] = 0;
     _data["folders"] = json::array();
     _data["labels"] = json::array();
     _data["participants"] = json::array();
@@ -76,6 +77,14 @@ int Thread::attachmentCount() {
 
 void Thread::setAttachmentCount(int s) {
     _data["attachmentCount"] = s;
+}
+
+uint64_t Thread::searchRowId() {
+    return _data["searchRowId"].get<uint64_t>();
+}
+
+void Thread::setSearchRowId(uint64_t s) {
+    _data["searchRowId"] = s;
 }
 
 bool Thread::inAllMail() {
@@ -249,6 +258,7 @@ void Thread::bindToQuery(SQLite::Statement & query) {
 }
 
 void Thread::writeAssociations(SQLite::Database & db) {
+    // update the ThreadCategory join table to include our folder and labels
     SQLite::Statement removeFolders(db, "DELETE FROM ThreadCategory WHERE id = ?");
     removeFolders.bind(1, id());
     removeFolders.exec();
