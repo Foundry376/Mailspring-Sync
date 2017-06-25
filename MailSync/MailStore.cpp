@@ -19,11 +19,11 @@ using namespace std;
 
 #pragma mark MessageAttributes
 
-MessageAttributes MessageAttributesForMessage(mailcore::IMAPMessage * msg) {
+MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
     auto m = MessageAttributes{};
     m.uid = msg->uid();
-    m.unread = bool(!(msg->flags() & mailcore::MessageFlagSeen));
-    m.starred = bool(msg->flags() & mailcore::MessageFlagFlagged);
+    m.unread = bool(!(msg->flags() & MessageFlagSeen));
+    m.starred = bool(msg->flags() & MessageFlagFlagged);
     m.labels = std::vector<std::string>{};
 
     Array * labels = msg->gmailLabels();
@@ -47,6 +47,7 @@ bool MessageAttributesMatch(MessageAttributes a, MessageAttributes b) {
 MailStore::MailStore() :
     _db("/Users/bengotow/.nylas-dev/edgehill.db", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE),
     _stmtBeginTransaction(_db, "BEGIN IMMEDIATE TRANSACTION"),
+    _stmtRollbackTransaction(_db, "ROLLBACK"),
     _stmtCommitTransaction(_db, "COMMIT"),
     _labelCacheInvalid(true),
     _labelCache()
@@ -116,6 +117,12 @@ void MailStore::beginTransaction() {
     _stmtBeginTransaction.reset();
 }
 
+
+void MailStore::rollbackTransaction() {
+    _stmtRollbackTransaction.exec();
+    _stmtRollbackTransaction.reset();
+}
+
 void MailStore::commitTransaction() {
     _stmtCommitTransaction.exec();
     _stmtCommitTransaction.reset();
@@ -164,8 +171,8 @@ void MailStore::save(MailModel * model) {
 }
 
 void MailStore::remove(MailModel * model) {
-    SQLite::Statement query(this->_db, "DELETE FROM " + model->tableName() + " WHERE id = :id LIMIT 1");
-    query.bind(":id", model->id());
+    SQLite::Statement query(this->_db, "DELETE FROM " + model->tableName() + " WHERE id = ?");
+    query.bind(1, model->id());
     query.exec();
 
     if (model->tableName() == "Label") {

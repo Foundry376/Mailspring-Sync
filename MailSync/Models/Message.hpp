@@ -34,6 +34,7 @@ public:
     
     Message(mailcore::IMAPMessage * msg, Folder & folder);
     Message(SQLite::Statement & query);
+    Message(json json);
     
     // mutable attributes
 
@@ -54,6 +55,8 @@ public:
 
     void setBodyForDispatch(string s);
 
+    bool isDraft();
+    
     json & folderImapXGMLabels();
     void setFolderImapXGMLabels(json & labels);
 

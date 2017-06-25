@@ -10,6 +10,7 @@
 #include "MailUtils.hpp"
 #include "Thread.hpp"
 #include "Message.hpp"
+#include "MailUtils.hpp"
 
 using namespace std;
 using namespace mailcore;
@@ -155,6 +156,12 @@ void TaskProcessor::performLocal(Task * task) {
     } else if (cname == "ChangeLabelsTask") {
         performLocalChangeOnMessages(task, _applyLabels);
     
+    } else if (cname == "SyncbackDraftTask") {
+        performLocalSaveDraft(task);
+
+    } else if (cname == "DestroyDraftTask") {
+        performLocalDestroyDraft(task);
+
     } else {
         logger->error("Unsure of how to process this task type {}", cname);
     }
@@ -177,6 +184,11 @@ void TaskProcessor::performRemote(Task * task) {
 
     } else if (cname == "ChangeLabelsTask") {
         performRemoteChangeOnMessages(task, _applyLabelChangeInIMAPFolder);
+        
+    } else if (cname == "SyncbackDraftTask") {
+        // right now we don't syncback drafts
+        
+    } else if (cname == "DestroyDraftTask") {
         
     } else {
         logger->error("Unsure of how to process this task type {}", cname);
@@ -274,4 +286,60 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFol
         }
         applyInFolder(session, &path, &uids, data);
     }
+}
+
+void TaskProcessor::performLocalSaveDraft(Task * task) {
+    json & draftJSON = task->data()["draft"];
+    
+    Query q = Query().equal("role", "drafts");
+    auto folder = store->find<Folder>(q);
+    if (folder.get() == nullptr) {
+        q = Query().equal("role", "all");
+        folder = store->find<Folder>(q);
+    }
+    if (folder == nullptr) {
+        return;
+    }
+    draftJSON["folder"] = folder->toJSON();
+    
+    // set other JSON attributes the client may not have populated,
+    // but we require to be non-null
+    draftJSON["draft"] = true;
+    if (!draftJSON.count("threadId")) {
+        draftJSON["threadId"] = "";
+    }
+    if (!draftJSON.count("gMsgId")) {
+        draftJSON["gMsgId"] = "";
+    }
+
+    Message msg{draftJSON};
+    store->beginTransaction();
+    store->save(&msg);
+
+    SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
+    insert.bind(1, msg.id());
+    insert.bind(2, draftJSON["body"].get<string>());
+    insert.exec();
+
+    store->commitTransaction();
+}
+
+void TaskProcessor::performLocalDestroyDraft(Task * task) {
+    string headerMessageId = task->data()["headerMessageId"];
+
+    // find anything with this header id and blow it away
+    Query q = Query().equal("headerMessageId", headerMessageId).equal("draft", 1);
+    auto drafts = store->findAll<Message>(q);
+    json draftsJSON = json::array();
+    
+    // todo bodies?
+    
+    store->beginTransaction();
+    for (auto & draft : drafts) {
+        draftsJSON.push_back(draft->toJSON());
+        store->remove(draft.get());
+    }
+    store->commitTransaction();
+
+    task->data()["drafts"] = draftsJSON;
 }
