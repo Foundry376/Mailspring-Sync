@@ -135,7 +135,8 @@ void SyncWorker::idleCycle()
             logger->error("Idling folder has disappeared? That's weird...");
             return;
         }
-
+        
+        // TODO: We should probably not do this if it's only been ~5 seconds since the last time
         String path = AS_MCSTR(inbox->path());
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
         if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
@@ -407,8 +408,6 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
     
     // Step 2: Fetch the local attributes (unread, starred, etc.) for the same UID range
     map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(range, folder));
-    vector<string> changedOrMissingIDs {};
-    map<string, IMAPMessage *> changedOrMissingRemotes;
     
     for (int ii = remote->count() - 1; ii >= 0; ii--) {
         IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
@@ -419,37 +418,18 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
         bool notSame = (!MessageAttributesMatch(local[remoteUID], MessageAttributesForMessage(remoteMsg)));
 
         if (notInFolder || notSame) {
-            string id = MailUtils::idForMessage(remoteMsg);
-            changedOrMissingIDs.push_back(id);
-            changedOrMissingRemotes[id] = remoteMsg;
+            // Step 4: Attempt to insert the new message. If we get unique exceptions,
+            // look for the existing message and do an update instead. This happens whenever
+            // a message has moved between folders or it's attributes have changed.
+            
+            // Note: We could prefetch all changedOrMissingIDs and then decide to update/insert,
+            // but we can only query for 500 at a time, it /feels/ nasty, and we /could/ always
+            // hit the exception anyway since another thread could be IDLEing and retrieving
+            // the messages alongside us.
+            processor->insertFallbackToUpdateMessage(remoteMsg, folder);
         }
         
         local.erase(remoteUID);
-    }
-    
-    // Step 4: Attempt to insert the new messages. If we get unique exceptions,
-    // look for the existing message and do an update instead. This happens whenever
-    // a message has moved between folders or it's attributes have changed.
-
-    // Note: We could prefetch all changedOrMissingIDs and then decide to update/insert,
-    // but we can only query for 500 at a time, it /feels/ nasty, and we /could/ always
-    // hit the exception anyway since another thread could be IDLEing and retrieving
-    // the messages alongside us.
-    
-    for (const auto id : changedOrMissingIDs) {
-        IMAPMessage * remoteMsg = changedOrMissingRemotes[id];
-        try {
-            processor->insertMessage(remoteMsg, folder);
-        } catch (const SQLite::Exception & ex) {
-            store->rollbackTransaction();
-            Query q = Query().equal("id", id);
-            auto localMessage = store->find<Message>(q);
-            if (localMessage.get() != nullptr) {
-                processor->updateMessage(localMessage.get(), remoteMsg, folder);
-            } else {
-                throw ex;
-            }
-        }
     }
     
     // Step 5: Unlink. The messages left in local map are the ones we had in the range,
@@ -504,7 +484,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
         if (local.count(id) == 0) {
             // Found message with an ID we've never seen in any folder. Add it!
-            processor->insertMessage(msg, folder);
+            processor->insertFallbackToUpdateMessage(msg, folder);
         } else {
             // Found message with an existing ID. Update it's attributes & folderId.
             // Note: Could potentially have moved from another folder!

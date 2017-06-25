@@ -19,6 +19,21 @@ MailProcessor::MailProcessor(string name, MailStore * store) :
 
 }
 
+void MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder) {
+    try {
+        insertMessage(mMsg, folder);
+    } catch (const SQLite::Exception & ex) {
+        store->rollbackTransaction();
+        Query q = Query().equal("id", MailUtils::idForMessage(mMsg));
+        auto localMessage = store->find<Message>(q);
+        if (localMessage.get() != nullptr) {
+            updateMessage(localMessage.get(), mMsg, folder);
+        } else {
+            throw ex;
+        }
+    }
+}
+
 void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
     Message msg(mMsg, folder);
 
@@ -61,7 +76,8 @@ void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
     }
     
     upsertThreadReferences(thread->id(), msg.headerMessageId(), references);
-    
+    upsertContacts(&msg);
+
     msg.setThreadId(thread->id());
     store->save(&msg);
 
@@ -144,16 +160,70 @@ void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMe
     }
 }
 
-void MailProcessor::upsertThreadReferences(string threadId, string headerMessageId, mailcore::Array * references) {
+void MailProcessor::upsertThreadReferences(string threadId, string headerMessageId, Array * references) {
     string qmarks(MailUtils::qmarkSets(1 + references->count(), 2));
     SQLite::Statement query(store->db(), "INSERT OR IGNORE INTO ThreadReference (threadId, headerMessageId) VALUES " + qmarks);
     int x = 1;
     query.bind(x++, threadId);
     query.bind(x++, headerMessageId);
     for (int i = 0; i < references->count(); i ++) {
-        mailcore::String * address = (mailcore::String*)references->objectAtIndex(i);
+        String * address = (String*)references->objectAtIndex(i);
         query.bind(x++, threadId);
         query.bind(x++, address->UTF8Characters());
     }
     query.exec();
 }
+
+void MailProcessor::upsertContacts(Message * message) {
+    map<string, json> byEmail{};
+    for (auto & c : message->to()) {
+        if (c.count("email")) {
+            byEmail[MailUtils::contactKeyForEmail(c["email"].get<string>())] = c;
+        }
+    }
+    for (auto & c : message->cc()) {
+        if (c.count("email")) {
+            byEmail[MailUtils::contactKeyForEmail(c["email"].get<string>())] = c;
+        }
+    }
+    for (auto & c : message->from()) {
+        if (c.count("email")) {
+            byEmail[MailUtils::contactKeyForEmail(c["email"].get<string>())] = c;
+        }
+    }
+    
+    // contactKeyForEmail returns "" for some emails. Toss out that item
+    if (byEmail.count("")) {
+        byEmail.erase("");
+    }
+    
+    vector<string> emails{};
+    for (auto const& imap: byEmail) {
+        emails.push_back(imap.first);
+    }
+
+    // TODO ENSURE LENGTH < 500
+    Query query = Query().equal("email", emails);
+    auto results = store->findAll<Contact>(query);
+    for (auto & result : results) {
+        // update refcount
+        result->incrementRefs();
+        store->save(result.get());
+        byEmail.erase(result->email());
+    }
+    
+    // insert remaining items
+    SQLite::Statement searchInsert(store->db(), "INSERT INTO ContactSearch (content_id, content) VALUES (?, ?)");
+    for (auto & result : byEmail) {
+        Contact c{message->accountId(), result.first, result.second};
+        store->save(&c);
+        
+        // also index it for search
+        searchInsert.bind(1, c.id());
+        searchInsert.bind(2, c.searchContent());
+        searchInsert.exec();
+        searchInsert.reset();
+        
+    }
+}
+

@@ -305,6 +305,7 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
     // set other JSON attributes the client may not have populated,
     // but we require to be non-null
     draftJSON["draft"] = true;
+    draftJSON["date"] = time(0);
     if (!draftJSON.count("threadId")) {
         draftJSON["threadId"] = "";
     }
