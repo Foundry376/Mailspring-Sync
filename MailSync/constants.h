@@ -14,7 +14,7 @@
 // TODO add unique keys
 
 static std::vector<std::string> SETUP_QUERIES = {
-    "CREATE TABLE IF NOT EXISTS `File` (id TEXT PRIMARY KEY, data BLOB, accountId TEXT, filename TEXT)",
+    "CREATE TABLE IF NOT EXISTS `File` (id TEXT PRIMARY KEY, version INTEGER, data BLOB, accountId TEXT, filename TEXT)",
     
     "CREATE TABLE IF NOT EXISTS `Event` (id TEXT PRIMARY KEY, data BLOB, accountId TEXT, calendar_id TEXT, _start INTEGER, _end INTEGER, is_search_indexed INTEGER DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS EventIsSearchIndexedIndex ON `Event` (is_search_indexed, id)",

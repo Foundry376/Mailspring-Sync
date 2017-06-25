@@ -162,6 +162,13 @@ string MailUtils::idForFolder(IMAPFolder * folder) {
     return picosha2::bytes_to_hex_string(hash.begin(), hash.end());
 }
 
+string MailUtils::idForFile(string messageId, Attachment * attachment) {
+    vector<unsigned char> hash(32);
+    string src_str = messageId + string(attachment->partID()->UTF8Characters());
+    picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
+    return picosha2::bytes_to_hex_string(hash.begin(), hash.end());
+}
+
 string MailUtils::idForMessage(IMAPMessage * msg) {
     Array * addresses = new Array();
     addresses->addObjectsFromArray(msg->header()->to());

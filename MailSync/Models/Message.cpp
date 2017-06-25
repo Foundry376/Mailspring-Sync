@@ -10,6 +10,7 @@
 #include "MailUtils.hpp"
 #include "Folder.hpp"
 #include "MailStore.hpp"
+#include "File.hpp"
 
 using namespace std;
 
@@ -100,6 +101,18 @@ string Message::snippet() {
 
 void Message::setSnippet(string s) {
     _data["snippet"] = s;
+}
+
+json Message::files() {
+    return _data["files"];
+}
+
+void Message::setFiles(vector<File> & files) {
+    json arr = json::array();
+    for (auto & file : files) {
+        arr.push_back(file.toJSON());
+    }
+    _data["files"] = arr;
 }
 
 void Message::setBodyForDispatch(string s) {

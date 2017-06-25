@@ -28,6 +28,9 @@ using namespace std;
 
 class Thread : public MailModel {
     
+    bool _initialIsUnread;
+    vector<string> _initialCategoryIds;
+
 public:
     static string TABLE_NAME;
 
@@ -40,7 +43,9 @@ public:
     void setUnread(int u);
     int starred();
     void setStarred(int s);
-    
+    int attachmentCount();
+    void setAttachmentCount(int s);
+
     json & participants();
     string gThrId();
     bool inAllMail();
@@ -65,6 +70,7 @@ public:
     void writeAssociations(SQLite::Database & db);
 
 private:
+    void captureInitialState();
     void addMissingParticipants(std::map<std::string, bool> & existing, json & incoming);
 
 };

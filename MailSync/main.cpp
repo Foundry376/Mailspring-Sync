@@ -25,14 +25,13 @@ using json = nlohmann::json;
 CommStream * stream = nullptr;
 SyncWorker * bgWorker = nullptr;
 SyncWorker * fgWorker = nullptr;
-bool fgWorkerExit = false;
 
 std::thread * fgThread = nullptr;
 std::thread * bgThread = nullptr;
 
 void runForegroundSyncWorker() {
     // run tasks, sync changes, idle, repeat
-    fgWorker->idleCycle(&fgWorkerExit);
+    fgWorker->idleCycle();
 }
 
 void runBackgroundSyncWorker() {
@@ -83,23 +82,12 @@ void runMainThread() {
         if (packet.count("type") && packet["type"].get<string>() == "need-bodies") {
             // interrupt the foreground sync worker to do the remote part of the task
             logger->info("Received bodies request. Interrupting idle...");
-            fgWorkerExit = true;
-            fgWorker->idleInterrupt();
-            fgThread->join();
-
             vector<string> ids{};
             for (auto id : packet["ids"]) {
                 ids.push_back(id.get<string>());
             }
-            Query byId = Query().equal("id", ids);
-            auto msgs = store.findAll<Message>(byId);
-            for (auto msg : msgs) {
-                logger->info("Fetching body for message ID {}", msg->id());
-                auto folderPath = msg->folder()["path"].get<string>();
-                fgWorker->syncMessageBody(folderPath, msg.get());
-            }
-            fgWorkerExit = false;
-            fgThread = new std::thread(runForegroundSyncWorker); // SHOUDL BE BACKGROUND
+            fgWorker->idleQueueBodiesToSync(ids);
+            fgWorker->idleInterrupt();
         }
     }
 }
@@ -111,7 +99,7 @@ int main(int argc, const char * argv[]) {
     bgWorker = new SyncWorker("bg", stream);
     fgWorker = new SyncWorker("fg", stream);
 
-    fgThread = new std::thread(runForegroundSyncWorker); // SHOUDL BE BACKGROUND
+    fgThread = new std::thread(runBackgroundSyncWorker); // SHOUDL BE BACKGROUND
     runMainThread();
     
     return 0;

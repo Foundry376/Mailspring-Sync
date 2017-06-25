@@ -31,16 +31,19 @@ Thread::Thread(Message msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allL
     // we'll update these below
     _data["unread"] = 0;
     _data["starred"] = 0;
+    _data["attachmentCount"] = 0;
     _data["folders"] = json::array();
     _data["labels"] = json::array();
     _data["participants"] = json::array();
 
+    captureInitialState();
     addMessage(&msg, allLabels);
 }
 
 Thread::Thread(SQLite::Statement & query) :
 MailModel(query)
 {
+    captureInitialState();
 }
 
 string Thread::subject() {
@@ -65,6 +68,14 @@ int Thread::starred() {
 
 void Thread::setStarred(int s) {
     _data["starred"] = s;
+}
+
+int Thread::attachmentCount() {
+    return _data["attachmentCount"].get<int>();
+}
+
+void Thread::setAttachmentCount(int s) {
+    _data["attachmentCount"] = s;
 }
 
 bool Thread::inAllMail() {
@@ -107,7 +118,8 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
     // update basic attributes
     setUnread(unread() + msg->isUnread());
     setStarred(starred() + msg->isStarred());
-
+    setAttachmentCount(attachmentCount() + (int)msg->files().size());
+    
     if (msg->date() > lastMessageTimestamp()) {
         _data["lastMessageTimestamp"] = msg->date();
     }
@@ -151,16 +163,15 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
         }
     }
     
-    // InAllMail should be true always for non-gmail accounts,
-    // only true for Gmail when thread is not solely in spam or trash.
-    int notSpamOrTrash = 0;
-    for (auto& l : labels()) {
-        string role = l["role"].get<string>();
-        if ((role != "spam") && (role != "trash")) {
-            notSpamOrTrash ++;
+    // InAllMail should be true unless the thread is entirely in the spam or trash folder.
+    int spamOrTrash = 0;
+    for (auto& f : folders()) {
+        string role = f["role"].get<string>();
+        if ((role == "spam") || (role == "trash")) {
+            spamOrTrash ++;
         }
     }
-    _data["inAllMail"] = notSpamOrTrash == labels().size();
+    _data["inAllMail"] = folders().size() > spamOrTrash;
     
     // merge in participants
     std::map<std::string, bool>emails;
@@ -178,16 +189,23 @@ void Thread::prepareToReaddMessage(Message * msg, vector<shared_ptr<Label>> & al
     // update basic attributes
     setUnread(unread() - msg->isUnread());
     setStarred(starred() - msg->isStarred());
-    
+    setAttachmentCount(attachmentCount() - (int)msg->files().size());
+
     // update our folder set + decrement refcounts
     string msgFolderId = msg->folderId();
+    json nextFolders = json::array();
     for (auto & f : folders()) {
         if (f["id"].get<string>() == msgFolderId) {
-            f["_refcount"] = f["_refcount"].get<int>() - 1;
+            int r = f["_refcount"].get<int>();
+            if (r > 1) {
+                f["_refcount"] = r - 1;
+                nextFolders.push_back(f);
+            }
             break;
         }
     }
-    
+    _data["folders"] = nextFolders;
+
     // update our label set + decrement refcounts
     for (auto& mlname : msg->folderImapXGMLabels()) {
         shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
@@ -244,21 +262,60 @@ void Thread::writeAssociations(SQLite::Database & db) {
     }
 
     string qmarks = MailUtils::qmarkSets(categoryIds.size(), 6);
+    string _id = id();
+    bool _unread = unread() > 0;
+    bool _inAllMail = inAllMail();
+    double _lmrt = (double)lastMessageReceivedTimestamp();
+    double _lmst = (double)lastMessageSentTimestamp();
+    
     SQLite::Statement insertFolders(db, "INSERT INTO ThreadCategory (id, value, inAllMail, unread, lastMessageReceivedTimestamp, lastMessageSentTimestamp) VALUES " + qmarks);
 
     int i = 1;
     for (auto& catId : categoryIds) {
-        insertFolders.bind(i++, id());
+        insertFolders.bind(i++, _id);
         insertFolders.bind(i++, catId);
-        insertFolders.bind(i++, inAllMail());
-        insertFolders.bind(i++, unread() > 0);
-        insertFolders.bind(i++, (double)lastMessageSentTimestamp());
-        insertFolders.bind(i++, (double)lastMessageReceivedTimestamp());
+        insertFolders.bind(i++, _inAllMail);
+        insertFolders.bind(i++, _unread);
+        insertFolders.bind(i++, _lmrt);
+        insertFolders.bind(i++, _lmst);
     }
     insertFolders.exec();
+    
+    // update the thread counts table. We keep track of our initial / updated
+    // unread count and category membership so that we can quickly compute changes
+    // to these counters
+    if (_initialIsUnread != _unread || _initialCategoryIds != categoryIds) {
+        qmarks = MailUtils::qmarks(_initialCategoryIds.size());
+        SQLite::Statement decrementCounters(db, "UPDATE ThreadCounts SET unread = unread - ?, total = total - 1 WHERE categoryId IN (" + qmarks + ")");
+        i = 1;
+        decrementCounters.bind(i++, _unread);
+        for (auto& catId : _initialCategoryIds) {
+            decrementCounters.bind(i++, catId);
+        }
+        decrementCounters.exec();
+
+        qmarks = MailUtils::qmarks(categoryIds.size());
+        SQLite::Statement incrementCounters(db, "UPDATE ThreadCounts SET unread = unread + ?, total = total + 1 WHERE categoryId IN (" + qmarks + ")");
+        i = 1;
+        incrementCounters.bind(i++, _unread);
+        for (auto& catId : categoryIds) {
+            incrementCounters.bind(i++, catId);
+        }
+        incrementCounters.exec();
+    }
 }
 
 #pragma mark Private
+
+void Thread::captureInitialState() {
+    _initialIsUnread = unread() > 0;
+    for (const auto & f : folders()) {
+        _initialCategoryIds.push_back(f["id"].get<string>());
+    }
+    for (const auto & f : labels()) {
+        _initialCategoryIds.push_back(f["id"].get<string>());
+    }
+}
 
 void Thread::addMissingParticipants(std::map<std::string, bool> & existing, json & incoming) {
     for (const auto & contact : incoming) {
