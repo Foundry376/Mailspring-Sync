@@ -357,7 +357,8 @@ bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus
     // messages. If the folder indicates UIDNext is 100000 but there are only 100 messages,
     // go ahead and fetch them all in one chunk. Otherwise, scan the UID space in chunks,
     // ensuring we never bite off more than we can chew.
-    uint32_t chunkSize = 500; // TODO WORK AROUND SQLITE_MAX_VARIABLE_NUMBER
+    bool chunkIsFirst = deepScanMinUID == remoteStatus.uidNext();
+    uint32_t chunkSize = chunkIsFirst ? 500 : 1000;
     uint32_t nextMinUID = deepScanMinUID > chunkSize ? deepScanMinUID - chunkSize : 1;
     if (remoteStatus.messageCount() < chunkSize) {
         nextMinUID = 1;
@@ -404,14 +405,6 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
         return;
     }
     
-    // Note: This is currently optimized for the idle case. IT fetches all UIDs + attributes,
-    // and then for things it doesn't find it fetches again by ID. This means that during
-    // initial sync it fetches, finds none, fetches again by ID, finds none, then inserts.
-    // However during stable sync it never loads more than UIDs and attributes and a /few/ by ID.
-
-    // Alternative idea: Let it try to insert all the time, just catch SQLIte exception
-    // and do an update instead?
-    
     // Step 2: Fetch the local attributes (unread, starred, etc.) for the same UID range
     map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(range, folder));
     vector<string> changedOrMissingIDs {};
@@ -434,18 +427,28 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
         local.erase(remoteUID);
     }
     
-    // Step 4: Load the messages that were modified or not found in the folder by ID.
-    // (they may be in another folder locally.) They need to be loaded fully
-    // so we can change their flags and generate the deltas.
-    Query q = Query().equal("id", changedOrMissingIDs);
-    auto localMessages = store->findAllMap<Message>(q, "id");
+    // Step 4: Attempt to insert the new messages. If we get unique exceptions,
+    // look for the existing message and do an update instead. This happens whenever
+    // a message has moved between folders or it's attributes have changed.
+
+    // Note: We could prefetch all changedOrMissingIDs and then decide to update/insert,
+    // but we can only query for 500 at a time, it /feels/ nasty, and we /could/ always
+    // hit the exception anyway since another thread could be IDLEing and retrieving
+    // the messages alongside us.
     
     for (const auto id : changedOrMissingIDs) {
         IMAPMessage * remoteMsg = changedOrMissingRemotes[id];
-        if (localMessages.count(id)) {
-            processor->updateMessage(localMessages[id].get(), remoteMsg, folder);
-        } else {
+        try {
             processor->insertMessage(remoteMsg, folder);
+        } catch (const SQLite::Exception & ex) {
+            store->rollbackTransaction();
+            Query q = Query().equal("id", id);
+            auto localMessage = store->find<Message>(q);
+            if (localMessage.get() != nullptr) {
+                processor->updateMessage(localMessage.get(), remoteMsg, folder);
+            } else {
+                throw ex;
+            }
         }
     }
     

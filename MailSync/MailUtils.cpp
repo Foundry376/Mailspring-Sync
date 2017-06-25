@@ -169,6 +169,13 @@ string MailUtils::idForFile(string messageId, Attachment * attachment) {
     return picosha2::bytes_to_hex_string(hash.begin(), hash.end());
 }
 
+string MailUtils::idForDraftHeaderMessageId(string headerMessageId)
+{
+    vector<unsigned char> hash(32);
+    picosha2::hash256(headerMessageId.begin(), headerMessageId.end(), hash.begin(), hash.end());
+    return picosha2::bytes_to_hex_string(hash.begin(), hash.end());
+}
+
 string MailUtils::idForMessage(IMAPMessage * msg) {
     Array * addresses = new Array();
     addresses->addObjectsFromArray(msg->header()->to());

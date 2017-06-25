@@ -1,4 +1,4 @@
-//
+
 //  Message.cpp
 //  MailSync
 //
@@ -30,6 +30,7 @@ MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
     _data["unread"] = attrs.unread;
     _data["starred"] = attrs.starred;
     _data["labels"] = attrs.labels;
+    _data["draft"] = bool(msg->flags() & MessageFlagDraft);
     
     // inflate the participant fields
     _data["from"] = json::array();
@@ -60,6 +61,15 @@ Message::Message(SQLite::Statement & query) :
 {
 
 }
+
+Message::Message(json json) :
+    MailModel(json)
+{
+    if (json.count("id") == 0) {
+        _data["id"] = MailUtils::idForDraftHeaderMessageId(headerMessageId());
+    }
+}
+
 
 // mutable attributes
 
@@ -117,6 +127,10 @@ void Message::setFiles(vector<File> & files) {
 
 void Message::setBodyForDispatch(string s) {
     _bodyForDispatch = s;
+}
+
+bool Message::isDraft() {
+    return _data["draft"].get<bool>();
 }
 
 uint32_t Message::folderImapUID() {
@@ -186,6 +200,7 @@ void Message::bindToQuery(SQLite::Statement & query) {
     query.bind(":date", (double)date());
     query.bind(":unread", isUnread());
     query.bind(":starred", isStarred());
+    query.bind(":draft", isDraft());
     query.bind(":headerMessageId", headerMessageId());
     query.bind(":subject", subject());
     query.bind(":folderImapUID", folderImapUID());

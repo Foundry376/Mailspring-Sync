@@ -47,6 +47,8 @@ private:
 
     void performLocalChangeOnMessages(Task * task,  void (*modifyLocalMessage)(Message *, json &));
     void performRemoteChangeOnMessages(Task * task, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, json & data));
+    void performLocalSaveDraft(Task * task);
+    void performLocalDestroyDraft(Task * task);
     
 };
 

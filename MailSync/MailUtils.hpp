@@ -40,7 +40,8 @@ public:
     static string idForFolder(IMAPFolder * folder);
     static string idForMessage(IMAPMessage * msg);
     static string idForFile(string messageId, Attachment * attachment);
-              
+    static string idForDraftHeaderMessageId(string headerMessageId);
+    
     static shared_ptr<Label> labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> & allLabels);
 
     static string qmarks(size_t count);

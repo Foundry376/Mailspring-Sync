@@ -46,6 +46,7 @@ public:
 class MailStore {
     SQLite::Database _db;
     SQLite::Statement _stmtBeginTransaction;
+    SQLite::Statement _stmtRollbackTransaction;
     SQLite::Statement _stmtCommitTransaction;
     vector<MailStoreObserver*> _observers;
     vector<shared_ptr<Label>> _labelCache;
@@ -57,6 +58,8 @@ public:
     SQLite::Database & db();
 
     void beginTransaction();
+    
+    void rollbackTransaction();
 
     void commitTransaction();
 
