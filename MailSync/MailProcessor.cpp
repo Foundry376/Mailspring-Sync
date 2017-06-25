@@ -8,6 +8,7 @@
 
 #include "MailProcessor.hpp"
 #include "MailUtils.hpp"
+#include "File.hpp"
 
 using namespace std;
 using nlohmann::json;
@@ -39,7 +40,6 @@ void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
 
     logger->info("🔹 Inserting message with subject: {}", msg.subject());
 
-    // first, find or build a thread for this message
     Array * references = mMsg->header()->references();
     if (references == nullptr) {
         references = new Array();
@@ -49,6 +49,8 @@ void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
     auto allLabels = store->allLabelsCache();
 
     store->beginTransaction();
+
+    // Find the correct thread
 
     if (mMsg->gmailThreadID()) {
         Query query = Query().equal("gThrId", to_string(mMsg->gmailThreadID()));
@@ -67,17 +69,20 @@ void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
         }
     }
     
+    // Add the message to the thread
+
     if (thread != nullptr) {
         thread->addMessage(&msg, allLabels);
-        store->save(thread.get());
     } else {
         thread = make_shared<Thread>(msg, mMsg->gmailThreadID(), allLabels);
-        store->save(thread.get());
     }
     
+    // Apply changes to ThreadReferences, ThreadSearch, Contacts
     upsertThreadReferences(thread->id(), msg.headerMessageId(), references);
+    appendToThreadSearchContent(thread.get(), &msg, nullptr);
     upsertContacts(&msg);
-
+    
+    store->save(thread.get());
     msg.setThreadId(thread->id());
     store->save(&msg);
 
@@ -120,6 +125,63 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     store->save(local);
     store->save(thread.get());
 
+    // Step 6: Update categories listed in the FTS5 table
+    appendToThreadSearchContent(thread.get(), nullptr, nullptr);
+    
+    store->commitTransaction();
+}
+
+void MailProcessor::retrievedMessageBody(Message * message, MessageParser * parser) {
+    String * text = parser->plainTextBodyRendering(true);
+    String * html = parser->htmlBodyRendering();
+    
+    // build file containers for the attachments
+    Array * attachments = parser->attachments();
+    vector<File> files;
+    for (int ii = 0; ii < attachments->count(); ii ++) {
+        Attachment * a = (Attachment *)attachments->objectAtIndex(ii);
+        File f = File(message, a);
+        
+        bool duplicate = false;
+        for (auto & other : files) {
+            if (other.id() == f.id()) {
+                duplicate = true;
+                logger->info("Attachment is duplicate: {}", f.toJSON().dump());
+                break;
+            }
+        }
+        if (!duplicate) {
+            files.push_back(f);
+        }
+    }
+    
+    auto chars = html->UTF8Characters();
+    
+    store->beginTransaction();
+    
+    // write body to the MessageBodies table
+    SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
+    insert.bind(1, message->id());
+    insert.bind(2, chars);
+    insert.exec();
+    
+    // write files to the files table
+    for (auto & file : files) {
+        store->save(&file);
+    }
+    
+    // append the body text to the thread's FTS5 search index
+    auto thread = store->find<Thread>(Query().equal("id", message->threadId()));
+    if (thread.get() != nullptr) {
+        appendToThreadSearchContent(thread.get(), nullptr, text);
+    }
+
+    // write the message snippet. This also gives us the database trigger!
+    message->setSnippet(text->substringToIndex(400)->UTF8Characters());
+    message->setBodyForDispatch(chars);
+    message->setFiles(files);
+    
+    store->save(message);
     store->commitTransaction();
 }
 
@@ -157,6 +219,76 @@ void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMe
         store->save(local.get());
 
         if (thread) { store->save(thread); }
+    }
+}
+
+void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull) {
+    string categories;
+    for (auto f : thread->folders()) {
+        categories += ((f.count("role") ? f["role"] : f["path"]).get<string>());
+        categories += " ";
+    }
+    for (auto f : thread->labels()) {
+        categories += ((f.count("role") ? f["role"] : f["path"]).get<string>());
+        categories += " ";
+    }
+
+    // retrieve the current index if there is one
+    
+    string to;
+    string from;
+    string body = thread->subject();
+
+    if (thread->searchRowId()) {
+        SQLite::Statement existing(store->db(), "SELECT to_, from_, body FROM ThreadSearch WHERE rowid = ?");
+        existing.bind(1, (double)thread->searchRowId());
+        if (existing.executeStep()) {
+            to = existing.getColumn("to_").getString();
+            from = existing.getColumn("from_").getString();
+            body = existing.getColumn("body").getString();
+        }
+    }
+    
+    if (messageToAppendOrNull != nullptr) {
+        for (auto c : messageToAppendOrNull->to()) {
+            if (c.count("email")) { to = to + " " + c["email"].get<string>(); }
+            if (c.count("name")) { to = to + " " + c["name"].get<string>(); }
+        }
+        for (auto c : messageToAppendOrNull->cc()) {
+            if (c.count("email")) { to = to + " " + c["email"].get<string>(); }
+            if (c.count("name")) { to = to + " " + c["name"].get<string>(); }
+        }
+        for (auto c : messageToAppendOrNull->bcc()) {
+            if (c.count("email")) { to = to + " " + c["email"].get<string>(); }
+            if (c.count("name")) { to = to + " " + c["name"].get<string>(); }
+        }
+        for (auto c : messageToAppendOrNull->from()) {
+            if (c.count("email")) { from = from + " " + c["email"].get<string>(); }
+            if (c.count("name")) { from = from + " " + c["name"].get<string>(); }
+        }
+    }
+    
+    if (bodyToAppendOrNull != nullptr) {
+        body = body + " " + bodyToAppendOrNull->substringToIndex(5000)->UTF8Characters();
+    }
+    
+    if (thread->searchRowId()) {
+        SQLite::Statement update(store->db(), "UPDATE ThreadSearch SET to_ = ?, from_ = ?, body = ?, categories = ? WHERE rowid = ?");
+        update.bind(1, to);
+        update.bind(2, from);
+        update.bind(3, body);
+        update.bind(4, categories);
+        update.bind(5, (double)thread->searchRowId());
+        update.exec();
+    } else {
+        SQLite::Statement insert(store->db(), "INSERT INTO ThreadSearch (to_, from_, body, categories, content_id) VALUES (?, ?, ?, ?, ?)");
+        insert.bind(1, to);
+        insert.bind(2, from);
+        insert.bind(3, body);
+        insert.bind(4, categories);
+        insert.bind(5, thread->id());
+        insert.exec();
+        thread->setSearchRowId(store->db().getLastInsertRowid());
     }
 }
 
@@ -206,24 +338,28 @@ void MailProcessor::upsertContacts(Message * message) {
     Query query = Query().equal("email", emails);
     auto results = store->findAll<Contact>(query);
     for (auto & result : results) {
-        // update refcount
+        // update refcounts of existing items
         result->incrementRefs();
         store->save(result.get());
         byEmail.erase(result->email());
     }
     
-    // insert remaining items
+    if (byEmail.size() == 0) {
+        return;
+    }
+
     SQLite::Statement searchInsert(store->db(), "INSERT INTO ContactSearch (content_id, content) VALUES (?, ?)");
+
     for (auto & result : byEmail) {
+        // insert remaining items
         Contact c{message->accountId(), result.first, result.second};
         store->save(&c);
         
-        // also index it for search
+        // also index for search
         searchInsert.bind(1, c.id());
         searchInsert.bind(2, c.searchContent());
         searchInsert.exec();
         searchInsert.reset();
-        
     }
 }
 
