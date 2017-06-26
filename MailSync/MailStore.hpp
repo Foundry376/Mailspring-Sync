@@ -48,6 +48,10 @@ class MailStore {
     SQLite::Statement _stmtBeginTransaction;
     SQLite::Statement _stmtRollbackTransaction;
     SQLite::Statement _stmtCommitTransaction;
+    map<string, shared_ptr<SQLite::Statement>> _saveUpdateQueries;
+    map<string, shared_ptr<SQLite::Statement>> _saveInsertQueries;
+    map<string, shared_ptr<SQLite::Statement>> _removeQueries;
+    
     vector<MailStoreObserver*> _observers;
     vector<shared_ptr<Label>> _labelCache;
     bool _labelCacheInvalid;
