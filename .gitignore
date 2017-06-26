@@ -1,3 +1,4 @@
 .DS_Store
 *.xcuserstate
 *.xcbkptlist
+/MailSync.xcodeproj/xcuserdata/bengotow.xcuserdatad/xcdebugger/Breakpoints_v2.xcbkptlist

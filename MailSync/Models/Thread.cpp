@@ -312,7 +312,7 @@ void Thread::writeAssociations(SQLite::Database & db) {
         string qmarks = MailUtils::qmarks(_initialCategoryIds.size());
         SQLite::Statement decrementCounters(db, "UPDATE ThreadCounts SET unread = unread - ?, total = total - 1 WHERE categoryId IN (" + qmarks + ")");
         int i = 1;
-        decrementCounters.bind(i++, _unread);
+        decrementCounters.bind(i++, _initialIsUnread);
         for (auto& catId : _initialCategoryIds) {
             decrementCounters.bind(i++, catId);
         }

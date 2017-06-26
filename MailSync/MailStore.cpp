@@ -17,10 +17,6 @@
 using namespace mailcore;
 using namespace std;
 
-static map<string, shared_ptr<SQLite::Statement>> _saveUpdateQueries;
-static map<string, shared_ptr<SQLite::Statement>> _saveInsertQueries;
-static map<string, shared_ptr<SQLite::Statement>> _removeQueries;
-
 #pragma mark MessageAttributes
 
 MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
@@ -123,6 +119,11 @@ void MailStore::beginTransaction() {
 
 
 void MailStore::rollbackTransaction() {
+    // Note: when a transaction is interrupted and we roll it back,
+    // running the statement again produces the error again? Unclear...
+    _saveUpdateQueries = {};
+    _saveInsertQueries = {};
+    _removeQueries = {};
     _stmtRollbackTransaction.exec();
     _stmtRollbackTransaction.reset();
 }

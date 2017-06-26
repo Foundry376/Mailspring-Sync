@@ -31,6 +31,7 @@ class SyncWorker {
     std::shared_ptr<spdlog::logger> logger;
     
     bool idleShouldReloop;
+    int preferredChunkSize;
     vector<string> idleFetchBodyIDs;
 
 public:
@@ -46,7 +47,7 @@ public:
 
     bool syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
         
-    void syncFolderRange(Folder & folder, Range range);
+    void syncFolderSequenceRange(Folder & folder, Range range);
 
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus);
 

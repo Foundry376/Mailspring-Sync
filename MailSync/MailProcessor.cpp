@@ -24,18 +24,16 @@ void MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & f
     try {
         insertMessage(mMsg, folder);
     } catch (const SQLite::Exception & ex) {
-        if (ex.getErrorCode() == 19) { // constraint failed
-            store->rollbackTransaction();
-            Query q = Query().equal("id", MailUtils::idForMessage(mMsg));
-            auto localMessage = store->find<Message>(q);
-            if (localMessage.get() != nullptr) {
-                updateMessage(localMessage.get(), mMsg, folder);
-            } else {
-                throw ex;
-            }
-        } else {
+        if (ex.getErrorCode() != 19) { // constraint failed
             throw ex;
         }
+        store->rollbackTransaction();
+        Query q = Query().equal("id", MailUtils::idForMessage(mMsg));
+        auto localMessage = store->find<Message>(q);
+        if (localMessage.get() == nullptr) {
+            throw ex;
+        }
+        updateMessage(localMessage.get(), mMsg, folder);
     }
 }
 

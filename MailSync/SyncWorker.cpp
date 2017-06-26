@@ -52,6 +52,8 @@ SyncWorker::SyncWorker(string name, CommStream * stream) :
     session.setConnectionType(ConnectionType::ConnectionTypeTLS);
     session.setPort(993);
     
+    preferredChunkSize = 200;
+
     store->addObserver(stream);
 }
 
@@ -328,7 +330,6 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     return foldersToSync;
 }
 
-
 /*
  Pull down all message attributes in the folder. For each range, compare against our local
  versions to determine 1) new, 2) changed, 3) deleted.
@@ -341,16 +342,24 @@ bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus
 
     // For condstore accounts, we only do a deep scan once
     // For other accounts we deep scan every ten minutes to find flag changes / deletions deep in the folder.
-    uint32_t deepScanMinUID = ls.count("deepScanMinUID") ? ls["deepScanMinUID"].get<uint32_t>() : UINT32_MAX;
-    time_t deepScanTime = ls.count("deepScanTime") ? ls["deepScanTime"].get<time_t>() : 0;
+    unsigned long fullScanHead = ls.count("fullScanHead") ? ls["fullScanHead"].get<unsigned long>() : UINT32_MAX;
+    time_t fullScanTime = ls.count("fullScanTime") ? ls["fullScanTime"].get<time_t>() : 0;
     bool condstoreSupported = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
 
-    if ((deepScanMinUID == UINT32_MAX) || (!condstoreSupported && (time(0) - deepScanTime > TEN_MINUTES))) {
-        ls["uidnext"] = remoteStatus.uidNext();
-        deepScanMinUID = remoteStatus.uidNext();
+    if ((fullScanHead == UINT32_MAX) || (!condstoreSupported && (time(0) - fullScanTime > TEN_MINUTES))) {
+        // Identify the message number that corresponds to uidnext.
+        // We'll begin paging backwards from there.
+        uint32_t uidnext = remoteStatus.uidNext();
+        String path = AS_MCSTR(folder.path());
+        ErrorCode err = ErrorCode::ErrorNone;
+        HashMap * map = session.fetchMessageNumberUIDMapping(&path, uidnext - 1, uidnext - 1, &err);
+        Value * v = (Value*)map->allKeys()->objectAtIndex(0);
+        fullScanHead = v->unsignedLongValue();
+        ls["uidnext"] = uidnext;
+
     }
     
-    if (deepScanMinUID == 1) {
+    if (fullScanHead == 1) {
         return false;
     }
 
@@ -358,44 +367,17 @@ bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus
     // messages. If the folder indicates UIDNext is 100000 but there are only 100 messages,
     // go ahead and fetch them all in one chunk. Otherwise, scan the UID space in chunks,
     // ensuring we never bite off more than we can chew.
-
-    bool chunkIsFirst = deepScanMinUID == remoteStatus.uidNext();
-    uint32_t chunkSize = chunkIsFirst ? 500 : 5000;
-    uint32_t nextMinUID = deepScanMinUID > chunkSize ? deepScanMinUID - chunkSize : 1;
-    if (remoteStatus.messageCount() < chunkSize) {
-        nextMinUID = 1;
+    unsigned long chunkNextHead = fullScanHead > preferredChunkSize ? fullScanHead - preferredChunkSize : 1;
+    if (remoteStatus.messageCount() < preferredChunkSize) {
+        chunkNextHead = 1;
     }
 
-    if (chunkIsFirst) {
-        syncFolderRange(folder, RangeMake(nextMinUID, deepScanMinUID - nextMinUID));
-    } else {
-        if (!ls.count("splits")) {
-            logger->info("Fetching entire UID range to determine ideal attribute sync chunks");
-            String path = AS_MCSTR(folder.path());
-            IMAPProgressCallback * cb = new Progress();
-            ErrorCode err(ErrorCode::ErrorNone);
-            IndexSet * set = IndexSet::indexSetWithRange(RangeMake(1, deepScanMinUID - chunkSize));
-            Array * msgs = session.fetchMessagesByUID(&path, IMAPMessagesRequestKindUid, set, cb, &err);
-
-            int i;
-            ls["splits"] = json::array();
-            for (i = msgs->count() - 1; i >= 0; i -= chunkSize) {
-                IMAPMessage * msg = (IMAPMessage*)msgs->objectAtIndex(i);
-                logger->info("  + {}", msg->uid());
-                ls["splits"].push_back(msg->uid());
-            }
-            ls["splits"].push_back(1);
-        }
-        
-        nextMinUID = ls["splits"].front().get<uint32_t>();
-        syncFolderRange(folder, RangeMake(nextMinUID, deepScanMinUID - nextMinUID));
-        ls["splits"].erase(0);
-    }
+    syncFolderSequenceRange(folder, RangeMake(chunkNextHead, fullScanHead - chunkNextHead));
     
     // The values we /started/ paginating with, unsure if they change behind our back
     // As long as deepScanMinId is still > 1, this function will be run again
-    ls["deepScanMinUID"] = nextMinUID;
-    ls["deepScanTime"] = time(0);
+    ls["fullScanHead"] = chunkNextHead;
+    ls["fullScanTime"] = time(0);
     
     return true;
 }
@@ -405,19 +387,26 @@ bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus
  UIDNext of the folder down to the 500th message we previously synced.
  */
 void SyncWorker::syncFolderChangesViaShallowScan(Folder & folder, IMAPFolderStatus & remoteStatus)
-{    
-    int uidStart = store->fetchMessageUIDAtDepth(folder, 499);
-    int uidNext = remoteStatus.uidNext();
-    syncFolderRange(folder, RangeMake(uidStart, uidNext - uidStart));
-    folder.localStatus()["uidnext"] = uidNext;
+{
+    // Todo - just use UIDs here?
+    uint32_t uidnext = remoteStatus.uidNext();
+    String path = AS_MCSTR(folder.path());
+    ErrorCode err = ErrorCode::ErrorNone;
+    HashMap * map = session.fetchMessageNumberUIDMapping(&path, uidnext - 1, uidnext - 1, &err);
+    Value * v = (Value*)map->allKeys()->objectAtIndex(0);
+    unsigned long shallowScanHead = v->unsignedLongValue();
+    unsigned long shallowScanMin = shallowScanHead > 500 ? shallowScanHead - 500 : 1;
+    
+    syncFolderSequenceRange(folder, RangeMake(shallowScanMin, shallowScanHead - shallowScanMin));
+    folder.localStatus()["uidnext"] = uidnext;
 }
 
-void SyncWorker::syncFolderRange(Folder & folder, Range range)
+void SyncWorker::syncFolderSequenceRange(Folder & folder, Range range)
 {
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
     
-    logger->info("Syncing folder {} (UIDS {} - {})", folder.path(), range.location, range.location + range.length);
+    logger->info("Syncing folder {} (Numbers {} - {})", folder.path(), range.location, range.location + range.length);
     
     IndexSet * set = IndexSet::indexSetWithRange(range);
     IMAPProgressCallback * cb = new Progress();
@@ -425,25 +414,27 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
     // Step 1: Fetch the remote UID range
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(folder.path()));
-    Array * remote = session.fetchMessagesByUID(&path, KIND_ALL_HEADERS, set, cb, &err);
+    Array * remote = session.fetchMessagesByNumber(&path, KIND_ALL_HEADERS, set, cb, &err);
     if (err) {
         logger->error("IMAP Error Occurred: {}", err);
         return;
     }
+    if (remote->count() == 0) {
+        logger->error("Request for messages in number range returned none.");
+        return;
+    }
     
     // TODO: Use numbers instead, calculate ideal chunk size based on whatever takes 1 second
-    // to insert in database, 
+    // to insert in database,
     // Step 2: Fetch the local attributes (unread, starred, etc.) for the same UID range
-    map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(range, folder));
-    time_t lastSleepTime = time(0);
+    uint32_t minUID = ((IMAPMessage*)remote->objectAtIndex(0))->uid();
+    uint32_t maxUID = ((IMAPMessage*)remote->lastObject())->uid();
+    map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(RangeMake(minUID, maxUID - minUID), folder));
+    clock_t startClock = clock();
     
     for (int ii = remote->count() - 1; ii >= 0; ii--) {
         // Never sit in a hard loop inserting things into the database for more than a second.
         // This ensures we don't starve another thread waiting for a database connection
-        if (time(0) - lastSleepTime > 1) {
-            lastSleepTime = time(0);
-            sleep(1);
-        }
         IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
         uint32_t remoteUID = remoteMsg->uid();
 
@@ -478,6 +469,12 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
         auto deletedMsgs = store->findAll<Message>(qd);
         processor->unlinkMessagesFromFolder(deletedMsgs);
     }
+    
+    double secElapsed = (double((clock() - startClock)) / CLOCKS_PER_SEC);
+    preferredChunkSize = (double)remote->count() / secElapsed;
+    preferredChunkSize = min(max(preferredChunkSize, 25), 400);
+    
+    logger->info("Applying range took {}, updating preferred chunk size to {}", secElapsed, preferredChunkSize);
 }
 
 void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus)
