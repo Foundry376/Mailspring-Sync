@@ -73,8 +73,8 @@ vector<string> Contact::columnsForQuery() {
     return vector<string>{"id", "data", "accountId", "version", "refs", "email"};
 }
 
-void Contact::bindToQuery(SQLite::Statement & query) {
+void Contact::bindToQuery(SQLite::Statement * query) {
     MailModel::bindToQuery(query);
-    query.bind(":refs", refs());
-    query.bind(":email", email());
+    query->bind(":refs", refs());
+    query->bind(":email", email());
 }

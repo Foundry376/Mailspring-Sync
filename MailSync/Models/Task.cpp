@@ -49,7 +49,7 @@ vector<string> Task::columnsForQuery() {
     return vector<string>{"id", "data", "accountId", "version", "status"};
 }
 
-void Task::bindToQuery(SQLite::Statement & query) {
+void Task::bindToQuery(SQLite::Statement * query) {
     MailModel::bindToQuery(query);
-    query.bind(":status", status());
+    query->bind(":status", status());
 }

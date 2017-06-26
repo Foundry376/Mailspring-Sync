@@ -61,7 +61,7 @@ vector<string> File::columnsForQuery() {
     return vector<string>{"id", "data", "accountId", "version", "filename"};
 }
 
-void File::bindToQuery(SQLite::Statement & query) {
+void File::bindToQuery(SQLite::Statement * query) {
     MailModel::bindToQuery(query);
-    query.bind(":filename", filename());
+    query->bind(":filename", filename());
 }

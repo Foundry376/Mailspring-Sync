@@ -17,6 +17,10 @@
 using namespace mailcore;
 using namespace std;
 
+static map<string, shared_ptr<SQLite::Statement>> _saveUpdateQueries;
+static map<string, shared_ptr<SQLite::Statement>> _saveInsertQueries;
+static map<string, shared_ptr<SQLite::Statement>> _removeQueries;
+
 #pragma mark MessageAttributes
 
 MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
@@ -131,38 +135,50 @@ void MailStore::commitTransaction() {
 void MailStore::save(MailModel * model) {
     model->incrementVersion();
     
+    auto tableName = model->tableName();
+    
     if (model->version() > 1) {
-        string pairs{""};
-        for (const auto col : model->columnsForQuery()) {
-            if (col == "id") {
-                continue;
+        if (!_saveUpdateQueries.count(tableName)) {
+            string pairs{""};
+            for (const auto col : model->columnsForQuery()) {
+                if (col == "id") {
+                    continue;
+                }
+                pairs += (col + " = :" + col + ",");
             }
-            pairs += (col + " = :" + col + ",");
+            pairs.pop_back();
+            
+            auto stmt = make_shared<SQLite::Statement>(this->_db, "UPDATE " + tableName + " SET " + pairs + " WHERE id = :id");
+            _saveUpdateQueries[tableName] = stmt;
         }
-        pairs.pop_back();
-        
-        SQLite::Statement query(this->_db, "UPDATE " + model->tableName() + " SET " + pairs + " WHERE id = :id");
-        model->bindToQuery(query);
-        query.exec();
+        auto query = _saveUpdateQueries[tableName];
+        query->reset();
+        model->bindToQuery(query.get());
+        query->exec();
         
     } else {
-        string cols{""};
-        string values{""};
-        for (const auto col : model->columnsForQuery()) {
-            cols += col + ",";
-            values += ":" + col + ",";
+        if (!_saveInsertQueries.count(tableName)) {
+            string cols{""};
+            string values{""};
+            for (const auto col : model->columnsForQuery()) {
+                cols += col + ",";
+                values += ":" + col + ",";
+            }
+            cols.pop_back();
+            values.pop_back();
+            
+            auto stmt = make_shared<SQLite::Statement>(this->_db, "INSERT INTO " + tableName + " (" + cols + ") VALUES (" + values + ")");
+            _saveInsertQueries[tableName] = stmt;
         }
-        cols.pop_back();
-        values.pop_back();
-
-        SQLite::Statement query(this->_db, "INSERT INTO " + model->tableName() + " (" + cols + ") VALUES (" + values + ")");
-        model->bindToQuery(query);
-        query.exec();
+        auto query = _saveInsertQueries[tableName];
+        query->reset();
+        model->bindToQuery(query.get());
+        query->exec();
     }
 
     model->writeAssociations(this->_db);
 
-    if (model->tableName() == "Label") {
+    if (tableName == "Label") {
         _labelCacheInvalid = true;
     }
     for (auto & observer : this->_observers) {
@@ -171,9 +187,14 @@ void MailStore::save(MailModel * model) {
 }
 
 void MailStore::remove(MailModel * model) {
-    SQLite::Statement query(this->_db, "DELETE FROM " + model->tableName() + " WHERE id = ?");
-    query.bind(1, model->id());
-    query.exec();
+    auto tableName = model->tableName();
+    if (!_removeQueries.count(tableName)) {
+        _removeQueries[tableName] = make_shared<SQLite::Statement>(this->_db, "DELETE FROM " + tableName + " WHERE id = ?");
+    }
+    auto query = _removeQueries[tableName];
+    query->reset();
+    query->bind(1, model->id());
+    query->exec();
 
     if (model->tableName() == "Label") {
         _labelCacheInvalid = true;

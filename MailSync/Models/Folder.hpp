@@ -37,7 +37,7 @@ public:
   
     string tableName();
     vector<string> columnsForQuery();
-    void bindToQuery(SQLite::Statement & query);
+    void bindToQuery(SQLite::Statement * query);
 };
 
 #endif /* Folder_hpp */

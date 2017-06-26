@@ -57,8 +57,8 @@ vector<string> Folder::columnsForQuery() {
     return vector<string>{"id", "data", "accountId", "version", "path", "role"};
 }
 
-void Folder::bindToQuery(SQLite::Statement & query) {
+void Folder::bindToQuery(SQLite::Statement * query) {
     MailModel::bindToQuery(query);
-    query.bind(":path", path());
-    query.bind(":role", role());
+    query->bind(":path", path());
+    query->bind(":role", role());
 }

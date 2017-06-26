@@ -36,7 +36,7 @@ public:
     int version();
     void incrementVersion();
 
-    virtual void bindToQuery(SQLite::Statement & query);
+    virtual void bindToQuery(SQLite::Statement * query);
     
     virtual void writeAssociations(SQLite::Database & db);
     
