@@ -13,7 +13,7 @@ using namespace std;
 string MailModel::TABLE_NAME = "MailModel";
 
 MailModel::MailModel(string id, string accountId, int version) :
-    _data({{"id", id},{"accountId", accountId}, {"version", version}})
+    _data({{"id", id},{"aid", accountId}, {"v", version}})
 {
 }
 
@@ -35,17 +35,17 @@ string MailModel::id()
 
 string MailModel::accountId()
 {
-    return _data["accountId"].get<std::string>();
+    return _data["aid"].get<std::string>();
 }
 
 int MailModel::version()
 {
-    return _data["version"].get<int>();
+    return _data["v"].get<int>();
 }
 
 void MailModel::incrementVersion()
 {
-    _data["version"] = _data["version"].get<int>() + 1;
+    _data["v"] = _data["v"].get<int>() + 1;
 }
 
 string MailModel::tableName()
@@ -56,8 +56,8 @@ string MailModel::tableName()
 json MailModel::toJSON()
 {
     // note: do not override for Task!
-    if (!_data.count("__constructorName")) {
-        _data["__constructorName"] = this->tableName();
+    if (!_data.count("__cls")) {
+        _data["__cls"] = this->tableName();
     }
     return _data;
 }

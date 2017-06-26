@@ -17,13 +17,13 @@ using namespace mailcore;
 string Contact::TABLE_NAME = "Contact";
 
 Contact::Contact(string accountId, string canonicalizedEmail, json json) : MailModel(json) {
-    _data["accountId"] = accountId;
+    _data["aid"] = accountId;
     _data["email"] = canonicalizedEmail;
     if (!_data.count("refs")) {
         _data["refs"] = 0;
     }
-    if (!_data.count("version")) {
-        _data["version"] = 0;
+    if (!_data.count("v")) {
+        _data["v"] = 0;
     }
     if (!_data.count("id")) {
         _data["id"] = _data["email"];
@@ -36,7 +36,7 @@ Contact::Contact(SQLite::Statement & query) :
 }
 
 string Contact::constructorName() {
-    return _data["__constructorName"].get<string>();
+    return _data["__cls"].get<string>();
 }
 
 string Contact::tableName() {

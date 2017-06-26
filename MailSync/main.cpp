@@ -70,7 +70,7 @@ void runMainThread() {
         json packet = stream->waitForJSON();
         
         if (packet.count("type") && packet["type"].get<string>() == "task-queued") {
-            packet["task"]["version"] = 0;
+            packet["task"]["v"] = 0;
 
             Task task{packet["task"]};
             processor.performLocal(&task);
