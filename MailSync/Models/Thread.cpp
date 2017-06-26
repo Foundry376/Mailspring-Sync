@@ -20,10 +20,10 @@ Thread::Thread(Message msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allL
 {
     // set immutable properties of new Thread
     _data["subject"] = msg.subject();
-    _data["lastMessageTimestamp"] = msg.date();
-    _data["firstMessageTimestamp"] = msg.date();
-    _data["lastMessageSentTimestamp"] = msg.date(); // TODO
-    _data["lastMessageReceivedTimestamp"] = msg.date(); // TODO
+    _data["lmt"] = msg.date();
+    _data["fmt"] = msg.date();
+    _data["lmst"] = msg.date();
+    _data["lmrt"] = msg.date();
     if (gThreadId) {
         _data["gThrId"] = to_string(gThreadId);
     }
@@ -96,19 +96,19 @@ string Thread::gThrId() {
 }
 
 time_t Thread::lastMessageTimestamp() {
-    return _data["lastMessageTimestamp"].get<time_t>();
+    return _data["lmt"].get<time_t>();
 }
 
 time_t Thread::firstMessageTimestamp() {
-    return _data["firstMessageTimestamp"].get<time_t>();
+    return _data["fmt"].get<time_t>();
 }
 
 time_t Thread::lastMessageReceivedTimestamp() {
-    return _data["lastMessageReceivedTimestamp"].get<time_t>();
+    return _data["lmrt"].get<time_t>();
 }
 
 time_t Thread::lastMessageSentTimestamp() {
-    return _data["lastMessageSentTimestamp"].get<time_t>();
+    return _data["lmst"].get<time_t>();
 }
 
 json & Thread::folders() {
@@ -130,18 +130,18 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
     setAttachmentCount(attachmentCount() + (int)msg->files().size());
     
     if (msg->date() > lastMessageTimestamp()) {
-        _data["lastMessageTimestamp"] = msg->date();
+        _data["lmt"] = msg->date();
     }
     if (msg->date() < firstMessageTimestamp()) {
-        _data["firstMessageTimestamp"] = msg->date();
+        _data["fmt"] = msg->date();
     }
     if (msg->isSentByUser()) {
         if (msg->date() > lastMessageSentTimestamp()) {
-            _data["lastMessageSentTimestamp"] = msg->date();
+            _data["lmst"] = msg->date();
         }
     } else {
         if (msg->date() > lastMessageReceivedTimestamp()) {
-            _data["lastMessageReceivedTimestamp"] = msg->date();
+            _data["lmrt"] = msg->date();
         }
     }
     

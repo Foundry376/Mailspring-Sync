@@ -46,7 +46,7 @@ File::File(SQLite::Statement & query) :
 }
 
 string File::constructorName() {
-    return _data["__constructorName"].get<string>();
+    return _data["__cls"].get<string>();
 }
 
 string File::tableName() {

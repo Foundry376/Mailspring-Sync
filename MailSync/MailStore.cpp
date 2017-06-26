@@ -29,7 +29,13 @@ MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
     Array * labels = msg->gmailLabels();
     if (labels != nullptr) {
         for (int ii = 0; ii < labels->count(); ii ++) {
-            m.labels.push_back(((String *)labels->objectAtIndex(ii))->UTF8Characters());
+            string str = ((String *)labels->objectAtIndex(ii))->UTF8Characters();
+            // Gmail exposes Trash and Spam as folders and labels. We want them
+            // to be folders so we ignore their presence as labels.
+            if ((str == "\\Trash") || (str == "\\Spam")) {
+                continue;
+            }
+            m.labels.push_back(str);
         }
         sort(m.labels.begin(), m.labels.end());
     }

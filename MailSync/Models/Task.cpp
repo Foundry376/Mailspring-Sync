@@ -38,7 +38,7 @@ json & Task::data() {
 }
 
 string Task::constructorName() {
-    return _data["__constructorName"].get<string>();
+    return _data["__cls"].get<string>();
 }
 
 string Task::tableName() {
