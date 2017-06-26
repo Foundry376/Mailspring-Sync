@@ -132,8 +132,17 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
     if (msg->date() > lastMessageTimestamp()) {
         _data["lastMessageTimestamp"] = msg->date();
     }
-    if (msg->date() > lastMessageSentTimestamp()) {
-        _data["lastMessageSentTimestamp"] = msg->date();
+    if (msg->date() < firstMessageTimestamp()) {
+        _data["firstMessageTimestamp"] = msg->date();
+    }
+    if (msg->isSentByUser()) {
+        if (msg->date() > lastMessageSentTimestamp()) {
+            _data["lastMessageSentTimestamp"] = msg->date();
+        }
+    } else {
+        if (msg->date() > lastMessageReceivedTimestamp()) {
+            _data["lastMessageReceivedTimestamp"] = msg->date();
+        }
     }
     
     // update our folder set + increment refcounts

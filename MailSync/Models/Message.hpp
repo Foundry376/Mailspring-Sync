@@ -56,7 +56,8 @@ public:
     void setBodyForDispatch(string s);
 
     bool isDraft();
-    
+    bool isSentByUser();
+
     json & folderImapXGMLabels();
     void setFolderImapXGMLabels(json & labels);
 

@@ -334,13 +334,21 @@ void MailProcessor::upsertContacts(Message * message) {
         emails.push_back(imap.first);
     }
 
-    // TODO ENSURE LENGTH < 500
+    if (emails.size() > 25) {
+        // I think it's safe to say mass emails shouldn't create contacts.
+        return;
+    }
+
     Query query = Query().equal("email", emails);
     auto results = store->findAll<Contact>(query);
+    bool incrementCounters = message->isSentByUser();
+    
     for (auto & result : results) {
-        // update refcounts of existing items
-        result->incrementRefs();
-        store->save(result.get());
+        // update refcounts of existing items if this is a sent message
+        if (incrementCounters) {
+            result->incrementRefs();
+            store->save(result.get());
+        }
         byEmail.erase(result->email());
     }
     
@@ -353,6 +361,9 @@ void MailProcessor::upsertContacts(Message * message) {
     for (auto & result : byEmail) {
         // insert remaining items
         Contact c{message->accountId(), result.first, result.second};
+        if (incrementCounters) {
+            c.incrementRefs();
+        }
         store->save(&c);
         
         // also index for search

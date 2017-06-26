@@ -20,7 +20,7 @@ Contact::Contact(string accountId, string canonicalizedEmail, json json) : MailM
     _data["accountId"] = accountId;
     _data["email"] = canonicalizedEmail;
     if (!_data.count("refs")) {
-        _data["refs"] = 1;
+        _data["refs"] = 0;
     }
     if (!_data.count("version")) {
         _data["version"] = 0;
