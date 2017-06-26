@@ -67,11 +67,11 @@ json MailModel::toJSONDispatch()
     return this->toJSON();
 }
 
-void MailModel::bindToQuery(SQLite::Statement & query) {
-    query.bind(":id", id());
-    query.bind(":data", this->toJSON().dump());
-    query.bind(":accountId", accountId());
-    query.bind(":version", version());
+void MailModel::bindToQuery(SQLite::Statement * query) {
+    query->bind(":id", id());
+    query->bind(":data", this->toJSON().dump());
+    query->bind(":accountId", accountId());
+    query->bind(":version", version());
 }
 
 void MailModel::writeAssociations(SQLite::Database & db) {

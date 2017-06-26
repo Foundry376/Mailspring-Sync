@@ -435,13 +435,15 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
     // Step 5: Unlink. The messages left in local map are the ones we had in the range,
     // which the server reported were no longer there. Remove their folderImapUID.
     // We'll delete them later if they don't appear in another folder during sync.
-    vector<uint32_t> deletedUIDs {};
-    for(auto const &ent : local) {
-        deletedUIDs.push_back(ent.first);
+    if (local.size() > 0) {
+        vector<uint32_t> deletedUIDs {};
+        for(auto const &ent : local) {
+            deletedUIDs.push_back(ent.first);
+        }
+        Query qd = Query().equal("folderId", folder.id()).equal("folderImapUID", deletedUIDs);
+        auto deletedMsgs = store->findAll<Message>(qd);
+        processor->unlinkMessagesFromFolder(deletedMsgs);
     }
-    Query qd = Query().equal("folderId", folder.id()).equal("folderImapUID", deletedUIDs);
-    auto deletedMsgs = store->findAll<Message>(qd);
-    processor->unlinkMessagesFromFolder(deletedMsgs);
 }
 
 void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus)
@@ -508,6 +510,11 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
  Syncs the top N missing message bodies. Returns true if it did work, false if it did nothing.
  */
 bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus) {
+    // who needs this stuff? probably nobody.
+    if ((folder.role() == "spam") || (folder.role() == "trash")) {
+        return false;
+    }
+
     SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.folderId = ? AND Message.date > ? AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 10");
     missing.bind(1, folder.id());
     missing.bind(2, (double)(time(0) - 24 * 60 * 60 * 30)); // one month TODO pref!

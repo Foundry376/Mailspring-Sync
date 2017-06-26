@@ -253,24 +253,24 @@ vector<string> Thread::columnsForQuery() {
     return vector<string>{"id", "data", "accountId", "version", "gThrId", "unread", "starred", "inAllMail", "subject", "lastMessageTimestamp", "lastMessageReceivedTimestamp", "lastMessageSentTimestamp", "firstMessageTimestamp"};
 }
 
-void Thread::bindToQuery(SQLite::Statement & query) {
+void Thread::bindToQuery(SQLite::Statement * query) {
     MailModel::bindToQuery(query);
-    query.bind(":unread", unread());
-    query.bind(":starred", starred());
-    query.bind(":subject", subject());
-    query.bind(":inAllMail", inAllMail());
-    query.bind(":gThrId", gThrId());
-    query.bind(":lastMessageTimestamp", (double)lastMessageTimestamp());
-    query.bind(":lastMessageSentTimestamp", (double)lastMessageSentTimestamp());
-    query.bind(":lastMessageReceivedTimestamp", (double)lastMessageReceivedTimestamp());
-    query.bind(":firstMessageTimestamp", (double)firstMessageTimestamp());
+    query->bind(":unread", unread());
+    query->bind(":starred", starred());
+    query->bind(":subject", subject());
+    query->bind(":inAllMail", inAllMail());
+    query->bind(":gThrId", gThrId());
+    query->bind(":lastMessageTimestamp", (double)lastMessageTimestamp());
+    query->bind(":lastMessageSentTimestamp", (double)lastMessageSentTimestamp());
+    query->bind(":lastMessageReceivedTimestamp", (double)lastMessageReceivedTimestamp());
+    query->bind(":firstMessageTimestamp", (double)firstMessageTimestamp());
 }
 
 void Thread::writeAssociations(SQLite::Database & db) {
-    // update the ThreadCategory join table to include our folder and labels
-    SQLite::Statement removeFolders(db, "DELETE FROM ThreadCategory WHERE id = ?");
-    removeFolders.bind(1, id());
-    removeFolders.exec();
+    bool _unread = unread() > 0;
+    bool _inAllMail = inAllMail();
+    double _lmrt = (double)lastMessageReceivedTimestamp();
+    double _lmst = (double)lastMessageSentTimestamp();
 
     vector<string> categoryIds{};
     for (const auto & f : folders()) {
@@ -280,33 +280,38 @@ void Thread::writeAssociations(SQLite::Database & db) {
         categoryIds.push_back(f["id"].get<string>());
     }
 
-    string qmarks = MailUtils::qmarkSets(categoryIds.size(), 6);
-    string _id = id();
-    bool _unread = unread() > 0;
-    bool _inAllMail = inAllMail();
-    double _lmrt = (double)lastMessageReceivedTimestamp();
-    double _lmst = (double)lastMessageSentTimestamp();
-    
-    SQLite::Statement insertFolders(db, "INSERT INTO ThreadCategory (id, value, inAllMail, unread, lastMessageReceivedTimestamp, lastMessageSentTimestamp) VALUES " + qmarks);
+    // update the ThreadCategory join table to include our folder and labels
+    // note this is pretty expensive, so we avoid it if relevant attributes
+    // have not changed since the model was loaded.
+    if (_initialIsUnread != _unread || _initialCategoryIds != categoryIds || _initialLMRT != _lmrt || _initialLMST != _lmst) {
+        string _id = id();
+        SQLite::Statement removeFolders(db, "DELETE FROM ThreadCategory WHERE id = ?");
+        removeFolders.bind(1, id());
+        removeFolders.exec();
 
-    int i = 1;
-    for (auto& catId : categoryIds) {
-        insertFolders.bind(i++, _id);
-        insertFolders.bind(i++, catId);
-        insertFolders.bind(i++, _inAllMail);
-        insertFolders.bind(i++, _unread);
-        insertFolders.bind(i++, _lmrt);
-        insertFolders.bind(i++, _lmst);
+        string qmarks = MailUtils::qmarkSets(categoryIds.size(), 6);
+        
+        SQLite::Statement insertFolders(db, "INSERT INTO ThreadCategory (id, value, inAllMail, unread, lastMessageReceivedTimestamp, lastMessageSentTimestamp) VALUES " + qmarks);
+
+        int i = 1;
+        for (auto& catId : categoryIds) {
+            insertFolders.bind(i++, _id);
+            insertFolders.bind(i++, catId);
+            insertFolders.bind(i++, _inAllMail);
+            insertFolders.bind(i++, _unread);
+            insertFolders.bind(i++, _lmrt);
+            insertFolders.bind(i++, _lmst);
+        }
+        insertFolders.exec();
     }
-    insertFolders.exec();
-    
+
     // update the thread counts table. We keep track of our initial / updated
     // unread count and category membership so that we can quickly compute changes
     // to these counters
     if (_initialIsUnread != _unread || _initialCategoryIds != categoryIds) {
-        qmarks = MailUtils::qmarks(_initialCategoryIds.size());
+        string qmarks = MailUtils::qmarks(_initialCategoryIds.size());
         SQLite::Statement decrementCounters(db, "UPDATE ThreadCounts SET unread = unread - ?, total = total - 1 WHERE categoryId IN (" + qmarks + ")");
-        i = 1;
+        int i = 1;
         decrementCounters.bind(i++, _unread);
         for (auto& catId : _initialCategoryIds) {
             decrementCounters.bind(i++, catId);
@@ -328,6 +333,8 @@ void Thread::writeAssociations(SQLite::Database & db) {
 
 void Thread::captureInitialState() {
     _initialIsUnread = unread() > 0;
+    _initialLMST = lastMessageSentTimestamp();
+    _initialLMRT = lastMessageReceivedTimestamp();
     for (const auto & f : folders()) {
         _initialCategoryIds.push_back(f["id"].get<string>());
     }

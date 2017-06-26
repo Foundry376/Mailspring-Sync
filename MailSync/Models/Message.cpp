@@ -208,19 +208,19 @@ vector<string> Message::columnsForQuery() {
     return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "unread", "starred", "folderImapUID", "folderImapXGMLabels", "folderId", "threadId"};
 }
 
-void Message::bindToQuery(SQLite::Statement & query) {
+void Message::bindToQuery(SQLite::Statement * query) {
     MailModel::bindToQuery(query);
-    query.bind(":date", (double)date());
-    query.bind(":unread", isUnread());
-    query.bind(":starred", isStarred());
-    query.bind(":draft", isDraft());
-    query.bind(":headerMessageId", headerMessageId());
-    query.bind(":subject", subject());
-    query.bind(":folderImapUID", folderImapUID());
-    query.bind(":folderImapXGMLabels", folderImapXGMLabels().dump());
-    query.bind(":folderId", folderId());
-    query.bind(":threadId", threadId());
-    query.bind(":gMsgId", gMsgId());
+    query->bind(":date", (double)date());
+    query->bind(":unread", isUnread());
+    query->bind(":starred", isStarred());
+    query->bind(":draft", isDraft());
+    query->bind(":headerMessageId", headerMessageId());
+    query->bind(":subject", subject());
+    query->bind(":folderImapUID", folderImapUID());
+    query->bind(":folderImapXGMLabels", folderImapXGMLabels().dump());
+    query->bind(":folderId", folderId());
+    query->bind(":threadId", threadId());
+    query->bind(":gMsgId", gMsgId());
 }
 
 json Message::toJSONDispatch() {

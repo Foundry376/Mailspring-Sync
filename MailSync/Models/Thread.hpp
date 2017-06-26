@@ -29,6 +29,8 @@ using namespace std;
 class Thread : public MailModel {
     
     bool _initialIsUnread;
+    time_t _initialLMST;
+    time_t _initialLMRT;
     vector<string> _initialCategoryIds;
 
 public:
@@ -69,7 +71,7 @@ public:
 
     string tableName();
     vector<string> columnsForQuery();
-    void bindToQuery(SQLite::Statement & query);
+    void bindToQuery(SQLite::Statement * query);
     void writeAssociations(SQLite::Database & db);
 
 private:

@@ -42,7 +42,7 @@ public:
     string constructorName();
 
     vector<string> columnsForQuery();
-    void bindToQuery(SQLite::Statement & query);
+    void bindToQuery(SQLite::Statement * query);
 };
 
 #endif /* Contact_hpp */
