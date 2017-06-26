@@ -113,7 +113,6 @@ static std::vector<std::string> SETUP_QUERIES = {
         "subject VARCHAR(500),"
         "date DATETIME,"
         "draft TINYINT(1),"
-        "isSent TINYINT(1),"
         "unread TINYINT(1),"
         "starred TINYINT(1),"
         "replyToMessageId VARCHAR(255),"

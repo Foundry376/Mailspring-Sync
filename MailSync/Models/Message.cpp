@@ -31,7 +31,7 @@ MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
     _data["starred"] = attrs.starred;
     _data["labels"] = attrs.labels;
     _data["draft"] = bool(msg->flags() & MessageFlagDraft);
-    
+
     // inflate the participant fields
     _data["from"] = json::array();
     _data["from"] += MailUtils::contactJSONFromAddress(msg->header()->from());
@@ -133,6 +133,19 @@ bool Message::isDraft() {
     return _data["draft"].get<bool>();
 }
 
+bool Message::isSentByUser() {
+    // returns true if the message is in the sent folder or has the sent label
+    if (_data["folder"]["role"].get<string>() == "sent") {
+        return true;
+    }
+    for (auto l : _data["labels"]) {
+        if (l.get<string>() == "\\Sent") {
+            return true;
+        }
+    }
+    return false;
+}
+
 uint32_t Message::folderImapUID() {
     return _data["folderImapUID"].get<uint32_t>();
 }
@@ -192,7 +205,7 @@ string Message::tableName() {
 }
 
 vector<string> Message::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "isSent", "unread", "starred", "folderImapUID", "folderImapXGMLabels", "folderId", "threadId"};
+    return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "unread", "starred", "folderImapUID", "folderImapXGMLabels", "folderId", "threadId"};
 }
 
 void Message::bindToQuery(SQLite::Statement & query) {
