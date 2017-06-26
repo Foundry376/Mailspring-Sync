@@ -340,7 +340,7 @@ bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus
     json & ls = folder.localStatus();
 
     // For condstore accounts, we only do a deep scan once
-    // For other accounts we deep scan every ten minutes to find flag changes / deletions deep in thh folder.
+    // For other accounts we deep scan every ten minutes to find flag changes / deletions deep in the folder.
     uint32_t deepScanMinUID = ls.count("deepScanMinUID") ? ls["deepScanMinUID"].get<uint32_t>() : UINT32_MAX;
     time_t deepScanTime = ls.count("deepScanTime") ? ls["deepScanTime"].get<time_t>() : 0;
     bool condstoreSupported = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
@@ -358,15 +358,40 @@ bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus
     // messages. If the folder indicates UIDNext is 100000 but there are only 100 messages,
     // go ahead and fetch them all in one chunk. Otherwise, scan the UID space in chunks,
     // ensuring we never bite off more than we can chew.
+
     bool chunkIsFirst = deepScanMinUID == remoteStatus.uidNext();
-    uint32_t chunkSize = chunkIsFirst ? 500 : 1000;
+    uint32_t chunkSize = chunkIsFirst ? 500 : 5000;
     uint32_t nextMinUID = deepScanMinUID > chunkSize ? deepScanMinUID - chunkSize : 1;
     if (remoteStatus.messageCount() < chunkSize) {
         nextMinUID = 1;
     }
-    
-    syncFolderRange(folder, RangeMake(nextMinUID, deepScanMinUID - nextMinUID));
 
+    if (chunkIsFirst) {
+        syncFolderRange(folder, RangeMake(nextMinUID, deepScanMinUID - nextMinUID));
+    } else {
+        if (!ls.count("splits")) {
+            logger->info("Fetching entire UID range to determine ideal attribute sync chunks");
+            String path = AS_MCSTR(folder.path());
+            IMAPProgressCallback * cb = new Progress();
+            ErrorCode err(ErrorCode::ErrorNone);
+            IndexSet * set = IndexSet::indexSetWithRange(RangeMake(1, deepScanMinUID - chunkSize));
+            Array * msgs = session.fetchMessagesByUID(&path, IMAPMessagesRequestKindUid, set, cb, &err);
+
+            int i;
+            ls["splits"] = json::array();
+            for (i = msgs->count() - 1; i >= 0; i -= chunkSize) {
+                IMAPMessage * msg = (IMAPMessage*)msgs->objectAtIndex(i);
+                logger->info("  + {}", msg->uid());
+                ls["splits"].push_back(msg->uid());
+            }
+            ls["splits"].push_back(1);
+        }
+        
+        nextMinUID = ls["splits"].front().get<uint32_t>();
+        syncFolderRange(folder, RangeMake(nextMinUID, deepScanMinUID - nextMinUID));
+        ls["splits"].erase(0);
+    }
+    
     // The values we /started/ paginating with, unsure if they change behind our back
     // As long as deepScanMinId is still > 1, this function will be run again
     ls["deepScanMinUID"] = nextMinUID;
@@ -406,10 +431,19 @@ void SyncWorker::syncFolderRange(Folder & folder, Range range)
         return;
     }
     
+    // TODO: Use numbers instead, calculate ideal chunk size based on whatever takes 1 second
+    // to insert in database, 
     // Step 2: Fetch the local attributes (unread, starred, etc.) for the same UID range
     map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(range, folder));
+    time_t lastSleepTime = time(0);
     
     for (int ii = remote->count() - 1; ii >= 0; ii--) {
+        // Never sit in a hard loop inserting things into the database for more than a second.
+        // This ensures we don't starve another thread waiting for a database connection
+        if (time(0) - lastSleepTime > 1) {
+            lastSleepTime = time(0);
+            sleep(1);
+        }
         IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
         uint32_t remoteUID = remoteMsg->uid();
 
