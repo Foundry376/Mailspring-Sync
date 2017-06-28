@@ -41,6 +41,54 @@ static vector<string> unworthyPrefixes = {
     "catch-all"
 };
 
+static const unsigned char base64_table[65] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static bool calledsrand = false;
+
+std::string MailUtils::toBase64(const unsigned char *src, size_t len)
+{
+    unsigned char *out, *pos;
+    const unsigned char *end, *in;
+    
+    size_t olen;
+    
+    olen = 4*((len + 2) / 3); /* 3-byte blocks to 4-byte */
+    
+    if (olen < len)
+        return std::string(); /* integer overflow */
+    
+    std::string outStr;
+    outStr.resize(olen);
+    out = (unsigned char*)&outStr[0];
+    
+    end = src + len;
+    in = src;
+    pos = out;
+    while (end - in >= 3) {
+        *pos++ = base64_table[in[0] >> 2];
+        *pos++ = base64_table[((in[0] & 0x03) << 4) | (in[1] >> 4)];
+        *pos++ = base64_table[((in[1] & 0x0f) << 2) | (in[2] >> 6)];
+        *pos++ = base64_table[in[2] & 0x3f];
+        in += 3;
+    }
+    
+    if (end - in) {
+        *pos++ = base64_table[in[0] >> 2];
+        if (end - in == 1) {
+            *pos++ = base64_table[(in[0] & 0x03) << 4];
+            *pos++ = '=';
+        }
+        else {
+            *pos++ = base64_table[((in[0] & 0x03) << 4) |
+                                  (in[1] >> 4)];
+            *pos++ = base64_table[(in[1] & 0x0f) << 2];
+        }
+        *pos++ = '=';
+    }
+    
+    return outStr;
+}
+
+
 json MailUtils::merge(const json &a, const json &b)
 {
     json result = a.flatten();
@@ -177,7 +225,6 @@ shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_p
     return shared_ptr<Label>{};
 }
 
-
 vector<uint32_t> MailUtils::uidsOfIndexSet(IndexSet * set) {
     vector<uint32_t> uids {};
     Range * range = set->allRanges();
@@ -212,21 +259,29 @@ string MailUtils::idForFolder(IMAPFolder * folder) {
     vector<unsigned char> hash(32);
     string src_str = string(folder->path()->UTF8Characters());
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
-    return picosha2::bytes_to_hex_string(hash.begin(), hash.end());
+    return toBase64(hash.data(), 30);
 }
 
-string MailUtils::idForFile(string messageId, Attachment * attachment) {
-    vector<unsigned char> hash(32);
-    string src_str = messageId + string(attachment->partID()->UTF8Characters());
-    picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
-    return picosha2::bytes_to_hex_string(hash.begin(), hash.end());
+string MailUtils::idRandomlyGenerated() {
+    static string charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    string result;
+    result.resize(40);
+    
+    if (!calledsrand) {
+        srand((unsigned int)time(0));
+        calledsrand = true;
+    }
+    for (int i = 0; i < 40; i++) {
+        result[i] = charset[rand() % charset.length()];
+    }
+    return result;
 }
 
 string MailUtils::idForDraftHeaderMessageId(string headerMessageId)
 {
     vector<unsigned char> hash(32);
     picosha2::hash256(headerMessageId.begin(), headerMessageId.end(), hash.begin(), hash.end());
-    return picosha2::bytes_to_hex_string(hash.begin(), hash.end());
+    return toBase64(hash.data(), 30);
 }
 
 string MailUtils::idForMessage(IMAPMessage * msg) {
@@ -262,7 +317,7 @@ string MailUtils::idForMessage(IMAPMessage * msg) {
     
     vector<unsigned char> hash(32);
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
-    return picosha2::bytes_to_hex_string(hash.begin(), hash.end());
+    return toBase64(hash.data(), 30);
 }
 
 string MailUtils::qmarks(size_t count) {
