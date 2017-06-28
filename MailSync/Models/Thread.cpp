@@ -150,13 +150,13 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
     bool found = false;
     for (auto& f : folders()) {
         if (f["id"].get<string>() == msgFolderId) {
-            f["_refcount"] = f["_refcount"].get<int>() + 1;
+            f["_refs"] = f["_refs"].get<int>() + 1;
             found = true;
         }
     }
     if (!found) {
         json f = msg->folder();
-        f["_refcount"] = 1;
+        f["_refs"] = 1;
         folders().push_back(f);
     }
     
@@ -170,13 +170,13 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
         bool found = false;
         for (auto& l : labels()) {
             if (l["id"].get<string>() == ml->id()) {
-                l["_refcount"] = l["_refcount"].get<int>() + 1;
+                l["_refs"] = l["_refs"].get<int>() + 1;
                 found = true;
             }
         }
         if (!found) {
             json l = ml->toJSON();
-            l["_refcount"] = 1;
+            l["_refs"] = 1;
             labels().push_back(l);
         }
     }
@@ -214,9 +214,9 @@ void Thread::prepareToReaddMessage(Message * msg, vector<shared_ptr<Label>> & al
     json nextFolders = json::array();
     for (auto & f : folders()) {
         if (f["id"].get<string>() == msgFolderId) {
-            int r = f["_refcount"].get<int>();
+            int r = f["_refs"].get<int>();
             if (r > 1) {
-                f["_refcount"] = r - 1;
+                f["_refs"] = r - 1;
                 nextFolders.push_back(f);
             }
             break;
@@ -233,9 +233,9 @@ void Thread::prepareToReaddMessage(Message * msg, vector<shared_ptr<Label>> & al
         json nextLabels = json::array();
         for (auto & l : labels()) {
             if (l["id"].get<string>() == ml->id()) {
-                int r = l["_refcount"].get<int>();
+                int r = l["_refs"].get<int>();
                 if (r > 1) {
-                    l["_refcount"] = r - 1;
+                    l["_refs"] = r - 1;
                     nextLabels.push_back(l);
                 }
                 break;

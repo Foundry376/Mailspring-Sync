@@ -20,10 +20,11 @@ Message::Message(mailcore::IMAPMessage * msg, Folder & folder) :
 MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
 {
     _data["folder"] = folder.toJSON();
+    _data["folderUID"] = msg->uid();
+    _data["files"] = json::array();
     _data["date"] = msg->header()->date();
-    _data["headerMessageId"] = msg->header()->messageID()->UTF8Characters();
+    _data["hMsgId"] = msg->header()->messageID()->UTF8Characters();
     _data["subject"] = msg->header()->subject() ? msg->header()->subject()->UTF8Characters() : "No Subject";
-    _data["folderImapUID"] = msg->uid();
     _data["gMsgId"] = to_string(msg->gmailMessageID());
 
     MessageAttributes attrs = MessageAttributesForMessage(msg);
@@ -147,11 +148,11 @@ bool Message::isSentByUser() {
 }
 
 uint32_t Message::folderImapUID() {
-    return _data["folderImapUID"].get<uint32_t>();
+    return _data["folderUID"].get<uint32_t>();
 }
 
 void Message::setFolderImapUID(uint32_t v) {
-    _data["folderImapUID"] = v;
+    _data["folderUID"] = v;
 }
 
 json Message::folder() {
@@ -197,7 +198,7 @@ string Message::gMsgId() {
 }
 
 string Message::headerMessageId() {
-    return _data["headerMessageId"].get<string>();
+    return _data["hMsgId"].get<string>();
 }
 
 string Message::tableName() {

@@ -27,6 +27,8 @@ private:
     static int compareEmails(void * a, void * b, void * context);
 
 public:
+    static std::string toBase64(const unsigned char *src, size_t len);
+
     static json merge(const json &a, const json &b);
     static json contactJSONFromAddress(Address * addr);
     static string contactKeyForEmail(string email);
@@ -38,9 +40,9 @@ public:
     static vector<string> messageIdsOfArray(Array * array);
 
     static string roleForFolder(IMAPFolder * folder);
-    static string idForFolder(IMAPFolder * folder);
+    static string idRandomlyGenerated();
     static string idForMessage(IMAPMessage * msg);
-    static string idForFile(string messageId, Attachment * attachment);
+    static string idForFolder(IMAPFolder * folder);
     static string idForDraftHeaderMessageId(string headerMessageId);
     
     static shared_ptr<Label> labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> & allLabels);
