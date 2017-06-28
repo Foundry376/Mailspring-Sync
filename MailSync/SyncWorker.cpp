@@ -347,16 +347,26 @@ bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus
     bool condstoreSupported = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
 
     if ((fullScanHead == UINT32_MAX) || (!condstoreSupported && (time(0) - fullScanTime > TEN_MINUTES))) {
-        // Identify the message number that corresponds to uidnext.
-        // We'll begin paging backwards from there.
-        uint32_t uidnext = remoteStatus.uidNext();
+        // Normally, remoteStatus.messageCount() is the top of the sequence number range.
+        // HOWEVER. On Gmail, if you have some folders excluded from IMAP it can be way higher
+        // than it should be. To avoid paginating through empty space, grab the top bunch of UIDs
+        // and find the higest actual number.
         String path = AS_MCSTR(folder.path());
         ErrorCode err = ErrorCode::ErrorNone;
-        HashMap * map = session.fetchMessageNumberUIDMapping(&path, uidnext - 1, uidnext - 1, &err);
-        Value * v = (Value*)map->allKeys()->objectAtIndex(0);
-        fullScanHead = v->unsignedLongValue();
-        ls["uidnext"] = uidnext;
+        uint32_t uidnext = remoteStatus.uidNext();
+        HashMap * map = session.fetchMessageNumberUIDMapping(&path, uidnext - 100, uidnext, &err);
+        Array * values = map->allKeys();
 
+        fullScanHead = 0;
+        for (int ii = 0; ii < values->count(); ii ++) {
+            fullScanHead = max(fullScanHead, ((Value*)values->objectAtIndex(ii))->unsignedLongValue());
+        }
+        if (fullScanHead == 0) {
+            // The range [uidnext-100, uidnext] didn't contain any messages. Fallback to messageCount().
+            // May be too high but we'll reach messages eventually...
+            fullScanHead = remoteStatus.messageCount();
+        }
+        ls["uidnext"] = uidnext;
     }
     
     if (fullScanHead == 1) {
@@ -384,34 +394,24 @@ bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus
 
 /*
  Pull down just the most recent N messages in the folder, where N is from the current
- UIDNext of the folder down to the 500th message we previously synced.
+ UIDNext of the folder down to the 500th message we previously synced. We use UIDs because
+ messageCount() isn't a reliable HEAD pointer on Gmail.
  */
 void SyncWorker::syncFolderChangesViaShallowScan(Folder & folder, IMAPFolderStatus & remoteStatus)
 {
-    // Todo - just use UIDs here?
     uint32_t uidnext = remoteStatus.uidNext();
-    String path = AS_MCSTR(folder.path());
-    ErrorCode err = ErrorCode::ErrorNone;
-    HashMap * map = session.fetchMessageNumberUIDMapping(&path, uidnext - 1, uidnext - 1, &err);
-    Value * v = (Value*)map->allKeys()->objectAtIndex(0);
-    unsigned long shallowScanHead = v->unsignedLongValue();
-    unsigned long shallowScanMin = shallowScanHead > 500 ? shallowScanHead - 500 : 1;
-    
-    syncFolderSequenceRange(folder, RangeMake(shallowScanMin, shallowScanHead - shallowScanMin));
+    uint32_t bottomUID = store->fetchMessageUIDAtDepth(folder, 499);
+    syncFolderUIDRange(folder, RangeMake(bottomUID, uidnext - bottomUID));
     folder.localStatus()["uidnext"] = uidnext;
 }
 
 void SyncWorker::syncFolderSequenceRange(Folder & folder, Range range)
 {
-    // allocated mailcore objects freed when `pool` is removed from the stack
-    AutoreleasePool pool;
-    
     logger->info("Syncing folder {} (Numbers {} - {})", folder.path(), range.location, range.location + range.length);
     
+    AutoreleasePool pool;
     IndexSet * set = IndexSet::indexSetWithRange(range);
     IMAPProgressCallback * cb = new Progress();
-
-    // Step 1: Fetch the remote UID range
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(folder.path()));
     Array * remote = session.fetchMessagesByNumber(&path, KIND_ALL_HEADERS, set, cb, &err);
@@ -419,8 +419,29 @@ void SyncWorker::syncFolderSequenceRange(Folder & folder, Range range)
         logger->error("IMAP Error Occurred: {}", err);
         return;
     }
+    syncFolderRangeResults(folder, remote);
+}
+
+void SyncWorker::syncFolderUIDRange(Folder & folder, Range range)
+{
+    logger->info("Syncing folder {} (UIDs {} - {})", folder.path(), range.location, range.location + range.length);
+    
+    AutoreleasePool pool;
+    IndexSet * set = IndexSet::indexSetWithRange(range);
+    IMAPProgressCallback * cb = new Progress();
+    ErrorCode err(ErrorCode::ErrorNone);
+    String path(AS_MCSTR(folder.path()));
+    Array * remote = session.fetchMessagesByUID(&path, KIND_ALL_HEADERS, set, cb, &err);
+    if (err) {
+        logger->error("IMAP Error Occurred: {}", err);
+        return;
+    }
+    syncFolderRangeResults(folder, remote);
+}
+
+void SyncWorker::syncFolderRangeResults(Folder & folder, Array * remote) {
     if (remote->count() == 0) {
-        logger->error("Request for messages in number range returned none.");
+        logger->error("Fetched range was empty.");
         return;
     }
     
