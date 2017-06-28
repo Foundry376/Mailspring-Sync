@@ -49,6 +49,10 @@ public:
         
     void syncFolderSequenceRange(Folder & folder, Range range);
 
+    void syncFolderUIDRange(Folder & folder, Range range);
+
+    void syncFolderRangeResults(Folder & folder, Array * remote);
+
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus);
 
     void syncFolderChangesViaShallowScan(Folder & folder, IMAPFolderStatus & remoteStatus);
