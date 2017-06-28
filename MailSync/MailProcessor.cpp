@@ -13,6 +13,28 @@
 using namespace std;
 using nlohmann::json;
 
+const string FILES_ROOT = "/Users/bengotow/.nylas-dev/files";
+
+inline char separator()
+{
+#if defined _WIN32 || defined __CYGWIN__
+    return '\\';
+#else
+    return '/';
+#endif
+}
+
+bool create_directory(string dir) {
+    int c = 0;
+#if defined(_WIN32)
+    c = _mkdir(dir.c_str());
+#else
+    c = mkdir(dir.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
+#endif
+    return true;
+}
+
+
 MailProcessor::MailProcessor(string name, MailStore * store) :
     store(store),
     logger(spdlog::stdout_color_mt(name))
@@ -137,22 +159,28 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
     String * text = parser->plainTextBodyRendering(true);
     String * html = parser->htmlBodyRendering();
     
-    // build file containers for the attachments
-    Array * attachments = parser->attachments();
+    // build file containers for the attachments and write them to disk
+    Array attachments = Array();
+    attachments.addObjectsFromArray(parser->attachments());
+    attachments.addObjectsFromArray(parser->htmlInlineAttachments());
+    
     vector<File> files;
-    for (int ii = 0; ii < attachments->count(); ii ++) {
-        Attachment * a = (Attachment *)attachments->objectAtIndex(ii);
+    for (int ii = 0; ii < attachments.count(); ii ++) {
+        Attachment * a = (Attachment *)attachments.objectAtIndex(ii);
         File f = File(message, a);
         
         bool duplicate = false;
         for (auto & other : files) {
-            if (other.id() == f.id()) {
+            if (other.partId() == string(a->partID()->UTF8Characters())) {
                 duplicate = true;
                 logger->info("Attachment is duplicate: {}", f.toJSON().dump());
                 break;
             }
         }
         if (!duplicate) {
+            if (!retrievedFileData(&f, a->data())) {
+                logger->info("Could not save file data!");
+            }
             files.push_back(f);
         }
     }
@@ -185,6 +213,24 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
     
     store->save(message);
     store->commitTransaction();
+}
+
+
+bool MailProcessor::retrievedFileData(File * file, Data * data) {
+    string id = file->id();
+    transform(id.begin(), id.end(), id.begin(), ::tolower);
+    
+    if (!create_directory(FILES_ROOT)) { return false; }
+    string path = FILES_ROOT + separator() + id.substr(0, 2);
+    if (!create_directory(path)) { return false; }
+    path += separator() + id.substr(2, 2);
+    if (!create_directory(path)) { return false; }
+    path += separator() + id;
+    if (!create_directory(path)) { return false; }
+    
+    path += separator() + file->safeFilename();
+    String mfilepath = String(path.c_str());
+    return (data->writeToFile(&mfilepath) == ErrorNone);
 }
 
 void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages)

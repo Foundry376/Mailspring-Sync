@@ -37,6 +37,7 @@ public:
     void insertMessage(IMAPMessage * mMsg, Folder & folder);
     void updateMessage(Message * local, IMAPMessage * remote, Folder & folder);
     void retrievedMessageBody(Message * message, MessageParser * parser);
+    bool retrievedFileData(File * file, Data * data);
     void unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages);
 
 private:

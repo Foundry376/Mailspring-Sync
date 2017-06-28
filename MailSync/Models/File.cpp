@@ -5,6 +5,7 @@
 //  Created by Ben Gotow on 6/17/17.
 //  Copyright © 2017 Foundry 376. All rights reserved.
 //
+#include <regex>
 
 #include "File.hpp"
 #include "MailUtils.hpp"
@@ -17,11 +18,11 @@ using namespace mailcore;
 string File::TABLE_NAME = "File";
 
 File::File(Message * msg, Attachment * a) :
-    MailModel(MailUtils::idForFile(msg->id(), a), msg->accountId(), 0)
+    MailModel(MailUtils::idRandomlyGenerated(), msg->accountId(), 0)
 {
     _data["messageId"] = msg->id();
     _data["partId"] = a->partID()->UTF8Characters();
-
+    
     if (a->isInlineAttachment() && a->contentID()) {
         _data["contentId"] = a->contentID()->UTF8Characters();
     }
@@ -55,6 +56,15 @@ string File::tableName() {
 
 string File::filename() {
     return _data["filename"].get<string>();
+}
+
+string File::safeFilename() {
+    regex e ("[\\/:|?*><\"#]");
+    return regex_replace (filename(), e, "-");
+}
+
+string File::partId() {
+    return _data["partId"].get<string>();
 }
 
 vector<string> File::columnsForQuery() {
