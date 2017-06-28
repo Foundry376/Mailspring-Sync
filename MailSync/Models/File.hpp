@@ -34,7 +34,9 @@ public:
     File(SQLite::Statement & query);
   
     string filename();
-                          
+    string safeFilename();
+    string partId();
+        
     string tableName();
     string constructorName();
 
