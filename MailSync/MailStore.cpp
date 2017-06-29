@@ -25,20 +25,28 @@ MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
     m.unread = bool(!(msg->flags() & MessageFlagSeen));
     m.starred = bool(msg->flags() & MessageFlagFlagged);
     m.labels = std::vector<std::string>{};
-
+    
     Array * labels = msg->gmailLabels();
+    bool draftLabelPresent = false;
+    bool trashSpamLabelPresent = false;
     if (labels != nullptr) {
         for (int ii = 0; ii < labels->count(); ii ++) {
             string str = ((String *)labels->objectAtIndex(ii))->UTF8Characters();
             // Gmail exposes Trash and Spam as folders and labels. We want them
             // to be folders so we ignore their presence as labels.
             if ((str == "\\Trash") || (str == "\\Spam")) {
+                trashSpamLabelPresent = true;
                 continue;
+            }
+            if ((str == "\\Draft")) {
+                draftLabelPresent = true;
             }
             m.labels.push_back(str);
         }
         sort(m.labels.begin(), m.labels.end());
     }
+    
+    m.draft = (bool(msg->flags() & MessageFlagDraft) || draftLabelPresent) && !trashSpamLabelPresent;
     
     return m;
 }
@@ -98,7 +106,7 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
     return results;
 }
 
-uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, int depth, int before) {
+uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint32_t before) {
     SQLite::Statement query(this->_db, "SELECT folderImapUID FROM Message WHERE folderId = ? AND folderImapUID < ? ORDER BY folderImapUID DESC LIMIT 1 OFFSET ?");
     query.bind(1, folder.id());
     query.bind(2, before);

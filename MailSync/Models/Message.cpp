@@ -31,8 +31,8 @@ MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
     _data["unread"] = attrs.unread;
     _data["starred"] = attrs.starred;
     _data["labels"] = attrs.labels;
-    _data["draft"] = bool(msg->flags() & MessageFlagDraft);
-
+    _data["draft"] = attrs.draft;
+    
     // inflate the participant fields
     _data["from"] = json::array();
     _data["from"] += MailUtils::contactJSONFromAddress(msg->header()->from());
@@ -126,12 +126,16 @@ void Message::setFiles(vector<File> & files) {
     _data["files"] = arr;
 }
 
-void Message::setBodyForDispatch(string s) {
-    _bodyForDispatch = s;
-}
-
 bool Message::isDraft() {
     return _data["draft"].get<bool>();
+}
+
+void Message::setDraft(bool d) {
+    _data["draft"] = d;
+}
+
+void Message::setBodyForDispatch(string s) {
+    _bodyForDispatch = s;
 }
 
 bool Message::isSentByUser() {
