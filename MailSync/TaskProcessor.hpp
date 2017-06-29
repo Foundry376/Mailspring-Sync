@@ -52,6 +52,7 @@ private:
     void performLocalDestroyDraft(Task * task);
     void performLocalSyncbackCategory(Task * task);
     void performRemoteSyncbackCategory(Task * task);
+    void performRemoteDestroyCategory(Task * task);
     
 };
 
