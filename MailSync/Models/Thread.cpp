@@ -146,7 +146,7 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
     }
     
     // update our folder set + increment refcounts
-    string msgFolderId = msg->folderId();
+    string msgFolderId = msg->clientFolderId();
     bool found = false;
     for (auto& f : folders()) {
         if (f["id"].get<string>() == msgFolderId) {
@@ -155,13 +155,13 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
         }
     }
     if (!found) {
-        json f = msg->folder();
+        json f = msg->clientFolder();
         f["_refs"] = 1;
         folders().push_back(f);
     }
     
     // update our label set + increment refcounts
-    for (auto& mlname : msg->folderImapXGMLabels()) {
+    for (auto& mlname : msg->remoteXGMLabels()) {
         shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
         if (ml == nullptr) {
             continue;
@@ -210,7 +210,7 @@ void Thread::prepareToReaddMessage(Message * msg, vector<shared_ptr<Label>> & al
     setAttachmentCount(attachmentCount() - (int)msg->files().size());
 
     // update our folder set + decrement refcounts
-    string msgFolderId = msg->folderId();
+    string msgFolderId = msg->clientFolderId();
     json nextFolders = json::array();
     for (auto & f : folders()) {
         if (f["id"].get<string>() == msgFolderId) {
@@ -225,7 +225,7 @@ void Thread::prepareToReaddMessage(Message * msg, vector<shared_ptr<Label>> & al
     _data["folders"] = nextFolders;
 
     // update our label set + decrement refcounts
-    for (auto& mlname : msg->folderImapXGMLabels()) {
+    for (auto& mlname : msg->remoteXGMLabels()) {
         shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
         if (ml == nullptr) {
             continue;

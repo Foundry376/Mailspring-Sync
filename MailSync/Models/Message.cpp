@@ -16,11 +16,16 @@ using namespace std;
 
 string Message::TABLE_NAME = "Message";
 
-Message::Message(mailcore::IMAPMessage * msg, Folder & folder) :
+Message::Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTimestamp) :
 MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
 {
+    _data["_sa"] = syncDataTimestamp;
+    _data["_suc"] = 0;
+    
     _data["folder"] = folder.toJSON();
-    _data["folderUID"] = msg->uid();
+    _data["remoteFolder"] = folder.toJSON();
+    _data["remoteUID"] = msg->uid();
+    
     _data["files"] = json::array();
     _data["date"] = msg->header()->date();
     _data["hMsgId"] = msg->header()->messageID()->UTF8Characters();
@@ -90,11 +95,11 @@ void Message::setStarred(bool s) {
     _data["starred"] = s;
 }
 
-json & Message::folderImapXGMLabels() {
+json & Message::remoteXGMLabels() {
     return _data["labels"];
 }
 
-void Message::setFolderImapXGMLabels(json & labels) {
+void Message::setRemoteXGMLabels(json & labels) {
     _data["labels"] = labels;
 }
 
@@ -151,20 +156,58 @@ bool Message::isSentByUser() {
     return false;
 }
 
-uint32_t Message::folderImapUID() {
-    return _data["folderUID"].get<uint32_t>();
+uint32_t Message::remoteUID() {
+    return _data["remoteUID"].get<uint32_t>();
 }
 
-void Message::setFolderImapUID(uint32_t v) {
-    _data["folderUID"] = v;
+void Message::setRemoteUID(uint32_t v) {
+    _data["remoteUID"] = v;
 }
 
-json Message::folder() {
+json Message::clientFolder() {
     return _data["folder"];
 }
 
-void Message::setFolder(Folder & folder) {
+string Message::clientFolderId() {
+    return _data["folder"]["id"].get<string>();
+}
+
+void Message::setClientFolder(Folder & folder) {
     _data["folder"] = folder.toJSON();
+    if (_data["folder"].count("localStatus")) {
+        _data["folder"].erase("localStatus");
+    }
+}
+
+json Message::remoteFolder() {
+    return _data["remoteFolder"];
+}
+
+string Message::remoteFolderId() {
+    return _data["remoteFolder"]["id"].get<string>();
+}
+
+void Message::setRemoteFolder(Folder & folder) {
+    _data["remoteFolder"] = folder.toJSON();
+    if (_data["remoteFolder"].count("localStatus")) {
+        _data["remoteFolder"].erase("localStatus");
+    }
+}
+
+time_t Message::syncedAt() {
+    return _data["_sa"].get<time_t>();
+}
+
+void Message::setSyncedAt(time_t t) {
+    _data["_sa"] = t;
+}
+
+int Message::syncUnsavedChanges() {
+    return _data["_suc"].get<int>();
+}
+
+void Message::setSyncUnsavedChanges(int t) {
+    _data["_suc"] = t;
 }
 
 // immutable attributes
@@ -193,10 +236,6 @@ string Message::subject() {
     return _data["subject"].get<string>();
 }
 
-string Message::folderId() {
-    return _data["folder"]["id"].get<string>();
-}
-
 string Message::gMsgId() {
     return _data["gMsgId"].get<string>();
 }
@@ -210,7 +249,7 @@ string Message::tableName() {
 }
 
 vector<string> Message::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "unread", "starred", "folderImapUID", "folderImapXGMLabels", "folderId", "threadId"};
+    return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "unread", "starred", "remoteUID", "remoteXGMLabels", "remoteFolderId", "threadId"};
 }
 
 void Message::bindToQuery(SQLite::Statement * query) {
@@ -221,9 +260,9 @@ void Message::bindToQuery(SQLite::Statement * query) {
     query->bind(":draft", isDraft());
     query->bind(":headerMessageId", headerMessageId());
     query->bind(":subject", subject());
-    query->bind(":folderImapUID", folderImapUID());
-    query->bind(":folderImapXGMLabels", folderImapXGMLabels().dump());
-    query->bind(":folderId", folderId());
+    query->bind(":remoteUID", remoteUID());
+    query->bind(":remoteXGMLabels", remoteXGMLabels().dump());
+    query->bind(":remoteFolderId", remoteFolderId());
     query->bind(":threadId", threadId());
     query->bind(":gMsgId", gMsgId());
 }

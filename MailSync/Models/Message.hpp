@@ -32,7 +32,7 @@ class Message : public MailModel {
 public:
     static string TABLE_NAME;
     
-    Message(mailcore::IMAPMessage * msg, Folder & folder);
+    Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTimestamp);
     Message(SQLite::Statement & query);
     Message(json json);
     
@@ -56,19 +56,30 @@ public:
     bool isDraft();
     void setDraft(bool d);
     
+    time_t syncedAt();
+    void setSyncedAt(time_t t);
+    
+    int syncUnsavedChanges();
+    void setSyncUnsavedChanges(int t);
+    
     void setBodyForDispatch(string s);
 
     bool isSentByUser();
 
-    json & folderImapXGMLabels();
-    void setFolderImapXGMLabels(json & labels);
+    json & remoteXGMLabels();
+    void setRemoteXGMLabels(json & labels);
 
-    uint32_t folderImapUID();
-    void setFolderImapUID(uint32_t v);
-
-    json folder();
-    void setFolder(Folder & folder);
-
+    uint32_t remoteUID();
+    void setRemoteUID(uint32_t v);
+    
+    json clientFolder();
+    string clientFolderId();
+    void setClientFolder(Folder & folder);
+    
+    json remoteFolder();
+    string remoteFolderId();
+    void setRemoteFolder(Folder & folder);
+    
     // immutable attributes
 
     json & to();
@@ -78,7 +89,6 @@ public:
     
     time_t date();
     string subject();
-    string folderId();
     string gMsgId();
     string headerMessageId();
     

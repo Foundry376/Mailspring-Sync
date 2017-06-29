@@ -42,9 +42,9 @@ MailProcessor::MailProcessor(string name, MailStore * store) :
 
 }
 
-void MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder) {
+void MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
     try {
-        insertMessage(mMsg, folder);
+        insertMessage(mMsg, folder, syncDataTimestamp);
     } catch (const SQLite::Exception & ex) {
         if (ex.getErrorCode() != 19) { // constraint failed
             throw ex;
@@ -55,12 +55,12 @@ void MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & f
         if (localMessage.get() == nullptr) {
             throw ex;
         }
-        updateMessage(localMessage.get(), mMsg, folder);
+        updateMessage(localMessage.get(), mMsg, folder, syncDataTimestamp);
     }
 }
 
-void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
-    Message msg(mMsg, folder);
+void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
+    Message msg(mMsg, folder, syncDataTimestamp);
 
     logger->info("🔹 Inserting message with subject: {}", msg.subject());
 
@@ -119,10 +119,14 @@ void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder) {
 
 // TODO: The JS side is clearing attributes placed in the JSON by the native side. Not cool
 
-void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder)
+void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
 {
-    logger->info("🔸 Updating message with subject: {}", local->subject());
-
+    if (local->syncedAt() > syncDataTimestamp) {
+        logger->warn("Ignoring changes to {}, more recent data is available {} < {}", local->subject(), syncDataTimestamp, local->syncedAt());
+        return;
+    }
+    logger->info("🔸 Updating message {}={} with subject: {}", local->remoteUID(), remote->uid(), local->subject());
+    
     store->beginTransaction();
 
     // Step 1: Find the thread
@@ -138,10 +142,12 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     local->setUnread(updated.unread);
     local->setStarred(updated.starred);
     local->setDraft(updated.draft);
-    local->setFolderImapUID(updated.uid);
-    local->setFolder(folder);
+    local->setSyncedAt(syncDataTimestamp);
+    local->setRemoteUID(updated.uid);
+    local->setRemoteFolder(folder);
+    local->setClientFolder(folder);
     auto jlabels = json(updated.labels);
-    local->setFolderImapXGMLabels(jlabels);
+    local->setRemoteXGMLabels(jlabels);
     
     // Step 4: Increment starred / urnead / label counters on thread
     thread->addMessage(local, allLabels);
@@ -241,7 +247,7 @@ void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMe
     store->beginTransaction();
     
     for (const auto local : localMessages) {
-        local->setFolderImapUID(UINT32_MAX - phase);
+        local->setRemoteUID(UINT32_MAX - phase);
         store->save(local.get());
     }
     
@@ -255,7 +261,7 @@ void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
     
     store->beginTransaction();
     
-    auto q = Query().equal("folderImapUID", UINT32_MAX - phase);
+    auto q = Query().equal("remoteUID", UINT32_MAX - phase);
     auto messages = store->findAll<Message>(q);
     
     vector<string> threadIds{};

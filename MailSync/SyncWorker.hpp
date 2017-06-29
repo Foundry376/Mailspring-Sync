@@ -59,7 +59,7 @@ public:
 
     bool syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
 
-    void syncMessageBody(string folderPath, Message * message);
+    void syncMessageBody(Message * message);
 };
 
 
