@@ -234,45 +234,60 @@ bool MailProcessor::retrievedFileData(File * file, Data * data) {
     return (data->writeToFile(&mfilepath) == ErrorNone);
 }
 
-void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages)
+void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages, int phase)
 {
     logger->info("Unlinking {} messages no longer present in remote range.", localMessages.size());
     
+    store->beginTransaction();
+    
+    for (const auto local : localMessages) {
+        local->setFolderImapUID(UINT32_MAX - phase);
+        store->save(local.get());
+    }
+    
+    store->commitTransaction();
+}
+
+void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
+{
     // TODO Unloop
     auto allLabels = store->allLabelsCache();
-    Folder gone("--none--", "", 0);
-    json goneLabels = json::array();
+    
+    store->beginTransaction();
+    
+    auto q = Query().equal("folderImapUID", UINT32_MAX - phase);
+    auto messages = store->findAll<Message>(q);
     
     vector<string> threadIds{};
-    for (const auto local : localMessages) {
-        threadIds.push_back(local->threadId());
+    for (const auto msg : messages) {
+        threadIds.push_back(msg->threadId());
     }
     
-    auto q = Query().equal("id", threadIds);
-    auto threads = store->findAllMap<Thread>(q, "id");
-
-    for (const auto local : localMessages) {
-        // Step 1: Find the thread
-        Thread * thread = nullptr;
-        if (threads.count(local->threadId())) {
-            thread = threads[local->threadId()].get();
+    q = Query().equal("id", threadIds);
+    auto threads = store->findAll<Thread>(q);
+    
+    for (const auto thread : threads) {
+        bool changed = false;
+        for (const auto msg : messages) {
+            if (msg->threadId() == thread->id()) {
+                thread->prepareToReaddMessage(msg.get(), allLabels);
+                changed = true;
+            }
         }
-
-        // Step 2: Decrement starred / unread / label counters on thread
-        if (thread) { thread->prepareToReaddMessage(local.get(), allLabels); }
-
-        local->setFolderImapUID(0);
-        local->setFolder(gone);
-        local->setFolderImapXGMLabels(goneLabels);
-
-        // Step 4: Increment starred / urnead / label counters on thread
-        if (thread) { thread->addMessage(local.get(), allLabels); }
-        
-        // Step 5: Save
-        store->save(local.get());
-
-        if (thread) { store->save(thread); }
+        if (changed) {
+            if (thread->folders().size() == 0) {
+                store->remove(thread.get());
+            } else {
+                store->save(thread.get());
+            }
+        }
     }
+    
+    for (const auto msg : messages) {
+        store->remove(msg.get());
+    }
+    
+    store->commitTransaction();
 }
 
 void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull) {

@@ -38,8 +38,9 @@ public:
     void updateMessage(Message * local, IMAPMessage * remote, Folder & folder);
     void retrievedMessageBody(Message * message, MessageParser * parser);
     bool retrievedFileData(File * file, Data * data);
-    void unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages);
-
+    void unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages, int phase);
+    void deleteMessagesStillUnlinkedFromPhase(int phase);
+    
 private:
     void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
     void upsertThreadReferences(string threadId, string headerMessageId, Array * references);
