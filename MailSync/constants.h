@@ -114,9 +114,9 @@ static std::vector<std::string> SETUP_QUERIES = {
         "unread TINYINT(1),"
         "starred TINYINT(1),"
         "replyToMessageId VARCHAR(255),"
-        "folderImapUID INTEGER,"
-        "folderImapXGMLabels TEXT,"
-        "folderId VARCHAR(40),"
+        "remoteUID INTEGER,"
+        "remoteXGMLabels TEXT,"
+        "remoteFolderId VARCHAR(40),"
         "threadId VARCHAR(40))",
     
     "CREATE INDEX IF NOT EXISTS MessageListThreadIndex ON Message(threadId, date ASC)",

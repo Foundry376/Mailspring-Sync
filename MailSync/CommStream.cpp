@@ -91,7 +91,7 @@ json CommStream::waitForJSON() {
 void CommStream::sendJSON(json & msgJSON) {
     std::string str = msgJSON.dump() + "\n";
     const char * chars = str.c_str();
-
+        
     size_t total = 0;
     size_t length = strlen(chars);
     while (total < strlen(chars)) {

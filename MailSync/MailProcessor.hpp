@@ -33,9 +33,9 @@ class MailProcessor {
 
 public:
     MailProcessor(string name, MailStore * store);
-    void insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder);
-    void insertMessage(IMAPMessage * mMsg, Folder & folder);
-    void updateMessage(Message * local, IMAPMessage * remote, Folder & folder);
+    void insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
+    void insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
+    void updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp);
     void retrievedMessageBody(Message * message, MessageParser * parser);
     bool retrievedFileData(File * file, Data * data);
     void unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages, int phase);

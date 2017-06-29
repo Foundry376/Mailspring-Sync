@@ -43,10 +43,11 @@ public:
     void performRemote(Task * task);
     
 private:
+    ChangeMailModels inflateMessages(json & data);
     ChangeMailModels inflateThreadsAndMessages(json & data);
 
     void performLocalChangeOnMessages(Task * task,  void (*modifyLocalMessage)(Message *, json &));
-    void performRemoteChangeOnMessages(Task * task, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, json & data));
+    void performRemoteChangeOnMessages(Task * task, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data));
     void performLocalSaveDraft(Task * task);
     void performLocalDestroyDraft(Task * task);
     void performLocalSyncbackCategory(Task * task);

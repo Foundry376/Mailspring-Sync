@@ -21,7 +21,7 @@ void _applyUnread(Message * msg, json & data) {
     msg->setUnread(data["unread"].get<bool>());
 }
 
-void _applyUnreadInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, json & data) {
+void _applyUnreadInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
     ErrorCode err = ErrorCode::ErrorNone;
     if (data["unread"].get<bool>() == false) {
         session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagSeen, &err);
@@ -37,7 +37,7 @@ void _applyStarred(Message * msg, json & data) {
     msg->setStarred(data["starred"].get<bool>());
 }
 
-void _applyStarredInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, json & data) {
+void _applyStarredInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
     ErrorCode err = ErrorCode::ErrorNone;
     if (data["starred"].get<bool>() == true) {
         session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagFlagged, &err);
@@ -51,16 +51,27 @@ void _applyStarredInIMAPFolder(IMAPSession * session, String * path, IndexSet * 
 
 void _applyFolder(Message * msg, json & data) {
     Folder folder{data["folder"]};
-    msg->setFolder(folder);
+    msg->setClientFolder(folder);
 }
 
-void _applyFolderMoveInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, json & data) {
+void _applyFolderMoveInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
     ErrorCode err = ErrorCode::ErrorNone;
-    String dest = mailcore::String(data["folder"]["path"].get<string>().c_str());
-
-    session->moveMessages(path, uids, &dest, nil, &err);
+    Folder destFolder{data["folder"]};
+    String destPath = mailcore::String(destFolder.path().c_str());
+    
+    HashMap * uidmap = nullptr;
+    session->moveMessages(path, uids, &destPath, &uidmap, &err);
     if (err != ErrorCode::ErrorNone) {
         throw err;
+    }
+    for (auto msg : messages) {
+        Value * currentUID = Value::valueWithUnsignedLongValue(msg->remoteUID());
+        Value * newUID = (Value *)uidmap->objectForKey(currentUID);
+        if (!newUID) {
+            throw "move did not provide new UID.";
+        }
+        msg->setRemoteFolder(destFolder);
+        msg->setRemoteUID(newUID->unsignedIntValue());
     }
 }
 
@@ -79,7 +90,7 @@ string _xgmKeyForLabel(json & label) {
 void _applyLabels(Message * msg, json & data) {
     json & toAdd = data["labelsToAdd"];
     json & toRemove = data["labelsToRemove"];
-    json & labels = msg->folderImapXGMLabels();
+    json & labels = msg->remoteXGMLabels();
     
     for (auto & item : toAdd) {
         string xgmValue = _xgmKeyForLabel(item);
@@ -102,10 +113,10 @@ void _applyLabels(Message * msg, json & data) {
             }
         }
     }
-    msg->setFolderImapXGMLabels(labels);
+    msg->setRemoteXGMLabels(labels);
 }
 
-void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, json & data) {
+void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
     AutoreleasePool pool;
 
     ErrorCode err = ErrorCode::ErrorNone;
@@ -209,6 +220,29 @@ void TaskProcessor::performRemote(Task * task) {
 
 #pragma mark Privates
 
+ChangeMailModels TaskProcessor::inflateMessages(json & data) {
+    ChangeMailModels models;
+    
+    if (data.count("threadIds")) {
+        vector<string> threadIds{};
+        for (auto & member : data["threadIds"]) {
+            threadIds.push_back(member.get<string>());
+        }
+        Query byThreadId = Query().equal("threadId", threadIds);
+        models.messages = store->findAll<Message>(byThreadId);
+        
+    } else if (data.count("messageIds")) {
+        vector<string> messageIds{};
+        for (auto & member : data["messageIds"]) {
+            messageIds.push_back(member.get<string>());
+        }
+        Query byId = Query().equal("id", messageIds);
+        models.messages = store->findAll<Message>(byId);
+    }
+    
+    return models;
+}
+
 ChangeMailModels TaskProcessor::inflateThreadsAndMessages(json & data) {
     ChangeMailModels models;
 
@@ -245,9 +279,8 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
     
     json & data = task->data();
     ChangeMailModels models = inflateThreadsAndMessages(data);
-
+    
     auto allLabels = store->allLabelsCache();
-    json imapData {};
     
     for (auto pair : models.threads) {
         auto thread = pair.second;
@@ -256,45 +289,69 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
             if (msg->threadId() != pair.first) {
                 continue;
             }
-
-            // accumulate folder paths / folder UIDs to make performRemote easy
-            string folderPath = msg->folder()["path"].get<string>();
-            if (!imapData.count(folderPath)) {
-                imapData[folderPath] = json::array();
-            }
-            imapData[folderPath].push_back(msg->folderImapUID());
-
+            
             // perform local changes
             thread->prepareToReaddMessage(msg.get(), allLabels);
             modifyLocalMessage(msg.get(), data);
+            
+            // prevent remote changes to this message for 24 hours
+            // so the changes aren't reverted by sync before we can syncback.
+            msg->setSyncUnsavedChanges(msg->syncUnsavedChanges() + 1);
+            msg->setSyncedAt(time(0) + 24 * 60 * 60);
+            
             thread->addMessage(msg.get(), allLabels);
             store->save(msg.get());
         }
 
         store->save(thread.get());
     }
-    
-    data["imapData"] = imapData;
     store->commitTransaction();
 }
 
-void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, json & data)) {
+void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data)) {
     // perform the remote action on the impacted messages
     json & data = task->data();
     
-    if (!data.count("imapData")) {
-        throw "PerformLocal must be run first.";
+    // because the messages have had their syncedAt date set to something high,
+    // it's safe to load, mutate, save without wrapping in a transaction, because
+    // the other sync worker will not change them and we only run one task at a time.
+    vector<shared_ptr<Message>> messages = inflateMessages(data).messages;
+    map<string, shared_ptr<IndexSet>> uidsByFolder{};
+    map<string, vector<shared_ptr<Message>>> msgsByFolder{};
+    
+    for (auto msg : messages) {
+        string path = msg->remoteFolder()["path"].get<string>();
+        uint32_t uid = msg->remoteUID();
+        if (!uidsByFolder.count(path)) {
+            uidsByFolder[path] = make_shared<IndexSet>();
+            msgsByFolder[path] = {};
+        }
+        uidsByFolder[path]->addIndex(uid);
+        msgsByFolder[path].push_back(msg);
     }
     
-    json & imapData = data["imapData"];
-    for (json::iterator it = imapData.begin(); it != imapData.end(); ++it) {
-        String path = mailcore::String(it.key().c_str());
-        IndexSet uids;
-        for (auto & id : it.value()) {
-            uids.addIndex(id.get<uint32_t>());
-        }
-        applyInFolder(session, &path, &uids, data);
+    for (auto pair : msgsByFolder) {
+        auto & msgs = pair.second;
+        String path = mailcore::String(pair.first.c_str());
+        IndexSet * uids = uidsByFolder[pair.first].get();
+        
+        // perform the action. NOTE! This function is allowed to mutate the messages,
+        // for example to set their remoteUID after a move.
+        applyInFolder(session, &path, uids, msgs, data);
     }
+    
+    // save any changes made by applyInFolder and decrement locks
+    store->beginTransaction();
+    
+    for (auto msg : messages) {
+        int suc = msg->syncUnsavedChanges() - 1;
+        msg->setSyncUnsavedChanges(suc);
+        if (suc == 0) {
+            msg->setSyncedAt(time(0));
+        }
+        store->save(msg.get());
+    }
+    store->commitTransaction();
 }
 
 void TaskProcessor::performLocalSaveDraft(Task * task) {
