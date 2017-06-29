@@ -208,6 +208,9 @@ void TaskProcessor::performRemote(Task * task) {
     } else if (cname == "SyncbackCategoryTask") {
         performRemoteSyncbackCategory(task);
         
+    } else if (cname == "DestroyCategoryTask") {
+        performRemoteDestroyCategory(task);
+        
     } else if (cname == "DestroyDraftTask") {
         
     } else {
@@ -452,3 +455,21 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     
     logger->info("Syncback of folder/label '{}' succeeded.", path);
 }
+
+void TaskProcessor::performRemoteDestroyCategory(Task * task) {
+    json & data = task->data();
+    string accountId = data["accountId"].get<string>();
+    string path = data["path"].get<string>();
+    String mpath = String(path.c_str());
+    ErrorCode err = ErrorCode::ErrorNone;
+    
+    session->deleteFolder(&mpath, &err);
+    
+    if (err != ErrorNone) {
+        logger->error("Deleting a folder/label failed: {}", err);
+        return;
+    }
+    
+    logger->info("Deletion of folder/label '{}' succeeded.", path);
+}
+
