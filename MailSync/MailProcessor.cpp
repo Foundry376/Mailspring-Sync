@@ -137,6 +137,7 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     auto updated = MessageAttributesForMessage(remote);
     local->setUnread(updated.unread);
     local->setStarred(updated.starred);
+    local->setDraft(updated.draft);
     local->setFolderImapUID(updated.uid);
     local->setFolder(folder);
     auto jlabels = json(updated.labels);
@@ -235,9 +236,12 @@ bool MailProcessor::retrievedFileData(File * file, Data * data) {
 
 void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages)
 {
+    logger->info("Unlinking {} messages no longer present in remote range.", localMessages.size());
+    
     // TODO Unloop
     auto allLabels = store->allLabelsCache();
     Folder gone("--none--", "", 0);
+    json goneLabels = json::array();
     
     vector<string> threadIds{};
     for (const auto local : localMessages) {
@@ -259,6 +263,7 @@ void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMe
 
         local->setFolderImapUID(0);
         local->setFolder(gone);
+        local->setFolderImapXGMLabels(goneLabels);
 
         // Step 4: Increment starred / urnead / label counters on thread
         if (thread) { thread->addMessage(local.get(), allLabels); }

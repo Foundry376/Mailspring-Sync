@@ -28,6 +28,7 @@ struct MessageAttributes {
     uint32_t uid;
     bool unread;
     bool starred;
+    bool draft;
     vector<string> labels;
 };
 
@@ -69,7 +70,7 @@ public:
 
     void save(MailModel * model);
 
-    uint32_t fetchMessageUIDAtDepth(Folder & folder, int depth, int before = UINT32_MAX);
+    uint32_t fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint32_t before = UINT32_MAX);
 
     map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
     

@@ -53,9 +53,11 @@ public:
     json files();
     void setFiles(vector<File> & files);
 
+    bool isDraft();
+    void setDraft(bool d);
+    
     void setBodyForDispatch(string s);
 
-    bool isDraft();
     bool isSentByUser();
 
     json & folderImapXGMLabels();
