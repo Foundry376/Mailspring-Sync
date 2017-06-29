@@ -256,20 +256,10 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         throw "syncFolders: An error occurred. ";
     }
     
-    // Look through the folders for a Gmail /all folder
-    bool allFolderPresent = false;
-    for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
-        IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-        string remoteRole = MailUtils::roleForFolder(remote);
-        if (remoteRole == "all") {
-            allFolderPresent = true;
-            break;
-        }
-    }
-    
     store->beginTransaction();
 
     Query q = Query();
+    bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
     auto allLocalFolders = store->findAllMap<Folder>(q, "id");
     auto allLocalLabels = store->findAllMap<Label>(q, "id");
     vector<shared_ptr<Folder>> foldersToSync{};
@@ -282,12 +272,12 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         }
 
         string remoteRole = MailUtils::roleForFolder(remote);
-        string remoteId = MailUtils::idForFolder(remote);
+        string remoteId = MailUtils::idForFolder(string(remote->path()->UTF8Characters()));
         string remotePath = remote->path()->UTF8Characters();
         
         shared_ptr<Folder> local;
         
-        if (allFolderPresent && (remoteRole != "all") && (remoteRole != "spam") && (remoteRole != "trash")) {
+        if (isGmail && (remoteRole != "all") && (remoteRole != "spam") && (remoteRole != "trash")) {
             // Treat as a label
             if (allLocalLabels.count(remoteId) > 0) {
                 local = allLocalLabels[remoteId];

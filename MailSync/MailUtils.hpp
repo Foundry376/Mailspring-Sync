@@ -42,7 +42,7 @@ public:
     static string roleForFolder(IMAPFolder * folder);
     static string idRandomlyGenerated();
     static string idForMessage(IMAPMessage * msg);
-    static string idForFolder(IMAPFolder * folder);
+    static string idForFolder(string folderPath);
     static string idForDraftHeaderMessageId(string headerMessageId);
     
     static shared_ptr<Label> labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> & allLabels);

@@ -255,9 +255,9 @@ vector<string> MailUtils::messageIdsOfArray(Array * array) {
     return ids;
 }
 
-string MailUtils::idForFolder(IMAPFolder * folder) {
+string MailUtils::idForFolder(string folderPath) {
     vector<unsigned char> hash(32);
-    string src_str = string(folder->path()->UTF8Characters());
+    string src_str = folderPath;
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase64(hash.data(), 30);
 }

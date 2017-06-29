@@ -125,16 +125,19 @@ void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSe
         str->autorelease();
     }
     
-    session->storeLabelsByUID(path, uids, IMAPStoreFlagsRequestKindRemove, toRemove, &err);
-    if (err != ErrorCode::ErrorNone) {
-        throw err;
+    if (toRemove->count() > 0) {
+        session->storeLabelsByUID(path, uids, IMAPStoreFlagsRequestKindRemove, toRemove, &err);
+        if (err != ErrorCode::ErrorNone) {
+            throw err;
+        }
     }
-    session->storeLabelsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, toAdd, &err);
-    if (err != ErrorCode::ErrorNone) {
-        throw err;
+    if (toAdd->count() > 0) {
+        session->storeLabelsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, toAdd, &err);
+        if (err != ErrorCode::ErrorNone) {
+            throw err;
+        }
     }
 }
-
 
 
 TaskProcessor::TaskProcessor(MailStore * store, shared_ptr<spdlog::logger> logger, IMAPSession * session) :
@@ -158,7 +161,10 @@ void TaskProcessor::performLocal(Task * task) {
     
     } else if (cname == "SyncbackDraftTask") {
         performLocalSaveDraft(task);
-
+        
+    } else if (cname == "SyncbackCategoryTask") {
+        performLocalSyncbackCategory(task);
+        
     } else if (cname == "DestroyDraftTask") {
         performLocalDestroyDraft(task);
 
@@ -187,6 +193,9 @@ void TaskProcessor::performRemote(Task * task) {
         
     } else if (cname == "SyncbackDraftTask") {
         // right now we don't syncback drafts
+        
+    } else if (cname == "SyncbackCategoryTask") {
+        performRemoteSyncbackCategory(task);
         
     } else if (cname == "DestroyDraftTask") {
         
@@ -343,4 +352,46 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
     store->commitTransaction();
 
     task->data()["drafts"] = draftsJSON;
+}
+
+void TaskProcessor::performLocalSyncbackCategory(Task * task) {
+    
+}
+
+void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
+    json & data = task->data();
+    string path = data["path"].get<string>();
+    string accountId = data["accountId"].get<string>();
+    
+    ErrorCode err = ErrorCode::ErrorNone;
+    
+    if (data.count("existingPath")) {
+        String existing = String(data["existingPath"].get<string>().c_str());
+        String next = String(path.c_str());
+        session->renameFolder(&existing, &next, &err);
+    } else {
+        String next = String(path.c_str());
+        session->createFolder(&next, &err);
+    }
+    
+    if (err != ErrorNone) {
+        logger->error("Creating a folder/label failed: {}", err);
+        data["created"] = nullptr;
+        return;
+    }
+    
+    // must go beneath the first use of session above.
+    bool isGmail = session->storedCapabilities()->containsIndex(IMAPCapabilityGmail);
+    
+    if (isGmail) {
+        Label l = Label(MailUtils::idForFolder(path), accountId, 0);
+        l.setPath(path);
+        data["created"] = l.toJSON();
+    } else {
+        Folder f = Label(MailUtils::idForFolder(path), accountId, 0);
+        f.setPath(path);
+        data["created"] = f.toJSON();
+    }
+    
+    logger->info("Syncback of folder/label '{}' succeeded.", path);
 }
