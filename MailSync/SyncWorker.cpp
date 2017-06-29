@@ -146,6 +146,7 @@ void SyncWorker::idleCycle()
         } else {
             syncFolderChangesViaShallowScan(*inbox, remoteStatus);
         }
+        syncMessageBodies(*inbox, remoteStatus);
         store->save(inbox.get());
 
         // Idle on the folder
@@ -400,7 +401,10 @@ bool SyncWorker::syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus
 void SyncWorker::syncFolderChangesViaShallowScan(Folder & folder, IMAPFolderStatus & remoteStatus)
 {
     uint32_t uidnext = remoteStatus.uidNext();
-    uint32_t bottomUID = store->fetchMessageUIDAtDepth(folder, 499);
+    uint32_t bottomUID = store->fetchMessageUIDAtDepth(folder, 499, uidnext);
+    
+    logger->info("Syncing via shallow scan (UIDS {} - {})", bottomUID, uidnext);
+    
     syncFolderUIDRange(folder, RangeMake(bottomUID, uidnext - bottomUID));
     folder.localStatus()["uidnext"] = uidnext;
 }
@@ -546,12 +550,16 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
         }
     }
     
-    // for deleted messages, collect UIDs and destroy
+    // for deleted messages, collect UIDs and destroy. Note: vanishedMessages is only
+    // populated when QRESYNC is available.
     if (result->vanishedMessages() != NULL) {
         vector<uint32_t> deletedUIDs = MailUtils::uidsOfIndexSet(result->vanishedMessages());
+        logger->info("There have been {} messages removed", deletedUIDs.size());
         Query query = Query().equal("folderId", folder.id()).equal("folderImapUID", deletedUIDs);
         auto deletedMsgs = store->findAll<Message>(query);
         processor->unlinkMessagesFromFolder(deletedMsgs);
+    } else {
+        syncFolderChangesViaShallowScan(folder, remoteStatus);
     }
 
     folder.localStatus()["uidnext"] = remoteUIDNext;
@@ -567,7 +575,7 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         return false;
     }
 
-    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.folderId = ? AND Message.date > ? AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 10");
+    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.folderId = ? AND (Message.date > ? OR Message.draft = 1) AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 10");
     missing.bind(1, folder.id());
     missing.bind(2, (double)(time(0) - 24 * 60 * 60 * 30)); // one month TODO pref!
     vector<Message> results{};
