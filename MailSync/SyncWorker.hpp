@@ -30,8 +30,8 @@ class SyncWorker {
     MailProcessor * processor;
     std::shared_ptr<spdlog::logger> logger;
     
+    int unlinkPhase;
     bool idleShouldReloop;
-    int preferredChunkSize;
     vector<string> idleFetchBodyIDs;
 
 public:
@@ -47,8 +47,6 @@ public:
 
     bool syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
         
-    void syncFolderSequenceRange(Folder & folder, Range range);
-
     void syncFolderUIDRange(Folder & folder, Range range);
 
     void syncFolderRangeResults(Folder & folder, Array * remote);
