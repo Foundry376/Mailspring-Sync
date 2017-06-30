@@ -45,16 +45,12 @@ public:
     
     std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
 
-    bool syncFolderFullScanIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
+    bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
         
-    void syncFolderUIDRange(Folder & folder, Range range);
-
-    void syncFolderRangeResults(Folder & folder, Array * remote);
+    void syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest);
 
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus);
 
-    void syncFolderChangesViaShallowScan(Folder & folder, IMAPFolderStatus & remoteStatus);
-    
     void fetchRangeInFolder(String * folder, std::string folderId, Range range);
 
     bool syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
