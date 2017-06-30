@@ -144,7 +144,9 @@ void SyncWorker::idleCycle()
             syncFolderChangesViaCondstore(*inbox, remoteStatus);
         } else {
             uint32_t uidnext = remoteStatus.uidNext();
-            uint32_t bottomUID = store->fetchMessageUIDAtDepth(*inbox, 499, uidnext);
+            uint32_t syncedMinUID = inbox->localStatus()["syncedMinUID"].get<uint32_t>();
+            uint32_t bottomUID = store->fetchMessageUIDAtDepth(*inbox, 100, uidnext);
+            if (bottomUID < syncedMinUID) { bottomUID = syncedMinUID; }
             syncFolderUIDRange(*inbox, RangeMake(bottomUID, uidnext - bottomUID), false);
             inbox->localStatus()["lastShallow"] = time(0);
             inbox->localStatus()["uidnext"] = uidnext;
@@ -209,7 +211,7 @@ bool SyncWorker::syncNow()
             localStatus["highestmodseq"] = remoteStatus.highestModSeqValue();
             localStatus["uidvalidity"] = remoteStatus.uidValidity();
             localStatus["uidnext"] = remoteStatus.uidNext();
-            localStatus["minSyncedUID"] = remoteStatus.uidNext();
+            localStatus["syncedMinUID"] = remoteStatus.uidNext();
             localStatus["lastShallow"] = 0;
             localStatus["lastDeep"] = 0;
         }
@@ -219,7 +221,7 @@ bool SyncWorker::syncNow()
         }
         
         // Step 2: Initial sync. Until we reach UID 1, we grab chunks of messages
-        uint32_t syncedMinUID = localStatus["minSyncedUID"].get<uint32_t>();
+        uint32_t syncedMinUID = localStatus["syncedMinUID"].get<uint32_t>();
         uint32_t chunkSize = 5000;
 
         if (syncedMinUID > 1) {
@@ -232,7 +234,7 @@ bool SyncWorker::syncNow()
                 chunkMinUID = 1;
             }
             syncFolderUIDRange(*folder, RangeMake(chunkMinUID, syncedMinUID - chunkMinUID), true);
-            localStatus["minSyncedUID"] = chunkMinUID;
+            localStatus["syncedMinUID"] = chunkMinUID;
             syncedMinUID = chunkMinUID;
         }
         
@@ -240,7 +242,8 @@ bool SyncWorker::syncNow()
         // CONDSTORE, when available, does A + B.
         // XYZRESYNC, when available, does C
         if (hasCondstore && hasQResync) {
-            // Hooray! We never need to fetch the entire range to sync.
+            // Hooray! We never need to fetch the entire range to sync. Just look at highestmodseq / uidnext
+            // and sync if we need to.
             syncFolderChangesViaCondstore(*folder, remoteStatus);
         } else {
             uint32_t remoteUidnext = remoteStatus.uidNext();
