@@ -62,7 +62,7 @@ void MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & f
 void MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
     Message msg(mMsg, folder, syncDataTimestamp);
 
-    logger->info("🔹 Inserting message with subject: {}", msg.subject());
+//    logger->info("🔹 Inserting message with subject: {}", msg.subject());
 
     Array * references = mMsg->header()->references();
     if (references == nullptr) {
