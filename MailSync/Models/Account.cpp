@@ -26,7 +26,7 @@ Account::Account(SQLite::Statement & query) :
 }
 
 bool Account::valid() {
-    return true;
+    return (_data.count("id") && _data.count("imap_port") && _data.count("imap_host") && _data.count("imap_username") && _data.count("imap_password"));
 }
 
 unsigned int Account::IMAPPort() {
