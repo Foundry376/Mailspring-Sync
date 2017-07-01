@@ -10,6 +10,7 @@
 #ifndef constants_h
 #define constants_h
 
+#define AS_MCSTR(X)         mailcore::String::uniquedStringWithUTF8Characters(X.c_str())
 
 // TODO add unique keys
 
@@ -201,6 +202,27 @@ static std::map<std::string, std::string> COMMON_FOLDER_NAMES = {
     {"draft", "drafts"},
     {"brouillons", "drafts"},
 
+};
+
+static map<ErrorCode, string> ErrorMessageMap = {
+    {ErrorConnection, "Connection Error"},
+    {ErrorInvalidAccount, "This account is invalid, or does not have an inbox or all folder."},
+    {ErrorTLSNotAvailable, "TLS Not Available"},
+    {ErrorParse, "Parsing Error"},
+    {ErrorCertificate, "Certificate Error"},
+    {ErrorAuthentication, "Authentication Error"},
+    {ErrorGmailIMAPNotEnabled, "Gmail IMAP is not enabled. Visit Gmail settings to turn it on."},
+    {ErrorGmailExceededBandwidthLimit, "Gmail bandwidth exceeded. Please try again later."},
+    {ErrorGmailTooManySimultaneousConnections, "There are too many active connections to your Gmail account. Please try again later."},
+    {ErrorMobileMeMoved, "MobileMe has moved."},
+    {ErrorYahooUnavailable, "Yahoo is unavailable."},
+    {ErrorNonExistantFolder, "Sorry, this folder does not exist."},
+    {ErrorStartTLSNotAvailable, "StartTLS is not available."},
+    {ErrorGmailApplicationSpecificPasswordRequired, "A Gmail application-specific password is required."},
+    {ErrorOutlookLoginViaWebBrowser, "The Outlook server said you must sign in via a web browser."},
+    {ErrorNeedsConnectToWebmail, "The server said you must sign in via your webmail."},
+    {ErrorNoValidServerFound, "No valid server found."},
+    {ErrorAuthenticationRequired, "Authentication required."},
 };
 
 #endif /* constants_h */

@@ -16,6 +16,7 @@
 #include <vector>
 #include <MailCore/MailCore.h>
 
+#include "Account.hpp"
 #include "MailStore.hpp"
 #include "MailProcessor.hpp"
 #include "CommStream.hpp"
@@ -28,14 +29,14 @@ class SyncWorker {
     MailStore * store;
     CommStream * stream;
     MailProcessor * processor;
-    std::shared_ptr<spdlog::logger> logger;
+    shared_ptr<spdlog::logger> logger;
     
     int unlinkPhase;
     bool idleShouldReloop;
     vector<string> idleFetchBodyIDs;
 
 public:
-    SyncWorker(string name, CommStream * stream);
+    SyncWorker(string name, shared_ptr<Account> account, CommStream * stream);
     
     bool syncNow();
 
