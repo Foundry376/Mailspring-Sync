@@ -13,9 +13,7 @@
 		43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0E1EF5F6C700D8E282 /* Folder.cpp */; };
 		4346BCE51EF91305009477FE /* Query.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4346BCE31EF91305009477FE /* Query.cpp */; };
 		436489341EF2E905007816EC /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489331EF2E905007816EC /* main.cpp */; };
-		436489551EF2E945007816EC /* MailCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4364894E1EF2E90D007816EC /* MailCore.framework */; };
 		436489581EF2E94B007816EC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489571EF2E94B007816EC /* Security.framework */; };
-		4364895B1EF2E97A007816EC /* MailCore.framework in CopyFiles */ = {isa = PBXBuildFile; fileRef = 4364894E1EF2E90D007816EC /* MailCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		436489881EF2F905007816EC /* Backup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489821EF2F905007816EC /* Backup.cpp */; };
 		436489891EF2F905007816EC /* Column.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489831EF2F905007816EC /* Column.cpp */; };
 		4364898A1EF2F905007816EC /* Database.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489841EF2F905007816EC /* Database.cpp */; };
@@ -28,8 +26,12 @@
 		4364899B1EF335A9007816EC /* CommStream.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489991EF335A9007816EC /* CommStream.cpp */; };
 		436489A01EF35572007816EC /* SyncWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4364899E1EF35572007816EC /* SyncWorker.cpp */; };
 		43C8149E1F08072D00D28F0B /* Account.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43C8149D1F08072D00D28F0B /* Account.cpp */; };
+		43C814A01F0832E100D28F0B /* MailSync in CopyFiles */ = {isa = PBXBuildFile; fileRef = 436489301EF2E905007816EC /* MailSync */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		43C814A11F08331C00D28F0B /* libMailCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489461EF2E90D007816EC /* libMailCore.a */; };
 		43CA94161EF9E610006685D0 /* MailProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA94141EF9E610006685D0 /* MailProcessor.cpp */; };
 		43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA941E1EFB9E88006685D0 /* Label.cpp */; };
+		43CA9A051F0836A2001A24A0 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */; };
+		43CA9A071F0836C1001A24A0 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43CA9A061F0836C1001A24A0 /* Cocoa.framework */; };
 		43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED31EFCEB6F0046589B /* Task.cpp */; };
 		43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */; };
 		43EAFEDA1EFEF7110046589B /* File.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED91EFEF7110046589B /* File.cpp */; };
@@ -93,25 +95,25 @@
 			remoteGlobalIDString = C600B6141A242C3F000728F1;
 			remoteInfo = unittestcpp;
 		};
-		436489591EF2E966007816EC /* PBXContainerItemProxy */ = {
+		43C814A21F08334D00D28F0B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 4364893A1EF2E90D007816EC /* mailcore2.xcodeproj */;
 			proxyType = 1;
-			remoteGlobalIDString = C6BD288C170BD71100A91AC1;
-			remoteInfo = "mailcore osx";
+			remoteGlobalIDString = C64EA536169E772200778456;
+			remoteInfo = "static mailcore2 osx";
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		4364892E1EF2E905007816EC /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = /usr/share/man/man1/;
+			buildActionMask = 12;
+			dstPath = "/Users/bengotow/Work/F376/Projects/Nylas2/nylas-mail/packages/client-app";
 			dstSubfolderSpec = 0;
 			files = (
-				4364895B1EF2E97A007816EC /* MailCore.framework in CopyFiles */,
+				43C814A01F0832E100D28F0B /* MailSync in CopyFiles */,
 			);
-			runOnlyForDeploymentPostprocessing = 1;
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
@@ -156,6 +158,8 @@
 		43CA94151EF9E610006685D0 /* MailProcessor.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MailProcessor.hpp; sourceTree = "<group>"; };
 		43CA941E1EFB9E88006685D0 /* Label.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Label.cpp; sourceTree = "<group>"; };
 		43CA94201EFB9E8C006685D0 /* Label.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Label.hpp; sourceTree = "<group>"; };
+		43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
+		43CA9A061F0836C1001A24A0 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
 		43EAFED21EFCEB550046589B /* Task.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Task.hpp; sourceTree = "<group>"; };
 		43EAFED31EFCEB6F0046589B /* Task.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Task.cpp; sourceTree = "<group>"; };
 		43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TaskProcessor.cpp; path = MailSync/TaskProcessor.cpp; sourceTree = SOURCE_ROOT; };
@@ -171,8 +175,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				43CA9A071F0836C1001A24A0 /* Cocoa.framework in Frameworks */,
+				43CA9A051F0836A2001A24A0 /* CoreFoundation.framework in Frameworks */,
+				43C814A11F08331C00D28F0B /* libMailCore.a in Frameworks */,
 				436489581EF2E94B007816EC /* Security.framework in Frameworks */,
-				436489551EF2E945007816EC /* MailCore.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -268,6 +274,8 @@
 		436489561EF2E94B007816EC /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				43CA9A061F0836C1001A24A0 /* Cocoa.framework */,
+				43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */,
 				436489571EF2E94B007816EC /* Security.framework */,
 			);
 			name = Frameworks;
@@ -311,7 +319,7 @@
 			buildRules = (
 			);
 			dependencies = (
-				4364895A1EF2E966007816EC /* PBXTargetDependency */,
+				43C814A31F08334D00D28F0B /* PBXTargetDependency */,
 			);
 			name = MailSync;
 			productName = MailSync;
@@ -451,10 +459,10 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		4364895A1EF2E966007816EC /* PBXTargetDependency */ = {
+		43C814A31F08334D00D28F0B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			name = "mailcore osx";
-			targetProxy = 436489591EF2E966007816EC /* PBXContainerItemProxy */;
+			name = "static mailcore2 osx";
+			targetProxy = 43C814A21F08334D00D28F0B /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -569,6 +577,19 @@
 					"$(OTHER_CFLAGS)",
 					"-fno-inline",
 				);
+				OTHER_LDFLAGS = (
+					"-lctemplate",
+					"-letpan",
+					"-lxml2",
+					"-lsasl2",
+					"-liconv",
+					"-ltidy",
+					"-lz",
+					"-lc++",
+					"-stdlib=libc++",
+					"-ObjC",
+					"-lresolv",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
@@ -588,6 +609,19 @@
 				OTHER_CPLUSPLUSFLAGS = (
 					"$(OTHER_CFLAGS)",
 					"-fno-inline",
+				);
+				OTHER_LDFLAGS = (
+					"-lctemplate",
+					"-letpan",
+					"-lxml2",
+					"-lsasl2",
+					"-liconv",
+					"-ltidy",
+					"-lz",
+					"-lc++",
+					"-stdlib=libc++",
+					"-ObjC",
+					"-lresolv",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};

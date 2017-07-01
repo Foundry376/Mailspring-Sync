@@ -30,7 +30,8 @@ class SyncWorker {
     CommStream * stream;
     MailProcessor * processor;
     shared_ptr<spdlog::logger> logger;
-    
+    shared_ptr<Account> account;
+
     int unlinkPhase;
     bool idleShouldReloop;
     vector<string> idleFetchBodyIDs;

@@ -38,6 +38,7 @@ public:
 
 SyncWorker::SyncWorker(string name, shared_ptr<Account> account, CommStream * stream) :
     store(new MailStore()),
+    account(account),
     unlinkPhase(1),
     stream(stream),
     logger(spdlog::stdout_color_mt(name)),
@@ -325,7 +326,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 local = allLocalLabels[remoteId];
                 allLocalLabels.erase(remoteId);
             } else {
-                local = make_shared<Label>(Label(remoteId, "1", 0));
+                local = make_shared<Label>(Label(remoteId, account->id(), 0));
             }
 
         } else {
@@ -334,7 +335,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 local = allLocalFolders[remoteId];
                 allLocalFolders.erase(remoteId);
             } else {
-                local = make_shared<Folder>(Folder(remoteId, "1", 0));
+                local = make_shared<Folder>(Folder(remoteId, account->id(), 0));
             }
             foldersToSync.push_back(local);
         }

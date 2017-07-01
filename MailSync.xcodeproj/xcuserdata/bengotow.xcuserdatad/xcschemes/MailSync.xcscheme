@@ -67,7 +67,7 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--account &apos;{&quot;imap_username&quot;:&quot;bengotow@gmail.com&quot;, &quot;imap_password&quot;: &quot;kvaiewqwhdzcgmbh&quot;, &quot;imap_host&quot;:&quot;imap.gmail.com&quot;, &quot;imap_port&quot;: 993}&apos;"
+            argument = "--account &apos;{&quot;id&quot;:&quot;2&quot;,&quot;imap_username&quot;:&quot;bengotow@gmail.com&quot;, &quot;imap_password&quot;: &quot;kvaiewqwhdzcgmbh&quot;, &quot;imap_host&quot;:&quot;imap.gmail.com&quot;, &quot;imap_port&quot;: 993}&apos;"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
