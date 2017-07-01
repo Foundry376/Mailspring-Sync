@@ -14,8 +14,9 @@
 #include "File.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
+#include "Account.hpp"
+#include "constants.h"
 
-#define AS_MCSTR(X)         mailcore::String(X.c_str())
 #define KIND_JUST_MUTABLE   (IMAPMessagesRequestKind)(IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels)
 #define KIND_ALL_HEADERS    (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID)
 #define TEN_MINUTES         60 * 10
@@ -35,7 +36,7 @@ public:
 };
 
 
-SyncWorker::SyncWorker(string name, CommStream * stream) :
+SyncWorker::SyncWorker(string name, shared_ptr<Account> account, CommStream * stream) :
     store(new MailStore()),
     unlinkPhase(1),
     stream(stream),
@@ -43,17 +44,7 @@ SyncWorker::SyncWorker(string name, CommStream * stream) :
     processor(new MailProcessor(name + "_p", store)),
     session(IMAPSession())
 {
-//    session.setUsername(MCSTR("cypresstest@yahoo.com"));
-//    session.setPassword(MCSTR("IHate2Gmail"));
-//    session.setHostname(MCSTR("imap.mail.yahoo.com"));
-//    session.setConnectionType(ConnectionType::ConnectionTypeTLS);
-//    session.setPort(993);
-    session.setUsername(MCSTR("bengotow@gmail.com"));
-    session.setPassword(MCSTR("kvaiewqwhdzcgmbh"));
-    session.setHostname(MCSTR("imap.gmail.com"));
-    session.setConnectionType(ConnectionType::ConnectionTypeTLS);
-    session.setPort(993);
-    
+    MailUtils::configureSessionForAccount(session, account);
     store->addObserver(stream);
 }
 

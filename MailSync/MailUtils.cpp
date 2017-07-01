@@ -342,3 +342,12 @@ string MailUtils::qmarkSets(size_t count, size_t perSet) {
     }
     return qmarks;
 }
+
+void MailUtils::configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account) {
+    session.setUsername(AS_MCSTR(account->IMAPUsername()));
+    session.setPassword(AS_MCSTR(account->IMAPPassword()));
+    session.setHostname(AS_MCSTR(account->IMAPHost()));
+    session.setPort(account->IMAPPort());
+    session.setCheckCertificateEnabled(false);
+    session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+}

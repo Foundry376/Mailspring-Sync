@@ -16,6 +16,7 @@
 #include <SQLiteCpp/SQLiteCpp.h>
 #include "json.hpp"
 #include "Label.hpp"
+#include "Account.hpp"
 
 using json = nlohmann::json;
 using namespace std;
@@ -49,6 +50,8 @@ public:
 
     static string qmarks(size_t count);
     static string qmarkSets(size_t count, size_t perSet);
+
+    static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
 };
 
 #endif /* MailUtils_hpp */
