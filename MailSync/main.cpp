@@ -103,7 +103,7 @@ void runBackgroundSyncWorker() {
     }
 }
 
-void runTestAuth(shared_ptr<Account> account) {
+int runTestAuth(shared_ptr<Account> account) {
     IMAPSession session;
     AccumulatorLogger logger;
     Array * folders;
@@ -132,18 +132,20 @@ void runTestAuth(shared_ptr<Account> account) {
 
 done:
     json resp = {
-        {"error", err},
-        {"error_message", nullptr},
+        {"error", nullptr},
         {"log", logger.accumulated},
         {"account", nullptr}
     };
     if (err == ErrorNone) {
         resp["account"] = account->toJSON();
+        cout << resp.dump();
+        return 0;
     } else {
-        resp["error_message"] = ErrorMessageMap.count(err) ? ErrorMessageMap[err] : "MailCore Error";
+        resp["error"] = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : "Unknown";
+        cout << resp.dump();
+        return 1;
     }
 
-    cout << resp.dump();
 }
 
 void runMainThread() {
@@ -218,12 +220,11 @@ int main(int argc, const char * argv[]) {
     
     if (!account->valid()) {
         cout << "Account is missing required fields.\n";
-        return 0;
+        return 1;
     }
 
     if (mode == "test") {
-        runTestAuth(account);
-        return 0;
+        return runTestAuth(account);
     }
 
     if (mode == "sync") {
