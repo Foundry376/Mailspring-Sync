@@ -26,6 +26,8 @@ Thread::Thread(Message msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allL
     _data["lmrt"] = msg.date();
     if (gThreadId) {
         _data["gThrId"] = to_string(gThreadId);
+    } else {
+        _data["gThrId"] = "";
     }
     
     // we'll update these below

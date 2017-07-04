@@ -18,91 +18,32 @@
 
 using json = nlohmann::json;
 
-////char *socket_path = "./socket";
-//char *socket_path = "\0hidden";
-
-CommStream::CommStream(char * socket_path) {
-    int s;
-    
-    if ((s = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
-        perror("socket");
-        exit(1);
-    }
-    
-    printf("Trying to connect...\n");
-    
-    struct sockaddr_un remote;
-    memset(&remote, 0, sizeof(struct sockaddr_un));
-
-    strcpy(remote.sun_path, "/tmp/cmail.sock");
-    remote.sun_family = AF_UNIX;
-    remote.sun_len = SUN_LEN(&remote);
-    
-    if (connect(s, (struct sockaddr *)&remote, remote.sun_len) == -1) {
-        perror("connect");
-        exit(1);
-    }
-    
-    printf("Connected.\n");
-    
-    _socket = s;
+CommStream::CommStream() {
 }
 
 
 CommStream::~CommStream() {
-    close(_socket);
-}
-
-void CommStream::readXBytes(unsigned int x, void* buffer)
-{
-    ssize_t bytesRead = 0;
-    ssize_t result;
-    while (bytesRead < x) {
-        result = read(_socket, (char *)buffer + bytesRead, x - bytesRead);
-        if (result < 1) {
-            perror("read");
-            throw "read interrupted";
-        }
-        
-        bytesRead += result;
-    }
 }
 
 json CommStream::waitForJSON() {
     try {
-        unsigned int length = 0;
-        char* buffer = 0;
-
-        // we assume that sizeof(length) will return 4 here.
-        readXBytes(sizeof(length), (void*)(&length));
-        buffer = new char[length + 1];
-        buffer[length] = '\0';
-        readXBytes(length, (void*)buffer);
-        
-        // Then process the data as needed.
-        json j = json::parse(buffer);
-        delete [] buffer;
-        return j;
+        string buffer;
+        cin.clear();
+        cin.sync();
+        getline(cin, buffer);
+        if (buffer.size() > 0) {
+            json j = json::parse(buffer);
+            return j;
+        }
     } catch (char const * e) {
-        return {};
     }
+    return {};
 }
 
 void CommStream::sendJSON(json & msgJSON) {
-    std::string str = msgJSON.dump() + "\n";
-    const char * chars = str.c_str();
-        
-    size_t total = 0;
-    size_t length = strlen(chars);
-    while (total < strlen(chars)) {
-        ssize_t n = send(_socket, chars + total, length, 0);
-        if (n < 0) {
-            perror("send");
-            exit(1);
-        }
-        total += n;
-        length -= n;
-    }
+    lock_guard<mutex> lock(mtx_);
+    cout << msgJSON.dump() + "\n";
+    cout << flush;
 }
 
 void CommStream::didPersistModel(MailModel * model) {

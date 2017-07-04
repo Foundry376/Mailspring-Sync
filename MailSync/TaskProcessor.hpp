@@ -37,7 +37,7 @@ class TaskProcessor {
     IMAPSession * session;
     
 public:
-    TaskProcessor(MailStore * store, shared_ptr<spdlog::logger> logger, IMAPSession * session);
+    TaskProcessor(MailStore * store, IMAPSession * session);
 
     void performLocal(Task * task);
     void performRemote(Task * task);

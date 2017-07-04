@@ -17,8 +17,6 @@
 #include "Account.hpp"
 #include "constants.h"
 
-#define KIND_JUST_MUTABLE   (IMAPMessagesRequestKind)(IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels)
-#define KIND_ALL_HEADERS    (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID)
 #define TEN_MINUTES         60 * 10
 
 using namespace mailcore;
@@ -41,8 +39,8 @@ SyncWorker::SyncWorker(string name, shared_ptr<Account> account, CommStream * st
     account(account),
     unlinkPhase(1),
     stream(stream),
-    logger(spdlog::stdout_color_mt(name)),
-    processor(new MailProcessor(name + "_p", store)),
+    logger(spdlog::get(name)),
+    processor(new MailProcessor(store)),
     session(IMAPSession())
 {
     MailUtils::configureSessionForAccount(session, account);
@@ -51,12 +49,15 @@ SyncWorker::SyncWorker(string name, shared_ptr<Account> account, CommStream * st
 
 void SyncWorker::idleInterrupt()
 {
+    // called on main thread to interrupt idle
+    std::unique_lock<std::mutex> lck(idleMtx);
     idleShouldReloop = true;
     session.interruptIdle();
+    idleCv.notify_one();
 }
 
 void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
-    idleShouldReloop = true;
+    // called on main thread
     for (string & id : ids) {
         idleFetchBodyIDs.push_back(id);
     }
@@ -64,6 +65,8 @@ void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
 
 void SyncWorker::idleCycle()
 {
+    // called on dedicated thread
+    
     while(true) {
         // Run body requests
         while (idleFetchBodyIDs.size() > 0) {
@@ -85,7 +88,7 @@ void SyncWorker::idleCycle()
         // Run tasks ready for perform Remote
         Query q = Query().equal("status", "remote");
         auto tasks = store->findAll<Task>(q);
-        TaskProcessor processor { store, logger, &session };
+        TaskProcessor processor { store, &session };
         for (const auto task : tasks) {
             processor.performRemote(task.get());
         }
@@ -158,6 +161,10 @@ void SyncWorker::idleCycle()
             session.idle(&path, 0, &err);
             session.unsetupIdle();
             logger->info("Idle exited with code {}", err);
+        } else {
+            logger->info("Connection does not support idling. Locking until more to do...");
+            std::unique_lock<std::mutex> lck(idleMtx);
+            idleCv.wait(lck);
         }
     }
 }
@@ -371,6 +378,22 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     return foldersToSync;
 }
 
+IMAPMessagesRequestKind SyncWorker::fetchRequestKind(bool heavy) {
+    bool gmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
+    
+    if (heavy) {
+        if (gmail) {
+            return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
+        }
+        return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
+    }
+
+    if (gmail) {
+        return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels);
+    }
+    return IMAPMessagesRequestKindFlags;
+}
+
 void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest)
 {
     logger->info("syncFolderUIDRange - ({}, UIDs: {} - {}, Heavy: {})", folder.path(), range.location, range.location + range.length, heavyInitialRequest);
@@ -382,7 +405,9 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(folder.path()));
     time_t syncDataTimestamp = time(0);
-    Array * remote = session.fetchMessagesByUID(&path, heavyInitialRequest ? KIND_ALL_HEADERS : KIND_JUST_MUTABLE, set, cb, &err);
+
+
+    Array * remote = session.fetchMessagesByUID(&path, fetchRequestKind(heavyInitialRequest), set, cb, &err);
     if (err) {
         logger->error("syncFolderUIDRange - IMAP Error Occurred: {}", err);
         return;
@@ -430,7 +455,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         logger->error("syncFolderUIDRange - Fetching full headers for {}", heavyNeeded->count());
 
         syncDataTimestamp = time(0);
-        remote = session.fetchMessagesByUID(&path, KIND_ALL_HEADERS, heavyNeeded, cb, &err);
+        remote = session.fetchMessagesByUID(&path, fetchRequestKind(true), heavyNeeded, cb, &err);
         if (err) {
             logger->error("syncFolderUIDRange - IMAP Error Occurred: {}", err);
             return;
@@ -478,7 +503,8 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
     ErrorCode err = ErrorCode::ErrorNone;
     String path(AS_MCSTR(folder.path()));
-    IMAPSyncResult * result = session.syncMessagesByUID(&path, KIND_ALL_HEADERS, uids, modseq, cb, &err);
+    
+    IMAPSyncResult * result = session.syncMessagesByUID(&path, fetchRequestKind(true), uids, modseq, cb, &err);
     if (err != ErrorCode::ErrorNone) {
         logger->error("syncFolderChangesViaCondstore - IMAP Error Occurred: {}", err);
         return;

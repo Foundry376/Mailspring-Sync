@@ -145,21 +145,44 @@ done:
         cout << resp.dump();
         return 1;
     }
+}
 
+int runMigrate() {
+    json resp = {{"error", nullptr}};
+    try {
+        MailStore store;
+        cout << "\n" << resp.dump();
+        return 0;
+    } catch (std::exception & ex) {
+        resp["error"] = "Unknown Error";
+        cout << "\n" << resp.dump();
+        return 1;
+    }
 }
 
 void runMainThread() {
-    auto logger = spdlog::stdout_color_mt("main");
-
     MailStore store;
     store.addObserver(stream);
     
-    TaskProcessor processor{&store, logger, nullptr};
+    TaskProcessor processor{&store, nullptr};
     
+    int bad = 0;
+
     while(true) {
         AutoreleasePool pool;
         json packet = stream->waitForJSON();
         
+        // cin is interrupted when the debugger attaches, and that's ok. If cin is
+        // interrupted repeatedly it means the parent process has died and we should exit.
+        if (!cin.good()) {
+            bad += 1;
+            if (bad > 10) {
+                terminate();
+            }
+        } else {
+            bad = 0;
+        }
+
         if (packet.count("type") && packet["type"].get<string>() == "task-queued") {
             packet["task"]["v"] = 0;
 
@@ -172,7 +195,6 @@ void runMainThread() {
 
         if (packet.count("type") && packet["type"].get<string>() == "need-bodies") {
             // interrupt the foreground sync worker to do the remote part of the task
-            logger->info("Received bodies request. Interrupting idle...");
             vector<string> ids{};
             for (auto id : packet["ids"]) {
                 ids.push_back(id.get<string>());
@@ -184,9 +206,23 @@ void runMainThread() {
 }
 
 int main(int argc, const char * argv[]) {
+    // indicate we use cout, not stdout
+    std::cout.sync_with_stdio(false);
+    
+    // setup logging to file
     spdlog::set_pattern("%l: [%L] %v");
+    auto filesink = make_shared<spdlog::sinks::rotating_file_sink_mt>("logfile.txt", 1048576 * 5, 3);
+    auto lprocessor = make_shared<spdlog::logger>("processor", filesink);
+    spdlog::register_logger(lprocessor);
+    auto ltasks = make_shared<spdlog::logger>("tasks", filesink);
+    spdlog::register_logger(ltasks);
+    auto lfg = make_shared<spdlog::logger>("fg", filesink);
+    spdlog::register_logger(lfg);
+    auto lbg = make_shared<spdlog::logger>("bg", filesink);
+    spdlog::register_logger(lbg);
 
-    argc-=(argc>0); argv+=(argc>0); // skip program name argv[0] if present
+    // parse launch arguments, skip program name argv[0] if present
+    argc-=(argc>0); argv+=(argc>0);
     option::Stats  stats(usage, argc, argv);
     option::Option options[stats.options_max], buffer[stats.buffer_max];
     option::Parser parse(usage, argc, argv, options, buffer);
@@ -202,8 +238,7 @@ int main(int argc, const char * argv[]) {
     string mode(options[MODE].arg);
     
     if (mode == "migrate") {
-        MailStore store;
-        return 0;
+        return runMigrate();
     }
     
     shared_ptr<Account> account;
@@ -228,11 +263,11 @@ int main(int argc, const char * argv[]) {
     }
 
     if (mode == "sync") {
-        stream = new CommStream((char *)"/tmp/cmail.sock");
+        stream = new CommStream();
         bgWorker = new SyncWorker("bg", account, stream);
         fgWorker = new SyncWorker("fg", account, stream);
 
-        fgThread = new std::thread(runBackgroundSyncWorker); // SHOULD BE BACKGROUND
+        bgThread = new std::thread(runBackgroundSyncWorker); // SHOULD BE BACKGROUND
         runMainThread();
     }
 

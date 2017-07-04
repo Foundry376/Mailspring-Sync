@@ -26,23 +26,27 @@ Account::Account(SQLite::Statement & query) :
 }
 
 bool Account::valid() {
-    return (_data.count("id") && _data.count("imap_port") && _data.count("imap_host") && _data.count("imap_username") && _data.count("imap_password"));
+    if (!_data.count("id") || !_data.count("settings")) {
+        return false;
+    }
+    json & settings = _data["settings"];
+    return settings.count("imap_port") && settings.count("imap_host") && settings.count("imap_username") && settings.count("imap_password");
 }
 
 unsigned int Account::IMAPPort() {
-    return _data["imap_port"].get<unsigned int>();
+    return _data["settings"]["imap_port"].get<unsigned int>();
 }
 
 string Account::IMAPHost() {
-    return _data["imap_host"].get<string>();
+    return _data["settings"]["imap_host"].get<string>();
 }
 
 string Account::IMAPUsername() {
-    return _data["imap_username"].get<string>();
+    return _data["settings"]["imap_username"].get<string>();
 }
 
 string Account::IMAPPassword() {
-    return _data["imap_password"].get<string>();
+    return _data["settings"]["imap_password"].get<string>();
 }
 
 string Account::constructorName() {
