@@ -151,8 +151,8 @@ void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSe
 }
 
 
-TaskProcessor::TaskProcessor(MailStore * store, shared_ptr<spdlog::logger> logger, IMAPSession * session) :
-store(store), logger(logger), session(session) {
+TaskProcessor::TaskProcessor(MailStore * store, IMAPSession * session) :
+store(store), logger(spdlog::get("tasks")), session(session) {
 }
 
 void TaskProcessor::performLocal(Task * task) {

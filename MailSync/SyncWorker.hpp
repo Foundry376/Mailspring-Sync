@@ -35,6 +35,8 @@ class SyncWorker {
     int unlinkPhase;
     bool idleShouldReloop;
     vector<string> idleFetchBodyIDs;
+    std::mutex idleMtx;
+    std::condition_variable idleCv;
 
 public:
     SyncWorker(string name, shared_ptr<Account> account, CommStream * stream);
@@ -53,6 +55,8 @@ public:
 
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus);
 
+    IMAPMessagesRequestKind fetchRequestKind(bool heavy);
+    
     void fetchRangeInFolder(String * folder, std::string folderId, Range range);
 
     bool syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);

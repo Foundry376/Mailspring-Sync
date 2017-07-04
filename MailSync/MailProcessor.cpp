@@ -35,9 +35,9 @@ bool create_directory(string dir) {
 }
 
 
-MailProcessor::MailProcessor(string name, MailStore * store) :
+MailProcessor::MailProcessor(MailStore * store) :
     store(store),
-    logger(spdlog::stdout_color_mt(name))
+    logger(spdlog::get("processor"))
 {
 
 }

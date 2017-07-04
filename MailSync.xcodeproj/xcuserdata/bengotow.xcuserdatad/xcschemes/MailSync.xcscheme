@@ -63,11 +63,11 @@
       </BuildableProductRunnable>
       <CommandLineArguments>
          <CommandLineArgument
-            argument = "--mode test"
+            argument = "--mode sync"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--account &apos;{&quot;id&quot;:&quot;2&quot;,&quot;imap_username&quot;:&quot;bengotow@gmail.com&quot;, &quot;imap_password&quot;: &quot;kvaiewqwhdzcgmbh&quot;, &quot;imap_host&quot;:&quot;imap.gmail.com&quot;, &quot;imap_port&quot;: 993}&apos;"
+            argument = "--account &apos;{&quot;id&quot;:&quot;temp&quot;,&quot;settings&quot;:{&quot;imap_username&quot;:&quot;cypresstest@yahoo.com&quot;, &quot;imap_password&quot;: &quot;IHate2Gmail&quot;, &quot;imap_host&quot;:&quot;imap.mail.yahoo.com&quot;, &quot;imap_port&quot;: 993}}&apos;"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>

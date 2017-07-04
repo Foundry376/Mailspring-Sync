@@ -10,6 +10,7 @@
 #define CommStream_hpp
 
 #include <stdio.h>
+#include <mutex>
 #include "json.hpp"
 #include "MailStore.hpp"
 #include "spdlog/spdlog.h"
@@ -17,9 +18,9 @@
 using json = nlohmann::json;
 
 class CommStream : public MailStoreObserver {
-    int _socket;
+    mutex mtx_;
 public:
-    CommStream(char * socket_path);
+    CommStream();
     ~CommStream();
 
     void sendJSON(json & msg);
@@ -27,9 +28,6 @@ public:
 
     void didPersistModel(MailModel * model);
     void didUnpersistModel(MailModel * model);
-    
-private:
-    void readXBytes(unsigned int x, void* buffer);
 };
 
 #endif /* CommStream_hpp */

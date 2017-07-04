@@ -32,7 +32,7 @@ class MailProcessor {
     shared_ptr<spdlog::logger> logger;
 
 public:
-    MailProcessor(string name, MailStore * store);
+    MailProcessor(MailStore * store);
     void insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
     void insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
     void updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp);
