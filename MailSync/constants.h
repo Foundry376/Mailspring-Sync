@@ -72,8 +72,9 @@ static std::vector<std::string> SETUP_QUERIES = {
 
     "CREATE TABLE IF NOT EXISTS ThreadReference ("
         "threadId VARCHAR(42),"
+        "accountId VARCHAR(40),"
         "headerMessageId VARCHAR(255),"
-        "PRIMARY KEY (threadId, headerMessageId))",
+        "PRIMARY KEY (threadId, accountId, headerMessageId))",
                                                 
     "CREATE TABLE IF NOT EXISTS `ThreadPluginMetadata` (id VARCHAR(40), `value` TEXT)",
     "CREATE INDEX IF NOT EXISTS `ThreadPluginMetadata_id` ON `ThreadPluginMetadata` (`id` ASC)",
