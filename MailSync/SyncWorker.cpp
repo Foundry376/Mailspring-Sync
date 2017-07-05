@@ -17,6 +17,8 @@
 #include "Account.hpp"
 #include "constants.h"
 #include "ProgressCollectors.hpp"
+#include "SyncException.hpp"
+
 
 #define TEN_MINUTES         60 * 10
 
@@ -56,106 +58,125 @@ void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
 void SyncWorker::idleCycle()
 {
     // called on dedicated thread
-    
     while(true) {
-        // Run body requests
-        while (idleFetchBodyIDs.size() > 0) {
-            string id = idleFetchBodyIDs.back();
-            idleFetchBodyIDs.pop_back();
-            Query byId = Query().equal("id", id);
-            auto msg = store->find<Message>(byId);
-            if (msg.get() != nullptr) {
-                logger->info("Fetching body for message ID {}", msg->id());
-                syncMessageBody(msg.get());
+        try {
+            idleCycleIteration();
+        } catch (SyncException & ex) {
+            if (!ex.isRetryable()) {
+                throw;
             }
+            sleep(120);
         }
+    }
+}
 
-        if (idleShouldReloop) {
-            idleShouldReloop = false;
-            continue;
+void SyncWorker::idleCycleIteration()
+{
+    // Run body requests
+    while (idleFetchBodyIDs.size() > 0) {
+        string id = idleFetchBodyIDs.back();
+        idleFetchBodyIDs.pop_back();
+        Query byId = Query().equal("id", id);
+        auto msg = store->find<Message>(byId);
+        if (msg.get() != nullptr) {
+            logger->info("Fetching body for message ID {}", msg->id());
+            syncMessageBody(msg.get());
         }
+    }
 
-        // Run tasks ready for performRemote
-        Query q = Query().equal("accountId", account->id()).equal("status", "remote");
-        auto tasks = store->findAll<Task>(q);
-        TaskProcessor processor { account, store, &session };
-        for (const auto task : tasks) {
-            processor.performRemote(task.get());
-        }
+    if (idleShouldReloop) {
+        idleShouldReloop = false;
+        return;
+    }
 
-        if (idleShouldReloop) {
-            idleShouldReloop = false;
-            continue;
-        }
-        q = Query().equal("accountId", account->id()).equal("role", "inbox");
-        auto inbox = store->find<Folder>(q);
-        if (inbox.get() == nullptr) {
-            Query q = Query().equal("accountId", account->id()).equal("role", "all");
-            inbox = store->find<Folder>(q);
-            if (inbox.get() == nullptr) {
-                logger->error("No inbox to idle on!");
-                return;
-            }
-        }
+    // Run tasks ready for performRemote
+    Query q = Query().equal("accountId", account->id()).equal("status", "remote");
+    auto tasks = store->findAll<Task>(q);
+    TaskProcessor processor { account, store, &session };
+    for (const auto task : tasks) {
+        processor.performRemote(task.get());
+    }
 
-        if (idleShouldReloop) {
-            idleShouldReloop = false;
-            continue;
-        }
-        ErrorCode err = ErrorCode::ErrorNone;
-        session.connectIfNeeded(&err);
-        if (err != ErrorCode::ErrorNone) {
-            throw err;
-        }
+    if (idleShouldReloop) {
+        idleShouldReloop = false;
+        return;
+    }
 
-        // Check for mail in the folder
-        
-        if (idleShouldReloop) {
-            idleShouldReloop = false;
-            continue;
-        }
-        auto refreshedFolders = syncFoldersAndLabels();
-        q = Query().equal("accountId", account->id()).equal("id", inbox->id());
+    // Identify the preferred idle folder (inbox / all)
+
+    q = Query().equal("accountId", account->id()).equal("role", "inbox");
+    auto inbox = store->find<Folder>(q);
+    if (inbox.get() == nullptr) {
+        Query q = Query().equal("accountId", account->id()).equal("role", "all");
         inbox = store->find<Folder>(q);
         if (inbox.get() == nullptr) {
-            logger->error("Idling folder has disappeared? That's weird...");
-            return;
+            throw SyncException("no-inbox", "There is no inbox or all folder to IDLE on.", false);
         }
-        
-        // TODO: We should probably not do this if it's only been ~5 seconds since the last time
-        String path = AS_MCSTR(inbox->path());
-        IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
-        if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
-            syncFolderChangesViaCondstore(*inbox, remoteStatus);
-        } else {
-            uint32_t uidnext = remoteStatus.uidNext();
-            uint32_t syncedMinUID = inbox->localStatus()["syncedMinUID"].get<uint32_t>();
-            uint32_t bottomUID = store->fetchMessageUIDAtDepth(*inbox, 100, uidnext);
-            if (bottomUID < syncedMinUID) { bottomUID = syncedMinUID; }
-            syncFolderUIDRange(*inbox, RangeMake(bottomUID, uidnext - bottomUID), false);
-            inbox->localStatus()["lastShallow"] = time(0);
-            inbox->localStatus()["uidnext"] = uidnext;
-        }
-        syncMessageBodies(*inbox, remoteStatus);
-        store->save(inbox.get());
+    }
+    
+    if (idleShouldReloop) {
+        idleShouldReloop = false;
+        return;
+    }
+    
+    // Connect and login to the IMAP server
+    
+    ErrorCode err = ErrorCode::ErrorNone;
+    session.connectIfNeeded(&err);
+    if (err != ErrorCode::ErrorNone) {
+        throw SyncException(err, "connectIfNeeded");
+    }
 
-        // Idle on the folder
-        
-        if (idleShouldReloop) {
-            idleShouldReloop = false;
-            continue;
-        }
-        if (session.setupIdle()) {
-            logger->info("Idling on folder {}", inbox->path());
-            String path = AS_MCSTR(inbox->path());
-            session.idle(&path, 0, &err);
-            session.unsetupIdle();
-            logger->info("Idle exited with code {}", err);
-        } else {
-            logger->info("Connection does not support idling. Locking until more to do...");
-            std::unique_lock<std::mutex> lck(idleMtx);
-            idleCv.wait(lck);
-        }
+    if (idleShouldReloop) {
+        idleShouldReloop = false;
+        return;
+    }
+
+    session.loginIfNeeded(&err);
+    if (err != ErrorCode::ErrorNone) {
+        throw SyncException(err, "loginIfNeeded");
+    }
+    
+    if (idleShouldReloop) {
+        idleShouldReloop = false;
+        return;
+    }
+
+    // Check for mail in the preferred idle folder (inbox / all)
+    // TODO: We should probably not do this if it's only been ~5 seconds since the last time
+
+    String path = AS_MCSTR(inbox->path());
+    IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
+    if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
+        syncFolderChangesViaCondstore(*inbox, remoteStatus);
+    } else {
+        uint32_t uidnext = remoteStatus.uidNext();
+        uint32_t syncedMinUID = inbox->localStatus()["syncedMinUID"].get<uint32_t>();
+        uint32_t bottomUID = store->fetchMessageUIDAtDepth(*inbox, 100, uidnext);
+        if (bottomUID < syncedMinUID) { bottomUID = syncedMinUID; }
+        syncFolderUIDRange(*inbox, RangeMake(bottomUID, uidnext - bottomUID), false);
+        inbox->localStatus()["lastShallow"] = time(0);
+        inbox->localStatus()["uidnext"] = uidnext;
+    }
+    syncMessageBodies(*inbox, remoteStatus);
+    store->save(inbox.get());
+
+    // Idle on the folder
+    
+    if (idleShouldReloop) {
+        idleShouldReloop = false;
+        return;
+    }
+    if (session.setupIdle()) {
+        logger->info("Idling on folder {}", inbox->path());
+        String path = AS_MCSTR(inbox->path());
+        session.idle(&path, 0, &err);
+        session.unsetupIdle();
+        logger->info("Idle exited with code {}", err);
+    } else {
+        logger->info("Connection does not support idling. Locking until more to do...");
+        std::unique_lock<std::mutex> lck(idleMtx);
+        idleCv.wait(lck);
     }
 }
 
@@ -188,8 +209,8 @@ bool SyncWorker::syncNow()
         String path = AS_MCSTR(folder->path());
         ErrorCode err = ErrorCode::ErrorNone;
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
-        if (err) {
-            throw err;
+        if (err != ErrorNone) {
+            throw SyncException(err, "syncNow - folderStatus");
         }
 
         // Step 1: Check folder UIDValidity
@@ -292,8 +313,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     ErrorCode err = ErrorCode::ErrorNone;
     Array * remoteFolders = session.fetchAllFolders(&err);
     if (err) {
-        logger->error("Could not fetch folder list. IMAP Error Occurred: {}", err);
-        throw "syncFolders: An error occurred. ";
+        throw SyncException(err, "syncFoldersAndLabels - fetchAllFolders");
     }
     
     store->beginTransaction();
@@ -399,8 +419,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     
     Array * remote = session.fetchMessagesByUID(&path, fetchRequestKind(heavyInitialRequest), set, &cb, &err);
     if (err) {
-        logger->error("syncFolderUIDRange - IMAP Error Occurred: {}", err);
-        return;
+        throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID");
     }
     
     // Step 2: Fetch the local attributes (unread, starred, etc.) for the same UID range
@@ -446,9 +465,8 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
 
         syncDataTimestamp = time(0);
         remote = session.fetchMessagesByUID(&path, fetchRequestKind(true), heavyNeeded, &cb, &err);
-        if (err) {
-            logger->error("syncFolderUIDRange - IMAP Error Occurred: {}", err);
-            return;
+        if (err != ErrorNone) {
+            throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID (heavy)");
         }
         for (int ii = remote->count() - 1; ii >= 0; ii--) {
             IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
@@ -495,8 +513,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     
     IMAPSyncResult * result = session.syncMessagesByUID(&path, fetchRequestKind(true), uids, modseq, &cb, &err);
     if (err != ErrorCode::ErrorNone) {
-        logger->error("syncFolderChangesViaCondstore - IMAP Error Occurred: {}", err);
-        return;
+        throw SyncException(err, "syncFolderChangesViaCondstore - syncMessagesByUID");
     }
 
     // for modified messages, fetch local copy and apply changes
@@ -564,9 +581,8 @@ void SyncWorker::syncMessageBody(Message * message) {
     String path(AS_MCSTR(folderPath));
     
     Data * data = session.fetchMessageByUID(&path, message->remoteUID(), &cb, &err);
-    if (err) {
-        logger->error("syncMessageBody - IMAP Error {} fetching body for {} ({})", err, message->subject(), message->remoteUID());
-        return;
+    if (err != ErrorNone) {
+        throw SyncException(err, "syncMessageBody - fetchMessageByUID");
     }
     MessageParser * messageParser = MessageParser::messageParserWithData(data);
     processor->retrievedMessageBody(message, messageParser);

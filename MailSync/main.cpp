@@ -19,6 +19,7 @@
 #include "MailStore.hpp"
 #include "CommStream.hpp"
 #include "SyncWorker.hpp"
+#include "SyncException.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
 #include "constants.h"
@@ -67,13 +68,14 @@ struct CArg: public option::Arg
 };
 
 
-enum  optionIndex { UNKNOWN, HELP, ACCOUNT, MODE };
+enum  optionIndex { UNKNOWN, HELP, ACCOUNT, MODE, ORPHAN };
 const option::Descriptor usage[] =
 {
     {UNKNOWN, 0,"" , "",        CArg::None,      "USAGE: mailsync [options]\n\nOptions:" },
     {HELP,    0,"" , "help",    CArg::None,      "  --help  \tPrint usage and exit." },
     {ACCOUNT, 0,"a", "account", CArg::Optional,  "  --account, -a  \tRequired: Account JSON with credentials." },
     {MODE,    0,"m", "mode",    CArg::Required,  "  --mode, -m  \tRequired: sync, test, or migrate." },
+    {ORPHAN,  0,"o", "orphan",  CArg::None,      "  --orphan, -o  \tOptional: allow the process to run without a parent bound to stdin." },
     {0,0,0,0,0,0}
 };
 
@@ -85,22 +87,26 @@ void runForegroundSyncWorker() {
 }
 
 void runBackgroundSyncWorker() {
-    bool firstLoop = true;
-    
     while(true) {
-        // run in a hard loop until it returns false, indicating continuation
-        // is not necessary. Then sync and sleep for a bit. Interval can be long
-        // because we're idling in another thread.
-        bool moreToSync = true;
-        while(moreToSync) {
-            moreToSync = bgWorker->syncNow();
+        try {
+            // run in a hard loop until it returns false, indicating continuation
+            // is not necessary. Then sync and sleep for a bit. Interval can be long
+            // because we're idling in another thread.
+            bool moreToSync = true;
+            while(moreToSync) {
+                moreToSync = bgWorker->syncNow();
 
-            // start the "foreground" idle worker after we've completed a single
-            // pass through all the folders. This ensures we have the folder list
-            // and the uidnext / highestmodseq etc are populated.
-            if (firstLoop) {
-                fgThread = new std::thread(runForegroundSyncWorker);
-                firstLoop = false;
+                // start the "foreground" idle worker after we've completed a single
+                // pass through all the folders. This ensures we have the folder list
+                // and the uidnext / highestmodseq etc are populated.
+                if (!fgThread) {
+                    fgThread = new std::thread(runForegroundSyncWorker);
+                }
+            }
+
+        } catch (SyncException & ex) {
+            if (!ex.isRetryable()) {
+                throw;
             }
         }
         sleep(120);
@@ -183,28 +189,39 @@ int runMigrate() {
     return code;
 }
 
-void runMainThread(shared_ptr<Account> account) {
+void runListenOnMainThread(shared_ptr<Account> account) {
     MailStore store;
     TaskProcessor processor{account, &store, nullptr};
 
     store.addObserver(stream);
     
-    int bad = 0;
+    time_t lostCINAt = 0;
 
     while(true) {
         AutoreleasePool pool;
-        json packet = stream->waitForJSON();
-        
+        json packet = {};
+        try {
+            packet = stream->waitForJSON();
+        } catch (std::invalid_argument & ex) {
+            json resp = {{"error", ex.what()}};
+            cout << "\n" << resp.dump() << "\n";
+            continue;
+        }
+
         // cin is interrupted when the debugger attaches, and that's ok. If cin is
-        // interrupted repeatedly it means the parent process has died and we should exit.
-//        if (!cin.good()) {
-//            bad += 1;
-//            if (bad > 10) {
-//                terminate();
-//            }
-//        } else {
-//            bad = 0;
-//        }
+        // disconnected for more than 30 seconds, it means we have been oprhaned and
+        // we should exit.
+        if (cin.good()) {
+            lostCINAt = 0;
+        } else {
+            if (lostCINAt == 0) {
+                lostCINAt = time(0);
+            }
+            if (time(0) - lostCINAt > 30) {
+                terminate();
+            }
+            usleep(1000);
+        }
 
         if (packet.count("type") && packet["type"].get<string>() == "task-queued") {
             packet["task"]["v"] = 0;
@@ -277,7 +294,8 @@ int main(int argc, const char * argv[]) {
     }
     
     if (!account->valid()) {
-        cout << "Account is missing required fields.\n";
+        json resp = {{"error", "Account is missing required fields."}};
+        cout << "\n" << resp.dump();
         return 1;
     }
 
@@ -290,9 +308,10 @@ int main(int argc, const char * argv[]) {
         bgWorker = new SyncWorker("bg", account, stream);
         fgWorker = new SyncWorker("fg", account, stream);
 
-        bgThread = new std::thread(runBackgroundSyncWorker); // SHOULD BE BACKGROUND
-//        fgThread = new std::thread(runForegroundSyncWorker); // SHOULD BE BACKGROUND
-        runMainThread(account);
+        bgThread = new std::thread(runBackgroundSyncWorker);
+        if (!options[ORPHAN]) {
+            runListenOnMainThread(account);
+        }
     }
 
     return 0;

@@ -14,33 +14,10 @@
 #include "File.hpp"
 #include "constants.h"
 #include "ProgressCollectors.hpp"
+#include "SyncException.hpp"
 
 using namespace std;
 using namespace mailcore;
-
-class TaskException : public std::exception {
-    string debuginfo;
-    string key;
-    bool retryable = false;
-
-public:
-    TaskException(string key, string di, bool retryable) : key(key), debuginfo(di), retryable(retryable) {
-        
-    }
-    TaskException(mailcore::ErrorCode c, string di) : key(ErrorCodeToTypeMap[c]), debuginfo(di) {
-        if (c == mailcore::ErrorConnection) {
-            retryable = true;
-        }
-    }
-    
-    json toJSON() {
-        return {
-            {"key", key},
-            {"debuginfo", debuginfo},
-            {"retryable", retryable},
-        };
-    }
-};
 
 // Small functions that we pass to the generic ChangeMessages runner
 
@@ -56,7 +33,7 @@ void _applyUnreadInIMAPFolder(IMAPSession * session, String * path, IndexSet * u
         session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindRemove, MessageFlagSeen, &err);
     }
     if (err != ErrorCode::ErrorNone) {
-        throw TaskException(err, "storeFlagsByUID");
+        throw SyncException(err, "storeFlagsByUID");
     }
 }
 
@@ -72,7 +49,7 @@ void _applyStarredInIMAPFolder(IMAPSession * session, String * path, IndexSet * 
         session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindRemove, MessageFlagFlagged, &err);
     }
     if (err != ErrorCode::ErrorNone) {
-        throw TaskException(err, "storeFlagsByUID");
+        throw SyncException(err, "storeFlagsByUID");
     }
 }
 
@@ -89,13 +66,13 @@ void _applyFolderMoveInIMAPFolder(IMAPSession * session, String * path, IndexSet
     HashMap * uidmap = nullptr;
     session->moveMessages(path, uids, &destPath, &uidmap, &err);
     if (err != ErrorCode::ErrorNone) {
-        throw TaskException(err, "moveMessages");
+        throw SyncException(err, "moveMessages");
     }
     for (auto msg : messages) {
         Value * currentUID = Value::valueWithUnsignedLongValue(msg->remoteUID());
         Value * newUID = (Value *)uidmap->objectForKey(currentUID);
         if (!newUID) {
-            throw TaskException("generic", "move did not provide new UID.", false);
+            throw SyncException("generic", "move did not provide new UID.", false);
         }
         msg->setRemoteFolder(destFolder);
         msg->setRemoteUID(newUID->unsignedIntValue());
@@ -166,13 +143,13 @@ void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSe
     if (toRemove->count() > 0) {
         session->storeLabelsByUID(path, uids, IMAPStoreFlagsRequestKindRemove, toRemove, &err);
         if (err != ErrorCode::ErrorNone) {
-            throw TaskException(err, "storeLabelsByUID - remove");
+            throw SyncException(err, "storeLabelsByUID - remove");
         }
     }
     if (toAdd->count() > 0) {
         session->storeLabelsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, toAdd, &err);
         if (err != ErrorCode::ErrorNone) {
-            throw TaskException(err, "storeLabelsByUID - add");
+            throw SyncException(err, "storeLabelsByUID - add");
         }
     }
 }
@@ -191,7 +168,7 @@ void TaskProcessor::performLocal(Task * task) {
     try {
         string accountId = task->data()["accountId"].get<string>();
         if (accountId != account->id()) {
-            throw TaskException("generic", "You must provide an account id.", false);
+            throw SyncException("generic", "You must provide an account id.", false);
         }
 
         if (cname == "ChangeUnreadTask") {
@@ -226,7 +203,7 @@ void TaskProcessor::performLocal(Task * task) {
         }
 
         task->setStatus("remote");
-    } catch (TaskException & ex) {
+    } catch (SyncException & ex) {
         task->setError(ex.toJSON());
         task->setStatus("complete");
     }
@@ -239,7 +216,7 @@ void TaskProcessor::performRemote(Task * task) {
     try {
         string accountId = task->data()["accountId"].get<string>();
         if (accountId != account->id()) {
-            throw TaskException("generic", "You must provide an account id.", false);
+            throw SyncException("generic", "You must provide an account id.", false);
         }
 
         if (cname == "ChangeUnreadTask") {
@@ -273,7 +250,7 @@ void TaskProcessor::performRemote(Task * task) {
             logger->error("Unsure of how to process this task type {}", cname);
         }
         task->setStatus("complete");
-    } catch (TaskException & ex) {
+    } catch (SyncException & ex) {
         task->setError(ex.toJSON());
         task->setStatus("complete");
     }
@@ -501,7 +478,7 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     
     if (err != ErrorNone) {
         data["created"] = nullptr;
-        throw TaskException(err, "create/renameFolder");
+        throw SyncException(err, "create/renameFolder");
     }
     
     // must go beneath the first use of session above.
@@ -530,7 +507,7 @@ void TaskProcessor::performRemoteDestroyCategory(Task * task) {
     session->deleteFolder(&mpath, &err);
     
     if (err != ErrorNone) {
-        throw TaskException(err, "deleteFolder");
+        throw SyncException(err, "deleteFolder");
     }
     
     logger->info("Deletion of folder/label '{}' succeeded.", path);
@@ -550,7 +527,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     if (sent == nullptr) {
         sent = store->find<Label>(Query().equal("accountId", account->id()).equal("role", "sent"));
         if (sent == nullptr) {
-            throw TaskException("no-sent-folder", "", false);
+            throw SyncException("no-sent-folder", "", false);
         }
     }
     String * sentPath = AS_MCSTR(sent->path());
@@ -558,7 +535,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     // find the trash folder
     auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
     if (trash == nullptr) {
-        throw TaskException("no-trash-folder", "", false);
+        throw SyncException("no-trash-folder", "", false);
     }
     String * trashPath = AS_MCSTR(trash->path());
 
@@ -622,13 +599,13 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                 Data * messageData = builder.data();
                 smtp.sendMessage(builder.header()->from(), Array::arrayWithObject(to), messageData, &sprogress, &err);
                 if (err != ErrorNone) {
-                    throw TaskException(err, "SMTP: Delivering message.");
+                    throw SyncException(err, "SMTP: Delivering message.");
                 }
             }
         }
 
         if (!selfMessageData) {
-            throw TaskException("no-self-body", "If `perRecipientBodies` is populated, you must provide a `self` entry.", false);
+            throw SyncException("no-self-body", "If `perRecipientBodies` is populated, you must provide a `self` entry.", false);
         }
         
         // Scan the sent folder, deleting anything with our header messageId.
@@ -637,14 +614,14 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         
         auto uids = session->search(sentPath, &exp, &err);
         if (err != ErrorNone) {
-            throw TaskException(err, "IMAP: Searching sent folder");
+            throw SyncException(err, "IMAP: Searching sent folder");
         }
         
         if (uids->count() > 0) {
             HashMap * uidmap = nullptr;
             session->moveMessages(sentPath, uids, trashPath, &uidmap, &err);
             if (err != ErrorNone) {
-                throw TaskException(err, "IMAP: Moving sent items to trash folder");
+                throw SyncException(err, "IMAP: Moving sent items to trash folder");
             }
             Array * auidsInTrash = uidmap->allValues();
             IndexSet uidsInTrash;
@@ -653,7 +630,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             }
             session->storeFlagsByUID(sentPath, &uidsInTrash, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
             if (err != ErrorNone) {
-                throw TaskException(err, "IMAP: Adding deleted flag to sent items");
+                throw SyncException(err, "IMAP: Adding deleted flag to sent items");
             }
         }
 
@@ -662,13 +639,13 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         uint32_t uid;
         session->appendMessage(sentPath, selfMessageData, MessageFlagSeen, &iprogress, &uid, &err);
         if (err != ErrorNone) {
-            throw TaskException(err, "IMAP: Adding message to sent folder.");
+            throw SyncException(err, "IMAP: Adding message to sent folder.");
         }
 
     } else {
         smtp.sendMessage(builder.data(), &sprogress, &err);
         if (err != ErrorNone) {
-            throw TaskException(err, "SMTP: Delivering message.");
+            throw SyncException(err, "SMTP: Delivering message.");
         }
     }
 
