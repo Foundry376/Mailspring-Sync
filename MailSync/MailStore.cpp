@@ -67,12 +67,21 @@ MailStore::MailStore() :
     _labelCache()
 {
     _db.setBusyTimeout(10 * 1000);
-    
-    for (string sql : SETUP_QUERIES) {
-        SQLite::Statement(_db, sql).exec();
-    }
 }
 
+void MailStore::migrate() {
+    SQLite::Statement uv(_db, "PRAGMA user_version");
+    uv.executeStep();
+    int version = uv.getColumn(0).getInt();
+
+    if (version == 0) {
+        for (string sql : SETUP_QUERIES) {
+            SQLite::Statement(_db, sql).exec();
+        }
+    }
+
+    SQLite::Statement(_db, "PRAGMA user_version = 1").exec();
+}
 
 SQLite::Database & MailStore::db()
 {
@@ -119,10 +128,10 @@ uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint
     return 1;
 }
 
-vector<shared_ptr<Label>> MailStore::allLabelsCache() {
+vector<shared_ptr<Label>> MailStore::allLabelsCache(string accountId) {
+    // todo bg: this assumes a single accountId will ever be used
     if (_labelCacheInvalid) {
-        Query q{};
-        _labelCache = findAll<Label>(q);
+        _labelCache = findAll<Label>(Query().equal("accountId", accountId));
         _labelCacheInvalid = false;
     }
     return _labelCache;
