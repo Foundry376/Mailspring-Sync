@@ -264,7 +264,7 @@ ChangeMailModels TaskProcessor::inflateThreadsAndMessages(json & data) {
         for (auto & member : data["messageIds"]) {
             messageIds.push_back(member.get<string>());
         }
-        Query byId = Query().equal("id", messageIds);
+        Query byId = Query().equal("id", messageIds); // TODO This will break if more than 500 messages on a thread
         models.messages = store->findAll<Message>(byId);
         vector<string> threadIds{};
         for (auto & msg : models.messages) {
@@ -444,11 +444,11 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     bool isGmail = session->storedCapabilities()->containsIndex(IMAPCapabilityGmail);
     
     if (isGmail) {
-        Label l = Label(MailUtils::idForFolder(path), accountId, 0);
+        Label l = Label(MailUtils::idForFolder(accountId, path), accountId, 0);
         l.setPath(path);
         data["created"] = l.toJSON();
     } else {
-        Folder f = Label(MailUtils::idForFolder(path), accountId, 0);
+        Folder f = Label(MailUtils::idForFolder(accountId, path), accountId, 0);
         f.setPath(path);
         data["created"] = f.toJSON();
     }
