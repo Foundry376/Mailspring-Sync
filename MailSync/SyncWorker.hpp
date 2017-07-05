@@ -41,12 +41,15 @@ class SyncWorker {
 public:
     SyncWorker(string name, shared_ptr<Account> account, CommStream * stream);
     
-    bool syncNow();
-
+#pragma mark Foreground Worker
     void idleInterrupt();
     void idleQueueBodiesToSync(vector<string> & ids);
     void idleCycle();
+    void idleCycleIteration();
     
+#pragma mark Background Worker
+    bool syncNow();
+
     std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);

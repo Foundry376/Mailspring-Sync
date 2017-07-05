@@ -64,11 +64,15 @@
       <CommandLineArguments>
          <CommandLineArgument
             argument = "--mode sync"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--orphan"
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--mode migrate"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--mode test"
