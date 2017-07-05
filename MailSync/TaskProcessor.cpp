@@ -553,12 +553,14 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             throw TaskException("no-sent-folder", "", false);
         }
     }
+    String * sentPath = AS_MCSTR(sent->path());
 
     // find the trash folder
     auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
     if (trash == nullptr) {
         throw TaskException("no-trash-folder", "", false);
     }
+    String * trashPath = AS_MCSTR(trash->path());
 
     // build the MIME message
     MessageBuilder builder;
@@ -632,8 +634,6 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         // Scan the sent folder, deleting anything with our header messageId.
         // Gmail and possibly others place messages here automatically when we send.
         IMAPSearchExpression exp = IMAPSearchExpression::searchHeader(MCSTR("message-id"), AS_MCSTR(draft.headerMessageId()));
-        String * sentPath = AS_MCSTR(sent->path());
-        String * trashPath = AS_MCSTR(trash->path());
         
         auto uids = session->search(sentPath, &exp, &err);
         if (err != ErrorNone) {
@@ -671,7 +671,9 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             throw TaskException(err, "SMTP: Delivering message.");
         }
     }
-    
+
+    // Immediately sync the new message in the sent folder?
+
     // Delete the local draft if one exists
     performLocalDestroyDraft(task);
 //    performRemoteDestroyDraft();
