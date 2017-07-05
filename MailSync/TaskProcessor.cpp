@@ -283,7 +283,7 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
     json & data = task->data();
     ChangeMailModels models = inflateThreadsAndMessages(data);
     
-    auto allLabels = store->allLabelsCache();
+    auto allLabels = store->allLabelsCache(task->accountId());
     
     for (auto pair : models.threads) {
         auto thread = pair.second;

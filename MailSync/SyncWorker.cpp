@@ -40,7 +40,7 @@ SyncWorker::SyncWorker(string name, shared_ptr<Account> account, CommStream * st
     unlinkPhase(1),
     stream(stream),
     logger(spdlog::get(name)),
-    processor(new MailProcessor(store)),
+    processor(new MailProcessor(account, store)),
     session(IMAPSession())
 {
     MailUtils::configureSessionForAccount(session, account);
@@ -86,7 +86,7 @@ void SyncWorker::idleCycle()
         }
 
         // Run tasks ready for perform Remote
-        Query q = Query().equal("status", "remote").equal("accountId", account->id());
+        Query q = Query().equal("accountId", account->id()).equal("status", "remote");
         auto tasks = store->findAll<Task>(q);
         TaskProcessor processor { store, &session };
         for (const auto task : tasks) {
@@ -97,10 +97,10 @@ void SyncWorker::idleCycle()
             idleShouldReloop = false;
             continue;
         }
-        q = Query().equal("role", "inbox");
+        q = Query().equal("accountId", account->id()).equal("role", "inbox");
         auto inbox = store->find<Folder>(q);
         if (inbox.get() == nullptr) {
-            Query q = Query().equal("role", "all");
+            Query q = Query().equal("accountId", account->id()).equal("role", "all");
             inbox = store->find<Folder>(q);
             if (inbox.get() == nullptr) {
                 logger->error("No inbox to idle on!");
@@ -125,7 +125,7 @@ void SyncWorker::idleCycle()
             continue;
         }
         auto refreshedFolders = syncFoldersAndLabels();
-        q = Query().equal("id", inbox->id());
+        q = Query().equal("accountId", account->id()).equal("id", inbox->id());
         inbox = store->find<Folder>(q);
         if (inbox.get() == nullptr) {
             logger->error("Idling folder has disappeared? That's weird...");
@@ -260,7 +260,7 @@ bool SyncWorker::syncNow()
                 localStatus["uidnext"] = remoteUidnext;
             }
             if (timeForDeepScan) {
-                syncFolderUIDRange(*folder, RangeMake(syncedMinUID, UINT32_MAX), false);
+                syncFolderUIDRange(*folder, RangeMake(syncedMinUID, UINT64_MAX), false);
                 localStatus["lastShallow"] = time(0);
                 localStatus["lastDeep"] = time(0);
                 localStatus["uidnext"] = remoteUidnext;
@@ -383,15 +383,15 @@ IMAPMessagesRequestKind SyncWorker::fetchRequestKind(bool heavy) {
     
     if (heavy) {
         if (gmail) {
-            return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
+            return IMAPMessagesRequestKind(IMAPMessagesRequestKindUid | IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
         }
-        return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
+        return IMAPMessagesRequestKind(IMAPMessagesRequestKindUid | IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
     }
 
     if (gmail) {
-        return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels);
+        return IMAPMessagesRequestKind(IMAPMessagesRequestKindUid | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels);
     }
-    return IMAPMessagesRequestKindFlags;
+    return IMAPMessagesRequestKind(IMAPMessagesRequestKindUid | IMAPMessagesRequestKindFlags);
 }
 
 void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest)
@@ -406,7 +406,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     String path(AS_MCSTR(folder.path()));
     time_t syncDataTimestamp = time(0);
 
-
+    
     Array * remote = session.fetchMessagesByUID(&path, fetchRequestKind(heavyInitialRequest), set, cb, &err);
     if (err) {
         logger->error("syncFolderUIDRange - IMAP Error Occurred: {}", err);
@@ -514,7 +514,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
         IMAPMessage * msg = (IMAPMessage *)modifiedOrAdded->objectAtIndex(ii);
         string id = MailUtils::idForMessage(msg);
 
-        Query query = Query().equal("id", id).equal("accountId", account->id());
+        Query query = Query().equal("id", id);
         auto local = store->find<Message>(query);
         
         if (local == nullptr) {
