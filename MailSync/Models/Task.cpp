@@ -33,6 +33,14 @@ void Task::setStatus(string s) {
     _data["status"] = s;
 }
 
+json Task::error() {
+    return _data["error"];
+}
+
+void Task::setError(json e) {
+    _data["error"] = e;
+}
+
 json & Task::data() {
     return _data;
 }
