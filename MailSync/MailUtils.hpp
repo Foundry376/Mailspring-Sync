@@ -15,8 +15,10 @@
 #include <MailCore/MailCore.h>
 #include <SQLiteCpp/SQLiteCpp.h>
 #include "json.hpp"
-#include "Label.hpp"
-#include "Account.hpp"
+
+class File;
+class Label;
+class Account;
 
 using json = nlohmann::json;
 using namespace std;
@@ -32,6 +34,8 @@ public:
 
     static json merge(const json &a, const json &b);
     static json contactJSONFromAddress(Address * addr);
+    static Address * addressFromContactJSON(json & j);
+
     static string contactKeyForEmail(string email);
 
     static string timestampForTime(time_t time);
@@ -39,6 +43,8 @@ public:
     static vector<uint32_t> uidsOfArray(Array * array);
     static vector<uint32_t> uidsOfIndexSet(IndexSet * set);
     static vector<string> messageIdsOfArray(Array * array);
+
+    static string pathForFile(string root, File * file, bool create);
 
     static string roleForFolder(IMAPFolder * folder);
     static string idRandomlyGenerated();
@@ -52,6 +58,7 @@ public:
     static string qmarkSets(size_t count, size_t perSet);
 
     static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
+    static void configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account);
 
     
     template<typename T>

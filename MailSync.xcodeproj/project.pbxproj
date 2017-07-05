@@ -32,6 +32,7 @@
 		43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA941E1EFB9E88006685D0 /* Label.cpp */; };
 		43CA9A051F0836A2001A24A0 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */; };
 		43CA9A071F0836C1001A24A0 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43CA9A061F0836C1001A24A0 /* Cocoa.framework */; };
+		43CA9A0A1F0D4C1B001A24A0 /* ProgressCollectors.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA9A081F0D4C1B001A24A0 /* ProgressCollectors.cpp */; };
 		43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED31EFCEB6F0046589B /* Task.cpp */; };
 		43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */; };
 		43EAFEDA1EFEF7110046589B /* File.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED91EFEF7110046589B /* File.cpp */; };
@@ -160,6 +161,8 @@
 		43CA94201EFB9E8C006685D0 /* Label.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Label.hpp; sourceTree = "<group>"; };
 		43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
 		43CA9A061F0836C1001A24A0 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		43CA9A081F0D4C1B001A24A0 /* ProgressCollectors.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ProgressCollectors.cpp; sourceTree = "<group>"; };
+		43CA9A091F0D4C1B001A24A0 /* ProgressCollectors.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ProgressCollectors.hpp; sourceTree = "<group>"; };
 		43EAFED21EFCEB550046589B /* Task.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Task.hpp; sourceTree = "<group>"; };
 		43EAFED31EFCEB6F0046589B /* Task.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Task.cpp; sourceTree = "<group>"; };
 		43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TaskProcessor.cpp; path = MailSync/TaskProcessor.cpp; sourceTree = SOURCE_ROOT; };
@@ -240,6 +243,8 @@
 				4346BCE31EF91305009477FE /* Query.cpp */,
 				43EAFED71EFDAA8D0046589B /* TaskProcessor.hpp */,
 				43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */,
+				43CA9A081F0D4C1B001A24A0 /* ProgressCollectors.cpp */,
+				43CA9A091F0D4C1B001A24A0 /* ProgressCollectors.hpp */,
 				43167F0D1EF5F63700D8E282 /* Models */,
 				436489971EF32A81007816EC /* MailStore.hpp */,
 				436489961EF32A81007816EC /* MailStore.cpp */,
@@ -447,6 +452,7 @@
 				4364898A1EF2F905007816EC /* Database.cpp in Sources */,
 				43167F0C1EF5F5C100D8E282 /* Thread.cpp in Sources */,
 				43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */,
+				43CA9A0A1F0D4C1B001A24A0 /* ProgressCollectors.cpp in Sources */,
 				4364898C1EF2F905007816EC /* Statement.cpp in Sources */,
 				4364898B1EF2F905007816EC /* Exception.cpp in Sources */,
 				4364898D1EF2F905007816EC /* Transaction.cpp in Sources */,

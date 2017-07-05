@@ -35,6 +35,11 @@ public:
     string IMAPUsername();
     string IMAPPassword();
 
+    unsigned int SMTPPort();
+    string SMTPHost();
+    string SMTPUsername();
+    string SMTPPassword();
+    
     string tableName();
     string constructorName();
 

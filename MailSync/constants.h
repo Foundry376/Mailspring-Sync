@@ -14,6 +14,8 @@
 
 // TODO add unique keys
 
+static const string FILES_ROOT = "/Users/bengotow/.nylas-dev/files";
+
 static std::vector<std::string> SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `File` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(40), filename TEXT)",
     

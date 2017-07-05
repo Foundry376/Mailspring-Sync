@@ -67,6 +67,14 @@ string File::partId() {
     return _data["partId"].get<string>();
 }
 
+json & File::contentId() {
+    return _data["contentId"];
+}
+
+string File::contentType() {
+    return _data["contentType"].get<string>();
+}
+
 vector<string> File::columnsForQuery() {
     return vector<string>{"id", "data", "accountId", "version", "filename"};
 }

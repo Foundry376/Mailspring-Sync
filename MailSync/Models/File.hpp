@@ -36,7 +36,9 @@ public:
     string filename();
     string safeFilename();
     string partId();
-        
+    json & contentId();
+    string contentType();
+
     string tableName();
     string constructorName();
 

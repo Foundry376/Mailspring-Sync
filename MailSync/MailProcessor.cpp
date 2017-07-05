@@ -9,30 +9,10 @@
 #include "MailProcessor.hpp"
 #include "MailUtils.hpp"
 #include "File.hpp"
+#include "constants.h"
 
 using namespace std;
 using nlohmann::json;
-
-const string FILES_ROOT = "/Users/bengotow/.nylas-dev/files";
-
-inline char separator()
-{
-#if defined _WIN32 || defined __CYGWIN__
-    return '\\';
-#else
-    return '/';
-#endif
-}
-
-bool create_directory(string dir) {
-    int c = 0;
-#if defined(_WIN32)
-    c = _mkdir(dir.c_str());
-#else
-    c = mkdir(dir.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
-#endif
-    return true;
-}
 
 
 MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
@@ -224,18 +204,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
 
 
 bool MailProcessor::retrievedFileData(File * file, Data * data) {
-    string id = file->id();
-    transform(id.begin(), id.end(), id.begin(), ::tolower);
-    
-    if (!create_directory(FILES_ROOT)) { return false; }
-    string path = FILES_ROOT + separator() + id.substr(0, 2);
-    if (!create_directory(path)) { return false; }
-    path += separator() + id.substr(2, 2);
-    if (!create_directory(path)) { return false; }
-    path += separator() + id;
-    if (!create_directory(path)) { return false; }
-    
-    path += separator() + file->safeFilename();
+    string path = MailUtils::pathForFile(FILES_ROOT, file, true);
     String mfilepath = String(path.c_str());
     return (data->writeToFile(&mfilepath) == ErrorNone);
 }
@@ -369,7 +338,7 @@ void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messa
 }
 
 void MailProcessor::upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references) {
-    string qmarks(MailUtils::qmarkSets(1 + references->count(), 2));
+    string qmarks(MailUtils::qmarkSets(1 + references->count(), 3));
     SQLite::Statement query(store->db(), "INSERT OR IGNORE INTO ThreadReference (threadId, accountId, headerMessageId) VALUES " + qmarks);
     int x = 1;
     query.bind(x++, threadId);

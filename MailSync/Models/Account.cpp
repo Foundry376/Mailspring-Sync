@@ -30,7 +30,13 @@ bool Account::valid() {
         return false;
     }
     json & settings = _data["settings"];
-    return settings.count("imap_port") && settings.count("imap_host") && settings.count("imap_username") && settings.count("imap_password");
+    if (!(settings.count("imap_port") && settings.count("imap_host") && settings.count("imap_username") && settings.count("imap_password"))) {
+        return false;
+    }
+    if (!(settings.count("smtp_port") && settings.count("smtp_host") && settings.count("smtp_username") && settings.count("smtp_password"))) {
+        return false;
+    }
+    return true;
 }
 
 unsigned int Account::IMAPPort() {
@@ -47,6 +53,22 @@ string Account::IMAPUsername() {
 
 string Account::IMAPPassword() {
     return _data["settings"]["imap_password"].get<string>();
+}
+
+unsigned int Account::SMTPPort() {
+    return _data["settings"]["smtp_port"].get<unsigned int>();
+}
+
+string Account::SMTPHost() {
+    return _data["settings"]["smtp_host"].get<string>();
+}
+
+string Account::SMTPUsername() {
+    return _data["settings"]["smtp_username"].get<string>();
+}
+
+string Account::SMTPPassword() {
+    return _data["settings"]["smtp_password"].get<string>();
 }
 
 string Account::constructorName() {

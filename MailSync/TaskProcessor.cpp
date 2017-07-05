@@ -11,9 +11,13 @@
 #include "Thread.hpp"
 #include "Message.hpp"
 #include "MailUtils.hpp"
+#include "File.hpp"
+#include "constants.h"
+#include "ProgressCollectors.hpp"
 
 using namespace std;
 using namespace mailcore;
+
 
 // Small functions that we pass to the generic ChangeMessages runner
 
@@ -151,13 +155,19 @@ void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSe
 }
 
 
-TaskProcessor::TaskProcessor(MailStore * store, IMAPSession * session) :
-store(store), logger(spdlog::get("tasks")), session(session) {
+TaskProcessor::TaskProcessor(shared_ptr<Account> account, MailStore * store, IMAPSession * session) :
+    account(account),
+    store(store),
+    logger(spdlog::get("tasks")),
+    session(session) {
 }
 
 void TaskProcessor::performLocal(Task * task) {
     string cname = task->constructorName();
     
+    string accountId = task->data()["accountId"].get<string>();
+    assert(accountId == account->id());
+
     if (cname == "ChangeUnreadTask") {
         performLocalChangeOnMessages(task, _applyUnread);
         
@@ -173,11 +183,17 @@ void TaskProcessor::performLocal(Task * task) {
     } else if (cname == "SyncbackDraftTask") {
         performLocalSaveDraft(task);
         
+    } else if (cname == "DestroyDraftTask") {
+        performLocalDestroyDraft(task);
+        
     } else if (cname == "SyncbackCategoryTask") {
         performLocalSyncbackCategory(task);
         
-    } else if (cname == "DestroyDraftTask") {
-        performLocalDestroyDraft(task);
+    } else if (cname == "DestroyCategoryTask") {
+        // nothing
+
+    } else if (cname == "SendDraftTask") {
+        // nothing
 
     } else {
         logger->error("Unsure of how to process this task type {}", cname);
@@ -190,6 +206,9 @@ void TaskProcessor::performLocal(Task * task) {
 void TaskProcessor::performRemote(Task * task) {
     string cname = task->constructorName();
     
+    string accountId = task->data()["accountId"].get<string>();
+    assert(accountId == account->id());
+
     if (cname == "ChangeUnreadTask") {
         performRemoteChangeOnMessages(task, _applyUnreadInIMAPFolder);
         
@@ -205,14 +224,18 @@ void TaskProcessor::performRemote(Task * task) {
     } else if (cname == "SyncbackDraftTask") {
         // right now we don't syncback drafts
         
+    } else if (cname == "DestroyDraftTask") {
+        // right now we don't syncback drafts
+
     } else if (cname == "SyncbackCategoryTask") {
         performRemoteSyncbackCategory(task);
         
     } else if (cname == "DestroyCategoryTask") {
         performRemoteDestroyCategory(task);
-        
-    } else if (cname == "DestroyDraftTask") {
-        
+    
+    } else if (cname == "SendDraftTask") {
+        performRemoteSendDraft(task);
+
     } else {
         logger->error("Unsure of how to process this task type {}", cname);
     }
@@ -222,6 +245,35 @@ void TaskProcessor::performRemote(Task * task) {
 }
 
 #pragma mark Privates
+
+Message TaskProcessor::inflateDraft(json & draftJSON) {
+    Query q = Query().equal("accountId", account->id()).equal("role", "drafts");
+    auto folder = store->find<Folder>(q);
+    if (folder.get() == nullptr) {
+        q = Query().equal("accountId", account->id()).equal("role", "all");
+        folder = store->find<Folder>(q);
+    }
+    if (folder == nullptr) {
+        throw;
+    }
+
+    draftJSON["folder"] = folder->toJSON();
+    draftJSON["remoteFolder"] = folder->toJSON();
+    
+    // set other JSON attributes the client may not have populated,
+    // but we require to be non-null
+    draftJSON["remoteUID"] = 0;
+    draftJSON["draft"] = true;
+    draftJSON["date"] = time(0);
+    if (!draftJSON.count("threadId")) {
+        draftJSON["threadId"] = "";
+    }
+    if (!draftJSON.count("gMsgId")) {
+        draftJSON["gMsgId"] = "";
+    }
+    
+    return Message{draftJSON};
+}
 
 ChangeMailModels TaskProcessor::inflateMessages(json & data) {
     ChangeMailModels models;
@@ -359,30 +411,7 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFol
 
 void TaskProcessor::performLocalSaveDraft(Task * task) {
     json & draftJSON = task->data()["draft"];
-    
-    Query q = Query().equal("role", "drafts");
-    auto folder = store->find<Folder>(q);
-    if (folder.get() == nullptr) {
-        q = Query().equal("role", "all");
-        folder = store->find<Folder>(q);
-    }
-    if (folder == nullptr) {
-        return;
-    }
-    draftJSON["folder"] = folder->toJSON();
-    
-    // set other JSON attributes the client may not have populated,
-    // but we require to be non-null
-    draftJSON["draft"] = true;
-    draftJSON["date"] = time(0);
-    if (!draftJSON.count("threadId")) {
-        draftJSON["threadId"] = "";
-    }
-    if (!draftJSON.count("gMsgId")) {
-        draftJSON["gMsgId"] = "";
-    }
-
-    Message msg{draftJSON};
+    Message msg = inflateDraft(draftJSON);
     store->beginTransaction();
     store->save(&msg);
 
@@ -398,7 +427,7 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
     string headerMessageId = task->data()["headerMessageId"];
 
     // find anything with this header id and blow it away
-    Query q = Query().equal("headerMessageId", headerMessageId).equal("draft", 1);
+    Query q = Query().equal("accountId", account->id()).equal("headerMessageId", headerMessageId).equal("draft", 1);
     auto drafts = store->findAll<Message>(q);
     json draftsJSON = json::array();
     
@@ -473,3 +502,84 @@ void TaskProcessor::performRemoteDestroyCategory(Task * task) {
     logger->info("Deletion of folder/label '{}' succeeded.", path);
 }
 
+void TaskProcessor::performRemoteSendDraft(Task * task) {
+    AutoreleasePool pool;
+
+    // load the draft and body from the task
+    json & draftJSON = task->data()["draft"];
+    Message draft = inflateDraft(draftJSON);
+    string body = draftJSON["body"].get<string>();
+
+    // find the sent folder
+    auto sent = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "sent"));
+    if (sent == nullptr) {
+        sent = store->find<Label>(Query().equal("accountId", account->id()).equal("role", "sent"));
+        if (sent == nullptr) {
+            throw;
+        }
+    }
+
+    // build the MIME message
+    MessageBuilder builder;
+    builder.setHTMLBody(AS_MCSTR(body));
+    builder.header()->setSubject(AS_MCSTR(draft.subject()));
+    builder.header()->setMessageID(AS_MCSTR(draft.headerMessageId()));
+    
+    Array * to = new Array();
+    for (json & p : draft.to()) {
+        to->addObject(MailUtils::addressFromContactJSON(p));
+    }
+    builder.header()->setTo(to);
+    
+    Array * cc = new Array();
+    for (json & p : draft.cc()) {
+        cc->addObject(MailUtils::addressFromContactJSON(p));
+    }
+    builder.header()->setCc(cc);
+    
+    Array * bcc = new Array();
+    for (json & p : draft.bcc()) {
+        bcc->addObject(MailUtils::addressFromContactJSON(p));
+    }
+    builder.header()->setBcc(bcc);
+
+    json & fromP = draft.from().at(0);
+    builder.header()->setFrom(MailUtils::addressFromContactJSON(fromP));
+    
+    
+    for (json & fileJSON : draft.files()) {
+        File file{fileJSON};
+        string path = MailUtils::pathForFile(FILES_ROOT, &file, false);
+        Attachment * a = Attachment::attachmentWithContentsOfFile(AS_MCSTR(path));
+        if (file.contentId().is_string()) {
+            a->setContentID(AS_MCSTR(file.contentId().get<string>()));
+            builder.addRelatedAttachment(a);
+        } else {
+            builder.addAttachment(a);
+        }
+    }
+
+    Data * messageData = builder.data();
+
+    // Send the message
+    SMTPSession smtp;
+    MailUtils::configureSessionForAccount(smtp, account);
+
+    ErrorCode err = ErrorNone;
+    SMTPProgress sprogress;
+    smtp.sendMessage(messageData, &sprogress, &err);
+    if (err != ErrorNone) {
+        // send failed
+    }
+
+    // Place in sent folder
+    IMAPProgress iprogress;
+    uint32_t uid;
+    session->appendMessage(AS_MCSTR(sent->path()), messageData, MessageFlagSeen, &iprogress, &uid, &err);
+    if (err != ErrorNone) {
+        // send failed
+    }
+    
+    // Delete the local draft if one exists
+    
+}

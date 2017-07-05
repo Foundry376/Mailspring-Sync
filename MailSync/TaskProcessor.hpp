@@ -19,6 +19,7 @@
 #include "Message.hpp"
 #include "MailModel.hpp"
 #include "MailStore.hpp"
+#include "Account.hpp"
 #include <MailCore/MailCore.h>
 
 using json = nlohmann::json;
@@ -34,10 +35,11 @@ struct ChangeMailModels {
 class TaskProcessor {
     MailStore * store;
     shared_ptr<spdlog::logger> logger;
+    shared_ptr<Account> account;
     IMAPSession * session;
     
 public:
-    TaskProcessor(MailStore * store, IMAPSession * session);
+    TaskProcessor(shared_ptr<Account> account, MailStore * store, IMAPSession * session);
 
     void performLocal(Task * task);
     void performRemote(Task * task);
@@ -45,6 +47,7 @@ public:
 private:
     ChangeMailModels inflateMessages(json & data);
     ChangeMailModels inflateThreadsAndMessages(json & data);
+    Message inflateDraft(json & draftJSON);
 
     void performLocalChangeOnMessages(Task * task,  void (*modifyLocalMessage)(Message *, json &));
     void performRemoteChangeOnMessages(Task * task, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data));
@@ -53,7 +56,7 @@ private:
     void performLocalSyncbackCategory(Task * task);
     void performRemoteSyncbackCategory(Task * task);
     void performRemoteDestroyCategory(Task * task);
-    
+    void performRemoteSendDraft(Task * task);
 };
 
 #endif /* TaskProcessor_hpp */

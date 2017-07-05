@@ -40,6 +40,10 @@ std::thread * bgThread = nullptr;
 class AccumulatorLogger : public ConnectionLogger {
 public:
     string accumulated;
+    
+    void log(string str) {
+        accumulated = accumulated + str;
+    }
 
     void log(void * sender, ConnectionLogType logType, Data * buffer) {
         accumulated = accumulated + buffer->bytes();
@@ -105,12 +109,15 @@ void runBackgroundSyncWorker() {
 
 int runTestAuth(shared_ptr<Account> account) {
     IMAPSession session;
+    SMTPSession smtp;
     AccumulatorLogger logger;
     Array * folders;
     ErrorCode err = ErrorNone;
+    string errorService = "imap";
 
+    // imap
+    logger.log("----------IMAP----------\n");
     MailUtils::configureSessionForAccount(session, account);
-    
     session.setConnectionLogger(&logger);
     session.connect(&err);
     if (err != ErrorNone) {
@@ -129,10 +136,25 @@ int runTestAuth(shared_ptr<Account> account) {
             break;
         }
     }
-
+    
+    // smtp
+    logger.log("\n\n----------SMTP----------\n");
+    errorService = "smtp";
+    smtp.setConnectionLogger(&logger);
+    MailUtils::configureSessionForAccount(smtp, account);
+    smtp.connect(&err);
+    if (err != ErrorNone) {
+        goto done;
+    }
+    smtp.loginIfNeeded(&err);
+    if (err != ErrorNone) {
+        goto done;
+    }
+    
 done:
     json resp = {
         {"error", nullptr},
+        {"error_service", errorService},
         {"log", logger.accumulated},
         {"account", nullptr}
     };
@@ -161,11 +183,11 @@ int runMigrate() {
     return code;
 }
 
-void runMainThread() {
+void runMainThread(shared_ptr<Account> account) {
     MailStore store;
+    TaskProcessor processor{account, &store, nullptr};
+
     store.addObserver(stream);
-    
-    TaskProcessor processor{&store, nullptr};
     
     int bad = 0;
 
@@ -268,8 +290,9 @@ int main(int argc, const char * argv[]) {
         bgWorker = new SyncWorker("bg", account, stream);
         fgWorker = new SyncWorker("fg", account, stream);
 
-        bgThread = new std::thread(runBackgroundSyncWorker); // SHOULD BE BACKGROUND
-        runMainThread();
+//        bgThread = new std::thread(runBackgroundSyncWorker); // SHOULD BE BACKGROUND
+        fgThread = new std::thread(runForegroundSyncWorker); // SHOULD BE BACKGROUND
+        runMainThread(account);
     }
 
     return 0;
