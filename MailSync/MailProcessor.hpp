@@ -21,6 +21,7 @@
 #include "Query.hpp"
 #include "Thread.hpp"
 #include "Contact.hpp"
+#include "Account.hpp"
 
 #include "MailStore.hpp"
 
@@ -29,10 +30,11 @@ using namespace std;
 
 class MailProcessor {
     MailStore * store;
+    shared_ptr<Account> account;
     shared_ptr<spdlog::logger> logger;
 
 public:
-    MailProcessor(MailStore * store);
+    MailProcessor(shared_ptr<Account> account, MailStore * store);
     void insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
     void insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
     void updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp);
@@ -43,7 +45,7 @@ public:
     
 private:
     void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
-    void upsertThreadReferences(string threadId, string headerMessageId, Array * references);
+    void upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references);
     void upsertContacts(Message * message);
     shared_ptr<Label> labelForXGMLabelName(string mlname);
 };
