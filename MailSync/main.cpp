@@ -149,15 +149,16 @@ done:
 
 int runMigrate() {
     json resp = {{"error", nullptr}};
+    int code = 0;
     try {
         MailStore store;
-        cout << "\n" << resp.dump();
-        return 0;
+        store.migrate();
     } catch (std::exception & ex) {
         resp["error"] = "Unknown Error";
-        cout << "\n" << resp.dump();
-        return 1;
+        code = 1;
     }
+    cout << "\n" << resp.dump();
+    return code;
 }
 
 void runMainThread() {
@@ -174,14 +175,14 @@ void runMainThread() {
         
         // cin is interrupted when the debugger attaches, and that's ok. If cin is
         // interrupted repeatedly it means the parent process has died and we should exit.
-        if (!cin.good()) {
-            bad += 1;
-            if (bad > 10) {
-                terminate();
-            }
-        } else {
-            bad = 0;
-        }
+//        if (!cin.good()) {
+//            bad += 1;
+//            if (bad > 10) {
+//                terminate();
+//            }
+//        } else {
+//            bad = 0;
+//        }
 
         if (packet.count("type") && packet["type"].get<string>() == "task-queued") {
             packet["task"]["v"] = 0;

@@ -59,7 +59,9 @@ class MailStore {
 
 public:
     MailStore();
-    
+
+    void migrate();
+
     SQLite::Database & db();
 
     void beginTransaction();
@@ -74,7 +76,7 @@ public:
 
     map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
     
-    vector<shared_ptr<Label>> allLabelsCache();
+    vector<shared_ptr<Label>> allLabelsCache(string accountId);
 
     void addObserver(MailStoreObserver * observer);
     
