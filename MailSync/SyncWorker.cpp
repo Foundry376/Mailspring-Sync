@@ -16,22 +16,12 @@
 #include "TaskProcessor.hpp"
 #include "Account.hpp"
 #include "constants.h"
+#include "ProgressCollectors.hpp"
 
 #define TEN_MINUTES         60 * 10
 
 using namespace mailcore;
 using namespace std;
-
-class Progress : public IMAPProgressCallback {
-public:
-    void bodyProgress(IMAPSession * session, unsigned int current, unsigned int maximum) {
-//        cout << "Progress: " << current << "\n";
-    }
-    
-    void itemsProgress(IMAPSession * session, unsigned int current, unsigned int maximum) {
-//        cout << "Progress on Item: " << current << "\n";
-    }
-};
 
 
 SyncWorker::SyncWorker(string name, shared_ptr<Account> account, CommStream * stream) :
@@ -88,7 +78,7 @@ void SyncWorker::idleCycle()
         // Run tasks ready for perform Remote
         Query q = Query().equal("accountId", account->id()).equal("status", "remote");
         auto tasks = store->findAll<Task>(q);
-        TaskProcessor processor { store, &session };
+        TaskProcessor processor { account, store, &session };
         for (const auto task : tasks) {
             processor.performRemote(task.get());
         }
@@ -401,13 +391,13 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     AutoreleasePool pool;
     IndexSet * set = IndexSet::indexSetWithRange(range);
     IndexSet * heavyNeeded = new IndexSet();
-    IMAPProgressCallback * cb = new Progress();
+    IMAPProgress cb;
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(folder.path()));
     time_t syncDataTimestamp = time(0);
 
     
-    Array * remote = session.fetchMessagesByUID(&path, fetchRequestKind(heavyInitialRequest), set, cb, &err);
+    Array * remote = session.fetchMessagesByUID(&path, fetchRequestKind(heavyInitialRequest), set, &cb, &err);
     if (err) {
         logger->error("syncFolderUIDRange - IMAP Error Occurred: {}", err);
         return;
@@ -455,7 +445,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         logger->error("syncFolderUIDRange - Fetching full headers for {}", heavyNeeded->count());
 
         syncDataTimestamp = time(0);
-        remote = session.fetchMessagesByUID(&path, fetchRequestKind(true), heavyNeeded, cb, &err);
+        remote = session.fetchMessagesByUID(&path, fetchRequestKind(true), heavyNeeded, &cb, &err);
         if (err) {
             logger->error("syncFolderUIDRange - IMAP Error Occurred: {}", err);
             return;
@@ -497,12 +487,12 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     logger->info("syncFolderChangesViaCondstore - {}: highestmodseq changed, requesting changes...", folder.path());
     
     IndexSet * uids = IndexSet::indexSetWithRange(RangeMake(1, UINT64_MAX));
-    IMAPProgressCallback * cb = new Progress();
+    IMAPProgress cb;
 
     ErrorCode err = ErrorCode::ErrorNone;
     String path(AS_MCSTR(folder.path()));
     
-    IMAPSyncResult * result = session.syncMessagesByUID(&path, fetchRequestKind(true), uids, modseq, cb, &err);
+    IMAPSyncResult * result = session.syncMessagesByUID(&path, fetchRequestKind(true), uids, modseq, &cb, &err);
     if (err != ErrorCode::ErrorNone) {
         logger->error("syncFolderChangesViaCondstore - IMAP Error Occurred: {}", err);
         return;
@@ -550,7 +540,7 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
 
     SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 20");
     missing.bind(1, folder.id());
-    missing.bind(2, (double)(time(0) - 24 * 60 * 60 * 30)); // one month TODO pref!
+    missing.bind(2, (double)(time(0) - 24 * 60 * 60 * 30 * 3)); // three months TODO pref!
     vector<Message> results{};
     while (missing.executeStep()) {
         results.push_back(Message(missing));
@@ -567,12 +557,12 @@ void SyncWorker::syncMessageBody(Message * message) {
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
     
-    IMAPProgressCallback * cb = new Progress();
+    IMAPProgress cb;
     ErrorCode err = ErrorCode::ErrorNone;
     string folderPath = message->remoteFolder()["path"].get<string>();
     String path(AS_MCSTR(folderPath));
     
-    Data * data = session.fetchMessageByUID(&path, message->remoteUID(), cb, &err);
+    Data * data = session.fetchMessageByUID(&path, message->remoteUID(), &cb, &err);
     if (err) {
         logger->error("syncMessageBody - IMAP Error {} fetching body for {} ({})", err, message->subject(), message->remoteUID());
         return;

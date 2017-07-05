@@ -9,6 +9,9 @@
 #include "MailUtils.hpp"
 #include "sha256.h"
 #include "constants.h"
+#include "File.hpp"
+#include "Label.hpp"
+#include "Account.hpp"
 
 using namespace std;
 using namespace mailcore;
@@ -43,6 +46,26 @@ static vector<string> unworthyPrefixes = {
 
 static const unsigned char base64_table[65] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 static bool calledsrand = false;
+
+inline char separator()
+{
+#if defined _WIN32 || defined __CYGWIN__
+    return '\\';
+#else
+    return '/';
+#endif
+}
+
+bool create_directory(string dir) {
+    int c = 0;
+#if defined(_WIN32)
+    c = _mkdir(dir.c_str());
+#else
+    c = mkdir(dir.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
+#endif
+    return true;
+}
+
 
 std::string MailUtils::toBase64(const unsigned char *src, size_t len)
 {
@@ -112,6 +135,13 @@ json MailUtils::contactJSONFromAddress(Address * addr) {
         contact["email"] = addr->mailbox()->UTF8Characters();
     }
     return contact;
+}
+
+Address * MailUtils::addressFromContactJSON(json & j) {
+    if (j["name"].is_string()) {
+        return Address::addressWithDisplayName(AS_MCSTR(j["name"].get<string>()), AS_MCSTR(j["email"].get<string>()));
+    }
+    return Address::addressWithMailbox(AS_MCSTR(j["email"].get<string>()));
 }
 
 string MailUtils::contactKeyForEmail(string email) {
@@ -189,6 +219,22 @@ string MailUtils::roleForFolder(IMAPFolder * folder) {
         return COMMON_FOLDER_NAMES[path];
     }
     return "";
+}
+
+string MailUtils::pathForFile(string root, File * file, bool create) {
+    string id = file->id();
+    transform(id.begin(), id.end(), id.begin(), ::tolower);
+    
+    if (create && !create_directory(root)) { return ""; }
+    string path = root + separator() + id.substr(0, 2);
+    if (create && !create_directory(path)) { return ""; }
+    path += separator() + id.substr(2, 2);
+    if (create && !create_directory(path)) { return ""; }
+    path += separator() + id;
+    if (create && !create_directory(path)) { return ""; }
+    
+    path += separator() + file->safeFilename();
+    return path;
 }
 
 shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> & allLabels) {
@@ -348,6 +394,15 @@ void MailUtils::configureSessionForAccount(IMAPSession & session, shared_ptr<Acc
     session.setPassword(AS_MCSTR(account->IMAPPassword()));
     session.setHostname(AS_MCSTR(account->IMAPHost()));
     session.setPort(account->IMAPPort());
+    session.setCheckCertificateEnabled(false);
+    session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+}
+
+void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account) {
+    session.setUsername(AS_MCSTR(account->SMTPUsername()));
+    session.setPassword(AS_MCSTR(account->SMTPPassword()));
+    session.setHostname(AS_MCSTR(account->SMTPHost()));
+    session.setPort(account->SMTPPort());
     session.setCheckCertificateEnabled(false);
     session.setConnectionType(ConnectionType::ConnectionTypeTLS);
 }
