@@ -176,7 +176,7 @@ int runMigrate() {
         MailStore store;
         store.migrate();
     } catch (std::exception & ex) {
-        resp["error"] = "Unknown Error";
+        resp["error"] = ex.what();
         code = 1;
     }
     cout << "\n" << resp.dump();
@@ -290,8 +290,8 @@ int main(int argc, const char * argv[]) {
         bgWorker = new SyncWorker("bg", account, stream);
         fgWorker = new SyncWorker("fg", account, stream);
 
-//        bgThread = new std::thread(runBackgroundSyncWorker); // SHOULD BE BACKGROUND
-        fgThread = new std::thread(runForegroundSyncWorker); // SHOULD BE BACKGROUND
+        bgThread = new std::thread(runBackgroundSyncWorker); // SHOULD BE BACKGROUND
+//        fgThread = new std::thread(runForegroundSyncWorker); // SHOULD BE BACKGROUND
         runMainThread(account);
     }
 

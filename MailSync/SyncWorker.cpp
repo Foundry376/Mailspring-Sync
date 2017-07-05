@@ -75,7 +75,7 @@ void SyncWorker::idleCycle()
             continue;
         }
 
-        // Run tasks ready for perform Remote
+        // Run tasks ready for performRemote
         Query q = Query().equal("accountId", account->id()).equal("status", "remote");
         auto tasks = store->findAll<Task>(q);
         TaskProcessor processor { account, store, &session };
@@ -453,6 +453,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         for (int ii = remote->count() - 1; ii >= 0; ii--) {
             IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
             processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
+            remote->removeLastObject();
         }
     }
 

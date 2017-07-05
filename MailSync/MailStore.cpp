@@ -67,6 +67,16 @@ MailStore::MailStore() :
     _labelCache()
 {
     _db.setBusyTimeout(10 * 1000);
+    
+    // Note: These are properties of the connection, so they must be set regardless
+    // of whether the database setup queries are run.
+    
+    // https://www.sqlite.org/intern-v-extern-blob.html
+    // A database page size of 8192 or 16384 gives the best performance for large BLOB I/O.
+    SQLite::Statement(_db, "PRAGMA journal_mode = WAL").executeStep();
+    SQLite::Statement(_db, "PRAGMA main.page_size = 8192").exec();
+    SQLite::Statement(_db, "PRAGMA main.cache_size = 20000").exec();
+    SQLite::Statement(_db, "PRAGMA main.synchronous = NORMAL").exec();
 }
 
 void MailStore::migrate() {
@@ -93,9 +103,16 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
     query.bind(1, folder.accountId());
     query.bind(2, folder.id());
     query.bind(3, (long long)(range.location));
-    query.bind(4, (long long)(range.location + range.length));
     
-    map<uint32_t, MessageAttributes> results {};
+    // Range is uint64_t, and "*" is represented by UINT64_MAX.
+    // SQLite doesn't support UINT64 and the conversion /can/ fail.
+    if (range.length == UINT64_MAX) {
+        query.bind(4, LONG_LONG_MAX);
+    } else {
+        query.bind(4, (long long)(range.location + range.length));
+    }
+
+map<uint32_t, MessageAttributes> results {};
 
     while (query.executeStep()) {
         MessageAttributes attrs{};
