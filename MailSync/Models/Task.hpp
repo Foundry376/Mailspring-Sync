@@ -31,8 +31,12 @@ public:
     json & data();
     string tableName();
     string constructorName();
+
     string status();
     void setStatus(string s);
+
+    json error();
+    void setError(json e);
 
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
