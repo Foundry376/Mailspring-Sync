@@ -248,18 +248,6 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 int main(int argc, const char * argv[]) {
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);
-    
-    // setup logging to file
-    spdlog::set_pattern("%l: [%L] %v");
-    auto filesink = make_shared<spdlog::sinks::rotating_file_sink_mt>("logfile.txt", 1048576 * 5, 3);
-    auto lprocessor = make_shared<spdlog::logger>("processor", filesink);
-    spdlog::register_logger(lprocessor);
-    auto ltasks = make_shared<spdlog::logger>("tasks", filesink);
-    spdlog::register_logger(ltasks);
-    auto lfg = make_shared<spdlog::logger>("fg", filesink);
-    spdlog::register_logger(lfg);
-    auto lbg = make_shared<spdlog::logger>("bg", filesink);
-    spdlog::register_logger(lbg);
 
     // parse launch arguments, skip program name argv[0] if present
     argc-=(argc>0); argv+=(argc>0);
@@ -274,13 +262,28 @@ int main(int argc, const char * argv[]) {
         option::printUsage(std::cout, usage);
         return 0;
     }
-    
+
+    // handle --mode migrate early for speed
     string mode(options[MODE].arg);
     
     if (mode == "migrate") {
         return runMigrate();
     }
+
+    // setup logging to file or console
+    shared_ptr<spdlog::sinks::base_sink<std::mutex>> sink;
+    if (!options[ORPHAN]) {
+        sink = make_shared<spdlog::sinks::rotating_file_sink_mt>("logfile.txt", 1048576 * 5, 3);
+    } else {
+        sink = make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>();
+    }
+    spdlog::register_logger(make_shared<spdlog::logger>("processor", sink));
+    spdlog::register_logger(make_shared<spdlog::logger>("tasks", sink));
+    spdlog::register_logger(make_shared<spdlog::logger>("fg", sink));
+    spdlog::register_logger(make_shared<spdlog::logger>("bg", sink));
+    spdlog::set_pattern("%l: [%L] %v");
     
+    // get the account via param or stdin
     shared_ptr<Account> account;
     if (options[ACCOUNT].count() > 0) {
         Option ac = options[ACCOUNT];
@@ -311,6 +314,8 @@ int main(int argc, const char * argv[]) {
         bgThread = new std::thread(runBackgroundSyncWorker);
         if (!options[ORPHAN]) {
             runListenOnMainThread(account);
+        } else {
+            bgThread->join(); // will block forever.
         }
     }
 
