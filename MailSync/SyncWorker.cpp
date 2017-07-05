@@ -86,7 +86,7 @@ void SyncWorker::idleCycle()
         }
 
         // Run tasks ready for perform Remote
-        Query q = Query().equal("status", "remote");
+        Query q = Query().equal("status", "remote").equal("accountId", account->id());
         auto tasks = store->findAll<Task>(q);
         TaskProcessor processor { store, &session };
         for (const auto task : tasks) {
@@ -308,7 +308,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     
     store->beginTransaction();
 
-    Query q = Query();
+    Query q = Query().equal("accountId", account->id());
     bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
     auto allLocalFolders = store->findAllMap<Folder>(q, "id");
     auto allLocalLabels = store->findAllMap<Label>(q, "id");
@@ -322,7 +322,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         }
 
         string remoteRole = MailUtils::roleForFolder(remote);
-        string remoteId = MailUtils::idForFolder(string(remote->path()->UTF8Characters()));
+        string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
         string remotePath = remote->path()->UTF8Characters();
         
         shared_ptr<Folder> local;
@@ -471,12 +471,10 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     // We'll delete them later if they don't appear in another folder during sync.
     if (local.size() > 0) {
         vector<uint32_t> deletedUIDs {};
-        for(auto const &ent : local) {
+        for (auto const &ent : local) {
             deletedUIDs.push_back(ent.first);
         }
-        Query qd = Query().equal("remoteFolderId", folder.id()).equal("remoteUID", deletedUIDs);
-        auto deletedMsgs = store->findAll<Message>(qd);
-        processor->unlinkMessagesFromFolder(deletedMsgs, unlinkPhase);
+        processor->unlinkMessagesFromFolder(folder, deletedUIDs, unlinkPhase);
     }
 }
 
@@ -512,22 +510,20 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
     // for modified messages, fetch local copy and apply changes
     Array * modifiedOrAdded = result->modifiedOrAddedMessages();
-    vector<string> modifiedOrAddedIDs = MailUtils::messageIdsOfArray(modifiedOrAdded);
-    
-    Query query = Query().equal("id", modifiedOrAddedIDs);
-    map<string, shared_ptr<Message>> local = store->findAllMap<Message>(query, "id");
-
     for (int ii = 0; ii < modifiedOrAdded->count(); ii ++) {
         IMAPMessage * msg = (IMAPMessage *)modifiedOrAdded->objectAtIndex(ii);
         string id = MailUtils::idForMessage(msg);
 
-        if (local.count(id) == 0) {
+        Query query = Query().equal("id", id).equal("accountId", account->id());
+        auto local = store->find<Message>(query);
+        
+        if (local == nullptr) {
             // Found message with an ID we've never seen in any folder. Add it!
             processor->insertFallbackToUpdateMessage(msg, folder, syncDataTimestamp);
         } else {
             // Found message with an existing ID. Update it's attributes & folderId.
             // Note: Could potentially have moved from another folder!
-            processor->updateMessage(local[id].get(), msg, folder, syncDataTimestamp);
+            processor->updateMessage(local.get(), msg, folder, syncDataTimestamp);
         }
     }
     
@@ -536,9 +532,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     if (result->vanishedMessages() != NULL) {
         vector<uint32_t> deletedUIDs = MailUtils::uidsOfIndexSet(result->vanishedMessages());
         logger->info("There have been {} messages removed", deletedUIDs.size());
-        Query query = Query().equal("remoteFolderId", folder.id()).equal("remoteUID", deletedUIDs);
-        auto deletedMsgs = store->findAll<Message>(query);
-        processor->unlinkMessagesFromFolder(deletedMsgs, unlinkPhase);
+        processor->unlinkMessagesFromFolder(folder, deletedUIDs, unlinkPhase);
     }
 
     folder.localStatus()["uidnext"] = remoteUIDNext;

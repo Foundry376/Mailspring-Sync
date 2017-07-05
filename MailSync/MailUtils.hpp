@@ -43,7 +43,7 @@ public:
     static string roleForFolder(IMAPFolder * folder);
     static string idRandomlyGenerated();
     static string idForMessage(IMAPMessage * msg);
-    static string idForFolder(string folderPath);
+    static string idForFolder(string accountId, string folderPath);
     static string idForDraftHeaderMessageId(string headerMessageId);
     
     static shared_ptr<Label> labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> & allLabels);
@@ -52,6 +52,21 @@ public:
     static string qmarkSets(size_t count, size_t perSet);
 
     static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
+
+    
+    template<typename T>
+    static vector<vector<T>> chunksOfVector(vector<T> & v, size_t chunkSize) {
+        vector<vector<T>> results{};
+        
+        while (v.size() > 0) {
+            auto from = v.begin();
+            auto to = v.size() > chunkSize ? from + chunkSize : v.end();
+            
+            results.push_back(vector<T>{std::make_move_iterator(from), std::make_move_iterator(to)});
+            v.erase(from, to);
+        }
+        return results;
+    }
 };
 
 #endif /* MailUtils_hpp */

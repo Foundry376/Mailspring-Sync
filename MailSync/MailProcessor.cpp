@@ -240,15 +240,20 @@ bool MailProcessor::retrievedFileData(File * file, Data * data) {
     return (data->writeToFile(&mfilepath) == ErrorNone);
 }
 
-void MailProcessor::unlinkMessagesFromFolder(vector<shared_ptr<Message>> localMessages, int phase)
+void MailProcessor::unlinkMessagesFromFolder(Folder & folder, vector<uint32_t> & uids, int phase)
 {
-    logger->info("Unlinking {} messages no longer present in remote range.", localMessages.size());
+    logger->info("Unlinking {} messages no longer present in remote range.", uids.size());
     
     store->beginTransaction();
     
-    for (const auto local : localMessages) {
-        local->setRemoteUID(UINT32_MAX - phase);
-        store->save(local.get());
+    for (vector<uint32_t> chunk : MailUtils::chunksOfVector(uids, 250)) {
+        Query qd = Query().equal("remoteFolderId", folder.id()).equal("remoteUID", chunk);
+        auto deletedMsgs = store->findAll<Message>(qd);
+
+        for (const auto local : deletedMsgs) {
+            local->setRemoteUID(UINT32_MAX - phase);
+            store->save(local.get());
+        }
     }
     
     store->commitTransaction();
@@ -264,28 +269,26 @@ void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
     auto q = Query().equal("remoteUID", UINT32_MAX - phase);
     auto messages = store->findAll<Message>(q);
     
-    vector<string> threadIds{};
-    for (const auto msg : messages) {
-        threadIds.push_back(msg->threadId());
+    map<string, bool> threadIdMap{};
+    for (auto const & msg : messages) {
+        threadIdMap[msg->threadId()] = true;
     }
-    
-    q = Query().equal("id", threadIds);
-    auto threads = store->findAll<Thread>(q);
-    
-    for (const auto thread : threads) {
-        bool changed = false;
+    for (auto const & pair: threadIdMap) {
+        auto tid = pair.first;
+        auto thread = store->find<Thread>(Query().equal("id", tid));
+        if (thread == nullptr) {
+            continue;
+        }
+
         for (const auto msg : messages) {
-            if (msg->threadId() == thread->id()) {
+            if (msg->threadId() == tid) {
                 thread->prepareToReaddMessage(msg.get(), allLabels);
-                changed = true;
             }
         }
-        if (changed) {
-            if (thread->folders().size() == 0) {
-                store->remove(thread.get());
-            } else {
-                store->save(thread.get());
-            }
+        if (thread->folders().size() == 0) {
+            store->remove(thread.get());
+        } else {
+            store->save(thread.get());
         }
     }
     

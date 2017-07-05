@@ -80,10 +80,11 @@ SQLite::Database & MailStore::db()
 }
 
 map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range range, Folder & folder) {
-    SQLite::Statement query(this->_db, "SELECT id, unread, starred, remoteUID, remoteXGMLabels FROM Message WHERE remoteFolderId = ? AND remoteUID >= ? AND remoteUID <= ?");
-    query.bind(1, folder.id());
-    query.bind(2, (long long)(range.location));
-    query.bind(3, (long long)(range.location + range.length));
+    SQLite::Statement query(this->_db, "SELECT id, unread, starred, remoteUID, remoteXGMLabels FROM Message WHERE accountId = ? AND remoteFolderId = ? AND remoteUID >= ? AND remoteUID <= ?");
+    query.bind(1, folder.accountId());
+    query.bind(2, folder.id());
+    query.bind(3, (long long)(range.location));
+    query.bind(4, (long long)(range.location + range.length));
     
     map<uint32_t, MessageAttributes> results {};
 
@@ -107,10 +108,11 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
 }
 
 uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint32_t before) {
-    SQLite::Statement query(this->_db, "SELECT remoteUID FROM Message WHERE remoteFolderId = ? AND remoteUID < ? ORDER BY remoteUID DESC LIMIT 1 OFFSET ?");
-    query.bind(1, folder.id());
-    query.bind(2, before);
-    query.bind(3, depth);
+    SQLite::Statement query(this->_db, "SELECT remoteUID FROM Message WHERE accountId = ? AND remoteFolderId = ? AND remoteUID < ? ORDER BY remoteUID DESC LIMIT 1 OFFSET ?");
+    query.bind(1, folder.accountId());
+    query.bind(2, folder.id());
+    query.bind(3, before);
+    query.bind(4, depth);
     if (query.executeStep()) {
         return query.getColumn("remoteUID").getUInt();
     }
