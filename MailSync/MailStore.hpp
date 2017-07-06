@@ -70,7 +70,7 @@ public:
 
     void commitTransaction();
 
-    void save(MailModel * model);
+    void save(MailModel * model, bool emit = true);
 
     uint32_t fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint32_t before = UINT32_MAX);
 
