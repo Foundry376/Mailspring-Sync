@@ -28,10 +28,9 @@ using namespace std;
 
 class Thread : public MailModel {
     
-    bool _initialIsUnread;
     time_t _initialLMST;
     time_t _initialLMRT;
-    vector<string> _initialCategoryIds;
+    map<string, bool> _initialCategoryIds;
 
 public:
     static string TABLE_NAME;
