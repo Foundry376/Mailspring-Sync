@@ -394,7 +394,7 @@ void MailProcessor::upsertContacts(Message * message) {
         // update refcounts of existing items if this is a sent message
         if (incrementCounters) {
             result->incrementRefs();
-            store->save(result.get());
+            store->save(result.get(), false);
         }
         byEmail.erase(result->email());
     }
@@ -411,7 +411,7 @@ void MailProcessor::upsertContacts(Message * message) {
         if (incrementCounters) {
             c.incrementRefs();
         }
-        store->save(&c);
+        store->save(&c, false);
         
         // also index for search
         searchInsert.bind(1, c.id());

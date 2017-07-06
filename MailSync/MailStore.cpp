@@ -175,7 +175,7 @@ void MailStore::commitTransaction() {
     _stmtCommitTransaction.reset();
 }
 
-void MailStore::save(MailModel * model) {
+void MailStore::save(MailModel * model, bool emit) {
     model->incrementVersion();
     
     auto tableName = model->tableName();
@@ -224,8 +224,11 @@ void MailStore::save(MailModel * model) {
     if (tableName == "Label") {
         _labelCacheInvalid = true;
     }
-    for (auto & observer : this->_observers) {
-        observer->didPersistModel(model);
+
+    if (emit) {
+        for (auto & observer : this->_observers) {
+            observer->didPersistModel(model);
+        }
     }
 }
 
