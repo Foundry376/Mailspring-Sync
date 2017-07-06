@@ -153,12 +153,14 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
     for (auto& f : folders()) {
         if (f["id"].get<string>() == msgFolderId) {
             f["_refs"] = f["_refs"].get<int>() + 1;
+            f["_u"] = f["_u"].get<int>() + msg->isUnread();
             found = true;
         }
     }
     if (!found) {
         json f = msg->clientFolder();
         f["_refs"] = 1;
+        f["_u"] = msg->isUnread() ? 1 : 0;
         folders().push_back(f);
     }
     
@@ -173,12 +175,14 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
         for (auto& l : labels()) {
             if (l["id"].get<string>() == ml->id()) {
                 l["_refs"] = l["_refs"].get<int>() + 1;
+                l["_u"] = l["_u"].get<int>() + msg->isUnread();
                 found = true;
             }
         }
         if (!found) {
             json l = ml->toJSON();
             l["_refs"] = 1;
+            l["_u"] = msg->isUnread() ? 1 : 0;
             labels().push_back(l);
         }
     }
@@ -219,6 +223,7 @@ void Thread::prepareToReaddMessage(Message * msg, vector<shared_ptr<Label>> & al
             int r = f["_refs"].get<int>();
             if (r > 1) {
                 f["_refs"] = r - 1;
+                f["_u"] = f["_u"].get<int>() - msg->isUnread();
                 nextFolders.push_back(f);
             }
             break;
@@ -238,6 +243,7 @@ void Thread::prepareToReaddMessage(Message * msg, vector<shared_ptr<Label>> & al
                 int r = l["_refs"].get<int>();
                 if (r > 1) {
                     l["_refs"] = r - 1;
+                    l["_u"] = l["_u"].get<int>() - msg->isUnread();
                     nextLabels.push_back(l);
                 }
                 break;
@@ -274,18 +280,18 @@ void Thread::writeAssociations(SQLite::Database & db) {
     double _lmrt = (double)lastMessageReceivedTimestamp();
     double _lmst = (double)lastMessageSentTimestamp();
 
-    vector<string> categoryIds{};
+    map<string, bool> categoryIds{};
     for (const auto & f : folders()) {
-        categoryIds.push_back(f["id"].get<string>());
+        categoryIds[f["id"].get<string>()] = f["_u"].get<int>() > 0;
     }
-    for (const auto & f : labels()) {
-        categoryIds.push_back(f["id"].get<string>());
+    for (const auto & l : labels()) {
+        categoryIds[l["id"].get<string>()] = l["_u"].get<int>() > 0;
     }
 
     // update the ThreadCategory join table to include our folder and labels
     // note this is pretty expensive, so we avoid it if relevant attributes
     // have not changed since the model was loaded.
-    if (_initialIsUnread != _unread || _initialCategoryIds != categoryIds || _initialLMRT != _lmrt || _initialLMST != _lmst) {
+    if (_initialCategoryIds != categoryIds || _initialLMRT != _lmrt || _initialLMST != _lmst) {
         string _id = id();
         SQLite::Statement removeFolders(db, "DELETE FROM ThreadCategory WHERE id = ?");
         removeFolders.bind(1, id());
@@ -296,11 +302,11 @@ void Thread::writeAssociations(SQLite::Database & db) {
         SQLite::Statement insertFolders(db, "INSERT INTO ThreadCategory (id, value, inAllMail, unread, lastMessageReceivedTimestamp, lastMessageSentTimestamp) VALUES " + qmarks);
 
         int i = 1;
-        for (auto& catId : categoryIds) {
+        for (auto& it : categoryIds) {
             insertFolders.bind(i++, _id);
-            insertFolders.bind(i++, catId);
+            insertFolders.bind(i++, it.first);
             insertFolders.bind(i++, _inAllMail);
-            insertFolders.bind(i++, _unread);
+            insertFolders.bind(i++, it.second);
             insertFolders.bind(i++, _lmrt);
             insertFolders.bind(i++, _lmst);
         }
@@ -310,38 +316,43 @@ void Thread::writeAssociations(SQLite::Database & db) {
     // update the thread counts table. We keep track of our initial / updated
     // unread count and category membership so that we can quickly compute changes
     // to these counters
-    if (_initialIsUnread != _unread || _initialCategoryIds != categoryIds) {
-        string qmarks = MailUtils::qmarks(_initialCategoryIds.size());
-        SQLite::Statement decrementCounters(db, "UPDATE ThreadCounts SET unread = unread - ?, total = total - 1 WHERE categoryId IN (" + qmarks + ")");
-        int i = 1;
-        decrementCounters.bind(i++, _initialIsUnread);
-        for (auto& catId : _initialCategoryIds) {
-            decrementCounters.bind(i++, catId);
+    if (_initialCategoryIds != categoryIds) {
+        map<string, array<int, 2>> diffs{};
+        for (auto& it : _initialCategoryIds) {
+            diffs[it.first] = {-it.second, -1};
         }
-        decrementCounters.exec();
+        for (auto& it : categoryIds) {
+            if (diffs.count(it.first)) {
+                diffs[it.first] = {diffs[it.first][0] + it.second, -1 + 1};
+            } else {
+                diffs[it.first] = {it.second, 1};
+            }
+        }
+        SQLite::Statement changeCounters(db, "UPDATE ThreadCounts SET unread = unread + ?, total = total + ? WHERE categoryId = ?");
 
-        qmarks = MailUtils::qmarks(categoryIds.size());
-        SQLite::Statement incrementCounters(db, "UPDATE ThreadCounts SET unread = unread + ?, total = total + 1 WHERE categoryId IN (" + qmarks + ")");
-        i = 1;
-        incrementCounters.bind(i++, _unread);
-        for (auto& catId : categoryIds) {
-            incrementCounters.bind(i++, catId);
+        for (auto& it : diffs) {
+            if (it.second[0] == 0 && it.second[1] == 0) {
+                continue;
+            }
+            changeCounters.bind(1, it.second[0]);
+            changeCounters.bind(2, it.second[1]);
+            changeCounters.bind(3, it.first);
+            changeCounters.exec();
+            changeCounters.reset();
         }
-        incrementCounters.exec();
     }
 }
 
 #pragma mark Private
 
 void Thread::captureInitialState() {
-    _initialIsUnread = unread() > 0;
     _initialLMST = lastMessageSentTimestamp();
     _initialLMRT = lastMessageReceivedTimestamp();
     for (const auto & f : folders()) {
-        _initialCategoryIds.push_back(f["id"].get<string>());
+        _initialCategoryIds[f["id"].get<string>()] = f["_u"].get<int>() > 0;
     }
     for (const auto & f : labels()) {
-        _initialCategoryIds.push_back(f["id"].get<string>());
+        _initialCategoryIds[f["id"].get<string>()] = f["_u"].get<int>() > 0;
     }
 }
 

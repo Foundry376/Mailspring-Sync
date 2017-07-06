@@ -209,6 +209,8 @@ bool SyncWorker::syncNow()
         String path = AS_MCSTR(folder->path());
         ErrorCode err = ErrorCode::ErrorNone;
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
+        bool firstChunk = false;
+
         if (err != ErrorNone) {
             throw SyncException(err, "syncNow - folderStatus");
         }
@@ -224,6 +226,7 @@ bool SyncWorker::syncNow()
             localStatus["syncedMinUID"] = remoteStatus.uidNext();
             localStatus["lastShallow"] = 0;
             localStatus["lastDeep"] = 0;
+            firstChunk = true;
         }
         
         if (localStatus["uidvalidity"].get<uint32_t>() != remoteStatus.uidValidity()) {
@@ -232,7 +235,7 @@ bool SyncWorker::syncNow()
         
         // Step 2: Initial sync. Until we reach UID 1, we grab chunks of messages
         uint32_t syncedMinUID = localStatus["syncedMinUID"].get<uint32_t>();
-        uint32_t chunkSize = 5000;
+        uint32_t chunkSize = firstChunk ? 750 : 5000;
 
         if (syncedMinUID > 1) {
             // The UID value space is sparse, meaning there can be huge gaps where there are no
@@ -393,15 +396,15 @@ IMAPMessagesRequestKind SyncWorker::fetchRequestKind(bool heavy) {
     
     if (heavy) {
         if (gmail) {
-            return IMAPMessagesRequestKind(IMAPMessagesRequestKindUid | IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
+            return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
         }
-        return IMAPMessagesRequestKind(IMAPMessagesRequestKindUid | IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
+        return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
     }
 
     if (gmail) {
-        return IMAPMessagesRequestKind(IMAPMessagesRequestKindUid | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels);
+        return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels);
     }
-    return IMAPMessagesRequestKind(IMAPMessagesRequestKindUid | IMAPMessagesRequestKindFlags);
+    return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags);
 }
 
 void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest)
