@@ -17,7 +17,7 @@
 #include "Account.hpp"
 #include "MailUtils.hpp"
 #include "MailStore.hpp"
-#include "CommStream.hpp"
+#include "DeltaStream.hpp"
 #include "SyncWorker.hpp"
 #include "SyncException.hpp"
 #include "Task.hpp"
@@ -31,9 +31,9 @@ using option::Parser;
 using option::Stats;
 using option::ArgStatus;
 
-CommStream * stream = nullptr;
-SyncWorker * bgWorker = nullptr;
-SyncWorker * fgWorker = nullptr;
+shared_ptr<DeltaStream> stream = nullptr;
+shared_ptr<SyncWorker> bgWorker = nullptr;
+shared_ptr<SyncWorker> fgWorker = nullptr;
 
 std::thread * fgThread = nullptr;
 std::thread * bgThread = nullptr;
@@ -193,7 +193,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
     MailStore store;
     TaskProcessor processor{account, &store, nullptr};
 
-    store.addObserver(stream);
+    store.setDeltaStream(stream, CLOCKS_PER_SEC / 100);
     
     time_t lostCINAt = 0;
 
@@ -307,9 +307,9 @@ int main(int argc, const char * argv[]) {
     }
 
     if (mode == "sync") {
-        stream = new CommStream();
-        bgWorker = new SyncWorker("bg", account, stream);
-        fgWorker = new SyncWorker("fg", account, stream);
+        stream = make_shared<DeltaStream>();
+        bgWorker = make_shared<SyncWorker>("bg", account, stream);
+        fgWorker = make_shared<SyncWorker>("fg", account, stream);
 
         bgThread = new std::thread(runBackgroundSyncWorker);
         if (!options[ORPHAN]) {
