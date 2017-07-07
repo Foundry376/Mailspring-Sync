@@ -19,10 +19,14 @@ using json = nlohmann::json;
 using namespace std;
 
 class DeltaStream  {
-    mutex mtx_;
+    mutex bufferMtx;
     map<string, vector<json>> buffer;
+
     bool scheduled;
-    
+    std::chrono::system_clock::time_point scheduledTime;
+    std::mutex bufferFlushMtx;
+    std::condition_variable bufferFlushCv;
+
 public:
     DeltaStream();
     ~DeltaStream();
@@ -31,10 +35,12 @@ public:
     json waitForJSON();
 
     void flushBuffer();
+    void flushWithin(int ms);
+    
     void bufferMessage(string klass, string type, MailModel * model);
 
-    void didPersistModel(MailModel * model, clock_t maxDeliveryLatency);
-    void didUnpersistModel(MailModel * model, clock_t maxDeliveryLatency);
+    void didPersistModel(MailModel * model, int maxDeliveryDelay);
+    void didUnpersistModel(MailModel * model, int maxDeliveryDelay);
 };
 
 #endif /* DeltaStream_hpp */

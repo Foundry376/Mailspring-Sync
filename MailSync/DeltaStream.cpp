@@ -22,6 +22,7 @@
 
 using json = nlohmann::json;
 
+
 DeltaStream::DeltaStream() {
 }
 
@@ -50,7 +51,7 @@ void DeltaStream::sendJSON(const json & msgJSON) {
 }
 
 void DeltaStream::flushBuffer() {
-    lock_guard<mutex> lock(mtx_);
+    lock_guard<mutex> lock(bufferMtx);
     for (const auto & it : buffer) {
         for (const auto & msg : it.second) {
             sendJSON(msg);
@@ -60,7 +61,29 @@ void DeltaStream::flushBuffer() {
     scheduled = false;
 }
 
+void DeltaStream::flushWithin(int ms) {
+    std::chrono::system_clock::time_point desiredTime = std::chrono::system_clock::now();
+    desiredTime += chrono::milliseconds(ms);
+
+    if (!scheduled) {
+        scheduledTime = desiredTime;
+        scheduled = true;
+
+        std::thread([this]() {
+            std::unique_lock<std::mutex> lck(bufferFlushMtx);
+            bufferFlushCv.wait_until(lck, this->scheduledTime);
+            this->flushBuffer();
+        }).detach();
+    } else if (scheduled && (desiredTime < scheduledTime)) {
+        std::unique_lock<std::mutex> lck(bufferFlushMtx);
+        bufferFlushCv.notify_one();
+    }
+  
+}
+
 void DeltaStream::bufferMessage(string klass, string type, MailModel * model) {
+    lock_guard<mutex> lock(bufferMtx);
+
     if (!buffer.count(klass)) {
         buffer[klass] = {};
     }
@@ -77,30 +100,14 @@ void DeltaStream::bufferMessage(string klass, string type, MailModel * model) {
     }
 }
 
-void DeltaStream::didPersistModel(MailModel * model, clock_t maxDeliveryLatency) {
-    lock_guard<mutex> lock(mtx_);
+void DeltaStream::didPersistModel(MailModel * model, int maxDeliveryDelay) {
     bufferMessage(model->tableName(), "persist", model);
-    
-    if (!scheduled) {
-        std::thread([this]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            this->flushBuffer();
-        }).detach();
-        scheduled = true;
-    }
+    flushWithin(maxDeliveryDelay);
 }
 
-void DeltaStream::didUnpersistModel(MailModel * model, clock_t maxDeliveryLatency) {
-    lock_guard<mutex> lock(mtx_);
+void DeltaStream::didUnpersistModel(MailModel * model, int maxDeliveryDelay) {
     bufferMessage(model->tableName(), "unpersist", model);
-    
-    if (!scheduled) {
-        std::thread([this]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-            this->flushBuffer();
-        }).detach();
-        scheduled = true;
-    }
+    flushWithin(maxDeliveryDelay);
 }
 
 

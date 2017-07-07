@@ -193,7 +193,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
     MailStore store;
     TaskProcessor processor{account, &store, nullptr};
 
-    store.setDeltaStream(stream, CLOCKS_PER_SEC / 100);
+    store.setDeltaStream(stream, 5);
     
     time_t lostCINAt = 0;
 
