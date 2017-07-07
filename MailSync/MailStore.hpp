@@ -60,7 +60,7 @@ class MailStore {
     bool _labelCacheInvalid;
 
     shared_ptr<DeltaStream> _stream;
-    clock_t _streamMaxLatency;
+    int _streamMaxDelay;
     
 public:
     MailStore();
@@ -83,7 +83,7 @@ public:
     
     vector<shared_ptr<Label>> allLabelsCache(string accountId);
 
-    void setDeltaStream(shared_ptr<DeltaStream> stream, clock_t streamMaxLatency);
+    void setDeltaStream(shared_ptr<DeltaStream> stream, int streamMaxDelay);
     
     // Template methods which must be defined in header file
     

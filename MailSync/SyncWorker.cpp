@@ -36,7 +36,7 @@ SyncWorker::SyncWorker(string name, shared_ptr<Account> account, shared_ptr<Delt
     session(IMAPSession())
 {
     MailUtils::configureSessionForAccount(session, account);
-    store->setDeltaStream(stream, CLOCKS_PER_SEC / 2);
+    store->setDeltaStream(stream, 500);
 }
 
 void SyncWorker::idleInterrupt()
