@@ -22,8 +22,9 @@ MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
     _data["_sa"] = syncDataTimestamp;
     _data["_suc"] = 0;
     
-    _data["folder"] = folder.toJSON();
-    _data["remoteFolder"] = folder.toJSON();
+    setClientFolder(folder);
+    setRemoteFolder(folder);
+
     _data["remoteUID"] = msg->uid();
     
     _data["files"] = json::array();

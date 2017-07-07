@@ -19,7 +19,7 @@
 #include "Account.hpp"
 #include "MailStore.hpp"
 #include "MailProcessor.hpp"
-#include "CommStream.hpp"
+#include "DeltaStream.hpp"
 #include "Folder.hpp"
 
 using namespace mailcore;
@@ -27,10 +27,10 @@ using namespace mailcore;
 class SyncWorker {
     IMAPSession session;
     MailStore * store;
-    CommStream * stream;
     MailProcessor * processor;
     shared_ptr<spdlog::logger> logger;
     shared_ptr<Account> account;
+    shared_ptr<DeltaStream> stream;
 
     int unlinkPhase;
     bool idleShouldReloop;
@@ -39,7 +39,7 @@ class SyncWorker {
     std::condition_variable idleCv;
 
 public:
-    SyncWorker(string name, shared_ptr<Account> account, CommStream * stream);
+    SyncWorker(string name, shared_ptr<Account> account, shared_ptr<DeltaStream> stream);
     
 #pragma mark Foreground Worker
     void idleInterrupt();

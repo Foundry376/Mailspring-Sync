@@ -226,9 +226,7 @@ void MailStore::save(MailModel * model, bool emit) {
     }
 
     if (emit) {
-        for (auto & observer : this->_observers) {
-            observer->didPersistModel(model);
-        }
+        _stream->didPersistModel(model, _streamMaxLatency);
     }
 }
 
@@ -245,13 +243,12 @@ void MailStore::remove(MailModel * model) {
     if (model->tableName() == "Label") {
         _labelCacheInvalid = true;
     }
-    for (auto & observer : this->_observers) {
-        observer->didUnpersistModel(model);
-    }
+    _stream->didUnpersistModel(model, _streamMaxLatency);
 }
 
-#pragma mark Events
-
-void MailStore::addObserver(MailStoreObserver * observer) {
-    this->_observers.push_back(observer);
+void MailStore::setDeltaStream(shared_ptr<DeltaStream> stream, clock_t streamMaxLatency) {
+    _stream = stream;
+    _streamMaxLatency = streamMaxLatency;
 }
+
+

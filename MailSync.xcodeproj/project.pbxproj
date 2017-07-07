@@ -14,16 +14,16 @@
 		4346BCE51EF91305009477FE /* Query.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4346BCE31EF91305009477FE /* Query.cpp */; };
 		436489341EF2E905007816EC /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489331EF2E905007816EC /* main.cpp */; };
 		436489581EF2E94B007816EC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489571EF2E94B007816EC /* Security.framework */; };
-		436489881EF2F905007816EC /* Backup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489821EF2F905007816EC /* Backup.cpp */; };
-		436489891EF2F905007816EC /* Column.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489831EF2F905007816EC /* Column.cpp */; };
-		4364898A1EF2F905007816EC /* Database.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489841EF2F905007816EC /* Database.cpp */; };
-		4364898B1EF2F905007816EC /* Exception.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489851EF2F905007816EC /* Exception.cpp */; };
-		4364898C1EF2F905007816EC /* Statement.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489861EF2F905007816EC /* Statement.cpp */; };
-		4364898D1EF2F905007816EC /* Transaction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489871EF2F905007816EC /* Transaction.cpp */; };
-		436489901EF2F94F007816EC /* sqlite3.c in Sources */ = {isa = PBXBuildFile; fileRef = 4364898E1EF2F94F007816EC /* sqlite3.c */; };
+		436489881EF2F905007816EC /* Backup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489821EF2F905007816EC /* Backup.cpp */; settings = {COMPILER_FLAGS = "-w"; }; };
+		436489891EF2F905007816EC /* Column.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489831EF2F905007816EC /* Column.cpp */; settings = {COMPILER_FLAGS = "-w"; }; };
+		4364898A1EF2F905007816EC /* Database.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489841EF2F905007816EC /* Database.cpp */; settings = {COMPILER_FLAGS = "-w"; }; };
+		4364898B1EF2F905007816EC /* Exception.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489851EF2F905007816EC /* Exception.cpp */; settings = {COMPILER_FLAGS = "-w"; }; };
+		4364898C1EF2F905007816EC /* Statement.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489861EF2F905007816EC /* Statement.cpp */; settings = {COMPILER_FLAGS = "-w"; }; };
+		4364898D1EF2F905007816EC /* Transaction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489871EF2F905007816EC /* Transaction.cpp */; settings = {COMPILER_FLAGS = "-w"; }; };
+		436489901EF2F94F007816EC /* sqlite3.c in Sources */ = {isa = PBXBuildFile; fileRef = 4364898E1EF2F94F007816EC /* sqlite3.c */; settings = {COMPILER_FLAGS = "-w"; }; };
 		436489951EF32866007816EC /* MailUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489931EF32866007816EC /* MailUtils.cpp */; };
 		436489981EF32A81007816EC /* MailStore.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489961EF32A81007816EC /* MailStore.cpp */; };
-		4364899B1EF335A9007816EC /* CommStream.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489991EF335A9007816EC /* CommStream.cpp */; };
+		4364899B1EF335A9007816EC /* DeltaStream.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489991EF335A9007816EC /* DeltaStream.cpp */; };
 		436489A01EF35572007816EC /* SyncWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4364899E1EF35572007816EC /* SyncWorker.cpp */; };
 		43C8149E1F08072D00D28F0B /* Account.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43C8149D1F08072D00D28F0B /* Account.cpp */; };
 		43C814A01F0832E100D28F0B /* MailSync in CopyFiles */ = {isa = PBXBuildFile; fileRef = 436489301EF2E905007816EC /* MailSync */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
@@ -148,8 +148,8 @@
 		436489941EF32866007816EC /* MailUtils.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MailUtils.hpp; sourceTree = "<group>"; };
 		436489961EF32A81007816EC /* MailStore.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MailStore.cpp; sourceTree = "<group>"; };
 		436489971EF32A81007816EC /* MailStore.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MailStore.hpp; sourceTree = "<group>"; };
-		436489991EF335A9007816EC /* CommStream.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CommStream.cpp; sourceTree = "<group>"; };
-		4364899A1EF335A9007816EC /* CommStream.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CommStream.hpp; sourceTree = "<group>"; };
+		436489991EF335A9007816EC /* DeltaStream.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DeltaStream.cpp; sourceTree = "<group>"; };
+		4364899A1EF335A9007816EC /* DeltaStream.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = DeltaStream.hpp; sourceTree = "<group>"; };
 		4364899D1EF3449A007816EC /* json.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = json.hpp; sourceTree = "<group>"; };
 		4364899E1EF35572007816EC /* SyncWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SyncWorker.cpp; sourceTree = "<group>"; };
 		4364899F1EF35572007816EC /* SyncWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = SyncWorker.hpp; sourceTree = "<group>"; };
@@ -242,8 +242,8 @@
 				4364899E1EF35572007816EC /* SyncWorker.cpp */,
 				43CA9A0C1F0DA48D001A24A0 /* SyncException.hpp */,
 				43CA9A0B1F0DA48D001A24A0 /* SyncException.cpp */,
-				4364899A1EF335A9007816EC /* CommStream.hpp */,
-				436489991EF335A9007816EC /* CommStream.cpp */,
+				4364899A1EF335A9007816EC /* DeltaStream.hpp */,
+				436489991EF335A9007816EC /* DeltaStream.cpp */,
 				4346BCE41EF91305009477FE /* Query.hpp */,
 				4346BCE31EF91305009477FE /* Query.cpp */,
 				43EAFED71EFDAA8D0046589B /* TaskProcessor.hpp */,
@@ -448,7 +448,7 @@
 				43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */,
 				43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */,
 				4346BCE51EF91305009477FE /* Query.cpp in Sources */,
-				4364899B1EF335A9007816EC /* CommStream.cpp in Sources */,
+				4364899B1EF335A9007816EC /* DeltaStream.cpp in Sources */,
 				436489A01EF35572007816EC /* SyncWorker.cpp in Sources */,
 				43EAFEDA1EFEF7110046589B /* File.cpp in Sources */,
 				436489951EF32866007816EC /* MailUtils.cpp in Sources */,

@@ -20,6 +20,7 @@
 #include "Label.hpp"
 #include "Message.hpp"
 #include "Query.hpp"
+#include "DeltaStream.hpp"
 
 using json = nlohmann::json;
 using namespace std;
@@ -37,10 +38,12 @@ bool MessageAttributesMatch(MessageAttributes a, MessageAttributes b);
 
 
 // Base class
+class MailStore;
+
 class MailStoreObserver {
 public:
-    virtual void didPersistModel(MailModel * model) = 0;
-    virtual void didUnpersistModel(MailModel * model) = 0;
+    virtual void didPersistModel(MailStore * store, MailModel * model) = 0;
+    virtual void didUnpersistModel(MailStore * store, MailModel * model) = 0;
 };
 
 
@@ -53,10 +56,12 @@ class MailStore {
     map<string, shared_ptr<SQLite::Statement>> _saveInsertQueries;
     map<string, shared_ptr<SQLite::Statement>> _removeQueries;
     
-    vector<MailStoreObserver*> _observers;
     vector<shared_ptr<Label>> _labelCache;
     bool _labelCacheInvalid;
 
+    shared_ptr<DeltaStream> _stream;
+    clock_t _streamMaxLatency;
+    
 public:
     MailStore();
 
@@ -78,7 +83,7 @@ public:
     
     vector<shared_ptr<Label>> allLabelsCache(string accountId);
 
-    void addObserver(MailStoreObserver * observer);
+    void setDeltaStream(shared_ptr<DeltaStream> stream, clock_t streamMaxLatency);
     
     // Template methods which must be defined in header file
     
@@ -142,9 +147,7 @@ public:
         statement.exec();
         
         for (auto & result : results) {
-            for (auto & observer : this->_observers) {
-                observer->didUnpersistModel(result.get());
-            }
+            _stream->didUnpersistModel(result.get(), _streamMaxLatency);
         }
     }
     
