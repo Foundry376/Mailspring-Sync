@@ -34,6 +34,7 @@ class SyncWorker {
 
     int unlinkPhase;
     bool idleShouldReloop;
+    int iterationsSinceLaunch;
     vector<string> idleFetchBodyIDs;
     std::mutex idleMtx;
     std::condition_variable idleCv;

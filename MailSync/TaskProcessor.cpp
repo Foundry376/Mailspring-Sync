@@ -357,7 +357,7 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
             if (msg->threadId() != pair.first) {
                 continue;
             }
-            
+
             // perform local changes
             thread->prepareToReaddMessage(msg.get(), allLabels);
             modifyLocalMessage(msg.get(), data);

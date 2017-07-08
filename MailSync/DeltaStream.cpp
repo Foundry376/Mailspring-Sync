@@ -64,6 +64,7 @@ void DeltaStream::flushBuffer() {
 void DeltaStream::flushWithin(int ms) {
     std::chrono::system_clock::time_point desiredTime = std::chrono::system_clock::now();
     desiredTime += chrono::milliseconds(ms);
+    lock_guard<mutex> lock(bufferMtx);
 
     if (!scheduled) {
         scheduledTime = desiredTime;

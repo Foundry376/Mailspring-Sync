@@ -147,7 +147,7 @@ public:
         statement.exec();
         
         for (auto & result : results) {
-            _stream->didUnpersistModel(result.get(), _streamMaxLatency);
+            _stream->didUnpersistModel(result.get(), _streamMaxDelay);
         }
     }
     
