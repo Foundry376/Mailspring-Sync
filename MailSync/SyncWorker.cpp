@@ -102,23 +102,6 @@ void SyncWorker::idleCycleIteration()
         return;
     }
 
-    // Identify the preferred idle folder (inbox / all)
-
-    q = Query().equal("accountId", account->id()).equal("role", "inbox");
-    auto inbox = store->find<Folder>(q);
-    if (inbox.get() == nullptr) {
-        Query q = Query().equal("accountId", account->id()).equal("role", "all");
-        inbox = store->find<Folder>(q);
-        if (inbox.get() == nullptr) {
-            throw SyncException("no-inbox", "There is no inbox or all folder to IDLE on.", false);
-        }
-    }
-    
-    if (idleShouldReloop) {
-        idleShouldReloop = false;
-        return;
-    }
-    
     // Connect and login to the IMAP server
     
     ErrorCode err = ErrorCode::ErrorNone;
@@ -142,24 +125,44 @@ void SyncWorker::idleCycleIteration()
         return;
     }
 
+    // Identify the preferred idle folder (inbox / all)
+    
+    q = Query().equal("accountId", account->id()).equal("role", "inbox");
+    auto inbox = store->find<Folder>(q);
+    if (inbox.get() == nullptr) {
+        Query q = Query().equal("accountId", account->id()).equal("role", "all");
+        inbox = store->find<Folder>(q);
+        if (inbox.get() == nullptr) {
+            throw SyncException("no-inbox", "There is no inbox or all folder to IDLE on.", false);
+        }
+    }
+    
+    if (idleShouldReloop) {
+        idleShouldReloop = false;
+        return;
+    }
+    
     // Check for mail in the preferred idle folder (inbox / all)
     // TODO: We should probably not do this if it's only been ~5 seconds since the last time
-
-    String path = AS_MCSTR(inbox->path());
-    IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
-    if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
-        syncFolderChangesViaCondstore(*inbox, remoteStatus);
-    } else {
-        uint32_t uidnext = remoteStatus.uidNext();
-        uint32_t syncedMinUID = inbox->localStatus()["syncedMinUID"].get<uint32_t>();
-        uint32_t bottomUID = store->fetchMessageUIDAtDepth(*inbox, 100, uidnext);
-        if (bottomUID < syncedMinUID) { bottomUID = syncedMinUID; }
-        syncFolderUIDRange(*inbox, RangeMake(bottomUID, uidnext - bottomUID), false);
-        inbox->localStatus()["lastShallow"] = time(0);
-        inbox->localStatus()["uidnext"] = uidnext;
+    bool initialIterationComplete = inbox->localStatus().count("lastShallow") && inbox->localStatus()["lastShallow"].get<int>() != 0;
+    
+    if (initialIterationComplete) {
+        String path = AS_MCSTR(inbox->path());
+        IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
+        if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
+            syncFolderChangesViaCondstore(*inbox, remoteStatus);
+        } else {
+            uint32_t uidnext = remoteStatus.uidNext();
+            uint32_t syncedMinUID = inbox->localStatus()["syncedMinUID"].get<uint32_t>();
+            uint32_t bottomUID = store->fetchMessageUIDAtDepth(*inbox, 100, uidnext);
+            if (bottomUID < syncedMinUID) { bottomUID = syncedMinUID; }
+            syncFolderUIDRange(*inbox, RangeMake(bottomUID, uidnext - bottomUID), false);
+            inbox->localStatus()["lastShallow"] = time(0);
+            inbox->localStatus()["uidnext"] = uidnext;
+        }
+        syncMessageBodies(*inbox, remoteStatus);
+        store->save(inbox.get());
     }
-    syncMessageBodies(*inbox, remoteStatus);
-    store->save(inbox.get());
 
     // Idle on the folder
     
@@ -261,7 +264,7 @@ bool SyncWorker::syncNow()
         } else {
             uint32_t remoteUidnext = remoteStatus.uidNext();
             bool newMessages = remoteUidnext > localStatus["uidnext"].get<uint32_t>();
-            bool timeForDeepScan = (time(0) - localStatus["lastDeep"].get<time_t>() > 2 * 60);
+            bool timeForDeepScan = (iterationsSinceLaunch > 0) && (time(0) - localStatus["lastDeep"].get<time_t>() > 2 * 60);
             bool timeForShallowScan = !timeForDeepScan && (time(0) - localStatus["lastShallow"].get<time_t>() > 2 * 60);
             
             if (newMessages || timeForShallowScan) {
@@ -302,7 +305,8 @@ bool SyncWorker::syncNow()
     processor->deleteMessagesStillUnlinkedFromPhase(unlinkPhase);
     
     logger->info("Sync loop complete.");
-    
+    iterationsSinceLaunch += 1;
+
     return syncAgainImmediately;
 }
 
