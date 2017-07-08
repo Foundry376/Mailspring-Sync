@@ -22,6 +22,7 @@
 #include "SyncException.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
+#include "ThreadUtils.h"
 #include "constants.h"
 
 using json = nlohmann::json;
@@ -82,11 +83,15 @@ const option::Descriptor usage[] =
 
 
 void runForegroundSyncWorker() {
+    SetThreadName("fgWorker");
+
     // run tasks, sync changes, idle, repeat
     fgWorker->idleCycle();
 }
 
 void runBackgroundSyncWorker() {
+    SetThreadName("bgWorker");
+
     bool started = false;
     
     while(true) {
