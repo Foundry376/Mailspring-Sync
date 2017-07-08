@@ -166,8 +166,7 @@ void TaskProcessor::performLocal(Task * task) {
     string cname = task->constructorName();
     
     try {
-        string accountId = task->data()["accountId"].get<string>();
-        if (accountId != account->id()) {
+        if (task->accountId() != account->id()) {
             throw SyncException("generic", "You must provide an account id.", false);
         }
 
@@ -214,8 +213,7 @@ void TaskProcessor::performLocal(Task * task) {
 void TaskProcessor::performRemote(Task * task) {
     string cname = task->constructorName();
     try {
-        string accountId = task->data()["accountId"].get<string>();
-        if (accountId != account->id()) {
+        if (task->accountId() != account->id()) {
             throw SyncException("generic", "You must provide an account id.", false);
         }
 
@@ -462,8 +460,8 @@ void TaskProcessor::performLocalSyncbackCategory(Task * task) {
 
 void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     json & data = task->data();
+    string accountId = task->accountId();
     string path = data["path"].get<string>();
-    string accountId = data["accountId"].get<string>();
     
     ErrorCode err = ErrorCode::ErrorNone;
     
@@ -499,7 +497,7 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
 
 void TaskProcessor::performRemoteDestroyCategory(Task * task) {
     json & data = task->data();
-    string accountId = data["accountId"].get<string>();
+    string accountId = task->accountId();
     string path = data["path"].get<string>();
     String mpath = String(path.c_str());
     ErrorCode err = ErrorCode::ErrorNone;

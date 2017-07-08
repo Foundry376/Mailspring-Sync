@@ -7,6 +7,7 @@
 //
 
 #include "DeltaStream.hpp"
+#include "ThreadUtils.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -71,6 +72,7 @@ void DeltaStream::flushWithin(int ms) {
         scheduled = true;
 
         std::thread([this]() {
+            SetThreadName("DeltaStreamFlush");
             std::unique_lock<std::mutex> lck(bufferFlushMtx);
             bufferFlushCv.wait_until(lck, this->scheduledTime);
             this->flushBuffer();
