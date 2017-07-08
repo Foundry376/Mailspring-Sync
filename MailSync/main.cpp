@@ -87,21 +87,26 @@ void runForegroundSyncWorker() {
 }
 
 void runBackgroundSyncWorker() {
+    bool started = false;
+    
     while(true) {
         try {
+            // start the "foreground" idle worker after we've completed a single
+            // pass through all the folders. This ensures we have the folder list
+            // and the uidnext / highestmodseq etc are populated.
+            if (!started) {
+                bgWorker->syncFoldersAndLabels();
+                started = true;
+                if (!fgThread) {
+                    fgThread = new std::thread(runForegroundSyncWorker);
+                }
+            }
             // run in a hard loop until it returns false, indicating continuation
             // is not necessary. Then sync and sleep for a bit. Interval can be long
             // because we're idling in another thread.
             bool moreToSync = true;
             while(moreToSync) {
                 moreToSync = bgWorker->syncNow();
-
-                // start the "foreground" idle worker after we've completed a single
-                // pass through all the folders. This ensures we have the folder list
-                // and the uidnext / highestmodseq etc are populated.
-                if (!fgThread) {
-                    fgThread = new std::thread(runForegroundSyncWorker);
-                }
             }
 
         } catch (SyncException & ex) {
