@@ -72,7 +72,7 @@ struct CArg: public option::Arg
 enum  optionIndex { UNKNOWN, HELP, ACCOUNT, MODE, ORPHAN };
 const option::Descriptor usage[] =
 {
-    {UNKNOWN, 0,"" , "",        CArg::None,      "USAGE: mailsync [options]\n\nOptions:" },
+    {UNKNOWN, 0,"" , "",        CArg::None,      "USAGE: CONFIG_DIR_PATH=/path mailsync [options]\n\nOptions:" },
     {HELP,    0,"" , "help",    CArg::None,      "  --help  \tPrint usage and exit." },
     {ACCOUNT, 0,"a", "account", CArg::Optional,  "  --account, -a  \tRequired: Account JSON with credentials." },
     {MODE,    0,"m", "mode",    CArg::Required,  "  --mode, -m  \tRequired: sync, test, or migrate." },
@@ -270,7 +270,13 @@ int main(int argc, const char * argv[]) {
     
     if (options[HELP] || argc == 0) {
         option::printUsage(std::cout, usage);
-        return 0;
+        return 1;
+    }
+    
+    // check required environment
+    if (getenv("CONFIG_DIR_PATH") == nullptr) {
+        option::printUsage(std::cout, usage);
+        return 1;
     }
 
     // handle --mode migrate early for speed
@@ -283,7 +289,8 @@ int main(int argc, const char * argv[]) {
     // setup logging to file or console
     shared_ptr<spdlog::sinks::base_sink<std::mutex>> sink;
     if (!options[ORPHAN]) {
-        sink = make_shared<spdlog::sinks::rotating_file_sink_mt>("logfile.txt", 1048576 * 5, 3);
+        string logPath = string(getenv("CONFIG_DIR_PATH")) + "/mailsync-log.txt";
+        sink = make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3);
     } else {
         sink = make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>();
     }
