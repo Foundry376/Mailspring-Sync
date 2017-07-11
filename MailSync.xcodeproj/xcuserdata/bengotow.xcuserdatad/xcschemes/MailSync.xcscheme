@@ -68,7 +68,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--orphan"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--mode migrate"
@@ -76,7 +76,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--mode test"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--account &apos;{&quot;id&quot;:&quot;temp&quot;,&quot;settings&quot;:{&quot;imap_username&quot;:&quot;cypresstest@yahoo.com&quot;, &quot;imap_password&quot;: &quot;IHate2Gmail&quot;, &quot;imap_host&quot;:&quot;imap.mail.yahoo.com&quot;, &quot;imap_port&quot;: 993}}&apos;"
@@ -87,6 +87,13 @@
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "CONFIG_DIR_PATH"
+            value = "/Users/bengotow/Library/Application Support/nylas-dev"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
       <AdditionalOptions>
       </AdditionalOptions>
    </LaunchAction>
