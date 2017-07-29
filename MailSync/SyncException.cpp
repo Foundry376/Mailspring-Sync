@@ -21,6 +21,10 @@ SyncException::SyncException(mailcore::ErrorCode c, string di) :
     if (c == mailcore::ErrorConnection) {
         retryable = true;
     }
+    if (c == mailcore::ErrorParse) {
+        // It seems that parsing errors are caused by abrupt connection termination?
+        retryable = true;
+    }
 }
 
 bool SyncException::isRetryable() {
