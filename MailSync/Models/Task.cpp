@@ -33,6 +33,15 @@ void Task::setStatus(string s) {
     _data["status"] = s;
 }
 
+bool Task::shouldCancel() {
+    return _data["should_cancel"].get<bool>();
+}
+
+void Task::setShouldCancel() {
+    _data["should_cancel"] = true;
+}
+
+
 json Task::error() {
     return _data["error"];
 }

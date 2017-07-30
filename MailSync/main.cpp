@@ -243,14 +243,10 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             fgWorker->idleInterrupt();
         }
         
-        if (packet.count("type") && packet["type"].get<string>() == "dequeue-task") {
-            packet["task"]["v"] = 0;
-            
-            Task task{packet["task"]};
-            processor.performLocal(&task);
-            
-            // interrupt the foreground sync worker to do the remote part of the task
-            fgWorker->idleInterrupt();
+        if (packet.count("type") && packet["type"].get<string>() == "cancel-task") {
+            // we can't always dequeue a task (if it's started already or potentially even finished).
+            // but if we're deleting a draft we want to dequeue saves, etc.
+            processor.cancel(packet["taskId"].get<string>());
         }
 
         if (packet.count("type") && packet["type"].get<string>() == "need-bodies") {

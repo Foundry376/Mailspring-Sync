@@ -34,6 +34,9 @@ public:
 
     string status();
     void setStatus(string s);
+    
+    bool shouldCancel();
+    void setShouldCancel();
 
     json error();
     void setError(json e);
