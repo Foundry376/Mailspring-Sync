@@ -17,7 +17,7 @@ using namespace std;
 string Message::TABLE_NAME = "Message";
 
 Message::Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTimestamp) :
-MailModel(MailUtils::idForMessage(msg), folder.accountId(), 0)
+MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 0)
 {
     _data["_sa"] = syncDataTimestamp;
     _data["_suc"] = 0;

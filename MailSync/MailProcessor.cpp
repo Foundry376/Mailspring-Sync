@@ -31,7 +31,7 @@ void MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & f
             throw;
         }
         store->rollbackTransaction();
-        Query q = Query().equal("id", MailUtils::idForMessage(mMsg));
+        Query q = Query().equal("id", MailUtils::idForMessage(folder.accountId(), mMsg));
         auto localMessage = store->find<Message>(q);
         if (localMessage.get() == nullptr) {
             throw;

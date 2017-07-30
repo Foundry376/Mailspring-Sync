@@ -445,10 +445,10 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         uint32_t remoteUID = remoteMsg->uid();
 
         // Step 3: Collect messages that are different or not in our local UID set.
-        bool notInFolder = (local.count(remoteUID) == 0);
-        bool notSame = (!MessageAttributesMatch(local[remoteUID], MessageAttributesForMessage(remoteMsg)));
+        bool inFolder = (local.count(remoteUID) > 0);
+        bool same = inFolder && MessageAttributesMatch(local[remoteUID], MessageAttributesForMessage(remoteMsg));
 
-        if (notInFolder || notSame) {
+        if (!inFolder || !same) {
             // Step 4: Attempt to insert the new message. If we get unique exceptions,
             // look for the existing message and do an update instead. This happens whenever
             // a message has moved between folders or it's attributes have changed.
@@ -527,7 +527,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     Array * modifiedOrAdded = result->modifiedOrAddedMessages();
     for (int ii = 0; ii < modifiedOrAdded->count(); ii ++) {
         IMAPMessage * msg = (IMAPMessage *)modifiedOrAdded->objectAtIndex(ii);
-        string id = MailUtils::idForMessage(msg);
+        string id = MailUtils::idForMessage(folder.accountId(), msg);
 
         Query query = Query().equal("id", id);
         auto local = store->find<Message>(query);

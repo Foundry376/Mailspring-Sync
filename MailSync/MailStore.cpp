@@ -112,7 +112,7 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
         query.bind(4, (long long)(range.location + range.length));
     }
 
-map<uint32_t, MessageAttributes> results {};
+    map<uint32_t, MessageAttributes> results {};
 
     while (query.executeStep()) {
         MessageAttributes attrs{};

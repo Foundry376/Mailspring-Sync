@@ -42,13 +42,12 @@ public:
   
     static vector<uint32_t> uidsOfArray(Array * array);
     static vector<uint32_t> uidsOfIndexSet(IndexSet * set);
-    static vector<string> messageIdsOfArray(Array * array);
 
     static string pathForFile(string root, File * file, bool create);
 
     static string roleForFolder(IMAPFolder * folder);
     static string idRandomlyGenerated();
-    static string idForMessage(IMAPMessage * msg);
+    static string idForMessage(string accountId, IMAPMessage * msg);
     static string idForFolder(string accountId, string folderPath);
     static string idForDraftHeaderMessageId(string headerMessageId);
     
