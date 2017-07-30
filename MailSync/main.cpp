@@ -233,12 +233,22 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             usleep(1000);
         }
 
-        if (packet.count("type") && packet["type"].get<string>() == "task-queued") {
+        if (packet.count("type") && packet["type"].get<string>() == "queue-task") {
             packet["task"]["v"] = 0;
 
             Task task{packet["task"]};
             processor.performLocal(&task);
     
+            // interrupt the foreground sync worker to do the remote part of the task
+            fgWorker->idleInterrupt();
+        }
+        
+        if (packet.count("type") && packet["type"].get<string>() == "dequeue-task") {
+            packet["task"]["v"] = 0;
+            
+            Task task{packet["task"]};
+            processor.performLocal(&task);
+            
             // interrupt the foreground sync worker to do the remote part of the task
             fgWorker->idleInterrupt();
         }

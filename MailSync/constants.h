@@ -125,6 +125,7 @@ static std::vector<std::string> SETUP_QUERIES = {
     
     "CREATE INDEX IF NOT EXISTS MessageListThreadIndex ON Message(threadId, date ASC)",
     "CREATE INDEX IF NOT EXISTS MessageListDraftIndex ON Message(accountId, date DESC) WHERE draft = 1",
+    "CREATE INDEX IF NOT EXISTS MessageListHeaderMsgIdIndex ON Message(headerMessageId) WHERE draft = 1",
     "CREATE INDEX IF NOT EXISTS MessageListUnifiedDraftIndex ON Message(date DESC) WHERE draft = 1",
     
     "CREATE TABLE IF NOT EXISTS `MessagePluginMetadata` (id VARCHAR(40), `value` TEXT, PRIMARY KEY (`value`, `id`))",
