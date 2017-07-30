@@ -43,6 +43,7 @@ public:
 
     void performLocal(Task * task);
     void performRemote(Task * task);
+    void cancel(string taskId);
     
 private:
     ChangeMailModels inflateMessages(json & data);

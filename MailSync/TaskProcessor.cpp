@@ -216,43 +216,56 @@ void TaskProcessor::performRemote(Task * task) {
         if (task->accountId() != account->id()) {
             throw SyncException("generic", "You must provide an account id.", false);
         }
-
-        if (cname == "ChangeUnreadTask") {
-            performRemoteChangeOnMessages(task, _applyUnreadInIMAPFolder);
-            
-        } else if (cname == "ChangeStarredTask") {
-            performRemoteChangeOnMessages(task, _applyStarredInIMAPFolder);
-            
-        } else if (cname == "ChangeFolderTask") {
-            performRemoteChangeOnMessages(task, _applyFolderMoveInIMAPFolder);
-
-        } else if (cname == "ChangeLabelsTask") {
-            performRemoteChangeOnMessages(task, _applyLabelChangeInIMAPFolder);
-            
-        } else if (cname == "SyncbackDraftTask") {
-            // right now we don't syncback drafts
-            
-        } else if (cname == "DestroyDraftTask") {
-            // right now we don't syncback drafts
-
-        } else if (cname == "SyncbackCategoryTask") {
-            performRemoteSyncbackCategory(task);
-            
-        } else if (cname == "DestroyCategoryTask") {
-            performRemoteDestroyCategory(task);
-        
-        } else if (cname == "SendDraftTask") {
-            performRemoteSendDraft(task);
-
+        if (task->shouldCancel()) {
+            task->setStatus("cancelled");
         } else {
-            logger->error("Unsure of how to process this task type {}", cname);
+            if (cname == "ChangeUnreadTask") {
+                performRemoteChangeOnMessages(task, _applyUnreadInIMAPFolder);
+                
+            } else if (cname == "ChangeStarredTask") {
+                performRemoteChangeOnMessages(task, _applyStarredInIMAPFolder);
+                
+            } else if (cname == "ChangeFolderTask") {
+                performRemoteChangeOnMessages(task, _applyFolderMoveInIMAPFolder);
+
+            } else if (cname == "ChangeLabelsTask") {
+                performRemoteChangeOnMessages(task, _applyLabelChangeInIMAPFolder);
+                
+            } else if (cname == "SyncbackDraftTask") {
+                // right now we don't syncback drafts
+                
+            } else if (cname == "DestroyDraftTask") {
+                // right now we don't syncback drafts
+
+            } else if (cname == "SyncbackCategoryTask") {
+                performRemoteSyncbackCategory(task);
+                
+            } else if (cname == "DestroyCategoryTask") {
+                performRemoteDestroyCategory(task);
+            
+            } else if (cname == "SendDraftTask") {
+                performRemoteSendDraft(task);
+
+            } else {
+                logger->error("Unsure of how to process this task type {}", cname);
+            }
+            task->setStatus("complete");
         }
-        task->setStatus("complete");
     } catch (SyncException & ex) {
         task->setError(ex.toJSON());
         task->setStatus("complete");
     }
     store->save(task);
+}
+
+void TaskProcessor::cancel(string taskId) {
+    store->beginTransaction();
+    auto task = store->find<Task>(Query().equal("id", taskId).equal("accountId", account->id()));
+    if (task != nullptr) {
+        task->setShouldCancel();
+        store->save(task.get());
+    }
+    store->commitTransaction();
 }
 
 #pragma mark Privates
