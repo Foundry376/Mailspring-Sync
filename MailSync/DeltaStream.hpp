@@ -43,4 +43,7 @@ public:
     void didUnpersistModel(MailModel * model, int maxDeliveryDelay);
 };
 
+
+shared_ptr<DeltaStream> SharedDeltaStream();
+
 #endif /* DeltaStream_hpp */

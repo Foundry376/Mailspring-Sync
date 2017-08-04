@@ -30,7 +30,6 @@ class SyncWorker {
     MailProcessor * processor;
     shared_ptr<spdlog::logger> logger;
     shared_ptr<Account> account;
-    shared_ptr<DeltaStream> stream;
 
     int unlinkPhase;
     bool idleShouldReloop;
@@ -40,7 +39,7 @@ class SyncWorker {
     std::condition_variable idleCv;
 
 public:
-    SyncWorker(string name, shared_ptr<Account> account, shared_ptr<DeltaStream> stream);
+    SyncWorker(string name, shared_ptr<Account> account);
     
 #pragma mark Foreground Worker
     void idleInterrupt();

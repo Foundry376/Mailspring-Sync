@@ -26,17 +26,16 @@ using namespace mailcore;
 using namespace std;
 
 
-SyncWorker::SyncWorker(string name, shared_ptr<Account> account, shared_ptr<DeltaStream> stream) :
+SyncWorker::SyncWorker(string name, shared_ptr<Account> account) :
     store(new MailStore()),
     account(account),
     unlinkPhase(1),
-    stream(stream),
     logger(spdlog::get(name)),
     processor(new MailProcessor(account, store)),
     session(IMAPSession())
 {
     MailUtils::configureSessionForAccount(session, account);
-    store->setDeltaStream(stream, 500);
+    store->setStreamDelay(500);
 }
 
 void SyncWorker::idleInterrupt()

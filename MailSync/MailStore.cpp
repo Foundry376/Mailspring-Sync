@@ -226,7 +226,7 @@ void MailStore::save(MailModel * model, bool emit) {
     }
 
     if (emit) {
-        _stream->didPersistModel(model, _streamMaxDelay);
+        SharedDeltaStream()->didPersistModel(model, _streamMaxDelay);
     }
 }
 
@@ -243,11 +243,10 @@ void MailStore::remove(MailModel * model) {
     if (model->tableName() == "Label") {
         _labelCacheInvalid = true;
     }
-    _stream->didUnpersistModel(model, _streamMaxDelay);
+    SharedDeltaStream()->didUnpersistModel(model, _streamMaxDelay);
 }
 
-void MailStore::setDeltaStream(shared_ptr<DeltaStream> stream, int streamMaxDelay) {
-    _stream = stream;
+void MailStore::setStreamDelay(int streamMaxDelay) {
     _streamMaxDelay = streamMaxDelay;
 }
 

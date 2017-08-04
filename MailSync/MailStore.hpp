@@ -58,8 +58,6 @@ class MailStore {
     
     vector<shared_ptr<Label>> _labelCache;
     bool _labelCacheInvalid;
-
-    shared_ptr<DeltaStream> _stream;
     int _streamMaxDelay;
     
 public:
@@ -83,7 +81,7 @@ public:
     
     vector<shared_ptr<Label>> allLabelsCache(string accountId);
 
-    void setDeltaStream(shared_ptr<DeltaStream> stream, int streamMaxDelay);
+    void setStreamDelay(int streamMaxDelay);
     
     // Template methods which must be defined in header file
     
@@ -147,7 +145,7 @@ public:
         statement.exec();
         
         for (auto & result : results) {
-            _stream->didUnpersistModel(result.get(), _streamMaxDelay);
+            SharedDeltaStream()->didUnpersistModel(result.get(), _streamMaxDelay);
         }
     }
     

@@ -23,6 +23,15 @@
 
 using json = nlohmann::json;
 
+// Singleton Implementation
+
+shared_ptr<DeltaStream> _globalStream = make_shared<DeltaStream>();
+
+shared_ptr<DeltaStream> SharedDeltaStream() {
+    return _globalStream;
+}
+
+// Class
 
 DeltaStream::DeltaStream() {
 }

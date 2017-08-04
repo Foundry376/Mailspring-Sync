@@ -15,10 +15,12 @@
 #include "optionparser.h"
 
 #include "Account.hpp"
+#include "Identity.hpp"
 #include "MailUtils.hpp"
 #include "MailStore.hpp"
 #include "DeltaStream.hpp"
 #include "SyncWorker.hpp"
+#include "MetadataWorker.hpp"
 #include "SyncException.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
@@ -32,12 +34,13 @@ using option::Parser;
 using option::Stats;
 using option::ArgStatus;
 
-shared_ptr<DeltaStream> stream = nullptr;
 shared_ptr<SyncWorker> bgWorker = nullptr;
 shared_ptr<SyncWorker> fgWorker = nullptr;
+shared_ptr<MetadataWorker> metadataWorker = nullptr;
 
 std::thread * fgThread = nullptr;
 std::thread * bgThread = nullptr;
+std::thread * metadataThread = nullptr;
 
 class AccumulatorLogger : public ConnectionLogger {
 public:
@@ -69,11 +72,13 @@ struct CArg: public option::Arg
 };
 
 
-enum  optionIndex { UNKNOWN, HELP, ACCOUNT, MODE, ORPHAN };
+enum  optionIndex { UNKNOWN, HELP, IDENTITY, ACCOUNT, MODE, ORPHAN };
 const option::Descriptor usage[] =
 {
-    {UNKNOWN, 0,"" , "",        CArg::None,      "USAGE: CONFIG_DIR_PATH=/path mailsync [options]\n\nOptions:" },
+    {UNKNOWN, 0,"" , "",        CArg::None,      "USAGE: CONFIG_DIR_PATH=/path IDENTITY_SERVER=https://id.getmerani.com "
+                                                 "ACCOUNTS_SERVER https://accounts.getmerani.com mailsync [options]\n\nOptions:" },
     {HELP,    0,"" , "help",    CArg::None,      "  --help  \tPrint usage and exit." },
+    {IDENTITY,0,"a", "identity",CArg::Optional,  "  --identity, -i  \tRequired: Merani Identity JSON with credentials." },
     {ACCOUNT, 0,"a", "account", CArg::Optional,  "  --account, -a  \tRequired: Account JSON with credentials." },
     {MODE,    0,"m", "mode",    CArg::Required,  "  --mode, -m  \tRequired: sync, test, or migrate." },
     {ORPHAN,  0,"o", "orphan",  CArg::None,      "  --orphan, -o  \tOptional: allow the process to run without a parent bound to stdin." },
@@ -81,6 +86,10 @@ const option::Descriptor usage[] =
 };
 
 
+void runMetadataWorker() {
+    SetThreadName("metadata");
+    metadataWorker->run();
+}
 
 void runForegroundSyncWorker() {
     SetThreadName("fgWorker");
@@ -203,7 +212,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
     MailStore store;
     TaskProcessor processor{account, &store, nullptr};
 
-    store.setDeltaStream(stream, 5);
+    store.setStreamDelay(5);
     
     time_t lostCINAt = 0;
 
@@ -211,7 +220,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
         AutoreleasePool pool;
         json packet = {};
         try {
-            packet = stream->waitForJSON();
+            packet = SharedDeltaStream()->waitForJSON();
         } catch (std::invalid_argument & ex) {
             json resp = {{"error", ex.what()}};
             cout << "\n" << resp.dump() << "\n";
@@ -280,7 +289,9 @@ int main(int argc, const char * argv[]) {
     }
     
     // check required environment
-    if (getenv("CONFIG_DIR_PATH") == nullptr) {
+    if ((getenv("CONFIG_DIR_PATH") == nullptr) ||
+        (getenv("IDENTITY_SERVER") == nullptr) ||
+        (getenv("ACCOUNTS_SERVER") == nullptr)) {
         option::printUsage(std::cout, usage);
         return 1;
     }
@@ -301,6 +312,7 @@ int main(int argc, const char * argv[]) {
         sink = make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>();
     }
     spdlog::register_logger(make_shared<spdlog::logger>("processor", sink));
+    spdlog::register_logger(make_shared<spdlog::logger>("metadata", sink));
     spdlog::register_logger(make_shared<spdlog::logger>("tasks", sink));
     spdlog::register_logger(make_shared<spdlog::logger>("fg", sink));
     spdlog::register_logger(make_shared<spdlog::logger>("bg", sink));
@@ -324,22 +336,44 @@ int main(int argc, const char * argv[]) {
         cout << "\n" << resp.dump();
         return 1;
     }
+    
+    // get the identity via param or stdin
+    shared_ptr<Identity> identity;
+    if (options[IDENTITY].count() > 0) {
+        Option ac = options[IDENTITY];
+        const char * arg = options[IDENTITY].arg;
+        identity = make_shared<Identity>(json::parse(arg));
+    } else {
+        cout << "\nWaiting for Identity JSON:\n";
+        string inputLine;
+        getline(cin, inputLine);
+        identity = make_shared<Identity>(json::parse(inputLine));
+    }
+    
+    if (!identity->valid()) {
+        json resp = {{"error", "Identity is missing required fields."}};
+        cout << "\n" << resp.dump();
+        return 1;
+    }
 
     if (mode == "test") {
         return runTestAuth(account);
     }
 
     if (mode == "sync") {
-        stream = make_shared<DeltaStream>();
-        bgWorker = make_shared<SyncWorker>("bg", account, stream);
-        fgWorker = make_shared<SyncWorker>("fg", account, stream);
+        bgWorker = make_shared<SyncWorker>("bg", account);
+        fgWorker = make_shared<SyncWorker>("fg", account);
+        metadataWorker = make_shared<MetadataWorker>(identity, account);
 
-        bgThread = new std::thread(runBackgroundSyncWorker);
-        if (!options[ORPHAN]) {
-            runListenOnMainThread(account);
-        } else {
-            bgThread->join(); // will block forever.
-        }
+//        bgThread = new std::thread(runBackgroundSyncWorker);
+        metadataThread = new std::thread(runMetadataWorker);
+
+//        if (!options[ORPHAN]) {
+//            runListenOnMainThread(account);
+//        } else {
+//            bgThread->join(); // will block forever.
+//        }
+        metadataThread->join();
     }
 
     return 0;
