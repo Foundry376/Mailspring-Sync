@@ -6,8 +6,8 @@
 //  Copyright © 2017 Foundry 376. All rights reserved.
 //
 
-#ifndef Account_hpp
-#define Account_hpp
+#ifndef Identity_hpp
+#define Identity_hpp
 
 #include <stdio.h>
 #include <string>
@@ -18,35 +18,27 @@
 
 using json = nlohmann::json;
 using namespace std;
-using namespace mailcore;
 
-class Account : public MailModel {
+class Identity : public MailModel {
     
 public:
     static string TABLE_NAME;
 
-    Account(json json);
-    Account(SQLite::Statement & query);
+    Identity(json json);
 
     bool valid();
 
-    unsigned int IMAPPort();
-    string IMAPHost();
-    string IMAPUsername();
-    string IMAPPassword();
-
-    unsigned int SMTPPort();
-    string SMTPHost();
-    string SMTPUsername();
-    string SMTPPassword();
-
-    string cloudToken();
-
+    string firstName();
+    string lastName();
+    string emailAddress();
+    string token();
+    
+    
     string tableName();
     string constructorName();
-
+    
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 };
 
-#endif /* Account_hpp */
+#endif /* Identity_hpp */
