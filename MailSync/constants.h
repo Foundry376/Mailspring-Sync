@@ -12,11 +12,9 @@
 
 #define AS_MCSTR(X)         mailcore::String::uniquedStringWithUTF8Characters(X.c_str())
 
-// TODO add unique keys
-
-static const string FILES_ROOT = "/Users/bengotow/.nylas-dev/files";
-
 static std::vector<std::string> SETUP_QUERIES = {
+    "CREATE TABLE IF NOT EXISTS `_State` (id VARCHAR(40) PRIMARY KEY, value TEXT)",
+
     "CREATE TABLE IF NOT EXISTS `File` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(40), filename TEXT)",
     
     "CREATE TABLE IF NOT EXISTS `Event` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(40), calendarId VARCHAR(40), _start INTEGER, _end INTEGER, is_search_indexed INTEGER DEFAULT 0)",
@@ -140,8 +138,6 @@ static std::vector<std::string> SETUP_QUERIES = {
     "CREATE VIRTUAL TABLE IF NOT EXISTS `ContactSearch` USING fts5(tokenize = 'porter unicode61', content_id UNINDEXED, content)",
 
     "CREATE TABLE IF NOT EXISTS `Calendar` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(40))",
-    
-    "CREATE TABLE IF NOT EXISTS `JSONBlob` (id VARCHAR(40) PRIMARY KEY, data BLOB)",
     
     "CREATE TABLE IF NOT EXISTS `Task` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(40), status VARCHAR(255))",
 };

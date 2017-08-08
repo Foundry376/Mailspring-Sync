@@ -41,6 +41,7 @@ public:
     string SMTPPassword();
 
     string cloudToken();
+    bool hasCloudToken();
 
     string tableName();
     string constructorName();

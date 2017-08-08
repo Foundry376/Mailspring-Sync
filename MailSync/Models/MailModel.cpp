@@ -7,6 +7,7 @@
 //
 
 #include "MailModel.hpp"
+#include "MailUtils.hpp"
 
 using namespace std;
 
@@ -15,17 +16,30 @@ string MailModel::TABLE_NAME = "MailModel";
 MailModel::MailModel(string id, string accountId, int version) :
     _data({{"id", id},{"aid", accountId}, {"v", version}})
 {
+    captureInitialMetadataState();
 }
 
 MailModel::MailModel(SQLite::Statement & query) :
     _data(json::parse(query.getColumn("data").getString()))
 {
+    captureInitialMetadataState();
 }
 
 
 MailModel::MailModel(json json) :
     _data(json)
 {
+    assert(_data.is_object());
+    captureInitialMetadataState();
+}
+
+void MailModel::captureInitialMetadataState() {
+    _initialMetadataPluginIds = {};
+    if (_data.count("metadata")) {
+        for (const auto & m : _data["metadata"]) {
+            _initialMetadataPluginIds[m["plugin_id"].get<string>()] = true;
+        }
+    }
 }
 
 string MailModel::id()
@@ -46,6 +60,32 @@ int MailModel::version()
 void MailModel::incrementVersion()
 {
     _data["v"] = _data["v"].get<int>() + 1;
+}
+
+int MailModel::upsertMetadata(string pluginId, const json & value, int version)
+{
+    if (!_data.count("metadata")) {
+        _data["metadata"] = json::array();
+    }
+    for (auto & m : _data["metadata"]) {
+        if (m["plugin_id"].get<string>() == pluginId) {
+            if (version != -1 && m["version"].get<int>() >= version) {
+                return -1;
+            }
+            int nextVersion = version == -1 ? (m["version"].get<uint32_t>() + 1) : version;
+            m["version"] = nextVersion;
+            m["value"] = value;
+            return nextVersion;
+        }
+    }
+    
+    int nextVersion = version == -1 ? 1 : version;
+    _data["metadata"].push_back({
+        {"plugin_id", pluginId},
+        {"version", nextVersion},
+        {"value", value}
+    });
+    return nextVersion;
 }
 
 string MailModel::tableName()
@@ -76,6 +116,33 @@ void MailModel::bindToQuery(SQLite::Statement * query) {
 
 void MailModel::writeAssociations(SQLite::Database & db) {
     
+    map<string, bool> metadataPluginIds{};
+    if (_data.count("metadata"))
+    for (const auto & m : _data["metadata"]) {
+        metadataPluginIds[m["plugin_id"].get<string>()] = true;
+    }
+    
+    // update the ThreadCategory join table to include our folder and labels
+    // note this is pretty expensive, so we avoid it if relevant attributes
+    // have not changed since the model was loaded.
+    if (_initialMetadataPluginIds != metadataPluginIds) {
+        string _id = id();
+        SQLite::Statement removePluginIds(db, "DELETE FROM " + this->tableName() + "PluginMetadata WHERE id = ?");
+        removePluginIds.bind(1, _id);
+        removePluginIds.exec();
+        
+        string qmarks = MailUtils::qmarkSets(metadataPluginIds.size(), 2);
+        
+        SQLite::Statement insertPluginIds(db, "INSERT INTO " + this->tableName() + "PluginMetadata (id, value) VALUES " + qmarks);
+        
+        int i = 1;
+        for (auto& it : metadataPluginIds) {
+            insertPluginIds.bind(i++, _id);
+            insertPluginIds.bind(i++, it.first);
+        }
+        insertPluginIds.exec();
+    }
+
 }
 
 

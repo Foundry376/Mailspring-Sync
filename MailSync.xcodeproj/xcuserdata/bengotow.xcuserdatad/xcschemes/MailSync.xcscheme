@@ -67,6 +67,10 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
+            argument = "--identity &apos;{&quot;firstName&quot;:&quot;Ben&quot;, &quot;lastName&quot;:&quot;Gotow&quot;, &quot;emailAddress&quot;:&quot;bengotow@gmail.com&quot;, &quot;token&quot;:&quot;c17036dd-7980-4cf6-bdf3-a247ecc9affc&quot;}&apos;"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
             argument = "--orphan"
             isEnabled = "YES">
          </CommandLineArgument>
@@ -83,14 +87,24 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--account &apos;{&quot;id&quot;:&quot;local-281e5f75-c69c&quot;,&quot;settings&quot;:{&quot;imap_username&quot;:&quot;bengotow@gmail.com&quot;, &quot;imap_password&quot;: &quot;kvaiewqwhdzcgmbh&quot;, &quot;imap_host&quot;:&quot;imap.gmail.com&quot;, &quot;imap_port&quot;: 993, &quot;smtp_username&quot;:&quot;bengotow@gmail.com&quot;, &quot;smtp_password&quot;: &quot;kvaiewqwhdzcgmbh&quot;, &quot;smtp_host&quot;:&quot;smtp.gmail.com&quot;, &quot;smtp_port&quot;: 465}}&apos;"
+            argument = "--account &apos;{&quot;cloudToken&quot;:&quot;4ed39ef5-1ab6-43d3-8995-03dfbb9417fe&quot;, &quot;id&quot;:&quot;52a98cd3c863107b2af85126eaf6229082227d56a777b39a3240dd982ce9d8f9&quot;,&quot;metadata&quot;:[],&quot;name&quot;:&quot;Ben Gotow&quot;,&quot;provider&quot;:&quot;imap&quot;,&quot;emailAddress&quot;:&quot;bengotow@gmail.com&quot;,&quot;settings&quot;:{&quot;imap_allow_insecure_ssl&quot;:false,&quot;imap_host&quot;:&quot;imap.gmail.com&quot;,&quot;imap_port&quot;:993,&quot;imap_security&quot;:&quot;SSL / TLS&quot;,&quot;imap_username&quot;:&quot;bengotow@gmail.com&quot;,&quot;smtp_allow_insecure_ssl&quot;:false,&quot;smtp_host&quot;:&quot;smtp.gmail.com&quot;,&quot;smtp_port&quot;:465,&quot;smtp_security&quot;:&quot;SSL / TLS&quot;,&quot;smtp_username&quot;:&quot;bengotow@gmail.com&quot;,&quot;imap_password&quot;:&quot;kvaiewqwhdzcgmbh&quot;, &quot;smtp_password&quot;:&quot;kvaiewqwhdzcgmbh&quot;},&quot;label&quot;:&quot;bengotow@gmail.com&quot;,&quot;aliases&quot;:[],&quot;syncState&quot;:&quot;running&quot;,&quot;__cls&quot;:&quot;Account&quot;}&apos;"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
+            key = "ACCOUNTS_SERVER"
+            value = "http://Bens-MacBook-Pro.local:5100"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
             key = "CONFIG_DIR_PATH"
             value = "/Users/bengotow/Library/Application Support/nylas-dev"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "IDENTITY_SERVER"
+            value = "http://Bens-MacBook-Pro.local:5101"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

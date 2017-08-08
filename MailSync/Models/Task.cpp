@@ -34,7 +34,7 @@ void Task::setStatus(string s) {
 }
 
 bool Task::shouldCancel() {
-    return _data["should_cancel"].get<bool>();
+    return _data.count("should_cancel") && _data["should_cancel"].get<bool>();
 }
 
 void Task::setShouldCancel() {

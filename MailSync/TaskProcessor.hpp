@@ -54,8 +54,13 @@ private:
     void performRemoteChangeOnMessages(Task * task, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data));
     void performLocalSaveDraft(Task * task);
     void performLocalDestroyDraft(Task * task);
+
     void performLocalSyncbackCategory(Task * task);
     void performRemoteSyncbackCategory(Task * task);
+
+    void performLocalSyncbackMetadata(Task * task);
+    void performRemoteSyncbackMetadata(Task * task);
+    
     void performRemoteDestroyCategory(Task * task);
     void performRemoteSendDraft(Task * task);
 };

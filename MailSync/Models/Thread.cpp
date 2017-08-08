@@ -275,6 +275,8 @@ void Thread::bindToQuery(SQLite::Statement * query) {
 }
 
 void Thread::writeAssociations(SQLite::Database & db) {
+    MailModel::writeAssociations(db);
+    
     bool _inAllMail = inAllMail();
     double _lmrt = (double)lastMessageReceivedTimestamp();
     double _lmst = (double)lastMessageSentTimestamp();

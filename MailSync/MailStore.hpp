@@ -19,6 +19,7 @@
 #include "Folder.hpp"
 #include "Label.hpp"
 #include "Message.hpp"
+#include "Contact.hpp"
 #include "Query.hpp"
 #include "DeltaStream.hpp"
 
@@ -67,6 +68,10 @@ public:
 
     SQLite::Database & db();
 
+    string getKeyValue(string key);
+    
+    void saveKeyValue(string key, string value);
+    
     void beginTransaction();
     
     void rollbackTransaction();
@@ -82,6 +87,8 @@ public:
     vector<shared_ptr<Label>> allLabelsCache(string accountId);
 
     void setStreamDelay(int streamMaxDelay);
+    
+    unique_ptr<MailModel> findGeneric(string type, Query query);
     
     // Template methods which must be defined in header file
     

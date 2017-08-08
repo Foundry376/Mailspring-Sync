@@ -15,6 +15,7 @@
 #include "constants.h"
 #include "ProgressCollectors.hpp"
 #include "SyncException.hpp"
+#include "NetworkRequestUtils.hpp"
 
 using namespace std;
 using namespace mailcore;
@@ -197,6 +198,9 @@ void TaskProcessor::performLocal(Task * task) {
         } else if (cname == "SendDraftTask") {
             // nothing
 
+        } else if (cname == "SyncbackMetadataTask") {
+            performLocalSyncbackMetadata(task);
+            
         } else {
             logger->error("Unsure of how to process this task type {}", cname);
         }
@@ -245,6 +249,9 @@ void TaskProcessor::performRemote(Task * task) {
             
             } else if (cname == "SendDraftTask") {
                 performRemoteSendDraft(task);
+                
+            } else if (cname == "SyncbackMetadataTask") {
+                performRemoteSyncbackMetadata(task);
 
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
@@ -508,6 +515,43 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     logger->info("Syncback of folder/label '{}' succeeded.", path);
 }
 
+
+void TaskProcessor::performLocalSyncbackMetadata(Task * task) {
+    json & data = task->data();
+    string aid = task->accountId();
+    string id = data["modelId"];
+    string type = data["modelClassName"];
+    string pluginId = data["pluginId"];
+    json & value = data["value"];
+    
+    store->beginTransaction();
+    
+    unique_ptr<MailModel> model = store->findGeneric(type, Query().equal("id", id).equal("accountId", aid));
+    
+    if (model) {
+        int metadataVersion = model->upsertMetadata(pluginId, value);
+        data["version"] = metadataVersion;
+        store->save(model.get());
+    }
+
+    store->commitTransaction();
+}
+
+
+void TaskProcessor::performRemoteSyncbackMetadata(Task * task) {
+    json & data = task->data();
+    string id = data["modelId"];
+    string pluginId = data["pluginId"];
+
+    const json & payload = {
+        {"objectType", data["modelClassName"]},
+        {"version", data["version"]},
+        {"value", data["value"]},
+    };
+    const json results = MakeAccountsRequest(account, "/metadata/" + id + "/" + pluginId, "POST", payload);
+    logger->info("Syncback of metadata {}:{} = {} succeeded.", id, pluginId, payload.dump());
+}
+
 void TaskProcessor::performRemoteDestroyCategory(Task * task) {
     json & data = task->data();
     string accountId = task->accountId();
@@ -580,7 +624,8 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     
     for (json & fileJSON : draft.files()) {
         File file{fileJSON};
-        string path = MailUtils::pathForFile(FILES_ROOT, &file, false);
+        string root = string(getenv("CONFIG_DIR_PATH")) + "/files";
+        string path = MailUtils::pathForFile(root, &file, false);
         Attachment * a = Attachment::attachmentWithContentsOfFile(AS_MCSTR(path));
         if (file.contentId().is_string()) {
             a->setContentID(AS_MCSTR(file.contentId().get<string>()));

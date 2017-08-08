@@ -24,6 +24,8 @@ using namespace std;
 class MailModel {
 public:
     json _data;
+    map<string, bool> _initialMetadataPluginIds;
+    
     static string TABLE_NAME;
     virtual string tableName();
 
@@ -31,11 +33,15 @@ public:
     MailModel(SQLite::Statement & query);
     MailModel(json json);
     
+    void captureInitialMetadataState();
+    
     string id();
     string accountId();
     int version();
     void incrementVersion();
 
+    int upsertMetadata(string pluginId, const json & value, int version = -1);
+    
     virtual void bindToQuery(SQLite::Statement * query);
     
     virtual void writeAssociations(SQLite::Database & db);
