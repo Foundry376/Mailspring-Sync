@@ -20,8 +20,12 @@ using json = nlohmann::json;
 using namespace std;
 
 class Identity : public MailModel {
-    
+
 public:
+    static shared_ptr<Identity> _global;
+    static shared_ptr<Identity> GetGlobal();
+    static void SetGlobal(shared_ptr<Identity> i);
+    
     static string TABLE_NAME;
 
     Identity(json json);

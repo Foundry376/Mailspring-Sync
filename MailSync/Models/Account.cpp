@@ -26,7 +26,7 @@ Account::Account(SQLite::Statement & query) :
 }
 
 bool Account::valid() {
-    if (!_data.count("id") || !_data.count("settings") || !_data.count("cloudToken")) {
+    if (!_data.count("id") || !_data.count("settings")) {
         return false;
     }
     json & settings = _data["settings"];
@@ -73,6 +73,10 @@ string Account::SMTPPassword() {
 
 string Account::cloudToken() {
     return _data["cloudToken"].get<string>();
+}
+
+bool Account::hasCloudToken() {
+    return _data.count("cloudToken") > 0;
 }
 
 string Account::constructorName() {

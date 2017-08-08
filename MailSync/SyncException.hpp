@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <MailCore/MailCore.h>
+#include <curl/curl.h>
 #include "json.hpp"
 
 using json = nlohmann::json;
@@ -25,6 +26,7 @@ class SyncException : public std::exception {
     
 public:
     SyncException(string key, string di, bool retryable);
+    SyncException(CURLcode c, string di);
     SyncException(mailcore::ErrorCode c, string di);
     bool isRetryable();
     json toJSON();

@@ -10,6 +10,7 @@
 #include <string>
 #include <MailCore/MailCore.h>
 #include <SQLiteCpp/SQLiteCpp.h>
+#include <curl/curl.h>
 #include "json.hpp"
 #include "spdlog/spdlog.h"
 #include "optionparser.h"
@@ -306,18 +307,25 @@ int main(int argc, const char * argv[]) {
     // setup logging to file or console
     shared_ptr<spdlog::sinks::base_sink<std::mutex>> sink;
     if (!options[ORPHAN]) {
-        string logPath = string(getenv("CONFIG_DIR_PATH")) + "/mailsync-log.txt";
+        spdlog::set_async_mode(8192, spdlog::async_overflow_policy::block_retry, nullptr, std::chrono::seconds(3), nullptr);
+        spdlog::set_pattern("[%H:%M:%S %z] [%L] %v");
+
+        string logPath = string(getenv("CONFIG_DIR_PATH")) + "/mailsync.log";
         sink = make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3);
     } else {
+        spdlog::set_sync_mode();
+        spdlog::set_pattern("%l: %v");
         sink = make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>();
     }
-    spdlog::register_logger(make_shared<spdlog::logger>("processor", sink));
-    spdlog::register_logger(make_shared<spdlog::logger>("metadata", sink));
-    spdlog::register_logger(make_shared<spdlog::logger>("tasks", sink));
-    spdlog::register_logger(make_shared<spdlog::logger>("fg", sink));
-    spdlog::register_logger(make_shared<spdlog::logger>("bg", sink));
-    spdlog::set_pattern("%l: [%L] %v");
-    
+    spdlog::create("processor", sink);
+    spdlog::create("metadata", sink);
+    spdlog::create("tasks", sink);
+    spdlog::create("fg", sink);
+    spdlog::create("bg", sink);
+
+    // setup curl
+    curl_global_init(CURL_GLOBAL_ALL ^ CURL_GLOBAL_SSL);
+
     // get the account via param or stdin
     shared_ptr<Account> account;
     if (options[ACCOUNT].count() > 0) {
@@ -338,19 +346,18 @@ int main(int argc, const char * argv[]) {
     }
     
     // get the identity via param or stdin
-    shared_ptr<Identity> identity;
     if (options[IDENTITY].count() > 0) {
         Option ac = options[IDENTITY];
         const char * arg = options[IDENTITY].arg;
-        identity = make_shared<Identity>(json::parse(arg));
+        Identity::SetGlobal(make_shared<Identity>(json::parse(arg)));
     } else {
         cout << "\nWaiting for Identity JSON:\n";
         string inputLine;
         getline(cin, inputLine);
-        identity = make_shared<Identity>(json::parse(inputLine));
+        Identity::SetGlobal(make_shared<Identity>(json::parse(inputLine)));
     }
     
-    if (!identity->valid()) {
+    if (!Identity::GetGlobal()->valid()) {
         json resp = {{"error", "Identity is missing required fields."}};
         cout << "\n" << resp.dump();
         return 1;
@@ -361,19 +368,24 @@ int main(int argc, const char * argv[]) {
     }
 
     if (mode == "sync") {
+        if (!account->hasCloudToken()) {
+            json resp = {{"error", "Account must have a cloud token for sync."}};
+            cout << "\n" << resp.dump();
+            return 1;
+        }
+
         bgWorker = make_shared<SyncWorker>("bg", account);
         fgWorker = make_shared<SyncWorker>("fg", account);
-        metadataWorker = make_shared<MetadataWorker>(identity, account);
+        metadataWorker = make_shared<MetadataWorker>(account);
 
-//        bgThread = new std::thread(runBackgroundSyncWorker);
+        bgThread = new std::thread(runBackgroundSyncWorker);
         metadataThread = new std::thread(runMetadataWorker);
 
-//        if (!options[ORPHAN]) {
-//            runListenOnMainThread(account);
-//        } else {
-//            bgThread->join(); // will block forever.
-//        }
-        metadataThread->join();
+        if (!options[ORPHAN]) {
+            runListenOnMainThread(account);
+        } else {
+            bgThread->join(); // will block forever.
+        }
     }
 
     return 0;

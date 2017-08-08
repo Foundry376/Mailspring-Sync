@@ -11,6 +11,7 @@
 		43167F091EF5F59E00D8E282 /* Message.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F071EF5F59E00D8E282 /* Message.cpp */; };
 		43167F0C1EF5F5C100D8E282 /* Thread.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0A1EF5F5C100D8E282 /* Thread.cpp */; };
 		43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0E1EF5F6C700D8E282 /* Folder.cpp */; };
+		432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */; };
 		4346BCE51EF91305009477FE /* Query.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4346BCE31EF91305009477FE /* Query.cpp */; };
 		436489341EF2E905007816EC /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489331EF2E905007816EC /* main.cpp */; };
 		436489581EF2E94B007816EC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489571EF2E94B007816EC /* Security.framework */; };
@@ -25,6 +26,8 @@
 		436489981EF32A81007816EC /* MailStore.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489961EF32A81007816EC /* MailStore.cpp */; };
 		4364899B1EF335A9007816EC /* DeltaStream.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489991EF335A9007816EC /* DeltaStream.cpp */; };
 		436489A01EF35572007816EC /* SyncWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4364899E1EF35572007816EC /* SyncWorker.cpp */; };
+		43B48E851F339B24002D202E /* Identity.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B48E841F339B24002D202E /* Identity.cpp */; };
+		43B48E8B1F37C7FF002D202E /* NetworkRequestUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B48E891F37C7FF002D202E /* NetworkRequestUtils.cpp */; };
 		43C8149E1F08072D00D28F0B /* Account.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43C8149D1F08072D00D28F0B /* Account.cpp */; };
 		43C814A01F0832E100D28F0B /* MailSync in CopyFiles */ = {isa = PBXBuildFile; fileRef = 436489301EF2E905007816EC /* MailSync */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		43C814A11F08331C00D28F0B /* libMailCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489461EF2E90D007816EC /* libMailCore.a */; };
@@ -111,7 +114,7 @@
 		4364892E1EF2E905007816EC /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 12;
-			dstPath = "/Users/bengotow/Work/F376/Projects/Nylas2/nylas-mail/packages/client-app";
+			dstPath = "/Users/bengotow/Work/F376/Projects/Merani/client/packages/client-app";
 			dstSubfolderSpec = 0;
 			files = (
 				43C814A01F0832E100D28F0B /* MailSync in CopyFiles */,
@@ -129,6 +132,8 @@
 		43167F0B1EF5F5C100D8E282 /* Thread.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Thread.hpp; sourceTree = "<group>"; };
 		43167F0E1EF5F6C700D8E282 /* Folder.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Folder.cpp; sourceTree = "<group>"; };
 		43167F0F1EF5F6C700D8E282 /* Folder.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Folder.hpp; sourceTree = "<group>"; };
+		432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MetadataWorker.cpp; sourceTree = "<group>"; };
+		432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetadataWorker.hpp; sourceTree = "<group>"; };
 		4346BCE31EF91305009477FE /* Query.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Query.cpp; sourceTree = "<group>"; };
 		4346BCE41EF91305009477FE /* Query.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Query.hpp; sourceTree = "<group>"; };
 		436489301EF2E905007816EC /* MailSync */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MailSync; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -155,6 +160,10 @@
 		4364899E1EF35572007816EC /* SyncWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SyncWorker.cpp; sourceTree = "<group>"; };
 		4364899F1EF35572007816EC /* SyncWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = SyncWorker.hpp; sourceTree = "<group>"; };
 		43A742BB1F05DB8F003978AA /* optionparser.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = optionparser.h; sourceTree = "<group>"; };
+		43B48E7C1F339AEC002D202E /* Identity.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Identity.hpp; sourceTree = "<group>"; };
+		43B48E841F339B24002D202E /* Identity.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Identity.cpp; sourceTree = "<group>"; };
+		43B48E891F37C7FF002D202E /* NetworkRequestUtils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = NetworkRequestUtils.cpp; sourceTree = "<group>"; };
+		43B48E8A1F37C7FF002D202E /* NetworkRequestUtils.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = NetworkRequestUtils.hpp; sourceTree = "<group>"; };
 		43C814951F0806FF00D28F0B /* Account.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Account.hpp; sourceTree = "<group>"; };
 		43C8149D1F08072D00D28F0B /* Account.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Account.cpp; sourceTree = "<group>"; };
 		43CA94141EF9E610006685D0 /* MailProcessor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MailProcessor.cpp; sourceTree = "<group>"; };
@@ -209,6 +218,8 @@
 				43EAFED31EFCEB6F0046589B /* Task.cpp */,
 				43C814951F0806FF00D28F0B /* Account.hpp */,
 				43C8149D1F08072D00D28F0B /* Account.cpp */,
+				43B48E7C1F339AEC002D202E /* Identity.hpp */,
+				43B48E841F339B24002D202E /* Identity.cpp */,
 				43167F0F1EF5F6C700D8E282 /* Folder.hpp */,
 				43167F0E1EF5F6C700D8E282 /* Folder.cpp */,
 				43CA94201EFB9E8C006685D0 /* Label.hpp */,
@@ -241,6 +252,8 @@
 			isa = PBXGroup;
 			children = (
 				436489331EF2E905007816EC /* main.cpp */,
+				432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */,
+				432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */,
 				4364899F1EF35572007816EC /* SyncWorker.hpp */,
 				4364899E1EF35572007816EC /* SyncWorker.cpp */,
 				43CA9A0C1F0DA48D001A24A0 /* SyncException.hpp */,
@@ -260,6 +273,8 @@
 				43CA94141EF9E610006685D0 /* MailProcessor.cpp */,
 				436489941EF32866007816EC /* MailUtils.hpp */,
 				436489931EF32866007816EC /* MailUtils.cpp */,
+				43B48E8A1F37C7FF002D202E /* NetworkRequestUtils.hpp */,
+				43B48E891F37C7FF002D202E /* NetworkRequestUtils.cpp */,
 				43CA9A0F1F1172C7001A24A0 /* ThreadUtils.h */,
 				43CA9A111F1174FD001A24A0 /* ThreadUtils.cpp */,
 				436489921EF31AC0007816EC /* constants.h */,
@@ -448,12 +463,14 @@
 				43C8149E1F08072D00D28F0B /* Account.cpp in Sources */,
 				43167F091EF5F59E00D8E282 /* Message.cpp in Sources */,
 				436489891EF2F905007816EC /* Column.cpp in Sources */,
+				43B48E8B1F37C7FF002D202E /* NetworkRequestUtils.cpp in Sources */,
 				43CA9A121F1174FD001A24A0 /* ThreadUtils.cpp in Sources */,
 				43EAFEDC1F001F110046589B /* Contact.cpp in Sources */,
 				43CA94161EF9E610006685D0 /* MailProcessor.cpp in Sources */,
 				43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */,
 				43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */,
 				4346BCE51EF91305009477FE /* Query.cpp in Sources */,
+				43B48E851F339B24002D202E /* Identity.cpp in Sources */,
 				4364899B1EF335A9007816EC /* DeltaStream.cpp in Sources */,
 				436489A01EF35572007816EC /* SyncWorker.cpp in Sources */,
 				43EAFEDA1EFEF7110046589B /* File.cpp in Sources */,
@@ -466,6 +483,7 @@
 				43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */,
 				43CA9A0A1F0D4C1B001A24A0 /* ProgressCollectors.cpp in Sources */,
 				4364898C1EF2F905007816EC /* Statement.cpp in Sources */,
+				432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */,
 				4364898B1EF2F905007816EC /* Exception.cpp in Sources */,
 				4364898D1EF2F905007816EC /* Transaction.cpp in Sources */,
 				436489881EF2F905007816EC /* Backup.cpp in Sources */,
@@ -607,6 +625,7 @@
 					"-stdlib=libc++",
 					"-ObjC",
 					"-lresolv",
+					"-lcurl",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -641,6 +660,7 @@
 					"-stdlib=libc++",
 					"-ObjC",
 					"-lresolv",
+					"-lcurl",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};

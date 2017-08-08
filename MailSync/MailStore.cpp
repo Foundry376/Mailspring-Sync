@@ -145,6 +145,22 @@ uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint
     return 1;
 }
 
+string MailStore::getKeyValue(string key) {
+    SQLite::Statement query(this->_db, "SELECT value FROM _State WHERE id = ?");
+    query.bind(1, key);
+    if (query.executeStep()) {
+        return query.getColumn(0).getString();
+    }
+    return "";
+}
+
+void MailStore::saveKeyValue(string key, string value) {
+    SQLite::Statement query(this->_db, "REPLACE INTO _State (id, value) VALUES (?, ?)");
+    query.bind(1, key);
+    query.bind(2, value);
+    query.exec();
+}
+
 vector<shared_ptr<Label>> MailStore::allLabelsCache(string accountId) {
     // todo bg: this assumes a single accountId will ever be used
     if (_labelCacheInvalid) {
@@ -244,6 +260,18 @@ void MailStore::remove(MailModel * model) {
         _labelCacheInvalid = true;
     }
     SharedDeltaStream()->didUnpersistModel(model, _streamMaxDelay);
+}
+
+unique_ptr<MailModel> MailStore::findGeneric(string type, Query query) {
+    if (type == "message") {
+        return find<Message>(query);
+    } else if (type == "thread") {
+        return find<Thread>(query);
+    } else if (type == "contact") {
+        return find<Contact>(query);
+    } else {
+        return nullptr;
+    }
 }
 
 void MailStore::setStreamDelay(int streamMaxDelay) {

@@ -11,6 +11,21 @@
 using namespace std;
 using namespace mailcore;
 
+// Singleton implementation
+
+shared_ptr<Identity> Identity::_global = nullptr;
+
+shared_ptr<Identity> Identity::GetGlobal() {
+    return _global;
+}
+
+void Identity::SetGlobal(shared_ptr<Identity> i) {
+    _global = i;
+}
+
+
+// Class implementation
+
 Identity::Identity(json json) : MailModel(json) {
     
 }
