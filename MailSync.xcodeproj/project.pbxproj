@@ -114,7 +114,7 @@
 		4364892E1EF2E905007816EC /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 12;
-			dstPath = "/Users/bengotow/Work/F376/Projects/Merani/client/packages/client-app";
+			dstPath = "${PROJECT_DIR}/../app";
 			dstSubfolderSpec = 0;
 			files = (
 				43C814A01F0832E100D28F0B /* MailSync in CopyFiles */,
