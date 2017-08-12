@@ -1,7 +1,12 @@
 cmake_minimum_required (VERSION 3.1 FATAL_ERROR)
 project (mailsync) 
 
-SET (CMAKE_CXX_FLAGS       "-std=c++1z -Wno-unknown-pragmas")
+SET (CMAKE_C_COMPILER "/usr/bin/gcc-5")
+SET (CMAKE_C_FLAGS     "-std=c++1z")
+
+SET (CMAKE_CXX_COMPILER "/usr/bin/g++-5")
+SET (CMAKE_CXX_FLAGS   "-std=c++1z -Wno-unknown-pragmas")
+
 
 find_package (PkgConfig REQUIRED)
 pkg_check_modules (GLIB REQUIRED glib-2.0)
