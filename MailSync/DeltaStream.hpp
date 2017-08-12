@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <mutex>
+#include <condition_variable>
 #include "MailModel.hpp"
 #include "json.hpp"
 #include "spdlog/spdlog.h"

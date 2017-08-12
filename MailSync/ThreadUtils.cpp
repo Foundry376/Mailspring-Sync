@@ -53,7 +53,7 @@ void SetThreadName(const char* threadName)
 #include <pthread.h>
 void SetThreadName(const char* threadName)
 {
-    pthread_setname_np(threadName);
+    pthread_setname_np(pthread_self(), threadName);
 }
 
 #else
