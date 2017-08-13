@@ -8,8 +8,8 @@ mkdir -p "$APP_DIST_DIR"
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
   cd "$MAILSYNC_DIR"
-  xcodebuild -list;
-  xcodebuild -scheme mailsync -configuration Release;
+  gem install xcpretty;
+  set -o pipefail && xcodebuild -scheme mailsync -configuration Release | xcpretty;
   cp "$APP_ROOT_DIR/mailsync" "$APP_DIST_DIR/"
 
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
