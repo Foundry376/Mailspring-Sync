@@ -4,10 +4,13 @@ export APP_ROOT_DIR="$MAILSYNC_DIR/../app"
 export APP_DIST_DIR="$APP_ROOT_DIR/dist"
 export DEP_BUILDS_DIR=/tmp/mailsync-build-deps
 
+mkdir -p "$APP_DIST_DIR"
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
   cd "$MAILSYNC_DIR"
+  xcodebuild -list;
   xcodebuild -scheme mailsync -configuration Release;
-  cp "$APP_ROOT_DIR/mailsync" "$APP_DIST_DIR"
+  cp "$APP_ROOT_DIR/mailsync" "$APP_DIST_DIR/"
 
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   # we cache this directory between builds to make CI faster.
@@ -62,8 +65,8 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   make
 
   # copy build product into the client working directory
-  cp "$MAILSYNC_DIR/mailsync" "$APP_ROOT_DIR"
-  cp "$MAILSYNC_DIR/mailsync" "$APP_DIST_DIR"
+  cp "$MAILSYNC_DIR/mailsync" "$APP_ROOT_DIR/"
+  cp "$MAILSYNC_DIR/mailsync" "$APP_DIST_DIR/"
 
 else
   echo "Mailsync does not build on $OSTYPE yet.";
