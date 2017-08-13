@@ -53,7 +53,11 @@ void SetThreadName(const char* threadName)
 #include <pthread.h>
 void SetThreadName(const char* threadName)
 {
+#ifdef __APPLE__
+    pthread_setname_np(threadName);
+#else
     pthread_setname_np(pthread_self(), threadName);
+#endif
 }
 
 #else
