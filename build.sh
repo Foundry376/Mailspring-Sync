@@ -22,10 +22,10 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     # Install curl from source because the Ubuntu trusty version is too old
     cd "$DEP_BUILDS_DIR"
     sudo apt-get build-dep curl
-    wget http://curl.haxx.se/download/curl-7.50.2.tar.bz2
+    wget -q http://curl.haxx.se/download/curl-7.50.2.tar.bz2
     tar -xjf curl-7.50.2.tar.bz2
     cd curl-7.50.2
-    ./configure
+    ./configure --quiet
     make >/dev/null
     sudo make install prefix=/usr >/dev/null
     sudo ldconfig
