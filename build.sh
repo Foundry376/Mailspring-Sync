@@ -7,9 +7,22 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   export MAILSYNC_DIR=$( cd $(dirname $0) ; pwd -P );
   cd "$MAILSYNC_DIR";
 
-  # install libetpan from source
   mkdir -p temp
-  cd ./temp
+
+  # Install curl from source because the Ubuntu trusty version is too old
+  cd "$MAILSYNC_DIR/temp"
+  sudo apt-get build-dep curl
+  wget http://curl.haxx.se/download/curl-7.50.2.tar.bz2
+  tar -xvjf curl-7.50.2.tar.bz2
+  cd curl-7.50.2
+
+  ./configure
+  make
+  sudo make install prefix=/usr >/dev/null
+  sudo ldconfig
+
+  # install libetpan from source
+  cd "$MAILSYNC_DIR/temp"
   git clone --depth=1 https://github.com/dinhviethoa/libetpan
   cd ./libetpan
   ./autogen.sh
