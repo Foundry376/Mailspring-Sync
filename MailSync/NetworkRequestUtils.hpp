@@ -20,7 +20,7 @@ using namespace std;
 
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp);
 
-CURL * CreateAccountsRequest(shared_ptr<Account> account, string path, string method = "GET", const json & payload = nullptr);
+CURL * CreateAccountsRequest(shared_ptr<Account> account, string path, string method = "GET", const char * payloadChars = nullptr);
 
 const json MakeAccountsRequest(shared_ptr<Account> account, string path, string method = "GET", const json & payload = nullptr);
 
