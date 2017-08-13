@@ -10,7 +10,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   # we cache this directory between builds to make CI faster.
   # if it exists, just run make install again, otherwise pull
   # the libraries down and build from source.
-  if [ -d "$DEP_BUILDS_DIR" ]; then
+  if [ -d "$DEP_BUILDS_DIR/libetpan" ]; then
     cd "$DEP_BUILDS_DIR/curl-7.50.2"
     sudo make install prefix=/usr >/dev/null
     cd "$DEP_BUILDS_DIR/libetpan"
