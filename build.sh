@@ -11,6 +11,9 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   gem install xcpretty;
   set -o pipefail && xcodebuild -scheme mailsync -configuration Release | xcpretty;
   cp "$APP_ROOT_DIR/mailsync" "$APP_DIST_DIR/"
+  if [ -e "$APP_ROOT_DIR/mailsync.dSYM.zip" ]; then
+    cp "$APP_ROOT_DIR/mailsync.dSYM.zip" "$APP_DIST_DIR/";
+  fi
 
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   # we cache this directory between builds to make CI faster.
