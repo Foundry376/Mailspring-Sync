@@ -30,7 +30,7 @@
 		43B48E851F339B24002D202E /* Identity.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B48E841F339B24002D202E /* Identity.cpp */; };
 		43B48E8B1F37C7FF002D202E /* NetworkRequestUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B48E891F37C7FF002D202E /* NetworkRequestUtils.cpp */; };
 		43C8149E1F08072D00D28F0B /* Account.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43C8149D1F08072D00D28F0B /* Account.cpp */; };
-		43C814A01F0832E100D28F0B /* MailSync in CopyFiles */ = {isa = PBXBuildFile; fileRef = 436489301EF2E905007816EC /* MailSync */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		43C814A01F0832E100D28F0B /* mailsync in CopyFiles */ = {isa = PBXBuildFile; fileRef = 436489301EF2E905007816EC /* mailsync */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		43CA94161EF9E610006685D0 /* MailProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA94141EF9E610006685D0 /* MailProcessor.cpp */; };
 		43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA941E1EFB9E88006685D0 /* Label.cpp */; };
 		43CA9A051F0836A2001A24A0 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */; };
@@ -117,7 +117,7 @@
 			dstPath = "${PROJECT_DIR}/../app";
 			dstSubfolderSpec = 0;
 			files = (
-				43C814A01F0832E100D28F0B /* MailSync in CopyFiles */,
+				43C814A01F0832E100D28F0B /* mailsync in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -137,7 +137,7 @@
 		4346BCE31EF91305009477FE /* Query.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Query.cpp; sourceTree = "<group>"; };
 		4346BCE41EF91305009477FE /* Query.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Query.hpp; sourceTree = "<group>"; };
 		43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = mailcore2.xcodeproj; path = "Vendor/mailcore2/build-mac/mailcore2.xcodeproj"; sourceTree = "<group>"; };
-		436489301EF2E905007816EC /* MailSync */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MailSync; sourceTree = BUILT_PRODUCTS_DIR; };
+		436489301EF2E905007816EC /* mailsync */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = mailsync; sourceTree = BUILT_PRODUCTS_DIR; };
 		436489331EF2E905007816EC /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
 		436489571EF2E94B007816EC /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		436489821EF2F905007816EC /* Backup.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Backup.cpp; path = Vendor/SQLiteCpp/src/Backup.cpp; sourceTree = SOURCE_ROOT; };
@@ -258,7 +258,7 @@
 		436489311EF2E905007816EC /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				436489301EF2E905007816EC /* MailSync */,
+				436489301EF2E905007816EC /* mailsync */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -338,9 +338,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		4364892F1EF2E905007816EC /* MailSync */ = {
+		4364892F1EF2E905007816EC /* mailsync */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 436489371EF2E905007816EC /* Build configuration list for PBXNativeTarget "MailSync" */;
+			buildConfigurationList = 436489371EF2E905007816EC /* Build configuration list for PBXNativeTarget "mailsync" */;
 			buildPhases = (
 				4364892C1EF2E905007816EC /* Sources */,
 				4364892D1EF2E905007816EC /* Frameworks */,
@@ -351,9 +351,9 @@
 			dependencies = (
 				43617D831F3D4DB000DB566D /* PBXTargetDependency */,
 			);
-			name = MailSync;
+			name = mailsync;
 			productName = MailSync;
-			productReference = 436489301EF2E905007816EC /* MailSync */;
+			productReference = 436489301EF2E905007816EC /* mailsync */;
 			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
@@ -390,7 +390,7 @@
 			);
 			projectRoot = "";
 			targets = (
-				4364892F1EF2E905007816EC /* MailSync */,
+				4364892F1EF2E905007816EC /* mailsync */,
 			);
 		};
 /* End PBXProject section */
@@ -678,7 +678,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		436489371EF2E905007816EC /* Build configuration list for PBXNativeTarget "MailSync" */ = {
+		436489371EF2E905007816EC /* Build configuration list for PBXNativeTarget "mailsync" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				436489381EF2E905007816EC /* Debug */,
