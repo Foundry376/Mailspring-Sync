@@ -1,12 +1,12 @@
 #!/bin/bash
+export MAILSYNC_DIR=$( cd $(dirname $0) ; pwd -P );
+export DEP_BUILDS_DIR=/tmp/mailsync-build-deps
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  xcodebuild -scheme MailSync -configuration Release;
+  cd "$MAILSYNC_DIR"
+  xcodebuild -scheme mailsync -configuration Release;
 
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
-  export MAILSYNC_DIR=$( cd $(dirname $0) ; pwd -P );
-  export DEP_BUILDS_DIR=/tmp/mailsync-build-deps
-
   # we cache this directory between builds to make CI faster.
   # if it exists, just run make install again, otherwise pull
   # the libraries down and build from source.
