@@ -30,7 +30,7 @@ private:
     static int compareEmails(void * a, void * b, void * context);
 
 public:
-    static std::string toBase64(const unsigned char *src, size_t len);
+    static std::string toBase58(const unsigned char * pbegin, size_t len);
 
     static json merge(const json &a, const json &b);
     static json contactJSONFromAddress(Address * addr);
