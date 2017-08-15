@@ -27,6 +27,15 @@
 		436489981EF32A81007816EC /* MailStore.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489961EF32A81007816EC /* MailStore.cpp */; };
 		4364899B1EF335A9007816EC /* DeltaStream.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489991EF335A9007816EC /* DeltaStream.cpp */; };
 		436489A01EF35572007816EC /* SyncWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4364899E1EF35572007816EC /* SyncWorker.cpp */; };
+		4368DCBC1F43851A00F22FFD /* exceptions.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4368DCAC1F43851A00F22FFD /* exceptions.cpp */; };
+		4368DCBD1F43851A00F22FFD /* filelib.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4368DCAE1F43851A00F22FFD /* filelib.cpp */; };
+		4368DCBF1F43851A00F22FFD /* simpio.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4368DCB21F43851A00F22FFD /* simpio.cpp */; };
+		4368DCC01F43851A00F22FFD /* call_stack_gcc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4368DCB61F43851A00F22FFD /* call_stack_gcc.cpp */; };
+		4368DCC11F43851A00F22FFD /* call_stack_windows.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4368DCB71F43851A00F22FFD /* call_stack_windows.cpp */; };
+		4368DCC21F43851A00F22FFD /* strlib.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4368DCB91F43851A00F22FFD /* strlib.cpp */; };
+		4368DCCC1F43857D00F22FFD /* platform.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4368DCCA1F43857D00F22FFD /* platform.cpp */; };
+		4378B8341F439EE700C65630 /* error.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4378B8321F439EE700C65630 /* error.cpp */; };
+		4378B8371F439FAD00C65630 /* GenericException.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4378B8361F439FAD00C65630 /* GenericException.cpp */; };
 		43B48E851F339B24002D202E /* Identity.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B48E841F339B24002D202E /* Identity.cpp */; };
 		43B48E8B1F37C7FF002D202E /* NetworkRequestUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B48E891F37C7FF002D202E /* NetworkRequestUtils.cpp */; };
 		43C8149E1F08072D00D28F0B /* Account.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43C8149D1F08072D00D28F0B /* Account.cpp */; };
@@ -145,6 +154,24 @@
 		4364899D1EF3449A007816EC /* json.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = json.hpp; sourceTree = "<group>"; };
 		4364899E1EF35572007816EC /* SyncWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SyncWorker.cpp; sourceTree = "<group>"; };
 		4364899F1EF35572007816EC /* SyncWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = SyncWorker.hpp; sourceTree = "<group>"; };
+		4368DCAC1F43851A00F22FFD /* exceptions.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = exceptions.cpp; sourceTree = "<group>"; };
+		4368DCAD1F43851A00F22FFD /* exceptions.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = exceptions.h; sourceTree = "<group>"; };
+		4368DCAE1F43851A00F22FFD /* filelib.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = filelib.cpp; sourceTree = "<group>"; };
+		4368DCAF1F43851A00F22FFD /* filelib.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = filelib.h; sourceTree = "<group>"; };
+		4368DCB21F43851A00F22FFD /* simpio.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = simpio.cpp; sourceTree = "<group>"; };
+		4368DCB31F43851A00F22FFD /* simpio.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = simpio.h; sourceTree = "<group>"; };
+		4368DCB51F43851A00F22FFD /* call_stack.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = call_stack.h; sourceTree = "<group>"; };
+		4368DCB61F43851A00F22FFD /* call_stack_gcc.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = call_stack_gcc.cpp; sourceTree = "<group>"; };
+		4368DCB71F43851A00F22FFD /* call_stack_windows.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = call_stack_windows.cpp; sourceTree = "<group>"; };
+		4368DCB81F43851A00F22FFD /* stack_exception.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = stack_exception.h; sourceTree = "<group>"; };
+		4368DCB91F43851A00F22FFD /* strlib.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = strlib.cpp; sourceTree = "<group>"; };
+		4368DCBA1F43851A00F22FFD /* strlib.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = strlib.h; sourceTree = "<group>"; };
+		4368DCCA1F43857D00F22FFD /* platform.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = platform.cpp; sourceTree = "<group>"; };
+		4368DCCB1F43857D00F22FFD /* platform.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = platform.h; sourceTree = "<group>"; };
+		4378B8321F439EE700C65630 /* error.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = error.cpp; sourceTree = "<group>"; };
+		4378B8331F439EE700C65630 /* error.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = error.h; sourceTree = "<group>"; };
+		4378B8351F439F8A00C65630 /* GenericException.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = GenericException.hpp; sourceTree = "<group>"; };
+		4378B8361F439FAD00C65630 /* GenericException.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GenericException.cpp; sourceTree = "<group>"; };
 		43A742BB1F05DB8F003978AA /* optionparser.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = optionparser.h; sourceTree = "<group>"; };
 		43B48E7C1F339AEC002D202E /* Identity.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Identity.hpp; sourceTree = "<group>"; };
 		43B48E841F339B24002D202E /* Identity.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Identity.cpp; sourceTree = "<group>"; };
@@ -257,6 +284,8 @@
 				432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */,
 				4364899F1EF35572007816EC /* SyncWorker.hpp */,
 				4364899E1EF35572007816EC /* SyncWorker.cpp */,
+				4378B8351F439F8A00C65630 /* GenericException.hpp */,
+				4378B8361F439FAD00C65630 /* GenericException.cpp */,
 				43CA9A0C1F0DA48D001A24A0 /* SyncException.hpp */,
 				43CA9A0B1F0DA48D001A24A0 /* SyncException.cpp */,
 				4364899A1EF335A9007816EC /* DeltaStream.hpp */,
@@ -281,6 +310,7 @@
 				436489921EF31AC0007816EC /* constants.h */,
 				43A742BB1F05DB8F003978AA /* optionparser.h */,
 				436489911EF30E1F007816EC /* sha256.h */,
+				4368DCA91F43851A00F22FFD /* StanfordCPPLib */,
 				4364899C1EF3449A007816EC /* nlohmann */,
 				436489751EF2F8E3007816EC /* SQLite */,
 			);
@@ -319,6 +349,38 @@
 			);
 			name = nlohmann;
 			path = ../Vendor/nlohmann;
+			sourceTree = "<group>";
+		};
+		4368DCA91F43851A00F22FFD /* StanfordCPPLib */ = {
+			isa = PBXGroup;
+			children = (
+				4378B8321F439EE700C65630 /* error.cpp */,
+				4378B8331F439EE700C65630 /* error.h */,
+				4368DCAC1F43851A00F22FFD /* exceptions.cpp */,
+				4368DCAD1F43851A00F22FFD /* exceptions.h */,
+				4368DCAE1F43851A00F22FFD /* filelib.cpp */,
+				4368DCAF1F43851A00F22FFD /* filelib.h */,
+				4368DCCA1F43857D00F22FFD /* platform.cpp */,
+				4368DCCB1F43857D00F22FFD /* platform.h */,
+				4368DCB21F43851A00F22FFD /* simpio.cpp */,
+				4368DCB31F43851A00F22FFD /* simpio.h */,
+				4368DCB41F43851A00F22FFD /* stacktrace */,
+				4368DCB91F43851A00F22FFD /* strlib.cpp */,
+				4368DCBA1F43851A00F22FFD /* strlib.h */,
+			);
+			name = StanfordCPPLib;
+			path = Vendor/StanfordCPPLib;
+			sourceTree = SOURCE_ROOT;
+		};
+		4368DCB41F43851A00F22FFD /* stacktrace */ = {
+			isa = PBXGroup;
+			children = (
+				4368DCB51F43851A00F22FFD /* call_stack.h */,
+				4368DCB61F43851A00F22FFD /* call_stack_gcc.cpp */,
+				4368DCB71F43851A00F22FFD /* call_stack_windows.cpp */,
+				4368DCB81F43851A00F22FFD /* stack_exception.h */,
+			);
+			path = stacktrace;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -462,17 +524,23 @@
 			buildActionMask = 2147483647;
 			files = (
 				43167EFF1EF5F57C00D8E282 /* MailModel.cpp in Sources */,
+				4368DCBC1F43851A00F22FFD /* exceptions.cpp in Sources */,
 				43C8149E1F08072D00D28F0B /* Account.cpp in Sources */,
 				43167F091EF5F59E00D8E282 /* Message.cpp in Sources */,
+				4378B8341F439EE700C65630 /* error.cpp in Sources */,
 				436489891EF2F905007816EC /* Column.cpp in Sources */,
 				43B48E8B1F37C7FF002D202E /* NetworkRequestUtils.cpp in Sources */,
 				43CA9A121F1174FD001A24A0 /* ThreadUtils.cpp in Sources */,
+				4368DCBF1F43851A00F22FFD /* simpio.cpp in Sources */,
 				43EAFEDC1F001F110046589B /* Contact.cpp in Sources */,
 				43CA94161EF9E610006685D0 /* MailProcessor.cpp in Sources */,
 				43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */,
 				43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */,
 				4346BCE51EF91305009477FE /* Query.cpp in Sources */,
 				43B48E851F339B24002D202E /* Identity.cpp in Sources */,
+				4368DCCC1F43857D00F22FFD /* platform.cpp in Sources */,
+				4368DCC11F43851A00F22FFD /* call_stack_windows.cpp in Sources */,
+				4378B8371F439FAD00C65630 /* GenericException.cpp in Sources */,
 				4364899B1EF335A9007816EC /* DeltaStream.cpp in Sources */,
 				436489A01EF35572007816EC /* SyncWorker.cpp in Sources */,
 				43EAFEDA1EFEF7110046589B /* File.cpp in Sources */,
@@ -480,14 +548,17 @@
 				436489341EF2E905007816EC /* main.cpp in Sources */,
 				43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */,
 				4364898A1EF2F905007816EC /* Database.cpp in Sources */,
+				4368DCC21F43851A00F22FFD /* strlib.cpp in Sources */,
 				43CA9A0D1F0DA48D001A24A0 /* SyncException.cpp in Sources */,
 				43167F0C1EF5F5C100D8E282 /* Thread.cpp in Sources */,
 				43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */,
+				4368DCBD1F43851A00F22FFD /* filelib.cpp in Sources */,
 				43CA9A0A1F0D4C1B001A24A0 /* ProgressCollectors.cpp in Sources */,
 				4364898C1EF2F905007816EC /* Statement.cpp in Sources */,
 				432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */,
 				4364898B1EF2F905007816EC /* Exception.cpp in Sources */,
 				4364898D1EF2F905007816EC /* Transaction.cpp in Sources */,
+				4368DCC01F43851A00F22FFD /* call_stack_gcc.cpp in Sources */,
 				436489881EF2F905007816EC /* Backup.cpp in Sources */,
 				436489981EF32A81007816EC /* MailStore.cpp in Sources */,
 				436489901EF2F94F007816EC /* sqlite3.c in Sources */,
@@ -546,10 +617,11 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.12;
+				MACOSX_DEPLOYMENT_TARGET = 10.10;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				STRIP_INSTALLED_PRODUCT = NO;
 			};
 			name = Debug;
 		};
@@ -588,9 +660,10 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MACOSX_DEPLOYMENT_TARGET = 10.12;
+				MACOSX_DEPLOYMENT_TARGET = 10.10;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = macosx;
+				STRIP_INSTALLED_PRODUCT = NO;
 			};
 			name = Release;
 		};
@@ -603,11 +676,11 @@
 					"$(inherited)",
 					"SQLITE_ENABLE_FTS5=1",
 				);
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				HEADER_SEARCH_PATHS = (
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.10;
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
 					"-Wno-ambiguous-macro",
@@ -629,6 +702,7 @@
 					"-ObjC",
 					"-lresolv",
 					"-lcurl",
+					"-Wl,-no_pie",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -639,11 +713,11 @@
 			buildSettings = {
 				DEVELOPMENT_TEAM = X9RJ36K9D4;
 				GCC_PREPROCESSOR_DEFINITIONS = "SQLITE_ENABLE_FTS5=1";
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
 				HEADER_SEARCH_PATHS = (
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 10.10;
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
 					"-Wno-ambiguous-macro",
@@ -665,6 +739,7 @@
 					"-ObjC",
 					"-lresolv",
 					"-lcurl",
+					"-Wl,-no_pie",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};

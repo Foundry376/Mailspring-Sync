@@ -10,13 +10,13 @@
 #include "constants.h"
 
 SyncException::SyncException(string key, string di, bool retryable) :
-    key(key), debuginfo(di), retryable(retryable)
+    key(key), debuginfo(di), retryable(retryable), GenericException()
 {
     
 }
 
 SyncException::SyncException(CURLcode c, string di) :
-    key(curl_easy_strerror(c)), debuginfo(di)
+    key(curl_easy_strerror(c)), debuginfo(di), GenericException()
 {
     if ((c == CURLE_COULDNT_RESOLVE_PROXY) ||
         (c == CURLE_COULDNT_RESOLVE_HOST) ||
@@ -37,7 +37,7 @@ SyncException::SyncException(CURLcode c, string di) :
 }
 
 SyncException::SyncException(mailcore::ErrorCode c, string di) :
-    key(ErrorCodeToTypeMap[c]), debuginfo(di)
+    key(ErrorCodeToTypeMap[c]), debuginfo(di), GenericException()
 {
     if (c == mailcore::ErrorConnection) {
         retryable = true;
@@ -54,6 +54,7 @@ bool SyncException::isRetryable() {
 
 json SyncException::toJSON() {
     return {
+        {"what", what()},
         {"key", key},
         {"debuginfo", debuginfo},
         {"retryable", retryable},

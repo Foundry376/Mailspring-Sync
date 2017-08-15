@@ -10,6 +10,7 @@
 #include <string>
 #include <MailCore/MailCore.h>
 #include <SQLiteCpp/SQLiteCpp.h>
+#include <StanfordCPPLib/exceptions.h>
 #include <curl/curl.h>
 #include "json.hpp"
 #include "spdlog/spdlog.h"
@@ -27,6 +28,7 @@
 #include "TaskProcessor.hpp"
 #include "ThreadUtils.h"
 #include "constants.h"
+
 
 using json = nlohmann::json;
 using option::Option;
@@ -215,7 +217,9 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
     store.setStreamDelay(5);
     
+#ifndef DEBUG
     time_t lostCINAt = 0;
+#endif
 
     while(true) {
         AutoreleasePool pool;
@@ -274,8 +278,13 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 }
 
 int main(int argc, const char * argv[]) {
+    
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);
+    
+    // initialize the stanford exception handler
+    exceptions::setProgramNameForStackTrace(argv[0]);
+    exceptions::setTopLevelExceptionHandlerEnabled(true);
 
     // parse launch arguments, skip program name argv[0] if present
     argc-=(argc>0); argv+=(argc>0);
@@ -310,7 +319,7 @@ int main(int argc, const char * argv[]) {
     shared_ptr<spdlog::sinks::base_sink<std::mutex>> sink;
     if (!options[ORPHAN]) {
         spdlog::set_async_mode(8192, spdlog::async_overflow_policy::block_retry, nullptr, std::chrono::seconds(3), nullptr);
-        spdlog::set_pattern("[%H:%M:%S %z] [%L] %v");
+        spdlog::set_pattern("%+");
 
         string logPath = string(getenv("CONFIG_DIR_PATH")) + "/mailsync.log";
         sink = make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3);
@@ -382,7 +391,7 @@ int main(int argc, const char * argv[]) {
 
         bgThread = new std::thread(runBackgroundSyncWorker);
         metadataThread = new std::thread(runMetadataWorker);
-
+        
         if (!options[ORPHAN]) {
             runListenOnMainThread(account);
         } else {
