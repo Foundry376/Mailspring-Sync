@@ -7,6 +7,7 @@
 //
 
 #include "TaskProcessor.hpp"
+#include "MailProcessor.hpp"
 #include "MailUtils.hpp"
 #include "Thread.hpp"
 #include "Message.hpp"
@@ -530,7 +531,7 @@ void TaskProcessor::performLocalSyncbackMetadata(Task * task) {
     
     if (model) {
         int metadataVersion = model->upsertMetadata(pluginId, value);
-        data["version"] = metadataVersion;
+        data["modelMetadataNewVersion"] = metadataVersion;
         store->save(model.get());
     }
 
@@ -543,9 +544,9 @@ void TaskProcessor::performRemoteSyncbackMetadata(Task * task) {
     string id = data["modelId"];
     string pluginId = data["pluginId"];
 
-    const json & payload = {
+    const json payload = {
         {"objectType", data["modelClassName"]},
-        {"version", data["version"]},
+        {"version", data["modelMetadataNewVersion"]},
         {"value", data["value"]},
     };
     const json results = MakeAccountsRequest(account, "/metadata/" + id + "/" + pluginId, "POST", payload);
@@ -646,11 +647,14 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         Data * selfMessageData = nullptr;
 
         // Send a copy of the message for each recipient
+        logger->info("Sending with per-recipient message bodies");
+
         for (json::iterator it = perRecipientBodies.begin(); it != perRecipientBodies.end(); ++it) {
             builder.setHTMLBody(AS_MCSTR(it.value().get<string>()));
             if (it.key() == "self") {
                 selfMessageData = builder.data();
             } else {
+                logger->info("-- Sending to {}", it.key());
                 Address * to = Address::addressWithMailbox(AS_MCSTR(it.key()));
                 Data * messageData = builder.data();
                 smtp.sendMessage(builder.header()->from(), Array::arrayWithObject(to), messageData, &sprogress, &err);
@@ -672,8 +676,10 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         if (err != ErrorNone) {
             throw SyncException(err, "IMAP: Searching sent folder");
         }
-        
+        //stableeggs2124
         if (uids->count() > 0) {
+            logger->info("-- Deleting {} UIDs added to {} by the SMTP gateway.", uids->count(), sentPath->UTF8Characters());
+
             HashMap * uidmap = nullptr;
             session->moveMessages(sentPath, uids, trashPath, &uidmap, &err);
             if (err != ErrorNone) {
@@ -688,14 +694,59 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             if (err != ErrorNone) {
                 throw SyncException(err, "IMAP: Adding deleted flag to sent items");
             }
+        } else {
+            logger->info("-- No UIDs matching the message-id were found in {}.", uids->count(), sentPath->UTF8Characters());
         }
 
         // Place in sent folder
         IMAPProgress iprogress;
         uint32_t uid;
+        logger->info("-- Placing the message with `self` body in {}.", sentPath->UTF8Characters());
         session->appendMessage(sentPath, selfMessageData, MessageFlagSeen, &iprogress, &uid, &err);
         if (err != ErrorNone) {
             throw SyncException(err, "IMAP: Adding message to sent folder.");
+        }
+
+        // Delete the local draft if one exists
+        performLocalDestroyDraft(task);
+
+        if (uid) {
+            logger->info("-- Syncing new message (UID {}) to the local mail store", uid);
+
+            IMAPMessagesRequestKind kind = (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
+            if (session->storedCapabilities()->containsIndex(IMAPCapabilityGmail)) {
+                kind = (IMAPMessagesRequestKind)(kind | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
+            }
+            
+            time_t syncDataTimestamp = time(0);
+            IndexSet * uids = IndexSet::indexSetWithIndex(uid);
+            Array * remote = session->fetchMessagesByUID(sentPath, kind, uids, nullptr, &err);
+            if (err != ErrorNone) {
+                throw SyncException(err, "IMAP: Retrieving the message placed in the Sent folder");
+            }
+            if (remote->count() > 0) {
+                MailProcessor processor{account, store};
+                IMAPMessage * remoteMsg = (IMAPMessage *)(remote->lastObject());
+                processor.insertFallbackToUpdateMessage(remoteMsg, *sent, syncDataTimestamp);
+            } else {
+                logger->info("-X New message (UID {}) could not be found via IMAP.", uid);
+            }
+            
+            if (draft.metadata().size() > 0) {
+                // retrieve the new message and queue metadata tasks on it
+                auto message = store->find<Message>(Query().equal("accountId", account->id()).equal("remoteUID", uid));
+                
+                for (const auto & m : draft.metadata()) {
+                    Task mTask{"SyncbackMetadataTask", account->id(), {
+                        {"modelId", message->id()},
+                        {"modelClassName", "Message"},
+                        {"pluginId", m["pluginId"]},
+                        {"value", m["value"]},
+                    }};
+                    store->save(&mTask);
+                    performLocal(&mTask); // will save again
+                }
+            }
         }
 
     } else {
@@ -705,9 +756,10 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         }
     }
 
-    // Immediately sync the new message in the sent folder?
+    // Immediately sync the new message in the sent folder
+    
+    // Attach metadata from the draft to the new message by queueing SyncbackMetadataTasks
+    
 
-    // Delete the local draft if one exists
-    performLocalDestroyDraft(task);
 //    performRemoteDestroyDraft();
 }
