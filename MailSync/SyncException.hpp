@@ -13,13 +13,14 @@
 #include <MailCore/MailCore.h>
 #include <curl/curl.h>
 #include "json.hpp"
+#include "GenericException.hpp"
 
 using json = nlohmann::json;
 
 using namespace std;
 using namespace mailcore;
 
-class SyncException : public std::exception {
+class SyncException : public GenericException {
     string debuginfo;
     string key;
     bool retryable = false;

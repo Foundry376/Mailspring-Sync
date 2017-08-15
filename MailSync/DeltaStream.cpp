@@ -51,6 +51,7 @@ json DeltaStream::waitForJSON() {
             return j;
         }
     } catch (char const * e) {
+        //
     }
     return {};
 }
