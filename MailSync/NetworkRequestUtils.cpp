@@ -45,8 +45,8 @@ CURL * CreateAccountsRequest(shared_ptr<Account> account, string path, string me
 }
 
 const json MakeAccountsRequest(shared_ptr<Account> account, string path, string method, const json & payload) {
-    const char * payloadChars = payload.dump().c_str();
-    CURL * curl_handle = CreateAccountsRequest(account, path, method, payloadChars);
+    string payloadString = payload.dump();
+    CURL * curl_handle = CreateAccountsRequest(account, path, method, payloadString.c_str());
     string result;
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);

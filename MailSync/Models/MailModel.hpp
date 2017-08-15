@@ -41,7 +41,8 @@ public:
     void incrementVersion();
 
     int upsertMetadata(string pluginId, const json & value, int version = -1);
-    
+    json & metadata();
+
     virtual void bindToQuery(SQLite::Statement * query);
     
     virtual void writeAssociations(SQLite::Database & db);

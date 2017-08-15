@@ -37,7 +37,7 @@ void MailModel::captureInitialMetadataState() {
     _initialMetadataPluginIds = {};
     if (_data.count("metadata")) {
         for (const auto & m : _data["metadata"]) {
-            _initialMetadataPluginIds[m["plugin_id"].get<string>()] = true;
+            _initialMetadataPluginIds[m["pluginId"].get<string>()] = true;
         }
     }
 }
@@ -68,24 +68,28 @@ int MailModel::upsertMetadata(string pluginId, const json & value, int version)
         _data["metadata"] = json::array();
     }
     for (auto & m : _data["metadata"]) {
-        if (m["plugin_id"].get<string>() == pluginId) {
-            if (version != -1 && m["version"].get<int>() >= version) {
+        if (m["pluginId"].get<string>() == pluginId) {
+            if (version != -1 && m["v"].get<int>() >= version) {
                 return -1;
             }
-            int nextVersion = version == -1 ? (m["version"].get<uint32_t>() + 1) : version;
-            m["version"] = nextVersion;
+            int nextVersion = version == -1 ? (m["v"].get<uint32_t>() + 1) : version;
             m["value"] = value;
+            m["v"] = nextVersion;
             return nextVersion;
         }
     }
     
     int nextVersion = version == -1 ? 1 : version;
     _data["metadata"].push_back({
-        {"plugin_id", pluginId},
-        {"version", nextVersion},
-        {"value", value}
+        {"pluginId", pluginId},
+        {"value", value},
+        {"v", nextVersion}
     });
     return nextVersion;
+}
+
+json & MailModel::metadata() {
+    return _data["metadata"];
 }
 
 string MailModel::tableName()
@@ -117,9 +121,10 @@ void MailModel::bindToQuery(SQLite::Statement * query) {
 void MailModel::writeAssociations(SQLite::Database & db) {
     
     map<string, bool> metadataPluginIds{};
-    if (_data.count("metadata"))
-    for (const auto & m : _data["metadata"]) {
-        metadataPluginIds[m["plugin_id"].get<string>()] = true;
+    if (_data.count("metadata")) {
+        for (const auto & m : _data["metadata"]) {
+            metadataPluginIds[m["pluginId"].get<string>()] = true;
+        }
     }
     
     // update the ThreadCategory join table to include our folder and labels

@@ -25,6 +25,8 @@ class Task : public MailModel {
 public:
     static string TABLE_NAME;
 
+    Task(string constructorName, string accountId, json taskSpecificData);
+    
     Task(json json);
     Task(SQLite::Statement & query);
   
