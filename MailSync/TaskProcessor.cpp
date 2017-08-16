@@ -167,6 +167,8 @@ TaskProcessor::TaskProcessor(shared_ptr<Account> account, MailStore * store, IMA
 void TaskProcessor::performLocal(Task * task) {
     string cname = task->constructorName();
     
+    logger->info("[{}] Running {} performLocal:", task->id(), cname);
+
     try {
         if (task->accountId() != account->id()) {
             throw SyncException("generic", "You must provide an account id.", false);
@@ -206,8 +208,11 @@ void TaskProcessor::performLocal(Task * task) {
             logger->error("Unsure of how to process this task type {}", cname);
         }
 
+        logger->info("[{}] -- Succeeded. Changing status to `remote`", task->id());
         task->setStatus("remote");
+
     } catch (SyncException & ex) {
+        logger->info("[{}] -- Failed ({}). Changing status to `complete`", task->id(), ex.toJSON());
         task->setError(ex.toJSON());
         task->setStatus("complete");
     }
@@ -217,6 +222,9 @@ void TaskProcessor::performLocal(Task * task) {
 
 void TaskProcessor::performRemote(Task * task) {
     string cname = task->constructorName();
+
+    logger->info("[{}] Running {} performRemote:", task->id(), cname);
+    
     try {
         if (task->accountId() != account->id()) {
             throw SyncException("generic", "You must provide an account id.", false);
@@ -257,9 +265,12 @@ void TaskProcessor::performRemote(Task * task) {
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
             }
+
+            logger->info("[{}] -- Succeeded. Changing status to `complete`", task->id());
             task->setStatus("complete");
         }
     } catch (SyncException & ex) {
+        logger->info("[{}] -- Failed ({}). Changing status to `complete`", task->id(), ex.toJSON());
         task->setError(ex.toJSON());
         task->setStatus("complete");
     }
@@ -611,14 +622,16 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         }
     }
     String * sentPath = AS_MCSTR(sent->path());
-
+    logger->info("-- Identified `sent` folder: {}", sent->path());
+    
     // find the trash folder
     auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
     if (trash == nullptr) {
         throw SyncException("no-trash-folder", "", false);
     }
     String * trashPath = AS_MCSTR(trash->path());
-
+    logger->info("-- Identified `trash` folder: {}", trash->path());
+    
     // build the MIME message
     MessageBuilder builder;
     builder.setHTMLBody(AS_MCSTR(body));
@@ -664,19 +677,18 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     SMTPSession smtp;
     SMTPProgress sprogress;
     ErrorCode err = ErrorNone;
+    Data * messageDataForSent = nullptr;
+    bool multisend = perRecipientBodies.is_object();
     
     MailUtils::configureSessionForAccount(smtp, account);
 
-    if (perRecipientBodies.is_object()) {
-        Data * selfMessageData = nullptr;
-
-        // Send a copy of the message for each recipient
-        logger->info("Sending with per-recipient message bodies");
+    if (multisend) {
+        logger->info("-- Sending customized message bodies to each recipient:");
 
         for (json::iterator it = perRecipientBodies.begin(); it != perRecipientBodies.end(); ++it) {
             builder.setHTMLBody(AS_MCSTR(it.value().get<string>()));
             if (it.key() == "self") {
-                selfMessageData = builder.data();
+                messageDataForSent = builder.data();
             } else {
                 logger->info("-- Sending to {}", it.key());
                 Address * to = Address::addressWithMailbox(AS_MCSTR(it.key()));
@@ -688,84 +700,109 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             }
         }
 
-        if (!selfMessageData) {
+        if (!messageDataForSent) {
             throw SyncException("no-self-body", "If `perRecipientBodies` is populated, you must provide a `self` entry.", false);
         }
-        
-        // Scan the sent folder, deleting anything with our header messageId.
-        // Gmail and possibly others place messages here automatically when we send.
-        IMAPSearchExpression exp = IMAPSearchExpression::searchHeader(MCSTR("message-id"), AS_MCSTR(draft.headerMessageId()));
-        
-        auto uids = session->search(sentPath, &exp, &err);
+    } else {
+        logger->info("-- Sending a single message body to all recipients:");
+        messageDataForSent = builder.data();
+        smtp.sendMessage(messageDataForSent, &sprogress, &err);
         if (err != ErrorNone) {
-            throw SyncException(err, "IMAP: Searching sent folder");
+            throw SyncException(err, "SMTP: Delivering message.");
         }
-        //stableeggs2124
-        if (uids->count() > 0) {
-            logger->info("-- Deleting {} UIDs added to {} by the SMTP gateway.", uids->count(), sentPath->UTF8Characters());
+    }
+    
+    // Delete the draft if one exists. We do this immediately after the messages
+    // have been sent through the SMTP gateway to ensure the user doesn't try to
+    // send the draft again if for some reason subsequent steps fail.
+    //
+    performLocalDestroyDraft(task);
+    
+    // Scan the sent folder for the message(s) we just sent through the SMTP gateway.
+    // Some mail servers automatically place messages in the sent folder, others don't.
+    //
+    IMAPSearchExpression exp = IMAPSearchExpression::searchHeader(MCSTR("message-id"), AS_MCSTR(draft.headerMessageId()));
+    auto uids = session->search(sentPath, &exp, &err);
+    if (err != ErrorNone) {
+        throw SyncException(err, "IMAP: Searching sent folder");
+    }
 
-            HashMap * uidmap = nullptr;
-            session->moveMessages(sentPath, uids, trashPath, &uidmap, &err);
-            if (err != ErrorNone) {
-                throw SyncException(err, "IMAP: Moving sent items to trash folder");
-            }
-            Array * auidsInTrash = uidmap->allValues();
-            IndexSet uidsInTrash;
-            for (int i = 0; i < auidsInTrash->count(); i ++) {
-                uidsInTrash.addIndex(((Value*)auidsInTrash->objectAtIndex(i))->unsignedLongValue());
-            }
-            session->storeFlagsByUID(sentPath, &uidsInTrash, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
-            if (err != ErrorNone) {
-                throw SyncException(err, "IMAP: Adding deleted flag to sent items");
-            }
-        } else {
-            logger->info("-- No UIDs matching the message-id were found in {}.", uids->count(), sentPath->UTF8Characters());
+    uint32_t sentFolderMessageUID = 0;
+    
+    if (multisend && (uids->count() > 0)) {
+        // If we sent separate messages to each recipient, we end up with a bunch of sent
+        // messages. Delete all of them since they contain the targeted bodies.
+        logger->info("-- Deleting {} messages added to sent folder by the SMTP gateway.", uids->count());
+
+        HashMap * uidmap = nullptr;
+        session->moveMessages(sentPath, uids, trashPath, &uidmap, &err);
+        if (err != ErrorNone) {
+            throw SyncException(err, "IMAP: Moving sent items to trash folder");
         }
+        Array * auidsInTrash = uidmap->allValues();
+        IndexSet uidsInTrash;
+        for (int i = 0; i < auidsInTrash->count(); i ++) {
+            uidsInTrash.addIndex(((Value*)auidsInTrash->objectAtIndex(i))->unsignedLongValue());
+        }
+        session->storeFlagsByUID(sentPath, &uidsInTrash, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
+        if (err != ErrorNone) {
+            throw SyncException(err, "IMAP: Adding deleted flag to sent items");
+        }
+        
+    } else if (!multisend && (uids->count() == 1)) {
+        // If we find a single message in the sent folder, we'll move forward with that one.
+        sentFolderMessageUID = (uint32_t)uids->allRanges()[0].location;
+        logger->info("-- Found a message added to the sent folder by the SMTP gateway (UID {})", sentFolderMessageUID);
+        
+    } else {
+        logger->info("-- No messages matching the message-id were found in the sent folder.", uids->count());
+    }
 
-        // Place in sent folder
+    if (sentFolderMessageUID == 0) {
+        // Manually place a single message in the sent folder
         IMAPProgress iprogress;
-        uint32_t uid;
-        logger->info("-- Placing the message with `self` body in {}.", sentPath->UTF8Characters());
-        session->appendMessage(sentPath, selfMessageData, MessageFlagSeen, &iprogress, &uid, &err);
+        logger->info("-- Placing a new message with `self` body in the sent folder.");
+        session->appendMessage(sentPath, messageDataForSent, MessageFlagSeen, &iprogress, &sentFolderMessageUID, &err);
         if (err != ErrorNone) {
             throw SyncException(err, "IMAP: Adding message to sent folder.");
         }
+    }
 
-        // Delete the local draft if one exists
-        performLocalDestroyDraft(task);
+    if (sentFolderMessageUID != 0) {
+        logger->info("-- Syncing sent message (UID {}) to the local mail store", sentFolderMessageUID);
 
-        if (uid) {
-            logger->info("-- Syncing new message (UID {}) to the local mail store", uid);
-
-            IMAPMessagesRequestKind kind = (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
-            if (session->storedCapabilities()->containsIndex(IMAPCapabilityGmail)) {
-                kind = (IMAPMessagesRequestKind)(kind | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
-            }
-            
-            time_t syncDataTimestamp = time(0);
-            IndexSet * uids = IndexSet::indexSetWithIndex(uid);
-            Array * remote = session->fetchMessagesByUID(sentPath, kind, uids, nullptr, &err);
-            if (err != ErrorNone) {
-                throw SyncException(err, "IMAP: Retrieving the message placed in the Sent folder");
-            }
-            if (remote->count() > 0) {
-                MailProcessor processor{account, store};
-                IMAPMessage * remoteMsg = (IMAPMessage *)(remote->lastObject());
-                processor.insertFallbackToUpdateMessage(remoteMsg, *sent, syncDataTimestamp);
-            } else {
-                logger->info("-X New message (UID {}) could not be found via IMAP.", uid);
-            }
-            
-            if (draft.metadata().size() > 0) {
-                // retrieve the new message and queue metadata tasks on it
-                auto message = store->find<Message>(Query().equal("accountId", account->id()).equal("remoteUID", uid));
-                
+        IMAPMessagesRequestKind kind = (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
+        if (session->storedCapabilities()->containsIndex(IMAPCapabilityGmail)) {
+            kind = (IMAPMessagesRequestKind)(kind | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
+        }
+        
+        time_t syncDataTimestamp = time(0);
+        IndexSet * uids = IndexSet::indexSetWithIndex(sentFolderMessageUID);
+        Array * remote = session->fetchMessagesByUID(sentPath, kind, uids, nullptr, &err);
+        if (err != ErrorNone) {
+            throw SyncException(err, "IMAP: Retrieving the message placed in the Sent folder");
+        }
+        if (remote->count() > 0) {
+            MailProcessor processor{account, store};
+            IMAPMessage * remoteMsg = (IMAPMessage *)(remote->lastObject());
+            processor.insertFallbackToUpdateMessage(remoteMsg, *sent, syncDataTimestamp);
+        } else {
+            logger->info("-X New message (UID {}) could not be found via IMAP.", sentFolderMessageUID);
+        }
+        
+        if (draft.metadata().size() > 0) {
+            // retrieve the new message and queue metadata tasks on it
+            auto message = store->find<Message>(Query().equal("accountId", account->id()).equal("remoteUID", sentFolderMessageUID));
+            if (message != nullptr) {
                 for (const auto & m : draft.metadata()) {
+                    auto pluginId = m["pluginId"].get<string>();
+                    logger->info("-- Queueing task to attach {} draft metadata to new message.", pluginId);
+                    
                     Task mTask{"SyncbackMetadataTask", account->id(), {
                         {"modelId", message->id()},
                         {"modelClassName", "message"},
                         {"modelHeaderMessageId", message->headerMessageId()},
-                        {"pluginId", m["pluginId"]},
+                        {"pluginId", pluginId},
                         {"value", m["value"]},
                     }};
                     store->save(&mTask);
@@ -773,18 +810,5 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                 }
             }
         }
-
-    } else {
-        smtp.sendMessage(builder.data(), &sprogress, &err);
-        if (err != ErrorNone) {
-            throw SyncException(err, "SMTP: Delivering message.");
-        }
     }
-
-    // Immediately sync the new message in the sent folder
-    
-    // Attach metadata from the draft to the new message by queueing SyncbackMetadataTasks
-    
-
-//    performRemoteDestroyDraft();
 }
