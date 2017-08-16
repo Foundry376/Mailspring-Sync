@@ -31,6 +31,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   include_directories(Vendor)
   include_directories(Vendor/nlohmann)
   include_directories(Vendor/SQLiteCpp/include Vendor/SQLiteCpp/sqlite3)
+  include_directories(Vendor/StanfordCPPLib)
   include_directories(MailSync MailSync/Models)
 
   file(GLOB SOURCES
@@ -40,6 +41,8 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     MailSync/Models/*.[ch]pp
     Vendor/SQLiteCpp/sqlite3/*.[ch]
     Vendor/SQLiteCpp/src/*.[ch]pp
+    Vendor/StanfordCPPLib/*.[ch]pp
+    Vendor/StanfordCPPLib/stacktrace/*.[ch]pp
   )
 
   add_executable(mailsync MailSync/main.cpp ${SOURCES})
