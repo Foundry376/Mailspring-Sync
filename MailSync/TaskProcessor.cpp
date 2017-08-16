@@ -612,7 +612,9 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     json & perRecipientBodies = task->data()["perRecipientBodies"];
     Message draft = inflateDraft(draftJSON);
     string body = draftJSON["body"].get<string>();
-    
+
+    logger->info("- Sending draft {}", draft.headerMessageId());
+
     // find the sent folder
     auto sent = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "sent"));
     if (sent == nullptr) {
@@ -734,6 +736,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         // messages. Delete all of them since they contain the targeted bodies.
         logger->info("-- Deleting {} messages added to sent folder by the SMTP gateway.", uids->count());
 
+        // Move messages to the trash folder
         HashMap * uidmap = nullptr;
         session->moveMessages(sentPath, uids, trashPath, &uidmap, &err);
         if (err != ErrorNone) {
@@ -744,10 +747,15 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         for (int i = 0; i < auidsInTrash->count(); i ++) {
             uidsInTrash.addIndex(((Value*)auidsInTrash->objectAtIndex(i))->unsignedLongValue());
         }
-        session->storeFlagsByUID(sentPath, &uidsInTrash, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
+        
+        // Add the "DELETED" flag
+        session->storeFlagsByUID(trashPath, &uidsInTrash, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
         if (err != ErrorNone) {
             throw SyncException(err, "IMAP: Adding deleted flag to sent items");
         }
+        
+        // Call EXPUNGE to permanently delete messages
+        session->expunge(trashPath, &err);
         
     } else if (!multisend && (uids->count() == 1)) {
         // If we find a single message in the sent folder, we'll move forward with that one.
@@ -794,6 +802,8 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             // retrieve the new message and queue metadata tasks on it
             auto message = store->find<Message>(Query().equal("accountId", account->id()).equal("remoteUID", sentFolderMessageUID));
             if (message != nullptr) {
+                logger->info("-- Synced sent message (UID {} = Local ID {})", sentFolderMessageUID, message->id());
+
                 for (const auto & m : draft.metadata()) {
                     auto pluginId = m["pluginId"].get<string>();
                     logger->info("-- Queueing task to attach {} draft metadata to new message.", pluginId);
@@ -807,6 +817,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                     }};
                     store->save(&mTask);
                     performLocal(&mTask); // will save again
+                    performRemote(&mTask); // will save again
                 }
             }
         }

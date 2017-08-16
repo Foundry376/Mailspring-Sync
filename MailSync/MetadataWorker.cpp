@@ -143,7 +143,7 @@ void MetadataWorker::onDelta(const json & delta) {
         applyMetadataJSON(delta["attributes"]);
         setDeltaCursor(delta["cursor"]);
     } else {
-        logger->info("Received delta for unexpected object `{}`", klass);
+        logger->info("Received delta of unexpected type `{}`", klass);
     }
 
 }
@@ -161,15 +161,20 @@ void MetadataWorker::applyMetadataJSON(const json & metadata) {
 
     unique_ptr<MailModel> model = store->findGeneric(type, Query().equal("id", id).equal("accountId", aid));
 
+    logger->info("Received metadata V{} for ({} - {})", version, type, id);
+
     if (model) {
         // attach the metadata to the object. Returns false if the model
         // already has a >= version of the metadata.
         if (model->upsertMetadata(pluginId, value, version) > 0) {
+            logger->info(" -- Saved on to local model.");
             store->save(model.get());
+        } else {
+            logger->info(" -- Ignored. Local model has >= version.");
         }
     } else {
         // save to waiting table
-        logger->info("Saving metadata for a model we haven't synced yet ({} ID {})", type, id);
+        logger->info(" -- Local model is not present. Saving to waiting table.");
         // TODO
     }
     store->commitTransaction();
