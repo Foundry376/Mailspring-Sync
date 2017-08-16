@@ -296,12 +296,33 @@ Message TaskProcessor::inflateDraft(json & draftJSON) {
     // but we require to be non-null
     draftJSON["remoteUID"] = 0;
     draftJSON["draft"] = true;
+    draftJSON["unread"] = false;
+    draftJSON["starred"] = false;
     draftJSON["date"] = time(0);
+    draftJSON["_sa"] = 0;
+    draftJSON["_suc"] = 0;
+    draftJSON["labels"] = json::array();
+
     if (!draftJSON.count("threadId")) {
         draftJSON["threadId"] = "";
     }
     if (!draftJSON.count("gMsgId")) {
         draftJSON["gMsgId"] = "";
+    }
+    if (!draftJSON.count("files")) {
+        draftJSON["files"] = json::array();
+    }
+    if (!draftJSON.count("from")) {
+        draftJSON["from"] = json::array();
+    }
+    if (!draftJSON.count("to")) {
+        draftJSON["to"] = json::array();
+    }
+    if (!draftJSON.count("cc")) {
+        draftJSON["cc"] = json::array();
+    }
+    if (!draftJSON.count("bcc")) {
+        draftJSON["bcc"] = json::array();
     }
     
     return Message{draftJSON};
@@ -533,6 +554,8 @@ void TaskProcessor::performLocalSyncbackMetadata(Task * task) {
         int metadataVersion = model->upsertMetadata(pluginId, value);
         data["modelMetadataNewVersion"] = metadataVersion;
         store->save(model.get());
+    } else {
+        logger->info("cannot apply metadata locally because no model matching type:{} id:{}, aid:{} could be found.", type, id, aid);
     }
 
     store->commitTransaction();
@@ -547,6 +570,7 @@ void TaskProcessor::performRemoteSyncbackMetadata(Task * task) {
     const json payload = {
         {"objectType", data["modelClassName"]},
         {"version", data["modelMetadataNewVersion"]},
+        {"headerMessageId", data["modelHeaderMessageId"]},
         {"value", data["value"]},
     };
     const json results = MakeAccountsRequest(account, "/metadata/" + id + "/" + pluginId, "POST", payload);
@@ -739,7 +763,8 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                 for (const auto & m : draft.metadata()) {
                     Task mTask{"SyncbackMetadataTask", account->id(), {
                         {"modelId", message->id()},
-                        {"modelClassName", "Message"},
+                        {"modelClassName", "message"},
+                        {"modelHeaderMessageId", message->headerMessageId()},
                         {"pluginId", m["pluginId"]},
                         {"value", m["value"]},
                     }};

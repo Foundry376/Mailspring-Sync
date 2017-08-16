@@ -567,7 +567,11 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
     missing.bind(2, (double)(time(0) - 24 * 60 * 60 * 30 * 3)); // three months TODO pref!
     vector<Message> results{};
     while (missing.executeStep()) {
-        results.push_back(Message(missing));
+        Message msg{missing};
+        if (msg.remoteUID() >= UINT32_MAX - 2) {
+            continue; // message is scheduled for cleanup
+        }
+        results.push_back(msg);
     }
     
     for (auto result : results) {
@@ -588,6 +592,7 @@ void SyncWorker::syncMessageBody(Message * message) {
     
     Data * data = session.fetchMessageByUID(&path, message->remoteUID(), &cb, &err);
     if (err != ErrorNone) {
+        logger->error("Unable to fetch body for message \"{}\" ({} UID {})", message->subject(), folderPath, message->remoteUID());
         throw SyncException(err, "syncMessageBody - fetchMessageByUID");
     }
     MessageParser * messageParser = MessageParser::messageParserWithData(data);

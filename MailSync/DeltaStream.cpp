@@ -33,7 +33,7 @@ shared_ptr<DeltaStream> SharedDeltaStream() {
 
 // Class
 
-DeltaStream::DeltaStream() {
+DeltaStream::DeltaStream() : scheduled(false) {
 }
 
 
