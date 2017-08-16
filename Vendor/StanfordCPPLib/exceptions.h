@@ -18,6 +18,7 @@
 
 #include <iostream>
 #include "stacktrace/call_stack.h"
+#include "spdlog/spdlog.h"
 
 namespace exceptions {
 /*
@@ -40,8 +41,7 @@ bool getTopLevelExceptionHandlerEnabled();
  *  on Linux with GCC/G++, Mac OS X with clang++, and Windows with MinGW.)
  */
 void printStackTrace();
-void printStackTrace(std::ostream& out);
-void printStackTrace(std::vector<stacktrace::entry> & entries, std::ostream& out);
+void printStackTrace(std::vector<stacktrace::entry> & entries);
 
 /*
  * Called by C++ lib's main wrapper so that the stack trace knows the program's name.

@@ -15,8 +15,8 @@ GenericException::GenericException()
     _stackentries = trace.stack;
 }
 
-void GenericException::printStackTrace(std::ostream & out) {
-    exceptions::printStackTrace(_stackentries, out);
+void GenericException::printStackTrace() {
+    exceptions::printStackTrace(_stackentries);
 }
 
 json GenericException::toJSON() {

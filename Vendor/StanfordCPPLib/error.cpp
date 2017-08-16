@@ -18,12 +18,6 @@
 
 ErrorException::ErrorException(std::string msg) {
     this->msg = msg;
-
-#ifdef ERROREXCEPTION_CAPTURE_STACK_TRACE
-    std::ostringstream out;
-    exceptions::printStackTrace(out);
-    this->stackTrace = out.str();
-#endif // ERROREXCEPTION_CAPTURE_STACK_TRACE
 }
 
 ErrorException::~ErrorException() throw () {

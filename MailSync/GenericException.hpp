@@ -21,7 +21,7 @@ class GenericException : public std::exception {
     
 public:
     GenericException();
-    void printStackTrace(std::ostream & out = std::cerr);
+    void printStackTrace();
    
     virtual json toJSON();
 };
