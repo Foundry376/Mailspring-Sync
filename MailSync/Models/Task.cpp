@@ -17,8 +17,8 @@ using namespace mailcore;
 string Task::TABLE_NAME = "Task";
 
 Task::Task(string constructorName, string accountId, json taskSpecificData) :
-    MailModel(MailUtils::idRandomlyGenerated(), accountId, 1) {
-    _data["constructorName"] = constructorName;
+    MailModel(MailUtils::idRandomlyGenerated(), accountId) {
+    _data["__cls"] = constructorName;
     _data["status"] = "local";
     for (json::iterator it = taskSpecificData.begin(); it != taskSpecificData.end(); ++it) {
         _data[it.key()] = it.value();

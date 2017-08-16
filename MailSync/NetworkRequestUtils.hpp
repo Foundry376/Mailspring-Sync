@@ -24,4 +24,6 @@ CURL * CreateAccountsRequest(shared_ptr<Account> account, string path, string me
 
 const json MakeAccountsRequest(shared_ptr<Account> account, string path, string method = "GET", const json & payload = nullptr);
 
+void ValidateAccountsRequestResp(CURLcode res, CURL * curl_handle, string path);
+
 #endif /* NetworkRequestUtils_hpp */

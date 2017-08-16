@@ -29,7 +29,7 @@ public:
     static string TABLE_NAME;
     virtual string tableName();
 
-    MailModel(string id, string accountId, int version);
+    MailModel(string id, string accountId, int version = 0);
     MailModel(SQLite::Statement & query);
     MailModel(json json);
     

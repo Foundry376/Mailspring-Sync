@@ -100,11 +100,8 @@ void MetadataWorker::fetchDeltasBlocking() {
     logger->info("Delta stream starting...");
     CURLcode res = curl_easy_perform(curl_handle);
     logger->info("Delta stream closed.");
-    
-    if (res != CURLE_OK) {
-        throw SyncException(res, "/delta/streaming");
-    }
 
+    ValidateAccountsRequestResp(res, curl_handle, "/delta/streaming");
     curl_easy_cleanup(curl_handle);
 }
 

@@ -19,7 +19,7 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
     size_t newLength = oldLength + real_size;
     
     buffer->resize(newLength);
-    std::copy((char*)contents, (char*)contents+newLength, buffer->begin() + oldLength);
+    std::copy((char*)contents, (char*)contents+length, buffer->begin() + oldLength);
     
     return real_size;
 }
@@ -51,12 +51,30 @@ const json MakeAccountsRequest(shared_ptr<Account> account, string path, string 
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
     CURLcode res = curl_easy_perform(curl_handle);
-    if (res != CURLE_OK) {
-        throw SyncException(res, path);
+    ValidateAccountsRequestResp(res, curl_handle, path);
+
+    json resultJSON = nullptr;
+    try {
+        resultJSON = json::parse(result);
+    } catch (std::invalid_argument & ex) {
+        resultJSON = {"result", result};
     }
-    
-    const json resultJSON { json::parse(result) };
     curl_easy_cleanup(curl_handle);
     return resultJSON;
 }
 
+void ValidateAccountsRequestResp(CURLcode res, CURL * curl_handle, string path) {
+    if (res != CURLE_OK) {
+        curl_easy_cleanup(curl_handle);
+        throw SyncException(res, path);
+    }
+    
+    long http_code = 0;
+    curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &http_code);
+
+    if (http_code != 200) {
+        curl_easy_cleanup(curl_handle);
+        bool retryable = ((http_code != 403) && (http_code != 401));
+        throw SyncException("Invalid Response Code: " + to_string(http_code), path, retryable);
+    }
+}
