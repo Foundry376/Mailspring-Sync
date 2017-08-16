@@ -228,6 +228,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             packet = SharedDeltaStream()->waitForJSON();
         } catch (std::invalid_argument & ex) {
             json resp = {{"error", ex.what()}};
+            spdlog::get("main")->error(resp.dump());
             cout << "\n" << resp.dump() << "\n";
             continue;
         }
@@ -316,23 +317,36 @@ int main(int argc, const char * argv[]) {
     }
 
     // setup logging to file or console
-    shared_ptr<spdlog::sinks::base_sink<std::mutex>> sink;
+    std::vector<shared_ptr<spdlog::sinks::base_sink<std::mutex>>> sinks;
+
     if (!options[ORPHAN]) {
+        // If we're attached to the mail client, log everything to a
+        // rotating log file with the default logger format.
         spdlog::set_async_mode(8192, spdlog::async_overflow_policy::block_retry, nullptr, std::chrono::seconds(3), nullptr);
         spdlog::set_pattern("%+");
 
         string logPath = string(getenv("CONFIG_DIR_PATH")) + "/mailsync.log";
-        sink = make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3);
+        sinks.push_back(make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3));
     } else {
+        // If we're attached to a debugger / console, log everything to
+        // stdout in an abbreviated format.
         spdlog::set_sync_mode();
         spdlog::set_pattern("%l: %v");
-        sink = make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>();
+        sinks.push_back(make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>());
     }
-    spdlog::create("processor", sink);
-    spdlog::create("metadata", sink);
-    spdlog::create("tasks", sink);
-    spdlog::create("fg", sink);
-    spdlog::create("bg", sink);
+
+    // Always log critical errors to the stderr as well as a log file / stdout.
+    // When attached to the client, these are saved and if we terminates, reported.
+    auto stderr_sink = make_shared<spdlog::sinks::stderr_sink_mt>();
+    stderr_sink->set_level(spdlog::level::critical);
+    sinks.push_back(stderr_sink);
+    
+    spdlog::create("main", std::begin(sinks), std::end(sinks));
+    spdlog::create("processor", std::begin(sinks), std::end(sinks));
+    spdlog::create("metadata", std::begin(sinks), std::end(sinks));
+    spdlog::create("tasks", std::begin(sinks), std::end(sinks));
+    spdlog::create("fg", std::begin(sinks), std::end(sinks));
+    spdlog::create("bg", std::begin(sinks), std::end(sinks));
 
     // setup curl
     curl_global_init(CURL_GLOBAL_ALL ^ CURL_GLOBAL_SSL);

@@ -165,19 +165,16 @@ static bool shouldFilterOutFromStackTrace(const std::string& function) {
 }
 
 void printStackTrace() {
-    printStackTrace(std::cerr);
-}
-
-void printStackTrace(std::ostream& out) {
     // constructing the following object jumps into fancy code in call_stack_gcc/windows.cpp
     // to rebuild the stack trace; implementation differs for each operating system
     stacktrace::call_stack trace;
-    printStackTrace(trace.stack, out);
+    printStackTrace(trace.stack);
 }
     
-void printStackTrace(std::vector<stacktrace::entry> & entries, std::ostream& out) {
+void printStackTrace(std::vector<stacktrace::entry> & entries) {
 
     // get longest line string length to line up stack traces
+    std::ostringstream out;
     void* fakeStackPtr = stacktrace::getFakeCallStackPointer();
     int entriesToShowCount = 0;
     int funcNameLength = 0;
@@ -286,6 +283,8 @@ void printStackTrace(std::vector<stacktrace::entry> & entries, std::ostream& out
 //    out << " *** suggest running your program under the debugger." << std::endl;
     
     out << " ***" << std::endl;
+
+    spdlog::get("main")->critical(out.str());
 }
 
 // macro to avoid lots of redundancy in catch statements below
@@ -298,9 +297,10 @@ void printStackTrace(std::vector<stacktrace::entry> & entries, std::ostream& out
 #define FILL_IN_EXCEPTION_TRACE(ex, kind, desc) \
     if ((!std::string(kind).empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, (kind)); } \
     if ((!std::string(desc).empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, (desc)); } \
-    std::cout.flush(); \
-    out << msg; \
-    printStackTrace(out); \
+    spdlog::get("main")->flush(); \
+    spdlog::get("main")->critical(msg); \
+    printStackTrace(); \
+    spdlog::get("main")->flush(); \
     THROW_NOT_ON_WINDOWS(ex);
 
 static void signalHandlerDisable() {
@@ -422,7 +422,6 @@ static void stanfordCppLibTerminateHandler() {
     msg += " *** " + DEFAULT_EXCEPTION_DETAILS + "\n";
     msg += " ***\n";
     
-    std::ostream& out = std::cerr;   // used by FILL_IN_EXCEPTION_TRACE macro
     try {
         signalHandlerDisable();   // don't want both a signal AND a terminate() call
         throw;   // re-throws the exception that already occurred
@@ -430,9 +429,10 @@ static void stanfordCppLibTerminateHandler() {
     } catch (GenericException& ex) {
         stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, "Merani GenericException");
         stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, (ex.toJSON().dump()));
-        std::cout.flush();
-        out << msg;
+        spdlog::get("main")->flush();
+        spdlog::get("main")->critical(msg);
         ex.printStackTrace();
+        spdlog::get("main")->flush();
         THROW_NOT_ON_WINDOWS(ex);
         
     } catch (const ErrorException& ex) {
