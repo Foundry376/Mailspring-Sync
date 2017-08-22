@@ -63,6 +63,8 @@ private:
     
     void performRemoteDestroyCategory(Task * task);
     void performRemoteSendDraft(Task * task);
+
+    void performRemoteSendFeatureUsageEvent(Task * task);
 };
 
 #endif /* TaskProcessor_hpp */

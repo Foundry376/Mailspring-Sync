@@ -10,9 +10,9 @@
 #include "MailUtils.hpp"
 #include "constants.h"
 
-#import "Folder.hpp"
-#import "Message.hpp"
-#import "Thread.hpp"
+#include "Folder.hpp"
+#include "Message.hpp"
+#include "Thread.hpp"
 
 using namespace mailcore;
 using namespace std;
