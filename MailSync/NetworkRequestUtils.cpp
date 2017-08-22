@@ -24,15 +24,12 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
     return real_size;
 }
 
-CURL * CreateAccountsRequest(shared_ptr<Account> account, string path, string method, const char * payloadChars) {
+CURL * CreateRequest(string server, string username, string password, string path, string method, const char * payloadChars) {
     CURL * curl_handle = curl_easy_init();
-    string username = account->cloudToken();
-    string password = Identity::GetGlobal()->token();
-    
     string url { string(getenv("ACCOUNTS_SERVER")) + path };
     url.replace(url.find("://"), 3, "://" + username + ":" + password + "@");
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
-
+    
     if (method == "POST") {
         struct curl_slist *headers = NULL;
         headers = curl_slist_append(headers, "Accept: application/json");
@@ -44,15 +41,24 @@ CURL * CreateAccountsRequest(shared_ptr<Account> account, string path, string me
     return curl_handle;
 }
 
-const json MakeAccountsRequest(shared_ptr<Account> account, string path, string method, const json & payload) {
+    
+CURL * CreateAccountsRequest(shared_ptr<Account> account, string path, string method, const char * payloadChars) {
+    return CreateRequest("ACCOUNTS_SERVER", account->cloudToken(), Identity::GetGlobal()->token(), path, method, payloadChars);
+}
+
+CURL * CreateIdentityRequest(string path, string method, const char * payloadChars) {
+    return CreateRequest("IDENTITY_SERVER", Identity::GetGlobal()->token(), "", path, method, payloadChars);
+}
+
+const json MakeRequest(string server, string username, string password, string path, string method, const json & payload) {
     string payloadString = payload.dump();
-    CURL * curl_handle = CreateAccountsRequest(account, path, method, payloadString.c_str());
+    CURL * curl_handle = CreateRequest(server, username, password, path, method, payloadString.c_str());
     string result;
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
     CURLcode res = curl_easy_perform(curl_handle);
-    ValidateAccountsRequestResp(res, curl_handle, path);
-
+    ValidateRequestResp(res, curl_handle, path);
+    
     json resultJSON = nullptr;
     try {
         resultJSON = json::parse(result);
@@ -63,7 +69,15 @@ const json MakeAccountsRequest(shared_ptr<Account> account, string path, string 
     return resultJSON;
 }
 
-void ValidateAccountsRequestResp(CURLcode res, CURL * curl_handle, string path) {
+const json MakeAccountsRequest(shared_ptr<Account> account, string path, string method, const json & payload) {
+    return MakeRequest("ACCOUNTS_SERVER", account->cloudToken(), Identity::GetGlobal()->token(), path, method, payload);
+}
+
+const json MakeIdentityRequest(string path, string method, const json & payload) {
+    return MakeRequest("IDENTITY_SERVER", Identity::GetGlobal()->token(), "", path, method, payload);
+}
+
+void ValidateRequestResp(CURLcode res, CURL * curl_handle, string path) {
     if (res != CURLE_OK) {
         curl_easy_cleanup(curl_handle);
         throw SyncException(res, path);
@@ -78,3 +92,5 @@ void ValidateAccountsRequestResp(CURLcode res, CURL * curl_handle, string path) 
         throw SyncException("Invalid Response Code: " + to_string(http_code), path, retryable);
     }
 }
+
+

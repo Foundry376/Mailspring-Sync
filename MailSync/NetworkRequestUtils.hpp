@@ -20,10 +20,14 @@ using namespace std;
 
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp);
 
+CURL * CreateRequest(string server, string username, string password, string path, string method, const char * payloadChars);
 CURL * CreateAccountsRequest(shared_ptr<Account> account, string path, string method = "GET", const char * payloadChars = nullptr);
+CURL * CreateIdentityRequest(string path, string method, const char * payloadChars);
 
+const json MakeRequest(string server, string username, string password, string path, string method, const json & payload);
 const json MakeAccountsRequest(shared_ptr<Account> account, string path, string method = "GET", const json & payload = nullptr);
+const json MakeIdentityRequest(string path, string method, const json & payload);
 
-void ValidateAccountsRequestResp(CURLcode res, CURL * curl_handle, string path);
+void ValidateRequestResp(CURLcode res, CURL * curl_handle, string path);
 
 #endif /* NetworkRequestUtils_hpp */

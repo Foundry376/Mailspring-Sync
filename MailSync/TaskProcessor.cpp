@@ -204,6 +204,9 @@ void TaskProcessor::performLocal(Task * task) {
         } else if (cname == "SyncbackMetadataTask") {
             performLocalSyncbackMetadata(task);
             
+        } else if (cname == "SendFeatureUsageEventTask") {
+            // nothing
+
         } else {
             logger->error("Unsure of how to process this task type {}", cname);
         }
@@ -261,6 +264,9 @@ void TaskProcessor::performRemote(Task * task) {
                 
             } else if (cname == "SyncbackMetadataTask") {
                 performRemoteSyncbackMetadata(task);
+
+            } else if (cname == "SendFeatureUsageEventTask") {
+                performRemoteSendFeatureUsageEvent(task);
 
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
@@ -823,3 +829,15 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         }
     }
 }
+
+void TaskProcessor::performRemoteSendFeatureUsageEvent(Task * task) {
+    const auto feature = task->data()["feature"].get<string>();
+    json payload = {
+        {"feature", feature}
+    };
+
+    logger->info("Incrementing usage of feature: {}", feature);
+    auto result = MakeIdentityRequest("/api/feature_usage_event", "POST", payload);
+    logger->info("Incrementing usage of feature succeeded: {}", result.dump());
+}
+
