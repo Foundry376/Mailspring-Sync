@@ -83,6 +83,7 @@ bool MetadataWorker::fetchMetadata(int page) {
 void MetadataWorker::fetchDeltaCursor() {
     const json & result = MakeAccountsRequest(account, "/delta/head");
     if (result == nullptr || !result.count("cursor")) {
+        logger->info("Unexpected response from /delta/head: {}", result ? result.dump() : "nullptr");
         throw SyncException("no-cursor", "/delta/head API did not return JSON with a cursor", true);
     }
     if (result["cursor"].is_number()) {

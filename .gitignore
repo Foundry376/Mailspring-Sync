@@ -3,3 +3,4 @@
 *.xcbkptlist
 MailSync.xcodeproj/xcuserdata
 /build
+/postinstall.sh

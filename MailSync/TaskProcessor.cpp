@@ -70,6 +70,9 @@ void _applyFolderMoveInIMAPFolder(IMAPSession * session, String * path, IndexSet
     if (err != ErrorCode::ErrorNone) {
         throw SyncException(err, "moveMessages");
     }
+    if (uidmap == nullptr) {
+        throw SyncException("generic", "move did not return a uidmap - maybe the UIDs are no longer in the folder?", false);
+    }
     for (auto msg : messages) {
         Value * currentUID = Value::valueWithUnsignedLongValue(msg->remoteUID());
         Value * newUID = (Value *)uidmap->objectForKey(currentUID);
@@ -168,6 +171,13 @@ void TaskProcessor::performLocal(Task * task) {
     string cname = task->constructorName();
     
     logger->info("[{}] Running {} performLocal:", task->id(), cname);
+
+    try {
+        store->save(task);
+    } catch (SQLite::Exception & ex) {
+        logger->error("[{}] -- Exception: Task could not be saved to the database. {}", task->id(), ex.what());
+        return;
+    }
 
     try {
         if (task->accountId() != account->id()) {
@@ -821,8 +831,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                         {"pluginId", pluginId},
                         {"value", m["value"]},
                     }};
-                    store->save(&mTask);
-                    performLocal(&mTask); // will save again
+                    performLocal(&mTask); // will save
                     performRemote(&mTask); // will save again
                 }
             }
