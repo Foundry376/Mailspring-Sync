@@ -19,14 +19,14 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
     size_t newLength = oldLength + real_size;
     
     buffer->resize(newLength);
-    std::copy((char*)contents, (char*)contents+length, buffer->begin() + oldLength);
+    std::copy((char*)contents, (char*)contents+real_size, buffer->begin() + oldLength);
     
     return real_size;
 }
 
 CURL * CreateRequest(string server, string username, string password, string path, string method, const char * payloadChars) {
     CURL * curl_handle = curl_easy_init();
-    string url { string(getenv("ACCOUNTS_SERVER")) + path };
+    string url { string(getenv(server.c_str())) + path };
     url.replace(url.find("://"), 3, "://" + username + ":" + password + "@");
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     
@@ -63,7 +63,7 @@ const json MakeRequest(string server, string username, string password, string p
     try {
         resultJSON = json::parse(result);
     } catch (std::invalid_argument & ex) {
-        resultJSON = {"result", result};
+        resultJSON = {{"text", result}};
     }
     curl_easy_cleanup(curl_handle);
     return resultJSON;

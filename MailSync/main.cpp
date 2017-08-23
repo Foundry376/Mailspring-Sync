@@ -252,7 +252,6 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
         if (packet.count("type") && packet["type"].get<string>() == "queue-task") {
             packet["task"]["v"] = 0;
-
             Task task{packet["task"]};
             processor.performLocal(&task);
     
@@ -399,6 +398,7 @@ int main(int argc, const char * argv[]) {
             return 1;
         }
 
+        spdlog::get("main")->info("------------- Starting Sync ---------------");
         bgWorker = make_shared<SyncWorker>("bg", account);
         fgWorker = make_shared<SyncWorker>("fg", account);
         metadataWorker = make_shared<MetadataWorker>(account);
