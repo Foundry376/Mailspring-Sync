@@ -205,6 +205,37 @@ static std::map<std::string, std::string> COMMON_FOLDER_NAMES = {
 };
 
 static map<ErrorCode, string> ErrorCodeToTypeMap = {
+    {ErrorNone, "ErrorNone"}, // 0
+    {ErrorRename, "ErrorRename"},
+    {ErrorDelete, "ErrorDelete"},
+    {ErrorCreate, "ErrorCreate"},
+    {ErrorSubscribe, "ErrorSubscribe"},
+    {ErrorAppend, "ErrorAppend"},
+    {ErrorCopy, "ErrorCopy"},
+    {ErrorExpunge, "ErrorExpunge"},
+    {ErrorFetch, "ErrorFetch"},
+    {ErrorIdle, "ErrorIdle"}, // 20
+    {ErrorIdentity, "ErrorIdentity"},
+    {ErrorNamespace, "ErrorNamespace"},
+    {ErrorStore, "ErrorStore"},
+    {ErrorCapability, "ErrorCapability"},
+    {ErrorSendMessageIllegalAttachment, "ErrorSendMessageIllegalAttachment"},
+    {ErrorStorageLimit, "ErrorStorageLimit"},
+    {ErrorSendMessageNotAllowed, "ErrorSendMessageNotAllowed"},
+    {ErrorSendMessage, "ErrorSendMessage"}, // 30
+    {ErrorFetchMessageList, "ErrorFetchMessageList"},
+    {ErrorDeleteMessage, "ErrorDeleteMessage"},
+    {ErrorFile, "ErrorFile"},
+    {ErrorCompression, "ErrorCompression"},
+    {ErrorNoSender, "ErrorNoSender"},
+    {ErrorNoRecipient, "ErrorNoRecipient"},
+    {ErrorNoop, "ErrorNoop"},
+    {ErrorServerDate, "ErrorServerDate"},
+    {ErrorCustomCommand, "ErrorCustomCommand"},
+    {ErrorYahooSendMessageSpamSuspected, "ErrorYahooSendMessageSpamSuspected"},
+    {ErrorYahooSendMessageDailyLimitExceeded, "ErrorYahooSendMessageDailyLimitExceeded"},
+    {ErrorOutlookLoginViaWebBrowser, "ErrorOutlookLoginViaWebBrowser"},
+    {ErrorTiscaliSimplePassword, "ErrorTiscaliSimplePassword"},
     {ErrorConnection, "ErrorConnection"},
     {ErrorInvalidAccount, "ErrorInvalidAccount"},
     {ErrorTLSNotAvailable, "ErrorTLSNotAvailable"},
