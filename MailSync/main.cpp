@@ -274,6 +274,10 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             fgWorker->idleQueueBodiesToSync(ids);
             fgWorker->idleInterrupt();
         }
+        
+        if (packet.count("type") && packet["type"].get<string>() == "test-crash") {
+            throw SyncException("test", "triggered via cin", false);
+        }
     }
 }
 
