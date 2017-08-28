@@ -506,6 +506,8 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
 void TaskProcessor::performLocalDestroyDraft(Task * task) {
     string headerMessageId = task->data()["headerMessageId"];
 
+    logger->info("-- Deleting local drafts with headerMessageId {}", headerMessageId);
+
     // find anything with this header id and blow it away
     Query q = Query().equal("accountId", account->id()).equal("headerMessageId", headerMessageId).equal("draft", 1);
     auto drafts = store->findAll<Message>(q);
@@ -516,6 +518,7 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
     store->beginTransaction();
     for (auto & draft : drafts) {
         draftsJSON.push_back(draft->toJSON());
+        logger->info("--- Deleting {}", draft->id());
         store->remove(draft.get());
     }
     store->commitTransaction();
@@ -729,13 +732,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             throw SyncException(err, "SMTP: Delivering message.");
         }
     }
-    
-    // Delete the draft if one exists. We do this immediately after the messages
-    // have been sent through the SMTP gateway to ensure the user doesn't try to
-    // send the draft again if for some reason subsequent steps fail.
-    //
-    performLocalDestroyDraft(task);
-    
+
     // Scan the sent folder for the message(s) we just sent through the SMTP gateway.
     // Some mail servers automatically place messages in the sent folder, others don't.
     //
@@ -792,6 +789,11 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         }
     }
 
+    // Delete the draft. Note: since the foreground sync worker is running on another thread, it's possible the
+    // draft has already been converted into a message. In that case, this is a no-op and the code below will
+    // do an UPDATE not an INSERT.
+    performLocalDestroyDraft(task);
+    
     if (sentFolderMessageUID != 0) {
         logger->info("-- Syncing sent message (UID {}) to the local mail store", sentFolderMessageUID);
 
@@ -806,34 +808,42 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         if (err != ErrorNone) {
             throw SyncException(err, "IMAP: Retrieving the message placed in the Sent folder");
         }
+
+        unique_ptr<Message> localMessage = nullptr;
+
         if (remote->count() > 0) {
             MailProcessor processor{account, store};
             IMAPMessage * remoteMsg = (IMAPMessage *)(remote->lastObject());
             processor.insertFallbackToUpdateMessage(remoteMsg, *sent, syncDataTimestamp);
+            localMessage = store->find<Message>(Query().equal("accountId", account->id()).equal("remoteUID", sentFolderMessageUID));
+            MessageParser * messageParser = MessageParser::messageParserWithData(messageDataForSent);
+            processor.retrievedMessageBody(localMessage.get(), messageParser);
+            logger->info("-- Synced sent message (UID {} = Local ID {})", sentFolderMessageUID, localMessage->id());
         } else {
             logger->info("-X New message (UID {}) could not be found via IMAP.", sentFolderMessageUID);
         }
         
         if (draft.metadata().size() > 0) {
             // retrieve the new message and queue metadata tasks on it
-            auto message = store->find<Message>(Query().equal("accountId", account->id()).equal("remoteUID", sentFolderMessageUID));
-            if (message != nullptr) {
-                logger->info("-- Synced sent message (UID {} = Local ID {})", sentFolderMessageUID, message->id());
-
-                for (const auto & m : draft.metadata()) {
-                    auto pluginId = m["pluginId"].get<string>();
-                    logger->info("-- Queueing task to attach {} draft metadata to new message.", pluginId);
-                    
-                    Task mTask{"SyncbackMetadataTask", account->id(), {
-                        {"modelId", message->id()},
-                        {"modelClassName", "message"},
-                        {"modelHeaderMessageId", message->headerMessageId()},
-                        {"pluginId", pluginId},
-                        {"value", m["value"]},
-                    }};
-                    performLocal(&mTask); // will save
-                    performRemote(&mTask); // will save again
+            for (const auto & m : draft.metadata()) {
+                auto pluginId = m["pluginId"].get<string>();
+                
+                if (localMessage == nullptr) {
+                    logger->info("-X Metadata {} not attached to sent message.", pluginId);
+                    continue;
                 }
+
+                logger->info("-- Queueing task to attach {} draft metadata to new message.", pluginId);
+                
+                Task mTask{"SyncbackMetadataTask", account->id(), {
+                    {"modelId", localMessage->id()},
+                    {"modelClassName", "message"},
+                    {"modelHeaderMessageId", localMessage->headerMessageId()},
+                    {"pluginId", pluginId},
+                    {"value", m["value"]},
+                }};
+                performLocalSyncbackMetadata(&mTask); // will save
+                performRemoteSyncbackMetadata(&mTask); // will save again
             }
         }
     }
