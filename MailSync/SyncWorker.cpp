@@ -592,7 +592,18 @@ void SyncWorker::syncMessageBody(Message * message) {
     
     Data * data = session.fetchMessageByUID(&path, message->remoteUID(), &cb, &err);
     if (err != ErrorNone) {
-        logger->error("Unable to fetch body for message \"{}\" ({} UID {})", message->subject(), folderPath, message->remoteUID());
+        logger->error("Unable to fetch body for message \"{}\" ({} UID {}). Error {}",
+                      message->subject(), folderPath, message->remoteUID(), ErrorCodeToTypeMap[err]);
+
+        if (err == ErrorFetch) {
+            // Syncing message bodies can fail often, because we query our local store
+            // and the sync worker may not have updated it yet. Messages, esp. drafts,
+            // can just disappear.
+
+            // oh well.
+            return;
+        }
+
         throw SyncException(err, "syncMessageBody - fetchMessageByUID");
     }
     MessageParser * messageParser = MessageParser::messageParserWithData(data);
