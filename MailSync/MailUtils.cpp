@@ -424,3 +424,22 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     session.setCheckCertificateEnabled(false);
     session.setConnectionType(ConnectionType::ConnectionTypeTLS);
 }
+
+// Worker Sleep Implementation
+
+
+std::mutex workerSleepMtx;
+std::condition_variable workerSleepCV;
+
+void MailUtils::sleepWorkerUntilWakeOrSec(int sec) {
+    auto desiredTime = std::chrono::system_clock::now();
+    desiredTime += chrono::milliseconds(sec * 1000);
+    unique_lock<mutex> lck(workerSleepMtx);
+    workerSleepCV.wait_until(lck, desiredTime);
+}
+
+void MailUtils::wakeAllWorkers() {
+    lock_guard<mutex> lck(workerSleepMtx);
+    workerSleepCV.notify_all();
+}
+

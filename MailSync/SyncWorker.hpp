@@ -26,6 +26,7 @@ using namespace mailcore;
 
 class SyncWorker {
     IMAPSession session;
+    
     MailStore * store;
     MailProcessor * processor;
     shared_ptr<spdlog::logger> logger;
@@ -41,10 +42,11 @@ class SyncWorker {
 public:
     SyncWorker(string name, shared_ptr<Account> account);
     
+    void configure();
+
 #pragma mark Foreground Worker
     void idleInterrupt();
     void idleQueueBodiesToSync(vector<string> & ids);
-    void idleCycle();
     void idleCycleIteration();
     
 #pragma mark Background Worker

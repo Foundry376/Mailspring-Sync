@@ -29,7 +29,8 @@ CURL * CreateRequest(string server, string username, string password, string pat
     string url { string(getenv(server.c_str())) + path };
     url.replace(url.find("://"), 3, "://" + username + ":" + password + "@");
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
-    
+    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
+
     if (method == "POST") {
         struct curl_slist *headers = NULL;
         headers = curl_slist_append(headers, "Accept: application/json");

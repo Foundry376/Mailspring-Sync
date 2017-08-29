@@ -8,6 +8,7 @@
 
 #include "MetadataWorker.hpp"
 #include "MailStore.hpp"
+#include "MailUtils.hpp"
 #include "Message.hpp"
 #include "Thread.hpp"
 #include "Contact.hpp"
@@ -18,7 +19,6 @@
 #include <curl/curl.h>
 
 time_t backoffSeconds[] = {3, 3, 5, 10, 20, 30, 60, 120, 300, 300};
-int backoffStep = 0;
 
 
 static size_t _onDeltaData(void *contents, size_t length, size_t nmemb, void *userp) {
@@ -63,7 +63,7 @@ void MetadataWorker::run() {
             if (!ex.isRetryable()) {
                 throw;
             }
-            sleep(backoffSeconds[backoffStep]);
+            MailUtils::sleepWorkerUntilWakeOrSec(backoffSeconds[backoffStep]);
             if (backoffStep < 9)
                 backoffStep += 1;
         }
@@ -98,9 +98,9 @@ void MetadataWorker::fetchDeltasBlocking() {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onDeltaData);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)this);
 
-    logger->info("Delta stream starting...");
+    logger->info("Metadata delta stream starting...");
     CURLcode res = curl_easy_perform(curl_handle);
-    logger->info("Delta stream closed.");
+    logger->info("Metadata delta stream closed.");
 
     ValidateRequestResp(res, curl_handle, "/delta/streaming");
     curl_easy_cleanup(curl_handle);
