@@ -106,7 +106,7 @@ void DeltaStream::bufferMessage(string klass, string type, MailModel * model) {
         // scan and replace any instance of the object already available, or append.
         // It's important two back-to-back saves of the same object don't create two entries,
         // only the last one.
-        auto delta = buffer[klass].back();
+        auto & delta = buffer[klass].back();
         bool found = false;
         for (int ii = 0; ii < delta["objects"].size(); ii ++) {
             if (delta["objects"][ii]["id"].get<string>() == model->id()) {
@@ -116,7 +116,7 @@ void DeltaStream::bufferMessage(string klass, string type, MailModel * model) {
             }
         }
         if (!found) {
-            buffer[klass].back()["objects"].push_back(model->toJSONDispatch());
+            delta["objects"].push_back(model->toJSONDispatch());
         }
     } else {
         json objs = json::array();
