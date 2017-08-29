@@ -88,13 +88,28 @@ void SyncWorker::idleCycleIteration()
         return;
     }
 
-    // Run tasks ready for performRemote
-    Query q = Query().equal("accountId", account->id()).equal("status", "remote");
-    auto tasks = store->findAll<Task>(q);
+    // Run tasks ready for performRemote. This is set up in an odd way
+    // because we want tasks created when a task runs to also be run
+    // immediately. (eg: A SendDraftTask queueing a SyncbackMetadataTask)
+    //
+    int rowid = -1;
+    vector<shared_ptr<Task>> tasks;
     TaskProcessor processor { account, store, &session };
-    for (const auto task : tasks) {
-        processor.performRemote(task.get());
-    }
+    SQLite::Statement statement(store->db(), "SELECT rowid, data FROM Task WHERE accountId = ? AND status = \"remote\" AND rowid > ?");
+
+    do {
+        tasks = {};
+        statement.bind(1, account->id());
+        statement.bind(2, rowid);
+        while (statement.executeStep()) {
+            tasks.push_back(make_shared<Task>(statement));
+            rowid = max(rowid, statement.getColumn("rowid").getInt());
+        }
+        statement.reset();
+        for (auto & task : tasks) {
+            processor.performRemote(task.get());
+        }
+    } while (tasks.size() > 0);
 
     if (idleShouldReloop) {
         idleShouldReloop = false;
@@ -126,7 +141,7 @@ void SyncWorker::idleCycleIteration()
 
     // Identify the preferred idle folder (inbox / all)
     
-    q = Query().equal("accountId", account->id()).equal("role", "inbox");
+    Query q = Query().equal("accountId", account->id()).equal("role", "inbox");
     auto inbox = store->find<Folder>(q);
     if (inbox.get() == nullptr) {
         Query q = Query().equal("accountId", account->id()).equal("role", "all");
