@@ -36,7 +36,7 @@ public:
     static string TABLE_NAME;
 
     Thread(SQLite::Statement & query);
-    Thread(Message msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allLabels);
+    Thread(shared_ptr<Message> msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allLabels);
     
     string subject();
     void setSubject(string s);

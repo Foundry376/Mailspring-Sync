@@ -24,6 +24,7 @@ using namespace std;
 class MailModel {
 public:
     json _data;
+
     map<string, bool> _initialMetadataPluginIds;
     
     static string TABLE_NAME;
