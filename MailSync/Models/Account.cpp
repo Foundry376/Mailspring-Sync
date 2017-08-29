@@ -29,18 +29,26 @@ bool Account::valid() {
     if (!_data.count("id") || !_data.count("settings")) {
         return false;
     }
-    json & settings = _data["settings"];
-    if (!(settings.count("imap_port") && settings.count("imap_host") && settings.count("imap_username") && settings.count("imap_password"))) {
+    json & s = _data["settings"];
+    if (!(s.count("imap_port") && s.count("imap_host") && s.count("imap_username") && (s.count("xoauth_refresh_token") || s.count("imap_password")))) {
         return false;
     }
-    if (!(settings.count("smtp_port") && settings.count("smtp_host") && settings.count("smtp_username") && settings.count("smtp_password"))) {
+    if (!(s.count("smtp_port") && s.count("smtp_host") && s.count("smtp_username") && (s.count("xoauth_refresh_token") || s.count("smtp_password")))) {
         return false;
     }
     return true;
 }
 
+string Account::xoauthRefreshToken() {
+    if (_data["settings"].count("xoauth_refresh_token") == 0) {
+        return "";
+    }
+    return _data["settings"]["xoauth_refresh_token"].get<string>();
+}
+
 unsigned int Account::IMAPPort() {
-    return _data["settings"]["imap_port"].get<unsigned int>();
+    json & val = _data["settings"]["imap_port"];
+    return val.is_string() ? stoi(val.get<string>()) : val.get<unsigned int>();
 }
 
 string Account::IMAPHost() {
@@ -56,7 +64,8 @@ string Account::IMAPPassword() {
 }
 
 unsigned int Account::SMTPPort() {
-    return _data["settings"]["smtp_port"].get<unsigned int>();
+    json & val = _data["settings"]["smtp_port"];
+    return val.is_string() ? stoi(val.get<string>()) : val.get<unsigned int>();
 }
 
 string Account::SMTPHost() {

@@ -1,0 +1,1 @@
+- Remember to scrub xcode configuration, which contains launch args with my passwords.
