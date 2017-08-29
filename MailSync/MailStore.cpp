@@ -74,8 +74,8 @@ MailStore::MailStore() :
     // https://www.sqlite.org/intern-v-extern-blob.html
     // A database page size of 8192 or 16384 gives the best performance for large BLOB I/O.
     SQLite::Statement(_db, "PRAGMA journal_mode = WAL").executeStep();
-    SQLite::Statement(_db, "PRAGMA main.page_size = 8192").exec();
-    SQLite::Statement(_db, "PRAGMA main.cache_size = 20000").exec();
+    SQLite::Statement(_db, "PRAGMA main.page_size = 4096").exec();
+    SQLite::Statement(_db, "PRAGMA main.cache_size = 10000").exec();
     SQLite::Statement(_db, "PRAGMA main.synchronous = NORMAL").exec();
 }
 
@@ -262,7 +262,7 @@ void MailStore::remove(MailModel * model) {
     SharedDeltaStream()->didUnpersistModel(model, _streamMaxDelay);
 }
 
-unique_ptr<MailModel> MailStore::findGeneric(string type, Query query) {
+shared_ptr<MailModel> MailStore::findGeneric(string type, Query query) {
     if (type == "message") {
         return find<Message>(query);
     } else if (type == "thread") {

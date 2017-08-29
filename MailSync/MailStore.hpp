@@ -88,18 +88,18 @@ public:
 
     void setStreamDelay(int streamMaxDelay);
     
-    unique_ptr<MailModel> findGeneric(string type, Query query);
+    shared_ptr<MailModel> findGeneric(string type, Query query);
     
     // Template methods which must be defined in header file
     
     template<typename ModelClass>
-    unique_ptr<ModelClass> find(Query & query) {
+    shared_ptr<ModelClass> find(Query & query) {
         SQLite::Statement statement(this->_db, "SELECT data FROM " + ModelClass::TABLE_NAME + query.sql() + " LIMIT 1");
         query.bind(statement);
         if (statement.executeStep()) {
-            return unique_ptr<ModelClass>(new ModelClass(statement));
+            return make_shared<ModelClass>(statement);
         }
-        return unique_ptr<ModelClass>(nullptr);
+        return nullptr;
     }
     
     template<typename ModelClass>

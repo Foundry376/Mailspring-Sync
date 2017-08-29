@@ -15,15 +15,15 @@ using namespace std;
 
 string Thread::TABLE_NAME = "Thread";
 
-Thread::Thread(Message msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allLabels) :
-    MailModel("t:" + msg.id(), msg.accountId(), 0)
+Thread::Thread(shared_ptr<Message> msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allLabels) :
+    MailModel("t:" + msg->id(), msg->accountId(), 0)
 {
     // set immutable properties of new Thread
-    _data["subject"] = msg.subject();
-    _data["lmt"] = msg.date();
-    _data["fmt"] = msg.date();
-    _data["lmst"] = msg.date();
-    _data["lmrt"] = msg.date();
+    _data["subject"] = msg->subject();
+    _data["lmt"] = msg->date();
+    _data["fmt"] = msg->date();
+    _data["lmst"] = msg->date();
+    _data["lmrt"] = msg->date();
     if (gThreadId) {
         _data["gThrId"] = to_string(gThreadId);
     } else {
@@ -40,7 +40,7 @@ Thread::Thread(Message msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allL
     _data["participants"] = json::array();
 
     captureInitialState();
-    addMessage(&msg, allLabels);
+    addMessage(msg.get(), allLabels);
 }
 
 Thread::Thread(SQLite::Statement & query) :

@@ -160,7 +160,7 @@ void MetadataWorker::applyMetadataJSON(const json & metadata) {
 
     store->beginTransaction();
 
-    unique_ptr<MailModel> model = store->findGeneric(type, Query().equal("id", id).equal("accountId", aid));
+    auto model = store->findGeneric(type, Query().equal("id", id).equal("accountId", aid));
 
     logger->info("Received metadata V{} for ({} - {})", version, type, id);
 
