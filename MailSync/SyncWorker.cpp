@@ -9,6 +9,7 @@
 
 #include "SyncWorker.hpp"
 #include "MailUtils.hpp"
+#include "MailStoreTransaction.hpp"
 #include "Folder.hpp"
 #include "Label.hpp"
 #include "File.hpp"
@@ -362,76 +363,78 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     }
     
     // sync with the local store
-
-    store->beginTransaction();
-    
-    Query q = Query().equal("accountId", account->id());
-    bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
-    auto allLocalFolders = store->findAllMap<Folder>(q, "id");
-    auto allLocalLabels = store->findAllMap<Label>(q, "id");
     vector<shared_ptr<Folder>> foldersToSync{};
-    
-    // perform
-    for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
-        IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-        if (remote->flags() & IMAPFolderFlagNoSelect) {
-            remoteFolders->removeObjectAtIndex(ii);
-            continue;
-        }
 
-        string remoteRole = MailUtils::roleForFolder(remote);
-        string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
-        string remotePath = remote->path()->UTF8Characters();
+    {
+        MailStoreTransaction transaction{store};
         
-        shared_ptr<Folder> local;
+        Query q = Query().equal("accountId", account->id());
+        bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
+        auto allLocalFolders = store->findAllMap<Folder>(q, "id");
+        auto allLocalLabels = store->findAllMap<Label>(q, "id");
         
-        if (isGmail && (remoteRole != "all") && (remoteRole != "spam") && (remoteRole != "trash")) {
-            // Treat as a label
-            if (allLocalLabels.count(remoteId) > 0) {
-                local = allLocalLabels[remoteId];
-                allLocalLabels.erase(remoteId);
-            } else {
-                local = make_shared<Label>(Label(remoteId, account->id(), 0));
+        // perform
+        for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+            IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+            if (remote->flags() & IMAPFolderFlagNoSelect) {
+                remoteFolders->removeObjectAtIndex(ii);
+                continue;
             }
 
-        } else {
-            // Treat as a folder
-            if (allLocalFolders.count(remoteId) > 0) {
-                local = allLocalFolders[remoteId];
-                allLocalFolders.erase(remoteId);
-            } else {
-                local = make_shared<Folder>(Folder(remoteId, account->id(), 0));
-            }
-            foldersToSync.push_back(local);
-        }
-        
-        if ((local->role() != remoteRole) || (local->path() != remotePath)) {
-            local->setPath(remotePath);
-            local->setRole(remoteRole);
+            string remoteRole = MailUtils::roleForFolder(remote);
+            string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+            string remotePath = remote->path()->UTF8Characters();
             
-            // place items into the thread counts table
-            SQLite::Statement count(store->db(), "INSERT OR IGNORE INTO ThreadCounts (categoryId, unread, total) VALUES (?, 0, 0)");
-            count.bind(1, local->id());
-            count.exec();
-            store->save(local.get());
-        }
-    }
-    
-    // delete any folders / labels no longer present on the remote
-    for (auto const item : allLocalFolders) {
-        SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
-        count.bind(1, item.second->id());
-        count.exec();
-        store->remove(item.second.get());
-    }
-    for (auto const item : allLocalLabels) {
-        SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
-        count.bind(1, item.second->id());
-        count.exec();
-        store->remove(item.second.get());
-    }
+            shared_ptr<Folder> local;
+            
+            if (isGmail && (remoteRole != "all") && (remoteRole != "spam") && (remoteRole != "trash")) {
+                // Treat as a label
+                if (allLocalLabels.count(remoteId) > 0) {
+                    local = allLocalLabels[remoteId];
+                    allLocalLabels.erase(remoteId);
+                } else {
+                    local = make_shared<Label>(Label(remoteId, account->id(), 0));
+                }
 
-    store->commitTransaction();
+            } else {
+                // Treat as a folder
+                if (allLocalFolders.count(remoteId) > 0) {
+                    local = allLocalFolders[remoteId];
+                    allLocalFolders.erase(remoteId);
+                } else {
+                    local = make_shared<Folder>(Folder(remoteId, account->id(), 0));
+                }
+                foldersToSync.push_back(local);
+            }
+            
+            if ((local->role() != remoteRole) || (local->path() != remotePath)) {
+                local->setPath(remotePath);
+                local->setRole(remoteRole);
+                
+                // place items into the thread counts table
+                SQLite::Statement count(store->db(), "INSERT OR IGNORE INTO ThreadCounts (categoryId, unread, total) VALUES (?, 0, 0)");
+                count.bind(1, local->id());
+                count.exec();
+                store->save(local.get());
+            }
+        }
+        
+        // delete any folders / labels no longer present on the remote
+        for (auto const item : allLocalFolders) {
+            SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
+            count.bind(1, item.second->id());
+            count.exec();
+            store->remove(item.second.get());
+        }
+        for (auto const item : allLocalLabels) {
+            SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
+            count.bind(1, item.second->id());
+            count.exec();
+            store->remove(item.second.get());
+        }
+        
+        transaction.commit();
+    }
 
     return foldersToSync;
 }

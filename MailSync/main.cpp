@@ -299,7 +299,8 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 }
 
 int main(int argc, const char * argv[]) {
-    
+    SetThreadName("main");
+
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);
     

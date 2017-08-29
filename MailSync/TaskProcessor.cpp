@@ -8,6 +8,7 @@
 
 #include "TaskProcessor.hpp"
 #include "MailProcessor.hpp"
+#include "MailStoreTransaction.hpp"
 #include "MailUtils.hpp"
 #include "Thread.hpp"
 #include "Message.hpp"
@@ -294,13 +295,13 @@ void TaskProcessor::performRemote(Task * task) {
 }
 
 void TaskProcessor::cancel(string taskId) {
-    store->beginTransaction();
+    MailStoreTransaction transaction{store};
     auto task = store->find<Task>(Query().equal("id", taskId).equal("accountId", account->id()));
     if (task != nullptr) {
         task->setShouldCancel();
         store->save(task.get());
     }
-    store->commitTransaction();
+    transaction.commit();
 }
 
 #pragma mark Privates
@@ -410,7 +411,7 @@ ChangeMailModels TaskProcessor::inflateThreadsAndMessages(json & data) {
 }
 
 void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocalMessage)(Message *, json &)) {
-    store->beginTransaction();
+    MailStoreTransaction transaction{store};
     
     json & data = task->data();
     ChangeMailModels models = inflateThreadsAndMessages(data);
@@ -440,7 +441,7 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
 
         store->save(thread.get());
     }
-    store->commitTransaction();
+    transaction.commit();
 }
 
 void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data)) {
@@ -476,31 +477,36 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFol
     }
     
     // save any changes made by applyInFolder and decrement locks
-    store->beginTransaction();
-    
-    for (auto msg : messages) {
-        int suc = msg->syncUnsavedChanges() - 1;
-        msg->setSyncUnsavedChanges(suc);
-        if (suc == 0) {
-            msg->setSyncedAt(time(0));
+    {
+        MailStoreTransaction transaction{store};
+
+        for (auto msg : messages) {
+            int suc = msg->syncUnsavedChanges() - 1;
+            msg->setSyncUnsavedChanges(suc);
+            if (suc == 0) {
+                msg->setSyncedAt(time(0));
+            }
+            store->save(msg.get());
         }
-        store->save(msg.get());
+        transaction.commit();
     }
-    store->commitTransaction();
 }
 
 void TaskProcessor::performLocalSaveDraft(Task * task) {
     json & draftJSON = task->data()["draft"];
     Message msg = inflateDraft(draftJSON);
-    store->beginTransaction();
-    store->save(&msg);
 
-    SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
-    insert.bind(1, msg.id());
-    insert.bind(2, draftJSON["body"].get<string>());
-    insert.exec();
+    {
+        MailStoreTransaction transaction{store};
+        store->save(&msg);
 
-    store->commitTransaction();
+        SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
+        insert.bind(1, msg.id());
+        insert.bind(2, draftJSON["body"].get<string>());
+        insert.exec();
+
+        transaction.commit();
+    }
 }
 
 void TaskProcessor::performLocalDestroyDraft(Task * task) {
@@ -515,14 +521,17 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
     
     // todo bodies?
     
-    store->beginTransaction();
-    for (auto & draft : drafts) {
-        draftsJSON.push_back(draft->toJSON());
-        logger->info("--- Deleting {}", draft->id());
-        store->remove(draft.get());
-    }
-    store->commitTransaction();
+    {
+        MailStoreTransaction transaction{store};
 
+        for (auto & draft : drafts) {
+            draftsJSON.push_back(draft->toJSON());
+            logger->info("--- Deleting {}", draft->id());
+            store->remove(draft.get());
+        }
+        transaction.commit();
+    }
+        
     task->data()["drafts"] = draftsJSON;
 }
 
@@ -576,19 +585,20 @@ void TaskProcessor::performLocalSyncbackMetadata(Task * task) {
     string pluginId = data["pluginId"];
     json & value = data["value"];
     
-    store->beginTransaction();
-    
-    auto model = store->findGeneric(type, Query().equal("id", id).equal("accountId", aid));
-    
-    if (model) {
-        int metadataVersion = model->upsertMetadata(pluginId, value);
-        data["modelMetadataNewVersion"] = metadataVersion;
-        store->save(model.get());
-    } else {
-        logger->info("cannot apply metadata locally because no model matching type:{} id:{}, aid:{} could be found.", type, id, aid);
-    }
+    {
+        MailStoreTransaction transaction{store};
+        
+        auto model = store->findGeneric(type, Query().equal("id", id).equal("accountId", aid));
+        if (model) {
+            int metadataVersion = model->upsertMetadata(pluginId, value);
+            data["modelMetadataNewVersion"] = metadataVersion;
+            store->save(model.get());
+        } else {
+            logger->info("cannot apply metadata locally because no model matching type:{} id:{}, aid:{} could be found.", type, id, aid);
+        }
 
-    store->commitTransaction();
+        transaction.commit();
+    }
 }
 
 
