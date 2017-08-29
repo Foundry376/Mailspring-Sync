@@ -8,6 +8,7 @@
 
 #include "MetadataWorker.hpp"
 #include "MailStore.hpp"
+#include "MailStoreTransaction.hpp"
 #include "MailUtils.hpp"
 #include "Message.hpp"
 #include "Thread.hpp"
@@ -158,27 +159,30 @@ void MetadataWorker::applyMetadataJSON(const json & metadata) {
     const json & value = metadata["value"];
     uint32_t version = metadata["version"].get<uint32_t>();
 
-    store->beginTransaction();
+    {
+        MailStoreTransaction transaction{store};
 
-    auto model = store->findGeneric(type, Query().equal("id", id).equal("accountId", aid));
+        auto model = store->findGeneric(type, Query().equal("id", id).equal("accountId", aid));
 
-    logger->info("Received metadata V{} for ({} - {})", version, type, id);
+        logger->info("Received metadata V{} for ({} - {})", version, type, id);
 
-    if (model) {
-        // attach the metadata to the object. Returns false if the model
-        // already has a >= version of the metadata.
-        if (model->upsertMetadata(pluginId, value, version) > 0) {
-            logger->info(" -- Saved on to local model.");
-            store->save(model.get());
+        if (model) {
+            // attach the metadata to the object. Returns false if the model
+            // already has a >= version of the metadata.
+            if (model->upsertMetadata(pluginId, value, version) > 0) {
+                logger->info(" -- Saved on to local model.");
+                store->save(model.get());
+            } else {
+                logger->info(" -- Ignored. Local model has >= version.");
+            }
         } else {
-            logger->info(" -- Ignored. Local model has >= version.");
+            // save to waiting table
+            logger->info(" -- Local model is not present. Saving to waiting table.");
+            // TODO
         }
-    } else {
-        // save to waiting table
-        logger->info(" -- Local model is not present. Saving to waiting table.");
-        // TODO
+        
+        transaction.commit();
     }
-    store->commitTransaction();
 }
 
 
