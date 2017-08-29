@@ -13,6 +13,7 @@
 		43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0E1EF5F6C700D8E282 /* Folder.cpp */; };
 		432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */; };
 		4346BCE51EF91305009477FE /* Query.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4346BCE31EF91305009477FE /* Query.cpp */; };
+		4348E5D21F55E7AB004CFB15 /* XOAuth2TokenManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5D11F55E7AB004CFB15 /* XOAuth2TokenManager.cpp */; };
 		43617D841F3D4DDA00DB566D /* libMailCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43617D731F3D4D4300DB566D /* libMailCore.a */; };
 		436489341EF2E905007816EC /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489331EF2E905007816EC /* main.cpp */; };
 		436489581EF2E94B007816EC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489571EF2E94B007816EC /* Security.framework */; };
@@ -131,6 +132,8 @@
 		432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetadataWorker.hpp; sourceTree = "<group>"; };
 		4346BCE31EF91305009477FE /* Query.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Query.cpp; sourceTree = "<group>"; };
 		4346BCE41EF91305009477FE /* Query.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Query.hpp; sourceTree = "<group>"; };
+		4348E5D11F55E7AB004CFB15 /* XOAuth2TokenManager.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = XOAuth2TokenManager.cpp; sourceTree = "<group>"; };
+		4348E5DA1F55E7BA004CFB15 /* XOAuth2TokenManager.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = XOAuth2TokenManager.hpp; sourceTree = "<group>"; };
 		43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = mailcore2.xcodeproj; path = "Vendor/mailcore2/build-mac/mailcore2.xcodeproj"; sourceTree = "<group>"; };
 		436489301EF2E905007816EC /* mailsync */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = mailsync; sourceTree = BUILT_PRODUCTS_DIR; };
 		436489331EF2E905007816EC /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
@@ -290,6 +293,8 @@
 				43CA9A0B1F0DA48D001A24A0 /* SyncException.cpp */,
 				4364899A1EF335A9007816EC /* DeltaStream.hpp */,
 				436489991EF335A9007816EC /* DeltaStream.cpp */,
+				4348E5DA1F55E7BA004CFB15 /* XOAuth2TokenManager.hpp */,
+				4348E5D11F55E7AB004CFB15 /* XOAuth2TokenManager.cpp */,
 				4346BCE41EF91305009477FE /* Query.hpp */,
 				4346BCE31EF91305009477FE /* Query.cpp */,
 				43EAFED71EFDAA8D0046589B /* TaskProcessor.hpp */,
@@ -546,6 +551,7 @@
 				43EAFEDA1EFEF7110046589B /* File.cpp in Sources */,
 				436489951EF32866007816EC /* MailUtils.cpp in Sources */,
 				436489341EF2E905007816EC /* main.cpp in Sources */,
+				4348E5D21F55E7AB004CFB15 /* XOAuth2TokenManager.cpp in Sources */,
 				43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */,
 				4364898A1EF2F905007816EC /* Database.cpp in Sources */,
 				4368DCC21F43851A00F22FFD /* strlib.cpp in Sources */,

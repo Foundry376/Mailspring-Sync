@@ -30,6 +30,8 @@ public:
 
     bool valid();
 
+    string xoauthRefreshToken();
+
     unsigned int IMAPPort();
     string IMAPHost();
     string IMAPUsername();

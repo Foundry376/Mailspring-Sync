@@ -15,6 +15,7 @@
 #include <MailCore/MailCore.h>
 #include <SQLiteCpp/SQLiteCpp.h>
 #include "json.hpp"
+#include "XOAuth2TokenManager.hpp"
 
 class File;
 class Label;
@@ -55,6 +56,8 @@ public:
 
     static string qmarks(size_t count);
     static string qmarkSets(size_t count, size_t perSet);
+
+    static XOAuth2Parts userAndTokenFromXOAuth2(string xoauth2);
 
     static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
     static void configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account);
