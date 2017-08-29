@@ -12,6 +12,8 @@
 
 #define AS_MCSTR(X)         mailcore::String::uniquedStringWithUTF8Characters(X.c_str())
 
+static string MERANI_FOLDER_PREFIX = "[Merani]";
+
 static std::vector<std::string> SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `_State` (id VARCHAR(40) PRIMARY KEY, value TEXT)",
 

@@ -337,14 +337,49 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         throw SyncException(err, "syncFoldersAndLabels - fetchAllFolders");
     }
     
-    store->beginTransaction();
+    // create required Merani folders if they don't exist
+    char delimiter = ((IMAPFolder *)remoteFolders->objectAtIndex(0))->delimiter();
+    vector<string> meraniFolders{"Snoozed"};
+    for (string meraniFolder : meraniFolders) {
+        string meraniFolderPath = MERANI_FOLDER_PREFIX;
+        meraniFolderPath += delimiter;
+        meraniFolderPath += meraniFolder;
 
+        bool found = false;
+        for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+            IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+            string remotePath = remote->path()->UTF8Characters();
+
+            if (remotePath == meraniFolderPath) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            session.createFolder(AS_MCSTR(meraniFolderPath), &err);
+            if (err) {
+                logger->error("Could not create required Merani folder: {}. {}", meraniFolderPath, ErrorCodeToTypeMap[err]);
+            } else {
+                logger->error("Created required Merani folder: {}.", meraniFolderPath);
+            }
+            IMAPFolder * fake = new IMAPFolder();
+            fake->setPath(AS_MCSTR(meraniFolderPath));
+            fake->setDelimiter(delimiter);
+            remoteFolders->addObject(fake);
+        }
+    }
+    
+    // sync with the local store
+
+    store->beginTransaction();
+    
     Query q = Query().equal("accountId", account->id());
     bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
     auto allLocalFolders = store->findAllMap<Folder>(q, "id");
     auto allLocalLabels = store->findAllMap<Label>(q, "id");
     vector<shared_ptr<Folder>> foldersToSync{};
     
+    // perform
     for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
         IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
         if (remote->flags() & IMAPFolderFlagNoSelect) {

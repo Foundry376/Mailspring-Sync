@@ -213,11 +213,21 @@ string MailUtils::roleForFolder(IMAPFolder * folder) {
     }
     
     string path = string(folder->path()->UTF8Characters());
-    transform(path.begin(), path.end(), path.begin(), ::tolower);
+
+    // [Merani]/Snoozed = snoozed
+    // [Merani]/XXX = xxx
+    if (path.size() > MERANI_FOLDER_PREFIX.size() && path.substr(0, MERANI_FOLDER_PREFIX.size()) == MERANI_FOLDER_PREFIX) {
+        string name = path.substr(MERANI_FOLDER_PREFIX.size() + 1);
+        transform(name.begin(), name.end(), name.begin(), ::tolower);
+        return name;
+    }
     
+    // [Gmail]/Spam => [gmail]/spam => spam
+    transform(path.begin(), path.end(), path.begin(), ::tolower);
     if (COMMON_FOLDER_NAMES.find(path) != COMMON_FOLDER_NAMES.end()) {
         return COMMON_FOLDER_NAMES[path];
     }
+
     return "";
 }
 
