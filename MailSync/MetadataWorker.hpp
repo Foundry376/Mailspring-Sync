@@ -30,6 +30,7 @@ class MetadataWorker {
     
     string deltasBuffer;
     string deltasCursor;
+    int backoffStep;
 
 public:
     MetadataWorker(shared_ptr<Account> account);

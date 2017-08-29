@@ -34,8 +34,15 @@ SyncWorker::SyncWorker(string name, shared_ptr<Account> account) :
     processor(new MailProcessor(account, store)),
     session(IMAPSession())
 {
-    MailUtils::configureSessionForAccount(session, account);
     store->setStreamDelay(500);
+}
+
+void SyncWorker::configure()
+{
+    // For accounts connecting with XOAuth2, this function may
+    // make HTTP requests so it's important this function is called
+    // within the thread retry handlers.
+    MailUtils::configureSessionForAccount(session, account);
 }
 
 void SyncWorker::idleInterrupt()
@@ -51,21 +58,6 @@ void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
     // called on main thread
     for (string & id : ids) {
         idleFetchBodyIDs.push_back(id);
-    }
-}
-
-void SyncWorker::idleCycle()
-{
-    // called on dedicated thread
-    while(true) {
-        try {
-            idleCycleIteration();
-        } catch (SyncException & ex) {
-            if (!ex.isRetryable()) {
-                throw;
-            }
-            sleep(120);
-        }
     }
 }
 

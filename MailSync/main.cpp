@@ -45,6 +45,7 @@ std::thread * fgThread = nullptr;
 std::thread * bgThread = nullptr;
 std::thread * metadataThread = nullptr;
 
+
 class AccumulatorLogger : public ConnectionLogger {
 public:
     string accumulated;
@@ -97,17 +98,28 @@ void runMetadataWorker() {
 void runForegroundSyncWorker() {
     SetThreadName("fgWorker");
 
-    // run tasks, sync changes, idle, repeat
-    fgWorker->idleCycle();
+    while(true) {
+        try {
+            fgWorker->configure();
+            fgWorker->idleCycleIteration();
+        } catch (SyncException & ex) {
+            if (!ex.isRetryable()) {
+                throw;
+            }
+            MailUtils::sleepWorkerUntilWakeOrSec(120);
+        }
+    }
 }
 
 void runBackgroundSyncWorker() {
     SetThreadName("bgWorker");
 
     bool started = false;
-    
+
     while(true) {
         try {
+            bgWorker->configure();
+
             // start the "foreground" idle worker after we've completed a single
             // pass through all the folders. This ensures we have the folder list
             // and the uidnext / highestmodseq etc are populated.
@@ -131,7 +143,8 @@ void runBackgroundSyncWorker() {
                 throw;
             }
         }
-        sleep(120);
+
+        MailUtils::sleepWorkerUntilWakeOrSec(120);
     }
 }
 
@@ -263,6 +276,10 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             // we can't always dequeue a task (if it's started already or potentially even finished).
             // but if we're deleting a draft we want to dequeue saves, etc.
             processor.cancel(packet["taskId"].get<string>());
+        }
+        
+        if (packet.count("type") && packet["type"].get<string>() == "wake-workers") {
+            MailUtils::wakeAllWorkers();
         }
 
         if (packet.count("type") && packet["type"].get<string>() == "need-bodies") {
@@ -403,9 +420,9 @@ int main(int argc, const char * argv[]) {
         }
 
         spdlog::get("main")->info("------------- Starting Sync ---------------");
-        bgWorker = make_shared<SyncWorker>("bg", account);
-        fgWorker = make_shared<SyncWorker>("fg", account);
         metadataWorker = make_shared<MetadataWorker>(account);
+        fgWorker = make_shared<SyncWorker>("fg", account);
+        bgWorker = make_shared<SyncWorker>("bg", account);
 
         bgThread = new std::thread(runBackgroundSyncWorker);
         metadataThread = new std::thread(runMetadataWorker);

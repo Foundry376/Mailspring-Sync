@@ -61,6 +61,9 @@ public:
 
     static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
     static void configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account);
+    
+    static void sleepWorkerUntilWakeOrSec(int sec);
+    static void wakeAllWorkers();
 
     
     template<typename T>
