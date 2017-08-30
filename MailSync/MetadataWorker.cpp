@@ -33,7 +33,7 @@ static size_t _onDeltaData(void *contents, size_t length, size_t nmemb, void *us
 MetadataWorker::MetadataWorker(shared_ptr<Account> account) :
     store(new MailStore()),
     account(account),
-    logger(spdlog::get("metadata"))
+    logger(spdlog::get("logger"))
 {
 }
 
@@ -99,6 +99,9 @@ void MetadataWorker::fetchDeltasBlocking() {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onDeltaData);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)this);
 
+    // todo - potentially switch to a mode like this example that
+    // would allow us to control how often the thread wakes:
+    // https://curl.haxx.se/libcurl/c/multi-single.html
     logger->info("Metadata delta stream starting...");
     CURLcode res = curl_easy_perform(curl_handle);
     logger->info("Metadata delta stream closed.");

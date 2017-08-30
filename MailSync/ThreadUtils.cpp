@@ -6,8 +6,11 @@
 //  Copyright © 2017 Foundry 376. All rights reserved.
 //
 
-#include <stdio.h>
 #include "ThreadUtils.h"
+#include <spdlog/details/os.h>
+#include <stdio.h>
+#include <map>
+#include <thread>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -23,18 +26,18 @@ typedef struct tagTHREADNAME_INFO
 } THREADNAME_INFO;
 #pragma pack(pop)
 
+static std::map<size_t, std::string> names{};
 
 void SetThreadName(const char* threadName)
 {
-    
-    // DWORD dwThreadID = ::GetThreadId( static_cast<HANDLE>( t.native_handle() ) );
-    
     THREADNAME_INFO info;
     info.dwType = 0x1000;
     info.szName = threadName;
     info.dwThreadID = GetCurrentThreadId();
     info.dwFlags = 0;
     
+    names[thread_id()] = threadName;
+
     __try
     {
         RaiseException( MS_VC_EXCEPTION, 0, sizeof(info)/sizeof(ULONG_PTR), (ULONG_PTR*)&info );
@@ -44,15 +47,17 @@ void SetThreadName(const char* threadName)
     }
 }
 
-
 #else
 
 #include <unistd.h>
 #ifdef _POSIX_THREADS
-
 #include <pthread.h>
+
+static std::map<size_t, std::string> names{};
+
 void SetThreadName(const char* threadName)
 {
+    names[spdlog::details::os::thread_id()] = threadName;
 #ifdef __APPLE__
     pthread_setname_np(threadName);
 #else
@@ -63,11 +68,19 @@ void SetThreadName(const char* threadName)
 #else
 
 #include <sys/prctl.h>
+
+static std::map<size_t, std::string> names{};
+
 void SetThreadName( const char* threadName)
 {
+    names[spdlog::details::os::thread_id()] = threadName;
     prctl(PR_SET_NAME, threadName, 0, 0, 0);
 }
 
 #endif // pthread
 
 #endif // win32
+
+std::string * GetThreadName(size_t spdlog_thread_id) {
+    return &names[spdlog_thread_id];
+}

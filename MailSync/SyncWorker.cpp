@@ -27,11 +27,11 @@ using namespace mailcore;
 using namespace std;
 
 
-SyncWorker::SyncWorker(string name, shared_ptr<Account> account) :
+SyncWorker::SyncWorker(shared_ptr<Account> account) :
     store(new MailStore()),
     account(account),
     unlinkPhase(1),
-    logger(spdlog::get(name)),
+    logger(spdlog::get("logger")),
     processor(new MailProcessor(account, store)),
     session(IMAPSession())
 {
@@ -64,7 +64,7 @@ void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
 
 void SyncWorker::idleCycleIteration()
 {
-    // Run body requests
+    // Run body requests from the client
     while (idleFetchBodyIDs.size() > 0) {
         string id = idleFetchBodyIDs.back();
         idleFetchBodyIDs.pop_back();
@@ -215,6 +215,7 @@ bool SyncWorker::syncNow()
     
     for (auto & folder : folders) {
         json & localStatus = folder->localStatus();
+        json initialLocalStatus = localStatus; // note: json not json&
         
         String path = AS_MCSTR(folder->path());
         ErrorCode err = ErrorCode::ErrorNone;
@@ -290,18 +291,28 @@ bool SyncWorker::syncNow()
                 localStatus["uidnext"] = remoteUidnext;
             }
         }
-            
+        
+        bool moreToDo = false;
+
         // Retrieve some message bodies. We do this concurrently with the full header
         // scan so the user sees snippets on some messages quickly.
         if (syncMessageBodies(*folder, remoteStatus)) {
-            syncAgainImmediately = true;
+            moreToDo = true;
         }
         if (syncedMinUID > 1) {
-            syncAgainImmediately = true;
+            moreToDo = true;
         }
-        
-        // Save the folder - note that helper methods mutate localStatus.
-        store->save(folder.get());
+
+        // Save a general flag that indicates whether we're still doing stuff
+        // like syncing message bodies. Set to true below.
+        localStatus["busy"] = moreToDo;
+        syncAgainImmediately = syncAgainImmediately || moreToDo;
+
+        // Save the folder - note that helper methods above mutated localStatus.
+        // Avoid the save if we can, because this creates a lot of noise in the client.
+        if (localStatus != initialLocalStatus) {
+            store->save(folder.get());
+        }
     }
     
     // We've just unlinked a bunch of messages with PHASE A, now we'll delete the ones

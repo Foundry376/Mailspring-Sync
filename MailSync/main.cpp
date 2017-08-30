@@ -28,7 +28,7 @@
 #include "TaskProcessor.hpp"
 #include "ThreadUtils.h"
 #include "constants.h"
-
+#include "SPDLogExtensions.hpp"
 
 using json = nlohmann::json;
 using option::Option;
@@ -44,6 +44,7 @@ shared_ptr<MetadataWorker> metadataWorker = nullptr;
 std::thread * fgThread = nullptr;
 std::thread * bgThread = nullptr;
 std::thread * metadataThread = nullptr;
+
 
 
 class AccumulatorLogger : public ConnectionLogger {
@@ -241,7 +242,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             packet = SharedDeltaStream()->waitForJSON();
         } catch (std::invalid_argument & ex) {
             json resp = {{"error", ex.what()}};
-            spdlog::get("main")->error(resp.dump());
+            spdlog::get("logger")->error(resp.dump());
             cout << "\n" << resp.dump() << "\n";
             continue;
         }
@@ -338,21 +339,19 @@ int main(int argc, const char * argv[]) {
     }
 
     // setup logging to file or console
-    std::vector<shared_ptr<spdlog::sinks::base_sink<std::mutex>>> sinks;
+    std::vector<shared_ptr<spdlog::sinks::sink>> sinks;
 
     if (!options[ORPHAN]) {
         // If we're attached to the mail client, log everything to a
         // rotating log file with the default logger format.
-        spdlog::set_async_mode(8192, spdlog::async_overflow_policy::block_retry, nullptr, std::chrono::seconds(3), nullptr);
-        spdlog::set_pattern("%+");
-
+        spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%P %+"));
         string logPath = string(getenv("CONFIG_DIR_PATH")) + "/mailsync.log";
         sinks.push_back(make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3));
+        sinks.push_back(make_shared<SPDFlusherSink>());
     } else {
         // If we're attached to a debugger / console, log everything to
         // stdout in an abbreviated format.
-        spdlog::set_sync_mode();
-        spdlog::set_pattern("%l: %v");
+        spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%l: %v"));
         sinks.push_back(make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>());
     }
 
@@ -362,12 +361,7 @@ int main(int argc, const char * argv[]) {
     stderr_sink->set_level(spdlog::level::critical);
     sinks.push_back(stderr_sink);
     
-    spdlog::create("main", std::begin(sinks), std::end(sinks));
-    spdlog::create("processor", std::begin(sinks), std::end(sinks));
-    spdlog::create("metadata", std::begin(sinks), std::end(sinks));
-    spdlog::create("tasks", std::begin(sinks), std::end(sinks));
-    spdlog::create("fg", std::begin(sinks), std::end(sinks));
-    spdlog::create("bg", std::begin(sinks), std::end(sinks));
+    spdlog::create("logger", std::begin(sinks), std::end(sinks));
 
     // setup curl
     curl_global_init(CURL_GLOBAL_ALL ^ CURL_GLOBAL_SSL);
@@ -420,10 +414,10 @@ int main(int argc, const char * argv[]) {
             return 1;
         }
 
-        spdlog::get("main")->info("------------- Starting Sync ---------------");
+        spdlog::get("logger")->info("------------- Starting Sync ---------------");
         metadataWorker = make_shared<MetadataWorker>(account);
-        fgWorker = make_shared<SyncWorker>("fg", account);
-        bgWorker = make_shared<SyncWorker>("bg", account);
+        fgWorker = make_shared<SyncWorker>(account);
+        bgWorker = make_shared<SyncWorker>(account);
 
         bgThread = new std::thread(runBackgroundSyncWorker);
         metadataThread = new std::thread(runMetadataWorker);

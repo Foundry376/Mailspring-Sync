@@ -9,6 +9,9 @@
 #ifndef ThreadUtils_hpp
 #define ThreadUtils_hpp
 
+#include <string>
+
+std::string* GetThreadName(size_t spdlog_thread_id);
 void SetThreadName(const char* threadName);
 
 #endif /* ThreadUtils_hpp */
