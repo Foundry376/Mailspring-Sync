@@ -28,7 +28,7 @@ public:
     Account(json json);
     Account(SQLite::Statement & query);
 
-    bool valid();
+    string valid();
 
     string xoauthRefreshToken();
 
@@ -36,11 +36,15 @@ public:
     string IMAPHost();
     string IMAPUsername();
     string IMAPPassword();
+    string IMAPSecurity();
+    bool IMAPAllowInsecureSSL();
 
     unsigned int SMTPPort();
     string SMTPHost();
     string SMTPUsername();
     string SMTPPassword();
+    string SMTPSecurity();
+    bool SMTPAllowInsecureSSL();
 
     string cloudToken();
     bool hasCloudToken();

@@ -25,18 +25,24 @@ Account::Account(SQLite::Statement & query) :
 {
 }
 
-bool Account::valid() {
+string Account::valid() {
     if (!_data.count("id") || !_data.count("settings")) {
-        return false;
+        return "id or settings";
     }
     json & s = _data["settings"];
     if (!(s.count("imap_port") && s.count("imap_host") && s.count("imap_username") && (s.count("xoauth_refresh_token") || s.count("imap_password")))) {
-        return false;
+        return "imap_*";
     }
     if (!(s.count("smtp_port") && s.count("smtp_host") && s.count("smtp_username") && (s.count("xoauth_refresh_token") || s.count("smtp_password")))) {
-        return false;
+        return "smtp_*";
     }
-    return true;
+    if (!(s.count("imap_allow_insecure_ssl") && s["imap_allow_insecure_ssl"].is_boolean())) {
+        return "imap_allow_insecure_ssl";
+    }
+    if (!(s.count("smtp_allow_insecure_ssl") && s["smtp_allow_insecure_ssl"].is_boolean())) {
+        return "smtp_allow_insecure_ssl";
+    }
+    return ""; // true
 }
 
 string Account::xoauthRefreshToken() {
@@ -63,6 +69,14 @@ string Account::IMAPPassword() {
     return _data["settings"]["imap_password"].get<string>();
 }
 
+string Account::IMAPSecurity() {
+    return _data["settings"]["imap_security"].get<string>();
+}
+
+bool Account::IMAPAllowInsecureSSL() {
+    return _data["settings"]["imap_allow_insecure_ssl"].get<bool>();
+}
+
 unsigned int Account::SMTPPort() {
     json & val = _data["settings"]["smtp_port"];
     return val.is_string() ? stoi(val.get<string>()) : val.get<unsigned int>();
@@ -78,6 +92,14 @@ string Account::SMTPUsername() {
 
 string Account::SMTPPassword() {
     return _data["settings"]["smtp_password"].get<string>();
+}
+
+string Account::SMTPSecurity() {
+    return _data["settings"]["smtp_security"].get<string>();
+}
+
+bool Account::SMTPAllowInsecureSSL() {
+    return _data["settings"]["smtp_allow_insecure_ssl"].get<bool>();
 }
 
 string Account::cloudToken() {

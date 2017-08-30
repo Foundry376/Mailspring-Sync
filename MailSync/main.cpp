@@ -379,8 +379,8 @@ int main(int argc, const char * argv[]) {
         account = make_shared<Account>(json::parse(inputLine));
     }
     
-    if (!account->valid()) {
-        json resp = {{"error", "Account is missing required fields."}};
+    if (account->valid() != "") {
+        json resp = {{"error", "Account is missing required fields:" + account->valid()}};
         cout << "\n" << resp.dump();
         return 1;
     }

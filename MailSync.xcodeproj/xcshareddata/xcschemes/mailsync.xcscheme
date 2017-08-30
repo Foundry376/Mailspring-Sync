@@ -64,6 +64,10 @@
       <CommandLineArguments>
          <CommandLineArgument
             argument = "--mode sync"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--account &apos;{&quot;id&quot;:&quot;temp&quot;,&quot;provider&quot;:&quot;imap&quot;,&quot;name&quot;:&quot;Ben Gotow&quot;,&quot;emailAddress&quot;:&quot;securemail@defendcyber.space&quot;,&quot;settings&quot;:{&quot;imap_port&quot;:143,&quot;imap_password&quot;:&quot;IHate2Gmail!&quot;,&quot;imap_security&quot;:&quot;none&quot;,&quot;imap_allow_insecure_ssl&quot;:false,&quot;smtp_port&quot;:25,&quot;smtp_password&quot;:&quot;IHate2Gmail!&quot;,&quot;smtp_security&quot;:&quot;none&quot;,&quot;smtp_allow_insecure_ssl&quot;:false,&quot;smtp_host&quot;:&quot;smtpout.secureserver.net&quot;,&quot;smtp_username&quot;:&quot;securemail@defendcyber.space&quot;,&quot;imap_username&quot;:&quot;securemail@defendcyber.space&quot;,&quot;imap_host&quot;:&quot;imap.secureserver.net&quot;}}&apos;"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
@@ -80,7 +84,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--mode test"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--account &apos;{&quot;id&quot;:&quot;temp&quot;,&quot;settings&quot;:{&quot;imap_username&quot;:&quot;cypresstest@yahoo.com&quot;, &quot;imap_password&quot;: &quot;IHate2Gmail&quot;, &quot;imap_host&quot;:&quot;imap.mail.yahoo.com&quot;, &quot;imap_port&quot;: 993}}&apos;"
