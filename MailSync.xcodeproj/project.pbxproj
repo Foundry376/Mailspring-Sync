@@ -137,6 +137,7 @@
 		4348E5DA1F55E7BA004CFB15 /* XOAuth2TokenManager.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = XOAuth2TokenManager.hpp; sourceTree = "<group>"; };
 		4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MailStoreTransaction.cpp; sourceTree = "<group>"; };
 		4348E5DD1F560FDF004CFB15 /* MailStoreTransaction.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MailStoreTransaction.hpp; sourceTree = "<group>"; };
+		4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = SPDLogExtensions.hpp; sourceTree = "<group>"; };
 		43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = mailcore2.xcodeproj; path = "Vendor/mailcore2/build-mac/mailcore2.xcodeproj"; sourceTree = "<group>"; };
 		436489301EF2E905007816EC /* mailsync */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = mailsync; sourceTree = BUILT_PRODUCTS_DIR; };
 		436489331EF2E905007816EC /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
@@ -286,6 +287,7 @@
 			isa = PBXGroup;
 			children = (
 				436489331EF2E905007816EC /* main.cpp */,
+				4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */,
 				432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */,
 				432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */,
 				4364899F1EF35572007816EC /* SyncWorker.hpp */,

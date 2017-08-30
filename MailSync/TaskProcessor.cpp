@@ -164,7 +164,7 @@ void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSe
 TaskProcessor::TaskProcessor(shared_ptr<Account> account, MailStore * store, IMAPSession * session) :
     account(account),
     store(store),
-    logger(spdlog::get("tasks")),
+    logger(spdlog::get("logger")),
     session(session) {
 }
 

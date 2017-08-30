@@ -284,7 +284,7 @@ void printStackTrace(std::vector<stacktrace::entry> & entries) {
     
     out << " ***" << std::endl;
 
-    spdlog::get("main")->critical(out.str());
+    spdlog::get("logger")->critical(out.str());
 }
 
 // macro to avoid lots of redundancy in catch statements below
@@ -297,10 +297,10 @@ void printStackTrace(std::vector<stacktrace::entry> & entries) {
 #define FILL_IN_EXCEPTION_TRACE(ex, kind, desc) \
     if ((!std::string(kind).empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, (kind)); } \
     if ((!std::string(desc).empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, (desc)); } \
-    spdlog::get("main")->flush(); \
-    spdlog::get("main")->critical(msg); \
+    spdlog::get("logger")->flush(); \
+    spdlog::get("logger")->critical(msg); \
     printStackTrace(); \
-    spdlog::get("main")->flush(); \
+    spdlog::get("logger")->flush(); \
     THROW_NOT_ON_WINDOWS(ex);
 
 static void signalHandlerDisable() {
@@ -370,6 +370,9 @@ static void signalHandlerEnable() {
  * Prints details about the signal and then tries to print a stack trace.
  */
 static void stanfordCppLibSignalHandler(int sig) {
+    // immediately flush any pending spdlogs
+    spdlog::get("logger")->flush();
+    
     // turn the signal handler off (should run only once; avoid infinite cycle)
     signalHandlerDisable();
 
@@ -412,6 +415,9 @@ static void stanfordCppLibSignalHandler(int sig) {
  * Prints details about the exception and then tries to print a stack trace.
  */
 static void stanfordCppLibTerminateHandler() {
+    // immediately flush any pending spdlogs
+    spdlog::get("logger")->flush();
+
     std::string DEFAULT_EXCEPTION_KIND = "An exception";
     std::string DEFAULT_EXCEPTION_DETAILS = "(unknown exception details)";
     
@@ -429,10 +435,10 @@ static void stanfordCppLibTerminateHandler() {
     } catch (GenericException& ex) {
         stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, "Merani GenericException");
         stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, (ex.toJSON().dump()));
-        spdlog::get("main")->flush();
-        spdlog::get("main")->critical(msg);
+        spdlog::get("logger")->flush();
+        spdlog::get("logger")->critical(msg);
         ex.printStackTrace();
-        spdlog::get("main")->flush();
+        spdlog::get("logger")->flush();
         THROW_NOT_ON_WINDOWS(ex);
         
     } catch (const ErrorException& ex) {

@@ -19,7 +19,7 @@ using nlohmann::json;
 MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
     store(store),
     account(account),
-    logger(spdlog::get("processor"))
+    logger(spdlog::get("logger"))
 {
 
 }

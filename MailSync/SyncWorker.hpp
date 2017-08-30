@@ -40,7 +40,7 @@ class SyncWorker {
     std::condition_variable idleCv;
 
 public:
-    SyncWorker(string name, shared_ptr<Account> account);
+    SyncWorker(shared_ptr<Account> account);
     
     void configure();
 

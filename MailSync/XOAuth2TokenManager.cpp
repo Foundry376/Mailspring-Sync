@@ -75,7 +75,7 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
         }
     }
 
-    spdlog::get("main")->info("Fetching XOAuth2 access token for {}", account->id());
+    spdlog::get("logger")->info("Fetching XOAuth2 access token for {}", account->id());
     json updated = MakeAccountsRequest(account, "/auth/token/refresh", "POST", {
         {"xoauth_refresh_token", account->xoauthRefreshToken()}
     });
