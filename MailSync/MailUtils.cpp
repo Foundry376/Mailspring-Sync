@@ -405,8 +405,16 @@ void MailUtils::configureSessionForAccount(IMAPSession & session, shared_ptr<Acc
     }
     session.setHostname(AS_MCSTR(account->IMAPHost()));
     session.setPort(account->IMAPPort());
-    session.setCheckCertificateEnabled(false);
-    session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+    if (account->IMAPSecurity() == "SSL / TLS") {
+        session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+    } else if (account->IMAPSecurity() == "STARTTLS") {
+        session.setConnectionType(ConnectionType::ConnectionTypeStartTLS);
+    } else {
+        session.setConnectionType(ConnectionType::ConnectionTypeClear);
+    }
+    if (account->IMAPAllowInsecureSSL()) {
+        session.setCheckCertificateEnabled(false);
+    }
 }
 
 void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account) {
@@ -421,8 +429,16 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     }
     session.setHostname(AS_MCSTR(account->SMTPHost()));
     session.setPort(account->SMTPPort());
-    session.setCheckCertificateEnabled(false);
-    session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+    if (account->SMTPSecurity() == "SSL / TLS") {
+        session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+    } else if (account->SMTPSecurity() == "STARTTLS") {
+        session.setConnectionType(ConnectionType::ConnectionTypeStartTLS);
+    } else {
+        session.setConnectionType(ConnectionType::ConnectionTypeClear);
+    }
+    if (account->SMTPAllowInsecureSSL()) {
+        session.setCheckCertificateEnabled(false);
+    }
 }
 
 // Worker Sleep Implementation
