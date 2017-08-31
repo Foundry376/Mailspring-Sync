@@ -99,12 +99,23 @@ void MetadataWorker::fetchDeltasBlocking() {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onDeltaData);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)this);
 
+    // close the connection if we receive <1 byte/sec for 30 seconds.
+    // the backend sends 16 bytes (16 x "\n") every 10 sec, giving
+    // 1.06 - 1.6 bytes every 30 sec depending on whether 2 or 3 packets
+    // arrive.
+    curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_TIME, 30L);
+    curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_LIMIT, 1L);
+
     // todo - potentially switch to a mode like this example that
     // would allow us to control how often the thread wakes:
     // https://curl.haxx.se/libcurl/c/multi-single.html
     logger->info("Metadata delta stream starting...");
     CURLcode res = curl_easy_perform(curl_handle);
-    logger->info("Metadata delta stream closed.");
+    if (res == CURLE_OPERATION_TIMEDOUT) {
+        logger->info("Metadata delta stream timed out.");
+    } else {
+        logger->info("Metadata delta stream closed.");
+    }
 
     ValidateRequestResp(res, curl_handle, "/delta/streaming");
     curl_easy_cleanup(curl_handle);
