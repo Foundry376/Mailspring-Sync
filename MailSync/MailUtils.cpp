@@ -212,6 +212,9 @@ string MailUtils::roleForFolder(IMAPFolder * folder) {
     if (flags & IMAPFolderFlagInbox) {
         return "inbox";
     }
+    if (flags & IMAPFolderFlagTrash) {
+        return "trash";
+    }
     
     string path = string(folder->path()->UTF8Characters());
 
