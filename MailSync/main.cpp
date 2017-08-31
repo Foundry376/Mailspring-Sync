@@ -231,9 +231,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
     store.setStreamDelay(5);
     
-#ifndef DEBUG
     time_t lostCINAt = 0;
-#endif
 
     while(true) {
         AutoreleasePool pool;
@@ -250,7 +248,6 @@ void runListenOnMainThread(shared_ptr<Account> account) {
         // cin is interrupted when the debugger attaches, and that's ok. If cin is
         // disconnected for more than 30 seconds, it means we have been oprhaned and
         // we should exit.
-#ifndef DEBUG
         if (cin.good()) {
             lostCINAt = 0;
         } else {
@@ -262,7 +259,6 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             }
             usleep(1000);
         }
-#endif
 
         if (packet.count("type") && packet["type"].get<string>() == "queue-task") {
             packet["task"]["v"] = 0;
