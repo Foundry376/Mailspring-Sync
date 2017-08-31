@@ -646,7 +646,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
 
     logger->info("- Sending draft {}", draft.headerMessageId());
 
-    // find the sent folder
+    // find the sent folder: folder OR label
     auto sent = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "sent"));
     if (sent == nullptr) {
         sent = store->find<Label>(Query().equal("accountId", account->id()).equal("role", "sent"));
@@ -758,7 +758,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             throw SyncException("send-failed", ErrorCodeToTypeMap[err], false);
         }
     }
-
+    
     /* 
      Sending complete! Next, scan the sent folder for the message(s) we just sent through the SMTP
      gateway and clean them up. Some mail servers automatically place messages in the sent
@@ -770,14 +770,49 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         HashMap * uidmap = nullptr;
         Array * auidsInTrash = nullptr;
         IndexSet uidsInTrash;
-
-        logger->info("-- Searching the Sent folder for messages created by the SMTP gateway.");
-        IMAPSearchExpression exp = IMAPSearchExpression::searchHeader(MCSTR("message-id"), AS_MCSTR(draft.headerMessageId()));
-        auto uids = session->search(sentPath, &exp, &err);
-        if (err != ErrorNone) {
-            goto endSentCleanup;
-        }
         
+        // grab the last few items in the sent folder... we know we don't need more than 10
+        // because multisend is capped.
+        int tries = 0;
+        int delay[] = {0, 1, 3, 5, 5, 10};
+        IndexSet * uids = new IndexSet();
+
+        while (tries < 5) {
+            if (delay[tries]) {
+                logger->info("-- No messages found. Sleeping {} to wait for sent folder to settle...", delay[tries]);
+                sleep(delay[tries]);
+            }
+
+            session->select(sentPath, &err);
+            if (err != ErrorNone) {
+                continue;
+            }
+
+            logger->info("-- Fetching the last 10 messages in the sent folder.");
+            IMAPProgress cb;
+            IndexSet * set = new IndexSet();
+            int min = session->lastFolderMessageCount() > 10 ? (session->lastFolderMessageCount() - 10) : 0;
+            set->addRange(RangeMake(min, session->lastFolderMessageCount() - min));
+            Array * lastFew = session->fetchMessagesByNumber(sentPath, IMAPMessagesRequestKindHeaders, set, &cb, &err);
+            if (err != ErrorNone) {
+                continue;
+            }
+
+            for (int ii = 0; ii < lastFew->count(); ii ++) {
+                auto msg = (IMAPMessage *)lastFew->objectAtIndex(ii);
+                string msgId = msg->header()->messageID()->UTF8Characters();
+                if (msgId == draft.headerMessageId()) {
+                    logger->info("--- Found message-id match");
+                    uids->addIndex(msg->uid());
+                }
+            }
+            
+            if (uids->count() > 0) {
+                break;
+            }
+            tries ++;
+        }
+    
         if (multisend && (uids->count() > 0)) {
             // If we sent separate messages to each recipient, we end up with a bunch of sent
             // messages. Delete all of them since they contain the targeted bodies.
