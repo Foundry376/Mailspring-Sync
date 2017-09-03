@@ -18,7 +18,7 @@
 #include "MailStore.hpp"
 #include <MailCore/MailCore.h>
 
-using json = nlohmann::json;
+using namespace nlohmann;
 using namespace std;
 using namespace mailcore;
 

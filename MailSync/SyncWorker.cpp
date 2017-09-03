@@ -492,7 +492,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         // Never sit in a hard loop inserting things into the database for more than 250ms.
         // This ensures we don't starve another thread waiting for a database connection
         if (((clock() - lastSleepClock) * 4) / CLOCKS_PER_SEC > 1) {
-            usleep(50000); // 50ms
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
             lastSleepClock = clock();
         }
         

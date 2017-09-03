@@ -21,7 +21,7 @@ class File;
 class Label;
 class Account;
 
-using json = nlohmann::json;
+using namespace nlohmann;
 using namespace std;
 using namespace mailcore;
 

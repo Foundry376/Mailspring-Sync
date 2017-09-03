@@ -31,7 +31,7 @@ void runFlushLoop() {
         }
         
         // Debounce 1sec for more messages to arrive
-        sleep(1);
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         
         {
             // Perform flush

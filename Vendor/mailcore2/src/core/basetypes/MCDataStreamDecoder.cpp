@@ -93,8 +93,11 @@ ErrorCode DataStreamDecoder::appendDecodedData(Data * decodedData)
     }
 
     if (mFile == NULL) {
-        mFile = fopen(mFilename->fileSystemRepresentation(), "wb");
-
+#ifdef _MSC_VER
+		fopen_s(&mFile, mFilename->fileSystemRepresentation(), "wb");
+#else
+		mFile = fopen(mFilename->fileSystemRepresentation(), "wb");
+#endif
         if (mFile == NULL) {
             return ErrorFile;
         }

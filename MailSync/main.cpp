@@ -8,6 +8,10 @@
 
 #include <iostream>
 #include <string>
+#include <time.h>
+#define _TIMESPEC_DEFINED true
+#include <pthread.h>
+
 #include <MailCore/MailCore.h>
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <StanfordCPPLib/exceptions.h>
@@ -30,7 +34,7 @@
 #include "constants.h"
 #include "SPDLogExtensions.hpp"
 
-using json = nlohmann::json;
+using namespace nlohmann;
 using option::Option;
 using option::Descriptor;
 using option::Parser;
@@ -257,7 +261,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             if (time(0) - lostCINAt > 30) {
                 terminate();
             }
-            usleep(1000);
+			std::this_thread::sleep_for(std::chrono::microseconds(1000));
         }
 
         if (packet.count("type") && packet["type"].get<string>() == "queue-task") {
@@ -308,7 +312,7 @@ int main(int argc, const char * argv[]) {
     // parse launch arguments, skip program name argv[0] if present
     argc-=(argc>0); argv+=(argc>0);
     option::Stats  stats(usage, argc, argv);
-    option::Option options[stats.options_max], buffer[stats.buffer_max];
+    option::Option options[20], buffer[20];
     option::Parser parse(usage, argc, argv, options, buffer);
     
     if (parse.error())
@@ -348,7 +352,11 @@ int main(int argc, const char * argv[]) {
         // If we're attached to a debugger / console, log everything to
         // stdout in an abbreviated format.
         spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%l: %v"));
+#if defined(_MSC_VER)
+		sinks.push_back(make_shared<spdlog::sinks::stdout_sink_mt>());
+#else
         sinks.push_back(make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>());
+#endif
     }
 
     // Always log critical errors to the stderr as well as a log file / stdout.
@@ -372,7 +380,7 @@ int main(int argc, const char * argv[]) {
         cout << "\nWaiting for Account JSON:\n";
         string inputLine;
         getline(cin, inputLine);
-        account = make_shared<Account>(json::parse(inputLine));
+        account = make_shared<Account>(json::parse(inputLine.c_str()));
     }
     
     if (account->valid() != "") {
@@ -390,7 +398,7 @@ int main(int argc, const char * argv[]) {
         cout << "\nWaiting for Identity JSON:\n";
         string inputLine;
         getline(cin, inputLine);
-        Identity::SetGlobal(make_shared<Identity>(json::parse(inputLine)));
+        Identity::SetGlobal(make_shared<Identity>(json::parse(inputLine.c_str())));
     }
     
     if (!Identity::GetGlobal()->valid()) {

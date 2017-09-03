@@ -14,8 +14,13 @@
 #include "Label.hpp"
 #include "Account.hpp"
 
+#if defined(_MSC_VER)
+#include <direct.h>
+#endif
+
 using namespace std;
 using namespace mailcore;
+using namespace nlohmann;
 
 static vector<string> unworthyPrefixes = {
     "noreply",
@@ -180,7 +185,12 @@ int MailUtils::compareEmails(void * a, void * b, void * context) {
 }
 
 string MailUtils::timestampForTime(time_t time) {
+#if defined(_MSC_VER)
+	tm * ptm = nullptr;
+	localtime_s(ptm, &time);
+#else
     tm * ptm = localtime(&time);
+#endif
     char buffer[32];
     strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", ptm);
     return string(buffer);
