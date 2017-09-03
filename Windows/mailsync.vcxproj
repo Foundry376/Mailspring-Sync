@@ -1,0 +1,145 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{FD5B276A-CB56-4697-8C6F-C02FF68AB435}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>mailsync</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v140</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v140</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CRT_SECURE_NO_WARNINGS;_CONSOLE;_LIB;
+_TIMESPEC_DEFINED;CURL_STATICLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>..\Vendor\SQLiteCpp\sqlite3;..\MailSync\Models;..\MailSync;.\Externals\include;..\Vendor\mailcore2\Externals\include;..\Vendor\StanfordCPPLib;..\Vendor;..\Vendor\SQLiteCpp\include;..\Vendor\nlohmann;..\Vendor\mailcore2\build-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>.\Externals\lib;..\Vendor\mailcore2\Externals;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>legacy_stdio_definitions.lib;libcurl_a.lib;dbghelp.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CRT_SECURE_NO_WARNINGS;_CONSOLE;_LIB;_TIMESPEC_DEFINED;CURL_STATICLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <SDLCheck>true</SDLCheck>
+      <AdditionalIncludeDirectories>..\Vendor\SQLiteCpp\sqlite3;..\MailSync\Models;..\MailSync;.\Externals\include;..\Vendor\mailcore2\Externals\include;..\Vendor\StanfordCPPLib;..\Vendor;..\Vendor\SQLiteCpp\include;..\Vendor\nlohmann;..\Vendor\mailcore2\build-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <AdditionalLibraryDirectories>.\Externals\lib;..\Vendor\mailcore2\Externals;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>legacy_stdio_definitions.lib;libcurl_a.lib;dbghelp.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <Command>COPY .\Release\mailsync.exe ..\..\app\ /Y &amp;&amp; COPY .\Release\mailsync.exe ..\..\app\dist\ /Y</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <Text Include="ReadMe.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\MailSync\DeltaStream.cpp" />
+    <ClCompile Include="..\MailSync\GenericException.cpp" />
+    <ClCompile Include="..\MailSync\MailProcessor.cpp" />
+    <ClCompile Include="..\MailSync\MailStore.cpp" />
+    <ClCompile Include="..\MailSync\MailStoreTransaction.cpp" />
+    <ClCompile Include="..\MailSync\MailUtils.cpp" />
+    <ClCompile Include="..\MailSync\main.cpp" />
+    <ClCompile Include="..\MailSync\MetadataWorker.cpp" />
+    <ClCompile Include="..\MailSync\Models\Account.cpp" />
+    <ClCompile Include="..\MailSync\Models\Contact.cpp" />
+    <ClCompile Include="..\MailSync\Models\File.cpp" />
+    <ClCompile Include="..\MailSync\Models\Folder.cpp" />
+    <ClCompile Include="..\MailSync\Models\Identity.cpp" />
+    <ClCompile Include="..\MailSync\Models\Label.cpp" />
+    <ClCompile Include="..\MailSync\Models\MailModel.cpp" />
+    <ClCompile Include="..\MailSync\Models\Message.cpp" />
+    <ClCompile Include="..\MailSync\Models\Task.cpp" />
+    <ClCompile Include="..\MailSync\Models\Thread.cpp" />
+    <ClCompile Include="..\MailSync\NetworkRequestUtils.cpp" />
+    <ClCompile Include="..\MailSync\ProgressCollectors.cpp" />
+    <ClCompile Include="..\MailSync\Query.cpp" />
+    <ClCompile Include="..\MailSync\SyncException.cpp" />
+    <ClCompile Include="..\MailSync\SyncWorker.cpp" />
+    <ClCompile Include="..\MailSync\TaskProcessor.cpp" />
+    <ClCompile Include="..\MailSync\ThreadUtils.cpp" />
+    <ClCompile Include="..\MailSync\XOAuth2TokenManager.cpp" />
+    <ClCompile Include="..\Vendor\SQLiteCpp\sqlite3\sqlite3.c" />
+    <ClCompile Include="..\Vendor\SQLiteCpp\src\Backup.cpp" />
+    <ClCompile Include="..\Vendor\SQLiteCpp\src\Column.cpp" />
+    <ClCompile Include="..\Vendor\SQLiteCpp\src\Database.cpp" />
+    <ClCompile Include="..\Vendor\SQLiteCpp\src\Exception.cpp" />
+    <ClCompile Include="..\Vendor\SQLiteCpp\src\Statement.cpp" />
+    <ClCompile Include="..\Vendor\SQLiteCpp\src\Transaction.cpp" />
+    <ClCompile Include="..\Vendor\StanfordCPPLib\error.cpp" />
+    <ClCompile Include="..\Vendor\StanfordCPPLib\exceptions.cpp" />
+    <ClCompile Include="..\Vendor\StanfordCPPLib\filelib.cpp" />
+    <ClCompile Include="..\Vendor\StanfordCPPLib\platform.cpp" />
+    <ClCompile Include="..\Vendor\StanfordCPPLib\simpio.cpp" />
+    <ClCompile Include="..\Vendor\StanfordCPPLib\stacktrace\call_stack_windows.cpp" />
+    <ClCompile Include="..\Vendor\StanfordCPPLib\strlib.cpp" />
+    <ClCompile Include="stdafx.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Vendor\mailcore2\build-windows\mailcore2\mailcore2\mailcore2.vcxproj">
+      <Project>{aad35e01-77e4-43cb-bbb4-f7f6692ea829}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

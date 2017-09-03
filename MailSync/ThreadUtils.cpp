@@ -36,7 +36,7 @@ void SetThreadName(const char* threadName)
     info.dwThreadID = GetCurrentThreadId();
     info.dwFlags = 0;
     
-    names[thread_id()] = threadName;
+    names[spdlog::details::os::thread_id()] = threadName;
 
     __try
     {

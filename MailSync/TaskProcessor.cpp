@@ -21,6 +21,8 @@
 
 using namespace std;
 using namespace mailcore;
+using namespace nlohmann;
+
 
 // Small functions that we pass to the generic ChangeMessages runner
 
@@ -117,7 +119,7 @@ void _applyLabels(Message * msg, json & data) {
     }
     for (auto & item : toRemove) {
         string xgmValue = _xgmKeyForLabel(item);
-        for (ssize_t i = labels.size() - 1; i >= 0; i --) {
+        for (size_t i = labels.size() - 1; i >= 0; i --) {
             if (labels.at(i).get<string>() == xgmValue) {
                 labels.erase(i);
             }
@@ -780,7 +782,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         while (tries < 5) {
             if (delay[tries]) {
                 logger->info("-- No messages found. Sleeping {} to wait for sent folder to settle...", delay[tries]);
-                sleep(delay[tries]);
+				std::this_thread::sleep_for(std::chrono::seconds(delay[tries]));
             }
 
             session->select(sentPath, &err);

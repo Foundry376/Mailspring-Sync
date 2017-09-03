@@ -15,7 +15,7 @@
 #include "json.hpp"
 #include "GenericException.hpp"
 
-using json = nlohmann::json;
+using namespace nlohmann;
 
 using namespace std;
 using namespace mailcore;

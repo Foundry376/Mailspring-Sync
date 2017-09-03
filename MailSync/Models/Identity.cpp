@@ -55,13 +55,16 @@ string Identity::token() {
 
 string Identity::tableName(){
     assert(false);
+	return "";
 }
 string Identity::constructorName() {
     assert(false);
+	return "";
 }
 
 vector<string> Identity::columnsForQuery() {
     assert(false);
+	return {};
 }
 
 void Identity::bindToQuery(SQLite::Statement * query) {

@@ -3,7 +3,7 @@
 #include <libetpan/libetpan.h>
 
 #include <string.h>
-#include <strings.h>
+// #include <strings.h>
 
 namespace mailcore {
 

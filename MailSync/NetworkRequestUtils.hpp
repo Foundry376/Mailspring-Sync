@@ -15,7 +15,7 @@
 
 class Account;
 
-using json = nlohmann::json;
+using namespace nlohmann;
 using namespace std;
 
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp);

@@ -10,16 +10,15 @@
 #include "NetworkRequestUtils.hpp"
 #include "SyncException.hpp"
 
-#include <mailcore2/src/core/basetypes/MCBase64.h>
-
-using json = nlohmann::json;
+using namespace nlohmann;
 
 XOAuth2Parts buildParts(string xoauth2, int expiryDate) {
-    int outlen = 0;
-    char * out = MCDecodeBase64(xoauth2.c_str(), (int)xoauth2.size(), &outlen);
-    std::string sout(out, outlen);
-    free(out);
-    
+	AutoreleasePool pool;
+	String * mcXoauth2 = String::stringWithUTF8Characters(xoauth2.c_str());
+	Data * data = mcXoauth2->decodedBase64Data();
+	String * decoded = String::stringWithData(data);
+	std::string sout(decoded->UTF8Characters());
+
     // Parse the xoauth2 string apart
     // user=${username}\x01auth=Bearer ${accessToken}\x01\x01
     string divider = "\001auth=Bearer ";

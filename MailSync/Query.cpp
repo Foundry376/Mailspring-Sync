@@ -12,7 +12,7 @@
 #include "json.hpp"
 #include "MailUtils.hpp"
 
-using json = nlohmann::json;
+using namespace nlohmann;
 using namespace std;
 
 

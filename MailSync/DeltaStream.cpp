@@ -10,18 +10,21 @@
 #include "ThreadUtils.h"
 
 #include <stdio.h>
-#include <unistd.h>
 #include <string.h>
 
+#ifndef _MSC_VER
+#include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#endif
+
 #include <stdlib.h>
 #include <functional>
 #include <chrono>
 #include <future>
 #include <cstdio>
 
-using json = nlohmann::json;
+using namespace nlohmann;
 
 // Singleton Implementation
 

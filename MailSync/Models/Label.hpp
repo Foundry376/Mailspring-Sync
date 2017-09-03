@@ -15,7 +15,7 @@
 
 #include "Folder.hpp"
 
-using json = nlohmann::json;
+using namespace nlohmann;
 using namespace std;
 
 class Label : public Folder {
