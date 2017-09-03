@@ -1,4 +1,3 @@
-Externals
 
 example/ios/iOS UI Test/DerivedData
 scripts/prebuilt.list
@@ -32,7 +31,6 @@ Podfile.lock
 *.sdf
 *.opensdf
 *.suo
-Externals
 build-mac/mailcore2.xcodeproj/project.xcworkspace/xcshareddata
 build-windows/include
 build-windows/_headers_depends
