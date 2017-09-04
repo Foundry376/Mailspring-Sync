@@ -51,7 +51,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CRT_SECURE_NO_WARNINGS;_CONSOLE;_LIB;
-_TIMESPEC_DEFINED;CURL_STATICLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+_TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..\Vendor\SQLiteCpp\sqlite3;..\MailSync\Models;..\MailSync;.\Externals\include;..\Vendor\mailcore2\Externals\include;..\Vendor\StanfordCPPLib;..\Vendor;..\Vendor\SQLiteCpp\include;..\Vendor\nlohmann;..\Vendor\mailcore2\build-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
@@ -69,7 +69,7 @@ _TIMESPEC_DEFINED;CURL_STATICLIB;%(PreprocessorDefinitions)</PreprocessorDefinit
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CRT_SECURE_NO_WARNINGS;_CONSOLE;_LIB;_TIMESPEC_DEFINED;CURL_STATICLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CRT_SECURE_NO_WARNINGS;_CONSOLE;_LIB;_TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>..\Vendor\SQLiteCpp\sqlite3;..\MailSync\Models;..\MailSync;.\Externals\include;..\Vendor\mailcore2\Externals\include;..\Vendor\StanfordCPPLib;..\Vendor;..\Vendor\SQLiteCpp\include;..\Vendor\nlohmann;..\Vendor\mailcore2\build-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
