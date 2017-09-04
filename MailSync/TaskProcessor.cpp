@@ -119,7 +119,7 @@ void _applyLabels(Message * msg, json & data) {
     }
     for (auto & item : toRemove) {
         string xgmValue = _xgmKeyForLabel(item);
-        for (size_t i = labels.size() - 1; i >= 0; i --) {
+        for (int i = (int)labels.size() - 1; i >= 0; i --) {
             if (labels.at(i).get<string>() == xgmValue) {
                 labels.erase(i);
             }
