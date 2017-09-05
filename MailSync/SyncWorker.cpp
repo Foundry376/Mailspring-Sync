@@ -192,10 +192,20 @@ void SyncWorker::idleCycleIteration()
 
 // Background Behaviors
 
+void SyncWorker::markAllFoldersBusy() {
+    logger->info("Marking all folders as `busy`");
+    MailStoreTransaction transaction(store);
+    auto allLocalFolders = store->findAll<Folder>(Query().equal("accountId", account->id()));
+    for (auto f : allLocalFolders) {
+        f->localStatus()["busy"] = true;
+        store->save(f.get());
+    }
+    transaction.commit();
+}
+
+
 bool SyncWorker::syncNow()
 {
-    // allocated mailcore objects freed when `pool` is removed from the stack.
-    // We create pools within sync but they stack so why not..
     AutoreleasePool pool;
     bool syncAgainImmediately = false;
 
@@ -271,12 +281,40 @@ bool SyncWorker::syncNow()
             syncFolderChangesViaCondstore(*folder, remoteStatus);
         } else {
             uint32_t remoteUidnext = remoteStatus.uidNext();
-            bool newMessages = remoteUidnext > localStatus["uidnext"].get<uint32_t>();
+            uint32_t localUidnext = localStatus["uidnext"].get<uint32_t>();
+            bool newMessages = remoteUidnext > localUidnext;
             bool timeForDeepScan = (iterationsSinceLaunch > 0) && (time(0) - localStatus["lastDeep"].get<time_t>() > 2 * 60);
             bool timeForShallowScan = !timeForDeepScan && (time(0) - localStatus["lastShallow"].get<time_t>() > 2 * 60);
+
+            // Okay. If there are new messages in the folder (UIDnext has increased), do a heavy fetch of
+            // those /AND/ get the bodies. This ensures people see both very quickly, which is important.
+            //
+            // TODO: This could potentially grab zillions of messages...
+            //
+            if (newMessages) {
+                vector<shared_ptr<Message>> synced{};
+                syncFolderUIDRange(*folder, RangeMake(localUidnext, remoteUidnext - localUidnext), true, &synced);
+                
+                if ((folder->role() == "inbox") || (folder->role() == "all")) {
+                    // if UIDs are ascending, flip them so we download the newest (highest) UID bodies first
+                    if (synced.size() > 1 && synced[0]->remoteUID() < synced[1]->remoteUID()) {
+                        std::reverse(synced.begin(), synced.end());
+                    }
+                    int count = 0;
+                    for (auto msg : synced) {
+                        if (!msg->isInInbox()) {
+                            continue; // skip "all mail" that is not in inbox
+                        }
+                        syncMessageBody(msg.get());
+                        if (count++ > 30) { break; }
+                    }
+                }
+            }
             
-            if (newMessages || timeForShallowScan) {
-                uint32_t bottomUID = store->fetchMessageUIDAtDepth(*folder, 499, remoteUidnext);
+            if (timeForShallowScan) {
+                // note: we use local uidnext here, because we just fetched everything between
+                // localUIDNext and remoteUIDNext so fetching that section again would just slow us down.
+                uint32_t bottomUID = store->fetchMessageUIDAtDepth(*folder, 399, localUidnext);
                 if (bottomUID < syncedMinUID) {
                     bottomUID = syncedMinUID;
                 }
@@ -341,33 +379,33 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         throw SyncException(err, "syncFoldersAndLabels - fetchAllFolders");
     }
     
-    // create required Merani folders if they don't exist
+    // create required Mailspring folders if they don't exist
     char delimiter = ((IMAPFolder *)remoteFolders->objectAtIndex(0))->delimiter();
-    vector<string> meraniFolders{"Snoozed"};
-    for (string meraniFolder : meraniFolders) {
-        string meraniFolderPath = MERANI_FOLDER_PREFIX;
-        meraniFolderPath += delimiter;
-        meraniFolderPath += meraniFolder;
+    vector<string> mailspringFolders{"Snoozed"};
+    for (string mailspringFolder : mailspringFolders) {
+        string mailspringFolderPath = MERANI_FOLDER_PREFIX;
+        mailspringFolderPath += delimiter;
+        mailspringFolderPath += mailspringFolder;
 
         bool found = false;
         for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
             string remotePath = remote->path()->UTF8Characters();
 
-            if (remotePath == meraniFolderPath) {
+            if (remotePath == mailspringFolderPath) {
                 found = true;
                 break;
             }
         }
         if (!found) {
-            session.createFolder(AS_MCSTR(meraniFolderPath), &err);
+            session.createFolder(AS_MCSTR(mailspringFolderPath), &err);
             if (err) {
-                logger->error("Could not create required Merani folder: {}. {}", meraniFolderPath, ErrorCodeToTypeMap[err]);
+                logger->error("Could not create required Mailspring folder: {}. {}", mailspringFolderPath, ErrorCodeToTypeMap[err]);
             } else {
-                logger->error("Created required Merani folder: {}.", meraniFolderPath);
+                logger->error("Created required Mailspring folder: {}.", mailspringFolderPath);
             }
             IMAPFolder * fake = new IMAPFolder();
-            fake->setPath(AS_MCSTR(meraniFolderPath));
+            fake->setPath(AS_MCSTR(mailspringFolderPath));
             fake->setDelimiter(delimiter);
             remoteFolders->addObject(fake);
         }
@@ -466,10 +504,10 @@ IMAPMessagesRequestKind SyncWorker::fetchRequestKind(bool heavy) {
     return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags);
 }
 
-void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest)
+void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages)
 {
     logger->info("syncFolderUIDRange - ({}, UIDs: {} - {}, Heavy: {})", folder.path(), range.location, range.location + range.length, heavyInitialRequest);
-    
+
     AutoreleasePool pool;
     IndexSet * set = IndexSet::indexSetWithRange(range);
     IndexSet * heavyNeeded = new IndexSet();
@@ -477,7 +515,6 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(folder.path()));
     time_t syncDataTimestamp = time(0);
-
     
     Array * remote = session.fetchMessagesByUID(&path, fetchRequestKind(heavyInitialRequest), set, &cb, &err);
     if (err) {
@@ -492,7 +529,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         // Never sit in a hard loop inserting things into the database for more than 250ms.
         // This ensures we don't starve another thread waiting for a database connection
         if (((clock() - lastSleepClock) * 4) / CLOCKS_PER_SEC > 1) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             lastSleepClock = clock();
         }
         
@@ -513,7 +550,10 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
             // hit the exception anyway since another thread could be IDLEing and retrieving
             // the messages alongside us.
             if (heavyInitialRequest) {
-                processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
+                auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
+                if (syncedMessages != nullptr) {
+                    syncedMessages->push_back(local);
+                }
             } else {
                 heavyNeeded->addIndex(remoteUID);
             }
@@ -532,7 +572,10 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         }
         for (int ii = remote->count() - 1; ii >= 0; ii--) {
             IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
-            processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
+            auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
+            if (syncedMessages != nullptr) {
+                syncedMessages->push_back(local);
+            }
             remote->removeLastObject();
         }
     }
