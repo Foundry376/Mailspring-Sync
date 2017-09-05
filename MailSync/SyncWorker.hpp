@@ -50,13 +50,15 @@ public:
     void idleCycleIteration();
     
 #pragma mark Background Worker
+    void markAllFoldersBusy();
+    
     bool syncNow();
 
     std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
         
-    void syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest);
+    void syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
 
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus);
 
