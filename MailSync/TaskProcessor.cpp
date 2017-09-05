@@ -264,7 +264,7 @@ void TaskProcessor::performRemote(Task * task) {
                 // right now we don't syncback drafts
                 
             } else if (cname == "DestroyDraftTask") {
-                // right now we don't syncback drafts
+                performRemoteDestroyDraft(task);
 
             } else if (cname == "SyncbackCategoryTask") {
                 performRemoteSyncbackCategory(task);
@@ -333,29 +333,35 @@ Message TaskProcessor::inflateDraft(json & draftJSON) {
     draftJSON["_suc"] = 0;
     draftJSON["labels"] = json::array();
 
-    if (!draftJSON.count("threadId")) {
+    if (!draftJSON.count("threadId") || draftJSON["threadId"].is_null()) {
         draftJSON["threadId"] = "";
     }
-    if (!draftJSON.count("gMsgId")) {
+    if (!draftJSON.count("gMsgId") || draftJSON["gMsgId"].is_null()) {
         draftJSON["gMsgId"] = "";
     }
-    if (!draftJSON.count("files")) {
+    if (!draftJSON.count("files") || draftJSON["files"].is_null()) {
         draftJSON["files"] = json::array();
     }
-    if (!draftJSON.count("from")) {
+    if (!draftJSON.count("from") || draftJSON["from"].is_null()) {
         draftJSON["from"] = json::array();
     }
-    if (!draftJSON.count("to")) {
+    if (!draftJSON.count("to") || draftJSON["to"].is_null()) {
         draftJSON["to"] = json::array();
     }
-    if (!draftJSON.count("cc")) {
+    if (!draftJSON.count("cc") || draftJSON["cc"].is_null()) {
         draftJSON["cc"] = json::array();
     }
-    if (!draftJSON.count("bcc")) {
+    if (!draftJSON.count("bcc") || draftJSON["bcc"].is_null()) {
         draftJSON["bcc"] = json::array();
     }
     
-    return Message{draftJSON};
+    auto msg = Message{draftJSON};
+    
+    if (msg.accountId() != account->id()) {
+        throw SyncException("bad-accountid", "The draft in this task has the wrong account ID.", false);
+    }
+
+    return msg;
 }
 
 ChangeMailModels TaskProcessor::inflateMessages(json & data) {
@@ -512,29 +518,79 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
 }
 
 void TaskProcessor::performLocalDestroyDraft(Task * task) {
-    string headerMessageId = task->data()["headerMessageId"];
+    vector<string> messageIds = task->data()["messageIds"];
 
-    logger->info("-- Deleting local drafts with headerMessageId {}", headerMessageId);
+    logger->info("-- Deleting local drafts by ID");
 
     // find anything with this header id and blow it away
-    Query q = Query().equal("accountId", account->id()).equal("headerMessageId", headerMessageId).equal("draft", 1);
-    auto drafts = store->findAll<Message>(q);
     json draftsJSON = json::array();
-    
-    // todo bodies?
+    SQLite::Statement removeBody(store->db(), "DELETE FROM MessageBody WHERE id = ?");
+    auto drafts = store->findAll<Message>(Query().equal("id", messageIds));
     
     {
         MailStoreTransaction transaction{store};
 
         for (auto & draft : drafts) {
+            if (!draft->isDraft()) {
+                continue;
+            }
+            if (draft->accountId() != account->id()) {
+                continue;
+            }
             draftsJSON.push_back(draft->toJSON());
             logger->info("--- Deleting {}", draft->id());
             store->remove(draft.get());
+            
+            removeBody.bind(1, draft->id());
+            removeBody.exec();
         }
         transaction.commit();
     }
-        
+    
     task->data()["drafts"] = draftsJSON;
+}
+
+void TaskProcessor::performRemoteDestroyDraft(Task * task) {
+    json & deletedDrafts = task->data()["drafts"];
+    
+    for (json & d : deletedDrafts) {
+        auto draft = Message(d);
+        auto uids = IndexSet::indexSetWithIndex(draft.remoteUID());
+
+        logger->info("-- Deleting remote draft {}", draft.id());
+
+        // Find the trash folder
+        auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
+        if (trash == nullptr) {
+            throw SyncException("no-trash-folder", "", false);
+        }
+        String * trashPath = AS_MCSTR(trash->path());
+        logger->info("-- Identified `trash` folder: {}", trash->path());
+
+        // Move to the trash folder
+        HashMap * uidmap = nullptr;
+        ErrorCode err = ErrorCode::ErrorNone;
+        Array * auidsInTrash = nullptr;
+        IndexSet uidsInTrash;
+        String * folder = AS_MCSTR(draft.remoteFolder()["path"].get<string>());
+        session->moveMessages(folder, uids, trashPath, &uidmap, &err);
+        if (err != ErrorNone) {
+            continue; // eh, draft may be gone, oh well
+        }
+        if (uidmap == nullptr) {
+            continue; // eh, draft may be gone, oh well
+        }
+        
+        // Add the "DELETED" flag
+        auidsInTrash = uidmap->allValues();
+        for (int i = 0; i < auidsInTrash->count(); i ++) {
+            uidsInTrash.addIndex(((Value*)auidsInTrash->objectAtIndex(i))->unsignedLongValue());
+        }
+        session->storeFlagsByUID(trashPath, &uidsInTrash, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
+        if (err != ErrorNone) {
+            throw SyncException(err, "add deleted flag");
+        }
+    }
 }
 
 void TaskProcessor::performLocalSyncbackCategory(Task * task) {
