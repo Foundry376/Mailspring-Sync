@@ -65,6 +65,8 @@ public:
     void setBodyForDispatch(string s);
 
     bool isSentByUser();
+    bool isInInbox();
+    bool _isIn(string roleAlsoLabelName);
 
     json & remoteXGMLabels();
     void setRemoteXGMLabels(json & labels);

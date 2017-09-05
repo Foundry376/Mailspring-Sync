@@ -63,7 +63,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   make
 
   # build mailsync
-  echo "Building Merani MailSync..."
+  echo "Building Mailspring MailSync..."
   cd "$MAILSYNC_DIR"
   cmake .
   make

@@ -228,8 +228,8 @@ string MailUtils::roleForFolder(IMAPFolder * folder) {
     
     string path = string(folder->path()->UTF8Characters());
 
-    // [Merani]/Snoozed = snoozed
-    // [Merani]/XXX = xxx
+    // [Mailspring]/Snoozed = snoozed
+    // [Mailspring]/XXX = xxx
     if (path.size() > MERANI_FOLDER_PREFIX.size() && path.substr(0, MERANI_FOLDER_PREFIX.size()) == MERANI_FOLDER_PREFIX) {
         string name = path.substr(MERANI_FOLDER_PREFIX.size() + 1);
         transform(name.begin(), name.end(), name.begin(), ::tolower);
@@ -338,7 +338,7 @@ string MailUtils::idRandomlyGenerated() {
     return result;
 }
 
-string MailUtils::idForDraftHeaderMessageId(string headerMessageId)
+string MailUtils::idForDraftHeaderMessageId(string accountId, string headerMessageId)
 {
     vector<unsigned char> hash(32);
     picosha2::hash256(headerMessageId.begin(), headerMessageId.end(), hash.begin(), hash.end());
