@@ -383,7 +383,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     char delimiter = ((IMAPFolder *)remoteFolders->objectAtIndex(0))->delimiter();
     vector<string> mailspringFolders{"Snoozed"};
     for (string mailspringFolder : mailspringFolders) {
-        string mailspringFolderPath = MERANI_FOLDER_PREFIX;
+        string mailspringFolderPath = MAILSPRING_FOLDER_PREFIX;
         mailspringFolderPath += delimiter;
         mailspringFolderPath += mailspringFolder;
 

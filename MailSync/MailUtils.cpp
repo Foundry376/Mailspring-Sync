@@ -230,8 +230,8 @@ string MailUtils::roleForFolder(IMAPFolder * folder) {
 
     // [Mailspring]/Snoozed = snoozed
     // [Mailspring]/XXX = xxx
-    if (path.size() > MERANI_FOLDER_PREFIX.size() && path.substr(0, MERANI_FOLDER_PREFIX.size()) == MERANI_FOLDER_PREFIX) {
-        string name = path.substr(MERANI_FOLDER_PREFIX.size() + 1);
+    if (path.size() > MAILSPRING_FOLDER_PREFIX.size() && path.substr(0, MAILSPRING_FOLDER_PREFIX.size()) == MAILSPRING_FOLDER_PREFIX) {
+        string name = path.substr(MAILSPRING_FOLDER_PREFIX.size() + 1);
         transform(name.begin(), name.end(), name.begin(), ::tolower);
         return name;
     }
