@@ -39,6 +39,7 @@ MetadataWorker::MetadataWorker(shared_ptr<Account> account) :
 
 void MetadataWorker::run() {
     deltasCursor = store->getKeyValue("cursor-" + account->id());
+    backoffStep = 0;
 
     while(true) {
         try {
@@ -64,6 +65,7 @@ void MetadataWorker::run() {
             if (!ex.isRetryable()) {
                 throw;
             }
+            logger->info("Encountered error: {}. . Will retry in {} sec.", ex.toJSON().dump(), backoffSeconds[backoffStep]);
             MailUtils::sleepWorkerUntilWakeOrSec(backoffSeconds[backoffStep]);
             if (backoffStep < 9)
                 backoffStep += 1;

@@ -83,7 +83,7 @@ public:
     uint32_t fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint32_t before = UINT32_MAX);
 
     map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
-    
+
     vector<shared_ptr<Label>> allLabelsCache(string accountId);
 
     void setStreamDelay(int streamMaxDelay);

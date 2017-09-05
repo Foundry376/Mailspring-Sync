@@ -72,8 +72,8 @@ Message::Message(SQLite::Statement & query) :
 Message::Message(json json) :
     MailModel(json)
 {
-    if (json.count("id") == 0) {
-        _data["id"] = MailUtils::idForDraftHeaderMessageId(headerMessageId());
+    if (!json.count("id") || json["id"].is_null()) {
+        _data["id"] = MailUtils::idForDraftHeaderMessageId(accountId(), headerMessageId());
     }
 }
 
@@ -145,17 +145,33 @@ void Message::setBodyForDispatch(string s) {
 }
 
 bool Message::isSentByUser() {
-    // returns true if the message is in the sent folder or has the sent label
-    if (_data["folder"]["role"].get<string>() == "sent") {
+    return this->_isIn("sent");
+}
+
+bool Message::isInInbox() {
+    return this->_isIn("inbox");
+}
+
+bool Message::_isIn(string roleAlsoLabelName) {
+    string f = remoteFolder()["role"].get<string>();
+    if (f == roleAlsoLabelName) {
         return true;
     }
-    for (auto l : _data["labels"]) {
-        if (l.get<string>() == "\\Sent") {
-            return true;
+    if (f == "all") {
+        string needle = roleAlsoLabelName;
+        for (auto & l : remoteXGMLabels()) {
+            string ln = l.get<string>();
+            auto it = std::search(ln.begin(), ln.end(), needle.begin(), needle.end(), [](char ch1, char ch2) {
+                return std::toupper(ch1) == std::toupper(ch2);
+            });
+            if (it != ln.end()) {
+                return true;
+            }
         }
     }
     return false;
 }
+
 
 uint32_t Message::remoteUID() {
     return _data["remoteUID"].get<uint32_t>();

@@ -433,7 +433,7 @@ static void stanfordCppLibTerminateHandler() {
         throw;   // re-throws the exception that already occurred
 
     } catch (GenericException& ex) {
-        stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, "Merani GenericException");
+        stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, "Mailspring GenericException");
         stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, (ex.toJSON().dump()));
         spdlog::get("logger")->flush();
         spdlog::get("logger")->critical(msg);

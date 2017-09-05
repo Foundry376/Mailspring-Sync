@@ -84,16 +84,15 @@ struct CArg: public option::Arg
 enum  optionIndex { UNKNOWN, HELP, IDENTITY, ACCOUNT, MODE, ORPHAN };
 const option::Descriptor usage[] =
 {
-    {UNKNOWN, 0,"" , "",        CArg::None,      "USAGE: CONFIG_DIR_PATH=/path IDENTITY_SERVER=https://id.getmerani.com "
-                                                 "ACCOUNTS_SERVER https://accounts.getmerani.com mailsync [options]\n\nOptions:" },
+    {UNKNOWN, 0,"" , "",        CArg::None,      "USAGE: CONFIG_DIR_PATH=/path IDENTITY_SERVER=https://id.getmailspring.com "
+                                                 "ACCOUNTS_SERVER https://accounts.getmailspring.com mailsync [options]\n\nOptions:" },
     {HELP,    0,"" , "help",    CArg::None,      "  --help  \tPrint usage and exit." },
-    {IDENTITY,0,"a", "identity",CArg::Optional,  "  --identity, -i  \tRequired: Merani Identity JSON with credentials." },
+    {IDENTITY,0,"a", "identity",CArg::Optional,  "  --identity, -i  \tRequired: Mailspring Identity JSON with credentials." },
     {ACCOUNT, 0,"a", "account", CArg::Optional,  "  --account, -a  \tRequired: Account JSON with credentials." },
     {MODE,    0,"m", "mode",    CArg::Required,  "  --mode, -m  \tRequired: sync, test, or migrate." },
     {ORPHAN,  0,"o", "orphan",  CArg::None,      "  --orphan, -o  \tOptional: allow the process to run without a parent bound to stdin." },
     {0,0,0,0,0,0}
 };
-
 
 void runMetadataWorker() {
     SetThreadName("metadata");
@@ -125,15 +124,20 @@ void runBackgroundSyncWorker() {
         try {
             bgWorker->configure();
 
-            // start the "foreground" idle worker after we've completed a single
-            // pass through all the folders. This ensures we have the folder list
-            // and the uidnext / highestmodseq etc are populated.
             if (!started) {
+                // mark any existing folders as busy so the UI shows us syncing mail until
+                // the sync worker gets through its first iteration.
+                bgWorker->markAllFoldersBusy();
+
+                // start the "foreground" idle worker after we've completed a single
+                // pass through all the folders. This ensures we have the folder list
+                // and the uidnext / highestmodseq etc are populated.
                 bgWorker->syncFoldersAndLabels();
-                started = true;
                 if (!fgThread) {
                     fgThread = new std::thread(runForegroundSyncWorker);
                 }
+
+                started = true;
             }
             // run in a hard loop until it returns false, indicating continuation
             // is not necessary. Then sync and sleep for a bit. Interval can be long
@@ -234,7 +238,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
     TaskProcessor processor{account, &store, nullptr};
 
     store.setStreamDelay(5);
-    
+
     time_t lostCINAt = 0;
 
     while(true) {
@@ -280,6 +284,8 @@ void runListenOnMainThread(shared_ptr<Account> account) {
         }
         
         if (packet.count("type") && packet["type"].get<string>() == "wake-workers") {
+            // mark all folders as busy so the UI shows us syncing mail
+            bgWorker->markAllFoldersBusy();
             MailUtils::wakeAllWorkers();
         }
 
