@@ -131,22 +131,24 @@ void Thread::addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels) {
     setStarred(starred() + msg->isStarred());
     setAttachmentCount(attachmentCount() + (int)msg->files().size());
     
-    if (msg->date() > lastMessageTimestamp()) {
-        _data["lmt"] = msg->date();
-    }
-    if (msg->date() < firstMessageTimestamp()) {
-        _data["fmt"] = msg->date();
-    }
-    if (msg->isSentByUser()) {
-        if (msg->date() > lastMessageSentTimestamp()) {
-            _data["lmst"] = msg->date();
+    if (!msg->isDraft()) {
+        if (msg->date() > lastMessageTimestamp()) {
+            _data["lmt"] = msg->date();
         }
-    } else {
-        if (msg->date() > lastMessageReceivedTimestamp()) {
-            _data["lmrt"] = msg->date();
+        if (msg->date() < firstMessageTimestamp()) {
+            _data["fmt"] = msg->date();
+        }
+        if (msg->isSentByUser()) {
+            if (msg->date() > lastMessageSentTimestamp()) {
+                _data["lmst"] = msg->date();
+            }
+        } else {
+            if (msg->date() > lastMessageReceivedTimestamp()) {
+                _data["lmrt"] = msg->date();
+            }
         }
     }
-    
+
     // update our folder set + increment refcounts
     string msgFolderId = msg->clientFolderId();
     bool found = false;
