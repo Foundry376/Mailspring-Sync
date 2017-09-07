@@ -932,6 +932,27 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         session->appendMessage(sentPath, messageDataForSent, MessageFlagSeen, &iprogress, &sentFolderMessageUID, &err);
         if (err != ErrorNone) {
             logger->error("-X IMAP Error: {}. Could not place a message into the Sent folder. This means no metadata will be attached!", ErrorCodeToTypeMap[err]);
+            err = ErrorNone;
+        }
+
+        // If the user is on Gmail and the thread had labels, apply those same
+        // labels to the new sent message. Otherwise the thread moves /only/ to
+        // the sent folder.
+        if (session->storedCapabilities()->containsIndex(IMAPCapabilityGmail)) {
+            if (draft.threadId() != "") {
+                auto thread = store->find<Thread>(Query().equal("accountId", draft.accountId()).equal("id", draft.threadId()));
+                if (thread) {
+                    Array * xgmValues = new Array();
+                    for (auto & l : thread->labels()) {
+                        xgmValues->addObject(AS_MCSTR(_xgmKeyForLabel(l)));
+                    }
+                    session->storeLabelsByUID(sentPath, IndexSet::indexSetWithIndex(sentFolderMessageUID), IMAPStoreFlagsRequestKindAdd, xgmValues, &err);
+                    if (err != ErrorNone) {
+                        logger->error("-X IMAP Error: {}. Could not add labels to new message in sent folder. This means the thread may disappear from the inbox.", ErrorCodeToTypeMap[err]);
+                        err = ErrorNone;
+                    }
+                }
+            }
         }
     }
 
