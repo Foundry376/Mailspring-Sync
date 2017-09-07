@@ -695,6 +695,14 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     AutoreleasePool pool;
     ErrorCode err = ErrorNone;
 
+    // We never intend for a send task to run more than once. As soon as we
+    // successfully send a single SMTP request successfully, we set this bit
+    // to ensure that - even if we don't report failures properly - we never
+    // get a send task "stuck" in the queue sending over and over.
+    if (task->data().count("_performRemoteRan")) { return; }
+    task->data()["_performRemoteRan"] = true;
+    store->save(task);
+
     // load the draft and body from the task
     json & draftJSON = task->data()["draft"];
     json & perRecipientBodies = task->data()["perRecipientBodies"];
