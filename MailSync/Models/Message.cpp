@@ -32,6 +32,11 @@ MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 
     _data["hMsgId"] = msg->header()->messageID()->UTF8Characters();
     _data["subject"] = msg->header()->subject() ? msg->header()->subject()->UTF8Characters() : "No Subject";
     _data["gMsgId"] = to_string(msg->gmailMessageID());
+    
+    Array * irt = msg->header()->inReplyTo();
+    if (irt->count()) {
+        _data["rtMsgId"] = ((String*)irt->lastObject())->UTF8Characters();
+    }
 
     MessageAttributes attrs = MessageAttributesForMessage(msg);
     _data["unread"] = attrs.unread;
@@ -118,6 +123,14 @@ string Message::snippet() {
 
 void Message::setSnippet(string s) {
     _data["snippet"] = s;
+}
+
+string Message::replyToHeaderMessageId() {
+    return _data["rthMsgId"].get<string>();
+}
+
+void Message::setReplyToHeaderMessageId(string s) {
+    _data["rthMsgId"] = s;
 }
 
 json Message::files() {

@@ -50,6 +50,9 @@ public:
     string snippet();
     void setSnippet(string s);
 
+    string replyToHeaderMessageId();
+    void setReplyToHeaderMessageId(string s);
+    
     json files();
     void setFiles(vector<File> & files);
 

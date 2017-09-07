@@ -551,9 +551,9 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
 }
 
 void TaskProcessor::performRemoteDestroyDraft(Task * task) {
-    json & deletedDrafts = task->data()["drafts"];
+    json & deletedDraftJSONs = task->data()["drafts"];
     
-    for (json & d : deletedDrafts) {
+    for (json & d : deletedDraftJSONs) {
         auto draft = Message(d);
         auto uids = IndexSet::indexSetWithIndex(draft.remoteUID());
 
@@ -736,6 +736,12 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     builder.header()->setSubject(AS_MCSTR(draft.subject()));
     builder.header()->setMessageID(AS_MCSTR(draft.headerMessageId()));
     
+    if (draft.replyToHeaderMessageId() != "") {
+        // todo: lookup thread reference entire chain?
+        builder.header()->setReferences(Array::arrayWithObject(AS_MCSTR(draft.replyToHeaderMessageId())));
+        builder.header()->setInReplyTo(Array::arrayWithObject(AS_MCSTR(draft.replyToHeaderMessageId())));
+    }
+
     Array * to = new Array();
     for (json & p : draft.to()) {
         to->addObject(MailUtils::addressFromContactJSON(p));
