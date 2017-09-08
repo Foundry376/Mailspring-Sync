@@ -60,7 +60,7 @@ void _applyStarredInIMAPFolder(IMAPSession * session, String * path, IndexSet * 
 
 void _applyFolder(Message * msg, json & data) {
     Folder folder{data["folder"]};
-    msg->setClientFolder(folder);
+    msg->setClientFolder(&folder);
 }
 
 void _applyFolderMoveInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
@@ -82,7 +82,7 @@ void _applyFolderMoveInIMAPFolder(IMAPSession * session, String * path, IndexSet
         if (!newUID) {
             throw SyncException("generic", "move did not provide new UID.", false);
         }
-        msg->setRemoteFolder(destFolder);
+        msg->setRemoteFolder(&destFolder);
         msg->setRemoteUID(newUID->unsignedIntValue());
     }
 }
@@ -333,6 +333,9 @@ Message TaskProcessor::inflateDraft(json & draftJSON) {
     draftJSON["_suc"] = 0;
     draftJSON["labels"] = json::array();
 
+    if (!draftJSON.count("id") || draftJSON["id"].is_null()) {
+        draftJSON["id"] = MailUtils::idForDraftHeaderMessageId(draftJSON["aid"], draftJSON["hMsgId"]);
+    }
     if (!draftJSON.count("threadId") || draftJSON["threadId"].is_null()) {
         draftJSON["threadId"] = "";
     }
@@ -387,68 +390,24 @@ ChangeMailModels TaskProcessor::inflateMessages(json & data) {
     return models;
 }
 
-ChangeMailModels TaskProcessor::inflateThreadsAndMessages(json & data) {
-    ChangeMailModels models;
-
-    if (data.count("threadIds")) {
-        vector<string> threadIds{};
-        for (auto & member : data["threadIds"]) {
-            threadIds.push_back(member.get<string>());
-        }
-        Query byId = Query().equal("id", threadIds);
-        models.threads = store->findAllMap<Thread>(byId, "id");
-        Query byThreadId = Query().equal("threadId", threadIds);
-        models.messages = store->findAll<Message>(byThreadId);
-        
-    } else if (data.count("messageIds")) {
-        vector<string> messageIds{};
-        for (auto & member : data["messageIds"]) {
-            messageIds.push_back(member.get<string>());
-        }
-        Query byId = Query().equal("id", messageIds); // TODO This will break if more than 500 messages on a thread
-        models.messages = store->findAll<Message>(byId);
-        vector<string> threadIds{};
-        for (auto & msg : models.messages) {
-            threadIds.push_back(msg->threadId()); // todo sending dupes here
-        }
-        byId = Query().equal("id", threadIds);
-        models.threads = store->findAllMap<Thread>(byId, "id");
-    }
-    
-    return models;
-}
-
 void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocalMessage)(Message *, json &)) {
     MailStoreTransaction transaction{store};
     
     json & data = task->data();
-    ChangeMailModels models = inflateThreadsAndMessages(data);
+    ChangeMailModels models = inflateMessages(data);
     
-    auto allLabels = store->allLabelsCache(task->accountId());
-    
-    for (auto pair : models.threads) {
-        auto thread = pair.second;
+    for (auto msg : models.messages) {
+        // perform local changes
+        modifyLocalMessage(msg.get(), data);
 
-        for (auto msg : models.messages) {
-            if (msg->threadId() != pair.first) {
-                continue;
-            }
+        // prevent remote changes to this message for 24 hours
+        // so the changes aren't reverted by sync before we can syncback.
+        msg->setSyncUnsavedChanges(msg->syncUnsavedChanges() + 1);
+        msg->setSyncedAt(time(0) + 24 * 60 * 60);
 
-            // perform local changes
-            thread->prepareToReaddMessage(msg.get(), allLabels);
-            modifyLocalMessage(msg.get(), data);
-            
-            // prevent remote changes to this message for 24 hours
-            // so the changes aren't reverted by sync before we can syncback.
-            msg->setSyncUnsavedChanges(msg->syncUnsavedChanges() + 1);
-            msg->setSyncedAt(time(0) + 24 * 60 * 60);
-            
-            thread->addMessage(msg.get(), allLabels);
-            store->save(msg.get());
-        }
-
-        store->save(thread.get());
+        store->save(msg.get());
     }
+
     transaction.commit();
 }
 
@@ -506,6 +465,7 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
 
     {
         MailStoreTransaction transaction{store};
+
         store->save(&msg);
 
         SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
@@ -520,59 +480,77 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
 void TaskProcessor::performLocalDestroyDraft(Task * task) {
     vector<string> messageIds = task->data()["messageIds"];
 
-    logger->info("-- Deleting local drafts by ID");
-
-    // find anything with this header id and blow it away
-    json draftsJSON = json::array();
-    SQLite::Statement removeBody(store->db(), "DELETE FROM MessageBody WHERE id = ?");
-    auto drafts = store->findAll<Message>(Query().equal("id", messageIds));
+    logger->info("-- Hiding / detatching drafts while they're deleted...");
     
+    // Find the trash folder
+    auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
+    if (trash == nullptr) {
+        throw SyncException("no-trash-folder", "", false);
+    }
+
+    auto stubIds = json::array();
+    
+    // we need to free up the draft ID immediately because the user can
+    // switch a draft between accounts, and we may need to re-create a
+    // new draft with the same acctId + hMsgId combination.
+    
+    // Destroy drafts locally and create stubs that prevent the sync
+    // worker from replacing them while we delete them via IMAP.
     {
         MailStoreTransaction transaction{store};
-
+        auto drafts = store->findAll<Message>(Query().equal("id", messageIds));
         for (auto & draft : drafts) {
-            if (!draft->isDraft()) {
-                continue;
-            }
-            if (draft->accountId() != account->id()) {
-                continue;
-            }
-            draftsJSON.push_back(draft->toJSON());
-            logger->info("--- Deleting {}", draft->id());
             store->remove(draft.get());
             
-            removeBody.bind(1, draft->id());
-            removeBody.exec();
+            // - set draft: false           Hides the draft from drafts view
+            // - set client folder: trash   So if you view the thread, it's hidden
+            // - set synced at / suc        So if we sync the folder we don't "fix" it
+            
+            // This should be sufficient to totally hide them from the UI while
+            // keeping them until we delete them to prevent re-sync.
+
+            auto stub = Message{draft->toJSON()};
+            stub._data["id"] = "deleted-" + MailUtils::idRandomlyGenerated();
+            stub._data["hMsgId"] = "deleted-" + stub._data["id"].get<string>();
+            stub._data["subject"] = "Deleting...";
+            stub._data["v"] = 0;
+            stub.setDraft(false);
+            stub.setClientFolder(trash.get());
+            stub.setSyncUnsavedChanges(1);
+            stub.setSyncedAt(time(0) + 1 * 60 * 60);
+            store->save(&stub);
+            
+            stubIds.push_back(stub._data["id"]);
         }
+
         transaction.commit();
     }
-    
-    task->data()["drafts"] = draftsJSON;
+    task->data()["stubIds"] = stubIds;
 }
 
 void TaskProcessor::performRemoteDestroyDraft(Task * task) {
-    json & deletedDraftJSONs = task->data()["drafts"];
-    
-    for (json & d : deletedDraftJSONs) {
-        auto draft = Message(d);
-        auto uids = IndexSet::indexSetWithIndex(draft.remoteUID());
+    vector<string> stubIds = task->data()["stubIds"];
+    auto drafts = store->findAll<Message>(Query().equal("id", stubIds));
 
-        logger->info("-- Deleting remote draft {}", draft.id());
+    // Find the trash folder
+    auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
+    if (trash == nullptr) {
+        throw SyncException("no-trash-folder", "", false);
+    }
+    String * trashPath = AS_MCSTR(trash->path());
+    logger->info("-- Identified `trash` folder: {}", trash->path());
 
-        // Find the trash folder
-        auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
-        if (trash == nullptr) {
-            throw SyncException("no-trash-folder", "", false);
-        }
-        String * trashPath = AS_MCSTR(trash->path());
-        logger->info("-- Identified `trash` folder: {}", trash->path());
+    for (auto & draft : drafts) {
+        auto uids = IndexSet::indexSetWithIndex(draft->remoteUID());
+
+        logger->info("-- Deleting remote draft {}", draft->id());
 
         // Move to the trash folder
         HashMap * uidmap = nullptr;
         ErrorCode err = ErrorCode::ErrorNone;
         Array * auidsInTrash = nullptr;
         IndexSet uidsInTrash;
-        String * folder = AS_MCSTR(draft.remoteFolder()["path"].get<string>());
+        String * folder = AS_MCSTR(draft->remoteFolder()["path"].get<string>());
         session->moveMessages(folder, uids, trashPath, &uidmap, &err);
         if (err != ErrorNone) {
             continue; // eh, draft may be gone, oh well
@@ -588,7 +566,7 @@ void TaskProcessor::performRemoteDestroyDraft(Task * task) {
         }
         session->storeFlagsByUID(trashPath, &uidsInTrash, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
         if (err != ErrorNone) {
-            throw SyncException(err, "add deleted flag");
+            continue; // eh, draft may be gone, oh well
         }
     }
 }
@@ -848,7 +826,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         int tries = 0;
         int delay[] = {0, 1, 3, 5, 5, 10};
         IndexSet * uids = new IndexSet();
-
+        
         while (tries < 5) {
             if (delay[tries]) {
                 logger->info("-- No messages found. Sleeping {} to wait for sent folder to settle...", delay[tries]);

@@ -237,7 +237,7 @@ bool SyncWorker::syncNow()
         }
 
         // Step 1: Check folder UIDValidity
-        if (localStatus.empty()) {
+        if (localStatus.empty() || localStatus["uidvalidity"].is_null()) {
             // We're about to fetch the top N UIDs in the folder and start working backwards in time.
             // When we eventually finish and start using CONDSTORE, this will be the highestmodseq
             // from the /oldest/ synced block of UIDs, ensuring we see changes.

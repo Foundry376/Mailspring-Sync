@@ -235,7 +235,7 @@ void MailStore::save(MailModel * model, bool emit) {
         query->exec();
     }
 
-    model->writeAssociations(this->_db);
+    model->writeAssociations(this);
 
     if (tableName == "Label") {
         _labelCacheInvalid = true;
@@ -255,6 +255,8 @@ void MailStore::remove(MailModel * model) {
     query->reset();
     query->bind(1, model->id());
     query->exec();
+
+    model->unwriteAssociations(this);
 
     if (model->tableName() == "Label") {
         _labelCacheInvalid = true;

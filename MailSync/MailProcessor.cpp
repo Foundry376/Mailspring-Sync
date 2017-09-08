@@ -50,7 +50,6 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         references = new Array();
         references->autorelease();
     }
-    auto allLabels = store->allLabelsCache(account->id());
 
     {
         MailStoreTransaction transaction{store};
@@ -75,23 +74,28 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
             }
         }
         
-        // Add the message to the thread
-
-        if (thread != nullptr) {
-            thread->addMessage(msg.get(), allLabels);
-        } else {
-            thread = make_shared<Thread>(msg, mMsg->gmailThreadID(), allLabels);
+        if (thread == nullptr) {
+            // TODO: could move to message save hooks
+            thread = make_shared<Thread>(msg->id(), account->id(), msg->subject(), mMsg->gmailThreadID());
         }
         
-        // Apply changes to ThreadReferences, ThreadSearch, Contacts
-        upsertThreadReferences(thread->id(), thread->accountId(), msg->headerMessageId(), references);
-        appendToThreadSearchContent(thread.get(), msg.get(), nullptr);
-        upsertContacts(msg.get());
-        
-        store->save(thread.get());
         msg->setThreadId(thread->id());
+
+        // Index the thread metadata for search. We only do this once and it'd
+        // be costly to make it part of the save hooks.
+        appendToThreadSearchContent(thread.get(), msg.get(), nullptr);
+        store->save(thread.get());
+
+        // Save the message - this will automatically find and update the counters
+        // on the thread we just created. Kind of a shame to find it twice but oh well.
         store->save(msg.get());
         
+        // Make the thread accessible by all of the message references
+        upsertThreadReferences(thread->id(), thread->accountId(), msg->headerMessageId(), references);
+
+        // Index contacts for autocomplete
+        upsertContacts(msg.get());
+
         transaction.commit();
     }
     
@@ -115,36 +119,21 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     {
         MailStoreTransaction transaction{store};
 
-        // Step 1: Find the thread
-        Query query = Query().equal("id", local->threadId());
-        auto thread = store->find<Thread>(query);
-        auto allLabels = store->allLabelsCache(account->id());
-
-        // Step 2: Decrement starred / unread / label counters on thread
-        thread->prepareToReaddMessage(local, allLabels);
-        
-        // Step 3: Update the message
         auto updated = MessageAttributesForMessage(remote);
         local->setUnread(updated.unread);
         local->setStarred(updated.starred);
         local->setDraft(updated.draft);
         local->setSyncedAt(syncDataTimestamp);
         local->setRemoteUID(updated.uid);
-        local->setRemoteFolder(folder);
-        local->setClientFolder(folder);
+        local->setRemoteFolder(&folder);
+        local->setClientFolder(&folder);
         auto jlabels = json(updated.labels);
         local->setRemoteXGMLabels(jlabels);
         
-        // Step 4: Increment starred / urnead / label counters on thread
-        thread->addMessage(local, allLabels);
-        
-        // Step 5: Save
+        // Save the message - this will automatically find and update the counters
+        // on the thread we just created. Kind of a shame to find it twice but oh well.
         store->save(local);
-        store->save(thread.get());
 
-        // Step 6: Update categories listed in the FTS5 table
-        appendToThreadSearchContent(thread.get(), nullptr, nullptr);
-        
         transaction.commit();
     }
 }
@@ -243,38 +232,12 @@ void MailProcessor::unlinkMessagesFromFolder(Folder & folder, vector<uint32_t> &
 
 void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
 {
-    auto allLabels = store->allLabelsCache(account->id());
-    
     {
         MailStoreTransaction transaction{store};
         
         auto q = Query().equal("accountId", account->id()).equal("remoteUID", UINT32_MAX - phase);
         auto messages = store->findAll<Message>(q);
-        
-        map<string, bool> threadIdMap{};
         for (auto const & msg : messages) {
-            threadIdMap[msg->threadId()] = true;
-        }
-        for (auto const & pair: threadIdMap) {
-            auto tid = pair.first;
-            auto thread = store->find<Thread>(Query().equal("id", tid));
-            if (thread == nullptr) {
-                continue;
-            }
-
-            for (const auto msg : messages) {
-                if (msg->threadId() == tid) {
-                    thread->prepareToReaddMessage(msg.get(), allLabels);
-                }
-            }
-            if (thread->folders().size() == 0) {
-                store->remove(thread.get());
-            } else {
-                store->save(thread.get());
-            }
-        }
-        
-        for (const auto msg : messages) {
             store->remove(msg.get());
         }
         
@@ -292,13 +255,13 @@ void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messa
         categories += ((f.count("role") ? f["role"] : f["path"]).get<string>());
         categories += " ";
     }
-
+    
     // retrieve the current index if there is one
     
     string to;
     string from;
     string body = thread->subject();
-
+    
     if (thread->searchRowId()) {
         SQLite::Statement existing(store->db(), "SELECT to_, from_, body FROM ThreadSearch WHERE rowid = ?");
         existing.bind(1, (double)thread->searchRowId());

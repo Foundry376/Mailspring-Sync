@@ -31,12 +31,12 @@ class Thread : public MailModel {
     time_t _initialLMST;
     time_t _initialLMRT;
     map<string, bool> _initialCategoryIds;
-
+    
 public:
     static string TABLE_NAME;
 
+    Thread(string msgId, string accountId, string subject, uint64_t gThreadId);
     Thread(SQLite::Statement & query);
-    Thread(shared_ptr<Message> msg, uint64_t gThreadId, vector<shared_ptr<Label>> & allLabels);
     
     string subject();
     void setSubject(string s);
@@ -63,15 +63,14 @@ public:
     
     json & labels();
 
-    void addMessage(Message * msg, vector<shared_ptr<Label>> & allLabels);
-    void prepareToReaddMessage(Message * msg, vector<shared_ptr<Label>> & allLabels);
-
+    void applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> & allLabels);
     void upsertReferences(SQLite::Database & db, string headerMessageId, mailcore::Array * references);
 
     string tableName();
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
-    void writeAssociations(SQLite::Database & db);
+    void writeAssociations(MailStore * store);
+    void unwriteAssociations(MailStore * store);
 
 private:
     void captureInitialState();

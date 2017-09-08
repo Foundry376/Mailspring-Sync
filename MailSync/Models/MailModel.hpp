@@ -21,6 +21,8 @@
 using namespace std;
 using namespace nlohmann;
 
+class MailStore;
+
 class MailModel {
 public:
     json _data;
@@ -46,7 +48,8 @@ public:
 
     virtual void bindToQuery(SQLite::Statement * query);
     
-    virtual void writeAssociations(SQLite::Database & db);
+    virtual void writeAssociations(MailStore * store);
+    virtual void unwriteAssociations(MailStore * store);
     
     virtual vector<string> columnsForQuery() = 0;
 

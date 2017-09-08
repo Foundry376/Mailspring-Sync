@@ -163,7 +163,6 @@ void MetadataWorker::onDelta(const json & delta) {
     } else {
         logger->info("Received delta of unexpected type `{}`", klass);
     }
-
 }
 
 void MetadataWorker::applyMetadataJSON(const json & metadata) {
