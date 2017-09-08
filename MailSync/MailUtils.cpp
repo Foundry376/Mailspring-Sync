@@ -341,7 +341,8 @@ string MailUtils::idRandomlyGenerated() {
 string MailUtils::idForDraftHeaderMessageId(string accountId, string headerMessageId)
 {
     vector<unsigned char> hash(32);
-    picosha2::hash256(headerMessageId.begin(), headerMessageId.end(), hash.begin(), hash.end());
+    string src_str = accountId + + ":" + headerMessageId;
+    picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
 }
 

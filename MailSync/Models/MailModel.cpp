@@ -8,6 +8,7 @@
 
 #include "MailModel.hpp"
 #include "MailUtils.hpp"
+#include "MailStore.hpp"
 
 using namespace std;
 
@@ -119,7 +120,7 @@ void MailModel::bindToQuery(SQLite::Statement * query) {
     query->bind(":version", version());
 }
 
-void MailModel::writeAssociations(SQLite::Database & db) {
+void MailModel::writeAssociations(MailStore * store) {
     
     map<string, bool> metadataPluginIds{};
     if (_data.count("metadata")) {
@@ -133,13 +134,13 @@ void MailModel::writeAssociations(SQLite::Database & db) {
     // have not changed since the model was loaded.
     if (_initialMetadataPluginIds != metadataPluginIds) {
         string _id = id();
-        SQLite::Statement removePluginIds(db, "DELETE FROM " + this->tableName() + "PluginMetadata WHERE id = ?");
+        SQLite::Statement removePluginIds(store->db(), "DELETE FROM " + this->tableName() + "PluginMetadata WHERE id = ?");
         removePluginIds.bind(1, _id);
         removePluginIds.exec();
         
         string qmarks = MailUtils::qmarkSets(metadataPluginIds.size(), 2);
         
-        SQLite::Statement insertPluginIds(db, "INSERT INTO " + this->tableName() + "PluginMetadata (id, value) VALUES " + qmarks);
+        SQLite::Statement insertPluginIds(store->db(), "INSERT INTO " + this->tableName() + "PluginMetadata (id, value) VALUES " + qmarks);
         
         int i = 1;
         for (auto& it : metadataPluginIds) {
@@ -148,7 +149,13 @@ void MailModel::writeAssociations(SQLite::Database & db) {
         }
         insertPluginIds.exec();
     }
-
 }
 
+void MailModel::unwriteAssociations(MailStore * store) {
+    // delete metadata entries
+    string _id = id();
+    SQLite::Statement removePluginIds(store->db(), "DELETE FROM " + this->tableName() + "PluginMetadata WHERE id = ?");
+    removePluginIds.bind(1, _id);
+    removePluginIds.exec();
+}
 

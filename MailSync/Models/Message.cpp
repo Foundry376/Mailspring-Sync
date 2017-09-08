@@ -7,10 +7,12 @@
 //
 
 #include "Message.hpp"
+#include "MailStore.hpp"
 #include "MailUtils.hpp"
 #include "Folder.hpp"
 #include "MailStore.hpp"
 #include "File.hpp"
+#include "Thread.hpp"
 
 using namespace std;
 
@@ -19,11 +21,12 @@ string Message::TABLE_NAME = "Message";
 Message::Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTimestamp) :
 MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 0)
 {
+    _lastSnapshot = MessageEmptySnapshot;
     _data["_sa"] = syncDataTimestamp;
     _data["_suc"] = 0;
     
-    setClientFolder(folder);
-    setRemoteFolder(folder);
+    setClientFolder(&folder);
+    setRemoteFolder(&folder);
 
     _data["remoteUID"] = msg->uid();
     
@@ -34,8 +37,10 @@ MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 
     _data["gMsgId"] = to_string(msg->gmailMessageID());
     
     Array * irt = msg->header()->inReplyTo();
-    if (irt->count()) {
+    if (irt && irt->count()) {
         _data["rtMsgId"] = ((String*)irt->lastObject())->UTF8Characters();
+    } else {
+        _data["rtMsgId"] = nullptr;
     }
 
     MessageAttributes attrs = MessageAttributesForMessage(msg);
@@ -71,17 +76,28 @@ MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 
 Message::Message(SQLite::Statement & query) :
     MailModel(query)
 {
-
+    _lastSnapshot = getSnapshot();
 }
 
 Message::Message(json json) :
     MailModel(json)
 {
-    if (!json.count("id") || json["id"].is_null()) {
-        _data["id"] = MailUtils::idForDraftHeaderMessageId(accountId(), headerMessageId());
+    if (version() == 0) {
+        _lastSnapshot = MessageEmptySnapshot;
+    } else {
+        _lastSnapshot = getSnapshot();
     }
 }
 
+MessageSnapshot Message::getSnapshot() {
+    MessageSnapshot s;
+    s.unread = isUnread();
+    s.starred = isStarred();
+    s.fileCount = files().size();
+    s.remoteXGMLabels = remoteXGMLabels();
+    s.clientFolderId = clientFolderId();
+    return s;
+}
 
 // mutable attributes
 
@@ -126,6 +142,9 @@ void Message::setSnippet(string s) {
 }
 
 string Message::replyToHeaderMessageId() {
+    if (_data["rthMsgId"].is_null()) {
+        return "";
+    }
     return _data["rthMsgId"].get<string>();
 }
 
@@ -202,8 +221,8 @@ string Message::clientFolderId() {
     return _data["folder"]["id"].get<string>();
 }
 
-void Message::setClientFolder(Folder & folder) {
-    _data["folder"] = folder.toJSON();
+void Message::setClientFolder(Folder * folder) {
+    _data["folder"] = folder->toJSON();
     if (_data["folder"].count("localStatus")) {
         _data["folder"].erase("localStatus");
     }
@@ -217,8 +236,8 @@ string Message::remoteFolderId() {
     return _data["remoteFolder"]["id"].get<string>();
 }
 
-void Message::setRemoteFolder(Folder & folder) {
-    _data["remoteFolder"] = folder.toJSON();
+void Message::setRemoteFolder(Folder * folder) {
+    _data["remoteFolder"] = folder->toJSON();
     if (_data["remoteFolder"].count("localStatus")) {
         _data["remoteFolder"].erase("localStatus");
     }
@@ -295,6 +314,55 @@ void Message::bindToQuery(SQLite::Statement * query) {
     query->bind(":remoteFolderId", remoteFolderId());
     query->bind(":threadId", threadId());
     query->bind(":gMsgId", gMsgId());
+}
+
+void Message::writeAssociations(MailStore * store) {
+    MailModel::writeAssociations(store);
+
+    // if we have a thread, keep the thread's folder, label, and unread counters
+    // in sync by providing it with a before + after snapshot of this message.
+
+    if (threadId() == "") {
+        return;
+    }
+    auto thread = store->find<Thread>(Query().equal("accountId", accountId()).equal("id", threadId()));
+    if (thread == nullptr) {
+        return;
+    }
+
+    auto allLabels = store->allLabelsCache(accountId());
+    thread->applyMessageAttributeChanges(_lastSnapshot, this, allLabels);
+    store->save(thread.get());
+
+    _lastSnapshot = getSnapshot();
+}
+
+void Message::unwriteAssociations(MailStore * store) {
+    MailModel::unwriteAssociations(store);
+    
+    // if we have a thread, keep the thread's folder, label, and unread counters
+    // in sync by providing it with a before + after snapshot of this message.
+    
+    if (threadId() == "") {
+        return;
+    }
+    auto thread = store->find<Thread>(Query().equal("accountId", accountId()).equal("id", threadId()));
+    if (thread == nullptr) {
+        return;
+    }
+    
+    auto allLabels = store->allLabelsCache(accountId());
+    thread->applyMessageAttributeChanges(_lastSnapshot, nullptr, allLabels);
+    if (thread->folders().size() == 0) {
+        store->remove(thread.get());
+    } else {
+        store->save(thread.get());
+    }
+    
+    // Also delete our draft body
+    SQLite::Statement removeBody(store->db(), "DELETE FROM MessageBody WHERE id = ?");
+    removeBody.bind(1, id());
+    removeBody.exec();
 }
 
 json Message::toJSONDispatch() {

@@ -415,9 +415,6 @@ static void stanfordCppLibSignalHandler(int sig) {
  * Prints details about the exception and then tries to print a stack trace.
  */
 static void stanfordCppLibTerminateHandler() {
-    // immediately flush any pending spdlogs
-    spdlog::get("logger")->flush();
-
     std::string DEFAULT_EXCEPTION_KIND = "An exception";
     std::string DEFAULT_EXCEPTION_DETAILS = "(unknown exception details)";
     

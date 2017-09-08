@@ -24,10 +24,22 @@ using namespace std;
 using namespace nlohmann;
 
 class File;
+class MailStore;
+
+struct MessageSnapshot {
+    bool unread;
+    bool starred;
+    size_t fileCount;
+    json remoteXGMLabels;
+    string clientFolderId;
+};
+
+static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, 0, nullptr, ""};
 
 class Message : public MailModel {
 
     string _bodyForDispatch;
+    MessageSnapshot _lastSnapshot;
 
 public:
     static string TABLE_NAME;
@@ -38,6 +50,8 @@ public:
     
     // mutable attributes
 
+    MessageSnapshot getSnapshot();
+    
     bool isUnread();
     void setUnread(bool u);
 
@@ -79,12 +93,12 @@ public:
     
     json clientFolder();
     string clientFolderId();
-    void setClientFolder(Folder & folder);
+    void setClientFolder(Folder * folder);
     
     json remoteFolder();
     string remoteFolderId();
-    void setRemoteFolder(Folder & folder);
-    
+    void setRemoteFolder(Folder * folder);
+
     // immutable attributes
 
     json & to();
@@ -100,6 +114,10 @@ public:
     string tableName();
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
+
+    void writeAssociations(MailStore * store);
+    void unwriteAssociations(MailStore * store);
+
     json toJSONDispatch();
 
 };
