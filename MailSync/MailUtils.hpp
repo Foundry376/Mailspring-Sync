@@ -20,6 +20,7 @@
 class File;
 class Label;
 class Account;
+class Message;
 
 using namespace nlohmann;
 using namespace std;
@@ -50,6 +51,7 @@ public:
     static string idRandomlyGenerated();
     static string idForMessage(string accountId, IMAPMessage * msg);
     static string idForFolder(string accountId, string folderPath);
+    static string idForFilePart(Message * message, AbstractPart * part);
     static string idForDraftHeaderMessageId(string accountId, string headerMessageId);
     
     static shared_ptr<Label> labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> & allLabels);

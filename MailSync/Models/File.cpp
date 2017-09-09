@@ -18,7 +18,7 @@ using namespace mailcore;
 string File::TABLE_NAME = "File";
 
 File::File(Message * msg, Attachment * a) :
-    MailModel(MailUtils::idRandomlyGenerated(), msg->accountId(), 0)
+    MailModel(MailUtils::idForFilePart(msg, a), msg->accountId(), 0)
 {
     _data["messageId"] = msg->id();
     _data["partId"] = a->partID()->UTF8Characters();
