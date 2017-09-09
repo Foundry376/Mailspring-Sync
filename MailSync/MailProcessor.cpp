@@ -15,6 +15,40 @@
 using namespace std;
 using nlohmann::json;
 
+class CleanHTMLBodyRendererTemplateCallback : public Object, public HTMLRendererTemplateCallback {
+    mailcore::String * templateForMainHeader(MessageHeader * header) {
+        return MCSTR("");
+    }
+
+    mailcore::String * templateForAttachment(AbstractPart * part) {
+        return MCSTR("");
+    }
+
+    mailcore::String * templateForAttachmentSeparator() {
+        return MCSTR("");
+    }
+
+    // TODO: Image attachments can be added to the middle of messages
+    // by putting them between two HTML parts and we can render them
+    // within the body this way. However the attachments don't have cid's,
+    // and the client expects to filter attachments based on whether they
+    // have cids.
+    
+//    mailcore::String * templateForImage(AbstractPart * part) {
+//        MailUtils::idForFilePart(part)
+//        return MCSTR("<img src=\"{{CONTENTID}}\" data-size=\"{{SIZE}}\" data-filename=\"{{FILENAME}}\" />");
+//    }
+//
+//    bool canPreviewPart(AbstractPart * part) {
+//        string t = part->mimeType()->UTF8Characters();
+//        
+//        if ((t == "image/png") || (t == "image/jpeg") || (t == "image/jpg") || (t == "image/gif")) {
+//            return true;
+//        }
+//        return false;
+//    }
+};
+
 
 MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
     store(store),
@@ -139,9 +173,11 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
 }
 
 void MailProcessor::retrievedMessageBody(Message * message, MessageParser * parser) {
-    String * text = parser->plainTextBodyRendering(true);
-    String * html = parser->htmlBodyRendering();
-    
+    CleanHTMLBodyRendererTemplateCallback * callback = new CleanHTMLBodyRendererTemplateCallback();
+    String * html = parser->htmlRendering(callback);
+    String * text = html->flattenHTML()->stripWhitespace();
+    MC_SAFE_RELEASE(callback);
+
     // build file containers for the attachments and write them to disk
     Array attachments = Array();
     attachments.addObjectsFromArray(parser->attachments());
