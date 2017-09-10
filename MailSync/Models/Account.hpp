@@ -30,7 +30,8 @@ public:
 
     string valid();
 
-    string xoauthRefreshToken();
+    string refreshToken();
+    string provider();
 
     unsigned int IMAPPort();
     string IMAPHost();
@@ -45,9 +46,6 @@ public:
     string SMTPPassword();
     string SMTPSecurity();
     bool SMTPAllowInsecureSSL();
-
-    string cloudToken();
-    bool hasCloudToken();
 
     string tableName();
     string constructorName();

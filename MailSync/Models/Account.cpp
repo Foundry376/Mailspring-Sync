@@ -29,11 +29,15 @@ string Account::valid() {
     if (!_data.count("id") || !_data.count("settings")) {
         return "id or settings";
     }
+    if (!_data.count("provider")) {
+        return "provider";
+    }
+
     json & s = _data["settings"];
-    if (!(s.count("imap_port") && s.count("imap_host") && s.count("imap_username") && (s.count("xoauth_refresh_token") || s.count("imap_password")))) {
+    if (!(s.count("imap_port") && s.count("imap_host") && s.count("imap_username") && (s.count("refresh_token") || s.count("imap_password")))) {
         return "imap_*";
     }
-    if (!(s.count("smtp_port") && s.count("smtp_host") && s.count("smtp_username") && (s.count("xoauth_refresh_token") || s.count("smtp_password")))) {
+    if (!(s.count("smtp_port") && s.count("smtp_host") && s.count("smtp_username") && (s.count("refresh_token") || s.count("smtp_password")))) {
         return "smtp_*";
     }
     if (!(s.count("imap_allow_insecure_ssl") && s["imap_allow_insecure_ssl"].is_boolean())) {
@@ -45,11 +49,15 @@ string Account::valid() {
     return ""; // true
 }
 
-string Account::xoauthRefreshToken() {
-    if (_data["settings"].count("xoauth_refresh_token") == 0) {
+string Account::provider() {
+    return _data["provider"].get<string>();
+}
+
+string Account::refreshToken() {
+    if (_data["settings"].count("refresh_token") == 0) {
         return "";
     }
-    return _data["settings"]["xoauth_refresh_token"].get<string>();
+    return _data["settings"]["refresh_token"].get<string>();
 }
 
 unsigned int Account::IMAPPort() {
@@ -100,14 +108,6 @@ string Account::SMTPSecurity() {
 
 bool Account::SMTPAllowInsecureSSL() {
     return _data["settings"]["smtp_allow_insecure_ssl"].get<bool>();
-}
-
-string Account::cloudToken() {
-    return _data["cloudToken"].get<string>();
-}
-
-bool Account::hasCloudToken() {
-    return _data.count("cloudToken") > 0;
 }
 
 string Account::constructorName() {

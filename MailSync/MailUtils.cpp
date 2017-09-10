@@ -415,7 +415,7 @@ string MailUtils::qmarkSets(size_t count, size_t perSet) {
 }
 
 void MailUtils::configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account) {
-    if (account->xoauthRefreshToken() != "") {
+    if (account->refreshToken() != "") {
         XOAuth2Parts parts = SharedXOAuth2TokenManager()->partsForAccount(account);
         session.setUsername(AS_MCSTR(parts.username));
         session.setOAuth2Token(AS_MCSTR(parts.accessToken));
@@ -439,7 +439,7 @@ void MailUtils::configureSessionForAccount(IMAPSession & session, shared_ptr<Acc
 }
 
 void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account) {
-    if (account->xoauthRefreshToken() != "") {
+    if (account->refreshToken() != "") {
         XOAuth2Parts parts = SharedXOAuth2TokenManager()->partsForAccount(account);
         session.setUsername(AS_MCSTR(parts.username));
         session.setOAuth2Token(AS_MCSTR(parts.accessToken));
