@@ -42,10 +42,6 @@ CURL * CreateRequest(string server, string username, string password, string pat
     return curl_handle;
 }
 
-    
-CURL * CreateAccountsRequest(shared_ptr<Account> account, string path, string method, const char * payloadChars) {
-    return CreateRequest("ACCOUNTS_SERVER", account->cloudToken(), Identity::GetGlobal()->token(), path, method, payloadChars);
-}
 
 CURL * CreateIdentityRequest(string path, string method, const char * payloadChars) {
     return CreateRequest("IDENTITY_SERVER", Identity::GetGlobal()->token(), "", path, method, payloadChars);
@@ -68,10 +64,6 @@ const json MakeRequest(string server, string username, string password, string p
     }
     curl_easy_cleanup(curl_handle);
     return resultJSON;
-}
-
-const json MakeAccountsRequest(shared_ptr<Account> account, string path, string method, const json & payload) {
-    return MakeRequest("ACCOUNTS_SERVER", account->cloudToken(), Identity::GetGlobal()->token(), path, method, payload);
 }
 
 const json MakeIdentityRequest(string path, string method, const json & payload) {

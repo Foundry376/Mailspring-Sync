@@ -76,7 +76,7 @@ void MetadataWorker::run() {
 
 bool MetadataWorker::fetchMetadata(int page) {
     int pageSize = 500;
-    const json & metadata = MakeAccountsRequest(account, "/metadata?limit=" + to_string(pageSize) + "&offset=" + to_string(pageSize * page));
+    const json & metadata = MakeIdentityRequest("/metadata/" + account->id() + "?limit=" + to_string(pageSize) + "&offset=" + to_string(pageSize * page));
     for (const auto & metadatum : metadata) {
         applyMetadataJSON(metadatum);
     }
@@ -84,7 +84,7 @@ bool MetadataWorker::fetchMetadata(int page) {
 }
 
 void MetadataWorker::fetchDeltaCursor() {
-    const json & result = MakeAccountsRequest(account, "/delta/head");
+    const json & result = MakeIdentityRequest("/deltas/" + account->id() + "/head");
     if (result == nullptr || !result.count("cursor")) {
         logger->info("Unexpected response from /delta/head: {}", result ? result.dump() : "nullptr");
         throw SyncException("no-cursor", "/delta/head API did not return JSON with a cursor", true);
@@ -97,7 +97,7 @@ void MetadataWorker::fetchDeltaCursor() {
 }
 
 void MetadataWorker::fetchDeltasBlocking() {
-    CURL * curl_handle = CreateAccountsRequest(account, "/delta/streaming?cursor=" + deltasCursor);
+    CURL * curl_handle = CreateIdentityRequest("/deltas/" + account->id() + "/streaming?cursor=" + deltasCursor);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onDeltaData);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)this);
 

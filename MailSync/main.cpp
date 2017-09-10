@@ -418,12 +418,6 @@ int main(int argc, const char * argv[]) {
     }
 
     if (mode == "sync") {
-        if (!account->hasCloudToken()) {
-            json resp = {{"error", "Account must have a cloud token for sync."}};
-            cout << "\n" << resp.dump();
-            return 1;
-        }
-
         spdlog::get("logger")->info("------------- Starting Sync ---------------");
         metadataWorker = make_shared<MetadataWorker>(account);
         fgWorker = make_shared<SyncWorker>(account);
