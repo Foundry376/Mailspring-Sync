@@ -26,6 +26,26 @@
 using namespace nlohmann;
 using namespace std;
 
+struct Metadata {
+    int version;
+    string objectId;
+    string objectType;
+    string accountId;
+    string pluginId;
+    json value;
+};
+
+static Metadata MetadataFromJSON(const json & metadata) {
+    Metadata m;
+    m.objectType = metadata["object_type"].get<string>();
+    m.objectId = metadata["object_id"].get<string>();
+    m.accountId = metadata["aid"].get<string>();
+    m.pluginId = metadata["plugin_id"].get<string>();
+    m.version = metadata["v"].get<uint32_t>();
+    m.value = metadata["value"];
+    return m;
+}
+
 struct MessageAttributes {
     uint32_t uid;
     bool unread;
@@ -90,6 +110,12 @@ public:
     
     shared_ptr<MailModel> findGeneric(string type, Query query);
     
+    // Detatched plugin metadata storage
+
+    vector<Metadata> findAndDeleteDetatchedPluginMetadata(string accountId, string objectId);
+
+    void saveDetatchedPluginMetadata(Metadata & m);
+
     // Template methods which must be defined in header file
     
     template<typename ModelClass>

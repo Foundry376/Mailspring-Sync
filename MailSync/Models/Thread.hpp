@@ -69,8 +69,8 @@ public:
     string tableName();
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
-    void writeAssociations(MailStore * store);
-    void unwriteAssociations(MailStore * store);
+    void afterSave(MailStore * store);
+    void afterRemove(MailStore * store);
 
 private:
     void captureInitialState();

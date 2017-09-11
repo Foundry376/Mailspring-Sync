@@ -78,10 +78,6 @@ static std::vector<std::string> SETUP_QUERIES = {
         "headerMessageId VARCHAR(255),"
         "PRIMARY KEY (threadId, accountId, headerMessageId))",
                                                 
-    "CREATE TABLE IF NOT EXISTS `ThreadPluginMetadata` (id VARCHAR(40), `value` TEXT)",
-    "CREATE INDEX IF NOT EXISTS `ThreadPluginMetadata_id` ON `ThreadPluginMetadata` (`id` ASC)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS `ThreadPluginMetadata_val_id` ON `ThreadPluginMetadata` (`value` ASC, `id` ASC)",
-
     "CREATE TABLE IF NOT EXISTS ThreadCategory ("
         "id VARCHAR(40),"
         "value VARCHAR(40),"
@@ -101,8 +97,6 @@ static std::vector<std::string> SETUP_QUERIES = {
     "CREATE VIRTUAL TABLE IF NOT EXISTS `ThreadSearch` USING fts5(tokenize = 'porter unicode61', content_id UNINDEXED, subject, to_, from_, categories, body)",
 
     "CREATE TABLE IF NOT EXISTS `Account` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(40), email_address TEXT)",
-    "CREATE TABLE IF NOT EXISTS `AccountPluginMetadata` (id VARCHAR(40), `value` TEXT, PRIMARY KEY (value, id))",
-    "CREATE INDEX IF NOT EXISTS `AccountPluginMetadata_id` ON `AccountPluginMetadata` (`id` ASC)",
 
     "CREATE TABLE IF NOT EXISTS Message ("
         "id VARCHAR(40) PRIMARY KEY,"
@@ -128,8 +122,12 @@ static std::vector<std::string> SETUP_QUERIES = {
     "CREATE INDEX IF NOT EXISTS MessageListDraftIndex ON Message(accountId, date DESC) WHERE draft = 1",
     "CREATE INDEX IF NOT EXISTS MessageListUnifiedDraftIndex ON Message(date DESC) WHERE draft = 1",
     
-    "CREATE TABLE IF NOT EXISTS `MessagePluginMetadata` (id VARCHAR(40), `value` TEXT, PRIMARY KEY (`value`, `id`))",
-    
+    "CREATE TABLE IF NOT EXISTS `ModelPluginMetadata` (id VARCHAR(40), `objectType` VARCHAR(15), `value` TEXT, `expiration` DATETIME, PRIMARY KEY (`value`, `id`))",
+    "CREATE INDEX IF NOT EXISTS `ModelPluginMetadata_id` ON `ModelPluginMetadata` (`id` ASC)",
+    "CREATE INDEX IF NOT EXISTS `ModelPluginMetadata_expiration` ON `ModelPluginMetadata` (`expiration` ASC) WHERE expiration IS NOT NULL",
+
+    "CREATE TABLE IF NOT EXISTS `DetatchedPluginMetadata` (objectId VARCHAR(40), objectType VARCHAR(15), accountId VARCHAR(40), pluginId VARCHAR(40), value BLOB, version INTEGER, PRIMARY KEY (`objectId`, `accountId`, `pluginId`))",
+
     "CREATE TABLE IF NOT EXISTS `MessageBody` (id VARCHAR(40) PRIMARY KEY, `value` TEXT)",
     "CREATE UNIQUE INDEX IF NOT EXISTS MessageBodyIndex ON MessageBody(id)",
     

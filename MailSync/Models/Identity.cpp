@@ -53,6 +53,8 @@ string Identity::token() {
     return _data["token"].get<string>();
 }
 
+/* Identity objects are not stored in the database. */
+
 string Identity::tableName(){
     assert(false);
 	return "";

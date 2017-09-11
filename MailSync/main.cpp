@@ -85,7 +85,7 @@ enum  optionIndex { UNKNOWN, HELP, IDENTITY, ACCOUNT, MODE, ORPHAN };
 const option::Descriptor usage[] =
 {
     {UNKNOWN, 0,"" , "",        CArg::None,      "USAGE: CONFIG_DIR_PATH=/path IDENTITY_SERVER=https://id.getmailspring.com "
-                                                 "ACCOUNTS_SERVER https://accounts.getmailspring.com mailsync [options]\n\nOptions:" },
+                                                 "mailsync [options]\n\nOptions:" },
     {HELP,    0,"" , "help",    CArg::None,      "  --help  \tPrint usage and exit." },
     {IDENTITY,0,"a", "identity",CArg::Optional,  "  --identity, -i  \tRequired: Mailspring Identity JSON with credentials." },
     {ACCOUNT, 0,"a", "account", CArg::Optional,  "  --account, -a  \tRequired: Account JSON with credentials." },
@@ -110,6 +110,7 @@ void runForegroundSyncWorker() {
             if (!ex.isRetryable()) {
                 throw;
             }
+            spdlog::get("logger")->info("Sleeping after exception: {}", ex.toJSON().dump());
             MailUtils::sleepWorkerUntilWakeOrSec(120);
         }
     }
@@ -151,6 +152,7 @@ void runBackgroundSyncWorker() {
             if (!ex.isRetryable()) {
                 throw;
             }
+            spdlog::get("logger")->info("Sleeping after exception: {}", ex.toJSON().dump());
         }
 
         MailUtils::sleepWorkerUntilWakeOrSec(120);
@@ -331,8 +333,7 @@ int main(int argc, const char * argv[]) {
     
     // check required environment
     if ((getenv("CONFIG_DIR_PATH") == nullptr) ||
-        (getenv("IDENTITY_SERVER") == nullptr) ||
-        (getenv("ACCOUNTS_SERVER") == nullptr)) {
+        (getenv("IDENTITY_SERVER") == nullptr)) {
         option::printUsage(std::cout, usage);
         return 1;
     }

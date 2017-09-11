@@ -114,14 +114,18 @@ string Account::constructorName() {
     return _data["__cls"].get<string>();
 }
 
-string Account::tableName() {
-    return Account::TABLE_NAME;
+/* Account objects are not stored in the database. */
+
+string Account::tableName(){
+    assert(false);
+    return "";
 }
 
 vector<string> Account::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "status"};
+    assert(false);
+    return {};
 }
 
 void Account::bindToQuery(SQLite::Statement * query) {
-    MailModel::bindToQuery(query);
+    assert(false);
 }

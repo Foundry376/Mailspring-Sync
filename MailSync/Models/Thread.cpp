@@ -283,8 +283,8 @@ void Thread::bindToQuery(SQLite::Statement * query) {
     query->bind(":firstMessageTimestamp", (double)firstMessageTimestamp());
 }
 
-void Thread::writeAssociations(MailStore * store) {
-    MailModel::writeAssociations(store);
+void Thread::afterSave(MailStore * store) {
+    MailModel::afterSave(store);
     
     bool _inAllMail = inAllMail();
     double _lmrt = (double)lastMessageReceivedTimestamp();
@@ -370,13 +370,13 @@ void Thread::writeAssociations(MailStore * store) {
     }
 }
 
-void Thread::unwriteAssociations(MailStore * store) {
-    MailModel::unwriteAssociations(store);
+void Thread::afterRemove(MailStore * store) {
+    MailModel::afterRemove(store);
     
     // ensure ThreadCounts and ThreadCategories reflect our state. Since
     // all messages should already have been removed from the thread,
     // this will remove everything.
-    writeAssociations(store);
+    afterSave(store);
 
     // Delete search entry
     if (searchRowId()) {

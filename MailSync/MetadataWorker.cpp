@@ -165,35 +165,30 @@ void MetadataWorker::onDelta(const json & delta) {
     }
 }
 
-void MetadataWorker::applyMetadataJSON(const json & metadata) {
+void MetadataWorker::applyMetadataJSON(const json & metadataJSON) {
     // find the associated object
-    string type = metadata["object_type"].get<string>();
-    string id = metadata["object_id"].get<string>();
-    string aid = metadata["account_id"].get<string>();
-    string pluginId = metadata["plugin_id"].get<string>();
-    const json & value = metadata["value"];
-    uint32_t version = metadata["version"].get<uint32_t>();
-
+    auto m = MetadataFromJSON(metadataJSON);
     {
         MailStoreTransaction transaction{store};
 
-        auto model = store->findGeneric(type, Query().equal("id", id).equal("accountId", aid));
+        auto model = store->findGeneric(m.objectType, Query().equal("id", m.objectId).equal("accountId", m.accountId));
 
-        logger->info("Received metadata V{} for ({} - {})", version, type, id);
+        logger->info("Received metadata V{} for ({} - {})", m.version, m.objectType, m.objectId);
 
         if (model) {
             // attach the metadata to the object. Returns false if the model
             // already has a >= version of the metadata.
-            if (model->upsertMetadata(pluginId, value, version) > 0) {
+            if (model->upsertMetadata(m.pluginId, m.value, m.version) > 0) {
                 logger->info(" -- Saved on to local model.");
                 store->save(model.get());
             } else {
                 logger->info(" -- Ignored. Local model has >= version.");
             }
         } else {
-            // save to waiting table
+            // save to waiting table - when mailsync saves this model, it will attach
+            // and remove the metadata if it's available
             logger->info(" -- Local model is not present. Saving to waiting table.");
-            // TODO
+            store->saveDetatchedPluginMetadata(m);
         }
         
         transaction.commit();
