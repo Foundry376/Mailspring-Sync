@@ -48,6 +48,8 @@ public:
     Message(SQLite::Statement & query);
     Message(json json);
     
+    bool supportsMetadata();
+
     // mutable attributes
 
     MessageSnapshot getSnapshot();

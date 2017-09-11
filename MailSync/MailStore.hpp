@@ -35,16 +35,7 @@ struct Metadata {
     json value;
 };
 
-static Metadata MetadataFromJSON(const json & metadata) {
-    Metadata m;
-    m.objectType = metadata["object_type"].get<string>();
-    m.objectId = metadata["object_id"].get<string>();
-    m.accountId = metadata["aid"].get<string>();
-    m.pluginId = metadata["plugin_id"].get<string>();
-    m.version = metadata["v"].get<uint32_t>();
-    m.value = metadata["value"];
-    return m;
-}
+Metadata MetadataFromJSON(const json & metadata);
 
 struct MessageAttributes {
     uint32_t uid;
@@ -56,16 +47,6 @@ struct MessageAttributes {
 
 MessageAttributes MessageAttributesForMessage(mailcore::IMAPMessage * msg);
 bool MessageAttributesMatch(MessageAttributes a, MessageAttributes b);
-
-
-// Base class
-class MailStore;
-
-class MailStoreObserver {
-public:
-    virtual void didPersistModel(MailStore * store, MailModel * model) = 0;
-    virtual void didUnpersistModel(MailStore * store, MailModel * model) = 0;
-};
 
 
 class MailStore {
@@ -108,15 +89,19 @@ public:
 
     void setStreamDelay(int streamMaxDelay);
     
-    shared_ptr<MailModel> findGeneric(string type, Query query);
-    
     // Detatched plugin metadata storage
-
+    
     vector<Metadata> findAndDeleteDetatchedPluginMetadata(string accountId, string objectId);
-
+    
     void saveDetatchedPluginMetadata(Metadata & m);
 
-    // Template methods which must be defined in header file
+    // Find - Not templated
+
+    shared_ptr<MailModel> findGeneric(string type, Query query);
+    
+    vector<shared_ptr<MailModel>> findAllGeneric(string type, Query query);
+    
+    // Find - Template methods which must be defined in header file
     
     template<typename ModelClass>
     shared_ptr<ModelClass> find(Query & query) {
@@ -178,7 +163,7 @@ public:
         statement.exec();
         
         for (auto & result : results) {
-            SharedDeltaStream()->didUnpersistModel(result.get(), _streamMaxDelay);
+            SharedDeltaStream()->emitUnpersistModel(result.get(), _streamMaxDelay);
         }
     }
     

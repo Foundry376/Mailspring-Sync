@@ -40,8 +40,9 @@ public:
     
     void bufferMessage(string klass, string type, MailModel * model);
 
-    void didPersistModel(MailModel * model, int maxDeliveryDelay);
-    void didUnpersistModel(MailModel * model, int maxDeliveryDelay);
+    void emitPersistModel(MailModel * model, int maxDeliveryDelay);
+    void emitUnpersistModel(MailModel * model, int maxDeliveryDelay);
+    void emitMetadataExpiration(MailModel * model, int maxDeliveryDelay);
 };
 
 

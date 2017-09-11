@@ -96,6 +96,7 @@ _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;%(PreprocessorDefinitions)</
     <ClCompile Include="..\MailSync\MailStoreTransaction.cpp" />
     <ClCompile Include="..\MailSync\MailUtils.cpp" />
     <ClCompile Include="..\MailSync\main.cpp" />
+    <ClCompile Include="..\MailSync\MetadataExpirationWorker.cpp" />
     <ClCompile Include="..\MailSync\MetadataWorker.cpp" />
     <ClCompile Include="..\MailSync\Models\Account.cpp" />
     <ClCompile Include="..\MailSync\Models\Contact.cpp" />
