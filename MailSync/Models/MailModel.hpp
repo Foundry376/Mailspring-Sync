@@ -46,6 +46,8 @@ public:
     int upsertMetadata(string pluginId, const json & value, int version = -1);
     json & metadata();
 
+    virtual bool supportsMetadata();
+
     virtual void bindToQuery(SQLite::Statement * query);
     
     virtual void beforeSave(MailStore * store);

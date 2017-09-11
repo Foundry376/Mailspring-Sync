@@ -50,6 +50,10 @@ MailModel(query)
     captureInitialState();
 }
 
+bool Thread::supportsMetadata() {
+    return true;
+}
+
 string Thread::subject() {
     return _data["subject"].get<string>();
 }

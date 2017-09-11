@@ -17,6 +17,19 @@
 using namespace mailcore;
 using namespace std;
 
+#pragma mark Metadata
+
+Metadata MetadataFromJSON(const json & metadata) {
+    Metadata m;
+    m.objectType = metadata["object_type"].get<string>();
+    m.objectId = metadata["object_id"].get<string>();
+    m.accountId = metadata["aid"].get<string>();
+    m.pluginId = metadata["plugin_id"].get<string>();
+    m.version = metadata["v"].get<uint32_t>();
+    m.value = metadata["value"];
+    return m;
+}
+
 #pragma mark MessageAttributes
 
 MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
@@ -244,7 +257,7 @@ void MailStore::save(MailModel * model, bool emit) {
     }
 
     if (emit) {
-        SharedDeltaStream()->didPersistModel(model, _streamMaxDelay);
+        SharedDeltaStream()->emitPersistModel(model, _streamMaxDelay);
     }
 }
 
@@ -263,19 +276,39 @@ void MailStore::remove(MailModel * model) {
     if (model->tableName() == "Label") {
         _labelCacheInvalid = true;
     }
-    SharedDeltaStream()->didUnpersistModel(model, _streamMaxDelay);
+    SharedDeltaStream()->emitUnpersistModel(model, _streamMaxDelay);
 }
 
 shared_ptr<MailModel> MailStore::findGeneric(string type, Query query) {
+    transform(type.begin(), type.end(), type.begin(), ::tolower);
+
     if (type == "message") {
         return find<Message>(query);
     } else if (type == "thread") {
         return find<Thread>(query);
     } else if (type == "contact") {
         return find<Contact>(query);
-    } else {
-        return nullptr;
     }
+    assert(false);
+}
+
+vector<shared_ptr<MailModel>> MailStore::findAllGeneric(string type, Query query) {
+    transform(type.begin(), type.end(), type.begin(), ::tolower);
+
+    if (type == "message") {
+        auto results = findAll<Message>(query);
+        std::vector<std::shared_ptr<MailModel>> baseResults(results.begin(), results.end());
+        return baseResults;
+    } else if (type == "thread") {
+        auto results = findAll<Thread>(query);
+        std::vector<std::shared_ptr<MailModel>> baseResults(results.begin(), results.end());
+        return baseResults;
+    } else if (type == "contact") {
+        auto results = findAll<Contact>(query);
+        std::vector<std::shared_ptr<MailModel>> baseResults(results.begin(), results.end());
+        return baseResults;
+    }
+    assert(false);
 }
 
 vector<Metadata> MailStore::findAndDeleteDetatchedPluginMetadata(string accountId, string objectId) {

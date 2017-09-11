@@ -97,7 +97,6 @@ void DeltaStream::flushWithin(int ms) {
         std::unique_lock<std::mutex> lck(bufferFlushMtx);
         bufferFlushCv.notify_one();
     }
-  
 }
 
 void DeltaStream::bufferMessage(string klass, string type, MailModel * model) {
@@ -133,13 +132,18 @@ void DeltaStream::bufferMessage(string klass, string type, MailModel * model) {
     }
 }
 
-void DeltaStream::didPersistModel(MailModel * model, int maxDeliveryDelay) {
+void DeltaStream::emitPersistModel(MailModel * model, int maxDeliveryDelay) {
     bufferMessage(model->tableName(), "persist", model);
     flushWithin(maxDeliveryDelay);
 }
 
-void DeltaStream::didUnpersistModel(MailModel * model, int maxDeliveryDelay) {
+void DeltaStream::emitUnpersistModel(MailModel * model, int maxDeliveryDelay) {
     bufferMessage(model->tableName(), "unpersist", model);
+    flushWithin(maxDeliveryDelay);
+}
+
+void DeltaStream::emitMetadataExpiration(MailModel * model, int maxDeliveryDelay) {
+    bufferMessage(model->tableName(), "metadata-expiration", model);
     flushWithin(maxDeliveryDelay);
 }
 

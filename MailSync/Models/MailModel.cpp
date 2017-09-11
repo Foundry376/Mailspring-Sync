@@ -9,6 +9,7 @@
 #include "MailModel.hpp"
 #include "MailUtils.hpp"
 #include "MailStore.hpp"
+#include "MetadataExpirationWorker.hpp"
 
 using namespace std;
 
@@ -64,8 +65,14 @@ void MailModel::incrementVersion()
     _data["v"] = _data["v"].get<int>() + 1;
 }
 
+bool MailModel::supportsMetadata() {
+    return false;
+}
+
 int MailModel::upsertMetadata(string pluginId, const json & value, int version)
 {
+    assert(supportsMetadata());
+    
     if (!_data.count("metadata")) {
         _data["metadata"] = json::array();
     }
@@ -121,10 +128,9 @@ void MailModel::bindToQuery(SQLite::Statement * query) {
 }
 
 void MailModel::beforeSave(MailStore * store) {
-    if (version() == 1) {
+    if (version() == 1 && supportsMetadata()) {
         // look for any pending metadata we need to attach to ourselves
         vector<Metadata> metadatas = store->findAndDeleteDetatchedPluginMetadata(accountId(), id());
-        spdlog::get("logger")->info("-- Looking for metadata for {}", id());
 
         for (auto & m : metadatas) {
             spdlog::get("logger")->info("-- Attaching waiting metadata for {}", m.pluginId);
@@ -134,7 +140,10 @@ void MailModel::beforeSave(MailStore * store) {
 }
 
 void MailModel::afterSave(MailStore * store) {
-    
+    if (!supportsMetadata()) {
+        return;
+    }
+
     map<string, int> metadataPluginIds{};
     if (_data.count("metadata")) {
         for (const auto & m : _data["metadata"]) {
@@ -147,28 +156,49 @@ void MailModel::afterSave(MailStore * store) {
     // have not changed since the model was loaded.
     if (_initialMetadataPluginIds != metadataPluginIds) {
         string _id = id();
+        
         SQLite::Statement removePluginIds(store->db(), "DELETE FROM ModelPluginMetadata WHERE id = ?");
         removePluginIds.bind(1, _id);
         removePluginIds.exec();
         
-        SQLite::Statement insertPluginIds(store->db(), "INSERT INTO ModelPluginMetadata (id, objectType, value, expiration) VALUES (?,?,?,?)");
+        SQLite::Statement insertPluginIds(store->db(), "INSERT INTO ModelPluginMetadata (id, accountId, objectType, value, expiration) VALUES (?,?,?,?, ?)");
         insertPluginIds.bind(1, _id);
-        insertPluginIds.bind(2, this->tableName());
+        insertPluginIds.bind(2, accountId());
+        insertPluginIds.bind(3, this->tableName());
+        
+        long lowestExpiration = LONG_MAX;
+
         for (const auto & m : _data["metadata"]) {
-            insertPluginIds.bind(3, m["pluginId"].get<string>());
-            if (m["value"].count("expiration") && m["value"]["expiration"].is_number()) {
-                insertPluginIds.bind(4, m["value"]["expiration"].get<int32_t>());
+            bool hasExpiration = m["value"].count("expiration") && m["value"]["expiration"].is_number();
+
+            insertPluginIds.bind(4, m["pluginId"].get<string>());
+            if (hasExpiration) {
+                long e = m["value"]["expiration"].get<long>();
+                if (e < lowestExpiration) { lowestExpiration = e; }
+                insertPluginIds.bind(5, (long long)e);
             } else {
-                insertPluginIds.bind(4); // binds null
+                insertPluginIds.bind(5); // binds null
             }
             insertPluginIds.exec();
             insertPluginIds.reset();
+        }
+
+        if (lowestExpiration != LONG_MAX) {
+            // tell the delta stream that we've just changed metadata
+            // so it can invalidate / recalculate expiration timers
+            MetadataExpirationWorker * worker = MetadataExpirationWorkerForAccountId(accountId());
+            if (worker != nullptr) {
+                worker->didSaveMetadataWithExpiration(lowestExpiration);
+            }
         }
     }
 }
 
 void MailModel::afterRemove(MailStore * store) {
     // delete metadata entries
+    if (!supportsMetadata()) {
+        return;
+    }
     string _id = id();
     SQLite::Statement removePluginIds(store->db(), "DELETE FROM ModelPluginMetadata WHERE id = ?");
     removePluginIds.bind(1, _id);

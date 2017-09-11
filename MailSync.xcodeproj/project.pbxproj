@@ -48,6 +48,7 @@
 		43CA9A0A1F0D4C1B001A24A0 /* ProgressCollectors.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA9A081F0D4C1B001A24A0 /* ProgressCollectors.cpp */; };
 		43CA9A0D1F0DA48D001A24A0 /* SyncException.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA9A0B1F0DA48D001A24A0 /* SyncException.cpp */; };
 		43CA9A121F1174FD001A24A0 /* ThreadUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA9A111F1174FD001A24A0 /* ThreadUtils.cpp */; };
+		43DC3C531F666E1B0060A9B8 /* MetadataExpirationWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43DC3C511F666E1B0060A9B8 /* MetadataExpirationWorker.cpp */; };
 		43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED31EFCEB6F0046589B /* Task.cpp */; };
 		43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */; };
 		43EAFEDA1EFEF7110046589B /* File.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED91EFEF7110046589B /* File.cpp */; };
@@ -198,6 +199,8 @@
 		43CA9A0C1F0DA48D001A24A0 /* SyncException.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = SyncException.hpp; sourceTree = "<group>"; };
 		43CA9A0F1F1172C7001A24A0 /* ThreadUtils.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ThreadUtils.h; sourceTree = "<group>"; };
 		43CA9A111F1174FD001A24A0 /* ThreadUtils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ThreadUtils.cpp; sourceTree = "<group>"; };
+		43DC3C511F666E1B0060A9B8 /* MetadataExpirationWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MetadataExpirationWorker.cpp; sourceTree = "<group>"; };
+		43DC3C521F666E1B0060A9B8 /* MetadataExpirationWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetadataExpirationWorker.hpp; sourceTree = "<group>"; };
 		43EAFED21EFCEB550046589B /* Task.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Task.hpp; sourceTree = "<group>"; };
 		43EAFED31EFCEB6F0046589B /* Task.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Task.cpp; sourceTree = "<group>"; };
 		43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = TaskProcessor.cpp; path = MailSync/TaskProcessor.cpp; sourceTree = SOURCE_ROOT; };
@@ -290,6 +293,8 @@
 				4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */,
 				432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */,
 				432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */,
+				43DC3C521F666E1B0060A9B8 /* MetadataExpirationWorker.hpp */,
+				43DC3C511F666E1B0060A9B8 /* MetadataExpirationWorker.cpp */,
 				4364899F1EF35572007816EC /* SyncWorker.hpp */,
 				4364899E1EF35572007816EC /* SyncWorker.cpp */,
 				4378B8351F439F8A00C65630 /* GenericException.hpp */,
@@ -568,6 +573,7 @@
 				43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */,
 				4368DCBD1F43851A00F22FFD /* filelib.cpp in Sources */,
 				43CA9A0A1F0D4C1B001A24A0 /* ProgressCollectors.cpp in Sources */,
+				43DC3C531F666E1B0060A9B8 /* MetadataExpirationWorker.cpp in Sources */,
 				4364898C1EF2F905007816EC /* Statement.cpp in Sources */,
 				432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */,
 				4364898B1EF2F905007816EC /* Exception.cpp in Sources */,

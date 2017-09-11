@@ -99,6 +99,10 @@ MessageSnapshot Message::getSnapshot() {
     return s;
 }
 
+bool Message::supportsMetadata() {
+    return true;
+}
+
 // mutable attributes
 
 bool Message::isUnread() {

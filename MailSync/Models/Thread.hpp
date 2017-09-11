@@ -38,6 +38,8 @@ public:
     Thread(string msgId, string accountId, string subject, uint64_t gThreadId);
     Thread(SQLite::Statement & query);
     
+    bool supportsMetadata();
+
     string subject();
     void setSubject(string s);
     int unread();

@@ -27,6 +27,7 @@
 #include "DeltaStream.hpp"
 #include "SyncWorker.hpp"
 #include "MetadataWorker.hpp"
+#include "MetadataExpirationWorker.hpp"
 #include "SyncException.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
@@ -44,11 +45,12 @@ using option::ArgStatus;
 shared_ptr<SyncWorker> bgWorker = nullptr;
 shared_ptr<SyncWorker> fgWorker = nullptr;
 shared_ptr<MetadataWorker> metadataWorker = nullptr;
+shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
 
 std::thread * fgThread = nullptr;
 std::thread * bgThread = nullptr;
 std::thread * metadataThread = nullptr;
-
+std::thread * metadataExpirationThread = nullptr;
 
 
 class AccumulatorLogger : public ConnectionLogger {
@@ -97,6 +99,11 @@ const option::Descriptor usage[] =
 void runMetadataWorker() {
     SetThreadName("metadata");
     metadataWorker->run();
+}
+
+void runMetadataExpirationWorker() {
+    SetThreadName("metadataExpiration");
+    metadataExpirationWorker->run();
 }
 
 void runForegroundSyncWorker() {
@@ -421,11 +428,13 @@ int main(int argc, const char * argv[]) {
     if (mode == "sync") {
         spdlog::get("logger")->info("------------- Starting Sync ---------------");
         metadataWorker = make_shared<MetadataWorker>(account);
+        metadataExpirationWorker = make_shared<MetadataExpirationWorker>(account->id());
         fgWorker = make_shared<SyncWorker>(account);
         bgWorker = make_shared<SyncWorker>(account);
 
         bgThread = new std::thread(runBackgroundSyncWorker);
         metadataThread = new std::thread(runMetadataWorker);
+        metadataExpirationThread = new std::thread(runMetadataExpirationWorker);
         
         if (!options[ORPHAN]) {
             runListenOnMainThread(account);
