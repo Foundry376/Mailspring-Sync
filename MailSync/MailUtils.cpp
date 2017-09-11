@@ -323,9 +323,9 @@ string MailUtils::idForFolder(string accountId, string folderPath) {
     return toBase58(hash.data(), 30);
 }
 
-string MailUtils::idForFilePart(Message * message, AbstractPart * part) {
+string MailUtils::idForFile(Message * message, Attachment * attachment) {
     vector<unsigned char> hash(32);
-    string src_str = message->accountId() + ":" + message->id() + ":" + part->uniqueID()->UTF8Characters();
+    string src_str = message->id() + ":" + message->accountId() + ":" + attachment->partID()->UTF8Characters() + ":" + attachment->uniqueID()->UTF8Characters();
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
 }
@@ -348,7 +348,7 @@ string MailUtils::idRandomlyGenerated() {
 string MailUtils::idForDraftHeaderMessageId(string accountId, string headerMessageId)
 {
     vector<unsigned char> hash(32);
-    string src_str = accountId + + ":" + headerMessageId;
+    string src_str = accountId + ":" + headerMessageId;
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
 }

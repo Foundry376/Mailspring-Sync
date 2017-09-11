@@ -62,7 +62,7 @@ json DeltaStream::waitForJSON() {
 }
 
 void DeltaStream::sendJSON(const json & msgJSON) {
-    spdlog::get("logger")->info("{}", msgJSON.dump());
+//    spdlog::get("logger")->info("{}", msgJSON.dump());
     cout << msgJSON.dump() + "\n";
     cout << flush;
 }

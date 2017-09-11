@@ -316,8 +316,8 @@ void Message::bindToQuery(SQLite::Statement * query) {
     query->bind(":gMsgId", gMsgId());
 }
 
-void Message::writeAssociations(MailStore * store) {
-    MailModel::writeAssociations(store);
+void Message::afterSave(MailStore * store) {
+    MailModel::afterSave(store);
 
     // if we have a thread, keep the thread's folder, label, and unread counters
     // in sync by providing it with a before + after snapshot of this message.
@@ -337,8 +337,8 @@ void Message::writeAssociations(MailStore * store) {
     _lastSnapshot = getSnapshot();
 }
 
-void Message::unwriteAssociations(MailStore * store) {
-    MailModel::unwriteAssociations(store);
+void Message::afterRemove(MailStore * store) {
+    MailModel::afterRemove(store);
     
     // if we have a thread, keep the thread's folder, label, and unread counters
     // in sync by providing it with a before + after snapshot of this message.

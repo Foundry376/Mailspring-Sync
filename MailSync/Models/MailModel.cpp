@@ -39,7 +39,7 @@ void MailModel::captureInitialMetadataState() {
     _initialMetadataPluginIds = {};
     if (_data.count("metadata")) {
         for (const auto & m : _data["metadata"]) {
-            _initialMetadataPluginIds[m["pluginId"].get<string>()] = true;
+            _initialMetadataPluginIds[m["pluginId"].get<string>()] = m["v"].get<int>();
         }
     }
 }
@@ -120,12 +120,25 @@ void MailModel::bindToQuery(SQLite::Statement * query) {
     query->bind(":version", version());
 }
 
-void MailModel::writeAssociations(MailStore * store) {
+void MailModel::beforeSave(MailStore * store) {
+    if (version() == 1) {
+        // look for any pending metadata we need to attach to ourselves
+        vector<Metadata> metadatas = store->findAndDeleteDetatchedPluginMetadata(accountId(), id());
+        spdlog::get("logger")->info("-- Looking for metadata for {}", id());
+
+        for (auto & m : metadatas) {
+            spdlog::get("logger")->info("-- Attaching waiting metadata for {}", m.pluginId);
+            upsertMetadata(m.pluginId, m.value, m.version);
+        }
+    }
+}
+
+void MailModel::afterSave(MailStore * store) {
     
-    map<string, bool> metadataPluginIds{};
+    map<string, int> metadataPluginIds{};
     if (_data.count("metadata")) {
         for (const auto & m : _data["metadata"]) {
-            metadataPluginIds[m["pluginId"].get<string>()] = true;
+            metadataPluginIds[m["pluginId"].get<string>()] = m["v"].get<int>();
         }
     }
     
@@ -134,27 +147,30 @@ void MailModel::writeAssociations(MailStore * store) {
     // have not changed since the model was loaded.
     if (_initialMetadataPluginIds != metadataPluginIds) {
         string _id = id();
-        SQLite::Statement removePluginIds(store->db(), "DELETE FROM " + this->tableName() + "PluginMetadata WHERE id = ?");
+        SQLite::Statement removePluginIds(store->db(), "DELETE FROM ModelPluginMetadata WHERE id = ?");
         removePluginIds.bind(1, _id);
         removePluginIds.exec();
         
-        string qmarks = MailUtils::qmarkSets(metadataPluginIds.size(), 2);
-        
-        SQLite::Statement insertPluginIds(store->db(), "INSERT INTO " + this->tableName() + "PluginMetadata (id, value) VALUES " + qmarks);
-        
-        int i = 1;
-        for (auto& it : metadataPluginIds) {
-            insertPluginIds.bind(i++, _id);
-            insertPluginIds.bind(i++, it.first);
+        SQLite::Statement insertPluginIds(store->db(), "INSERT INTO ModelPluginMetadata (id, objectType, value, expiration) VALUES (?,?,?,?)");
+        insertPluginIds.bind(1, _id);
+        insertPluginIds.bind(2, this->tableName());
+        for (const auto & m : _data["metadata"]) {
+            insertPluginIds.bind(3, m["pluginId"].get<string>());
+            if (m["value"].count("expiration") && m["value"]["expiration"].is_number()) {
+                insertPluginIds.bind(4, m["value"]["expiration"].get<int32_t>());
+            } else {
+                insertPluginIds.bind(4); // binds null
+            }
+            insertPluginIds.exec();
+            insertPluginIds.reset();
         }
-        insertPluginIds.exec();
     }
 }
 
-void MailModel::unwriteAssociations(MailStore * store) {
+void MailModel::afterRemove(MailStore * store) {
     // delete metadata entries
     string _id = id();
-    SQLite::Statement removePluginIds(store->db(), "DELETE FROM " + this->tableName() + "PluginMetadata WHERE id = ?");
+    SQLite::Statement removePluginIds(store->db(), "DELETE FROM ModelPluginMetadata WHERE id = ?");
     removePluginIds.bind(1, _id);
     removePluginIds.exec();
 }

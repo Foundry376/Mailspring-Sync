@@ -27,7 +27,7 @@ class MailModel {
 public:
     json _data;
 
-    map<string, bool> _initialMetadataPluginIds;
+    map<string, int> _initialMetadataPluginIds;
     
     static string TABLE_NAME;
     virtual string tableName();
@@ -48,8 +48,9 @@ public:
 
     virtual void bindToQuery(SQLite::Statement * query);
     
-    virtual void writeAssociations(MailStore * store);
-    virtual void unwriteAssociations(MailStore * store);
+    virtual void beforeSave(MailStore * store);
+    virtual void afterSave(MailStore * store);
+    virtual void afterRemove(MailStore * store);
     
     virtual vector<string> columnsForQuery() = 0;
 

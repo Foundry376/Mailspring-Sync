@@ -193,7 +193,8 @@ void MailStore::commitTransaction() {
 
 void MailStore::save(MailModel * model, bool emit) {
     model->incrementVersion();
-    
+    model->beforeSave(this);
+
     auto tableName = model->tableName();
     
     if (model->version() > 1) {
@@ -229,13 +230,14 @@ void MailStore::save(MailModel * model, bool emit) {
             auto stmt = make_shared<SQLite::Statement>(this->_db, "INSERT INTO " + tableName + " (" + cols + ") VALUES (" + values + ")");
             _saveInsertQueries[tableName] = stmt;
         }
+        
         auto query = _saveInsertQueries[tableName];
         query->reset();
         model->bindToQuery(query.get());
         query->exec();
     }
 
-    model->writeAssociations(this);
+    model->afterSave(this);
 
     if (tableName == "Label") {
         _labelCacheInvalid = true;
@@ -256,7 +258,7 @@ void MailStore::remove(MailModel * model) {
     query->bind(1, model->id());
     query->exec();
 
-    model->unwriteAssociations(this);
+    model->afterRemove(this);
 
     if (model->tableName() == "Label") {
         _labelCacheInvalid = true;
@@ -274,6 +276,47 @@ shared_ptr<MailModel> MailStore::findGeneric(string type, Query query) {
     } else {
         return nullptr;
     }
+}
+
+vector<Metadata> MailStore::findAndDeleteDetatchedPluginMetadata(string accountId, string objectId) {
+    if (!_saveInsertQueries.count("metadata")) {
+        auto stmt = make_shared<SQLite::Statement>(db(), "SELECT version, value, pluginId, objectType FROM DetatchedPluginMetadata WHERE objectId = ? AND accountId = ?");
+        _saveInsertQueries["metadata"] = stmt;
+    }
+    
+    vector<Metadata> results;
+    auto st = _saveInsertQueries["metadata"];
+    st->reset();
+    st->bind(1, objectId);
+    st->bind(2, accountId);
+    while (st->executeStep()) {
+        Metadata m;
+        m.accountId = accountId;
+        m.version = st->getColumn("version").getInt();
+        m.value = json::parse(st->getColumn("value").getString());
+        m.pluginId = st->getColumn("pluginId").getString();
+        m.objectType = st->getColumn("objectType").getString();
+        m.objectId = objectId;
+        results.push_back(m);
+    }
+    if (results.size()) {
+        SQLite::Statement dt(db(), "DELETE FROM DetatchedPluginMetadata WHERE objectId = ? AND accountId = ?");
+        dt.bind(1, objectId);
+        dt.bind(2, accountId);
+        dt.exec();
+    }
+    return results;
+}
+
+void MailStore::saveDetatchedPluginMetadata(Metadata & m) {
+    SQLite::Statement st(db(), "REPLACE INTO DetatchedPluginMetadata (objectId, objectType, accountId, pluginId, value, version) VALUES (?,?,?,?,?,?)");
+    st.bind(1, m.objectId);
+    st.bind(2, m.objectType);
+    st.bind(3, m.accountId);
+    st.bind(4, m.pluginId);
+    st.bind(5, m.value.dump());
+    st.bind(6, m.version);
+    st.exec();
 }
 
 void MailStore::setStreamDelay(int streamMaxDelay) {

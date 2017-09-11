@@ -216,8 +216,16 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         insert.exec();
         
         // write files to the files table
+        
+        // try to save the files to the database. We don't care about failures here -
+        // it's possible the files are already there if we're re-fetching this message
+        // for some reason and we haven't loaded the existing ones.
         for (auto & file : files) {
-            store->save(&file);
+            try {
+                store->save(&file);
+            } catch (SQLite::Exception & ex) {
+                logger->warn("Unable to insert file ID {} - it must already exist.", file.id());
+            }
         }
         
         // append the body text to the thread's FTS5 search index
