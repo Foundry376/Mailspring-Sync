@@ -250,6 +250,8 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
     time_t lostCINAt = 0;
 
+    processor.cleanupTasksAfterLaunch();
+    
     while(true) {
         AutoreleasePool pool;
         json packet = {};

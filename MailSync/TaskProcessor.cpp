@@ -170,6 +170,19 @@ TaskProcessor::TaskProcessor(shared_ptr<Account> account, MailStore * store, IMA
     session(session) {
 }
 
+void TaskProcessor::cleanupTasksAfterLaunch() {
+    // look for tasks that are in the `local` state. The app most likely crashed while running these
+    // tasks, since they're saved immediately before performLocal is run. Delete them to avoid
+    // the app crashing again.
+    auto stuck = store->findAll<Task>(Query().equal("accountId", account->id()).equal("status", "local"));
+    for (auto & t : stuck) {
+        store->remove(t.get());
+    }
+    
+}
+
+// PerformLocal is run from the main thread as tasks are received from the client
+
 void TaskProcessor::performLocal(Task * task) {
     string cname = task->constructorName();
     
