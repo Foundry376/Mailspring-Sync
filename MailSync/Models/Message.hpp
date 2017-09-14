@@ -25,6 +25,9 @@ using namespace nlohmann;
 
 class File;
 class MailStore;
+class Message;
+
+// Snapshot concept
 
 struct MessageSnapshot {
     bool unread;
@@ -36,6 +39,8 @@ struct MessageSnapshot {
 
 static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, 0, nullptr, ""};
 
+// Message
+
 class Message : public MailModel {
 
     string _bodyForDispatch;
@@ -44,6 +49,8 @@ class Message : public MailModel {
 public:
     static string TABLE_NAME;
     
+    static Message messageWithDeletionPlaceholderFor(shared_ptr<Message> draft);
+
     Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTimestamp);
     Message(SQLite::Statement & query);
     Message(json json);
@@ -53,6 +60,8 @@ public:
     // mutable attributes
 
     MessageSnapshot getSnapshot();
+    
+    bool isDeletionPlaceholder();
     
     bool isUnread();
     void setUnread(bool u);

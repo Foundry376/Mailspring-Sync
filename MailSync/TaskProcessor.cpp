@@ -249,6 +249,8 @@ void TaskProcessor::performLocal(Task * task) {
     store->save(task);
 }
 
+// PerformRemote is run from the foreground worker
+
 void TaskProcessor::performRemote(Task * task) {
     string cname = task->constructorName();
 
@@ -481,11 +483,12 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
 
         store->save(&msg);
 
-        SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
-        insert.bind(1, msg.id());
-        insert.bind(2, draftJSON["body"].get<string>());
-        insert.exec();
-
+        if (draftJSON.count("body")) {
+            SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
+            insert.bind(1, msg.id());
+            insert.bind(2, draftJSON["body"].get<string>());
+            insert.exec();
+        }
         transaction.commit();
     }
 }
@@ -511,29 +514,15 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
     // worker from replacing them while we delete them via IMAP.
     {
         MailStoreTransaction transaction{store};
+
         auto drafts = store->findAll<Message>(Query().equal("id", messageIds));
         for (auto & draft : drafts) {
             store->remove(draft.get());
             
-            // - set draft: false           Hides the draft from drafts view
-            // - set client folder: trash   So if you view the thread, it's hidden
-            // - set synced at / suc        So if we sync the folder we don't "fix" it
-            
-            // This should be sufficient to totally hide them from the UI while
-            // keeping them until we delete them to prevent re-sync.
-
-            auto stub = Message{draft->toJSON()};
-            stub._data["id"] = "deleted-" + MailUtils::idRandomlyGenerated();
-            stub._data["hMsgId"] = "deleted-" + stub._data["id"].get<string>();
-            stub._data["subject"] = "Deleting...";
-            stub._data["v"] = 0;
-            stub.setDraft(false);
+            auto stub = Message::messageWithDeletionPlaceholderFor(draft);
             stub.setClientFolder(trash.get());
-            stub.setSyncUnsavedChanges(1);
-            stub.setSyncedAt(time(0) + 1 * 60 * 60);
             store->save(&stub);
-            
-            stubIds.push_back(stub._data["id"]);
+            stubIds.push_back(stub.id());
         }
 
         transaction.commit();
@@ -543,7 +532,7 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
 
 void TaskProcessor::performRemoteDestroyDraft(Task * task) {
     vector<string> stubIds = task->data()["stubIds"];
-    auto drafts = store->findAll<Message>(Query().equal("id", stubIds));
+    auto stubs = store->findAll<Message>(Query().equal("id", stubIds));
 
     // Find the trash folder
     auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
@@ -553,17 +542,17 @@ void TaskProcessor::performRemoteDestroyDraft(Task * task) {
     String * trashPath = AS_MCSTR(trash->path());
     logger->info("-- Identified `trash` folder: {}", trash->path());
 
-    for (auto & draft : drafts) {
-        auto uids = IndexSet::indexSetWithIndex(draft->remoteUID());
+    for (auto & stub : stubs) {
+        auto uids = IndexSet::indexSetWithIndex(stub->remoteUID());
 
-        logger->info("-- Deleting remote draft {}", draft->id());
+        logger->info("-- Deleting remote draft {}", stub->id());
 
         // Move to the trash folder
         HashMap * uidmap = nullptr;
         ErrorCode err = ErrorCode::ErrorNone;
         Array * auidsInTrash = nullptr;
         IndexSet uidsInTrash;
-        String * folder = AS_MCSTR(draft->remoteFolder()["path"].get<string>());
+        String * folder = AS_MCSTR(stub->remoteFolder()["path"].get<string>());
         session->moveMessages(folder, uids, trashPath, &uidmap, &err);
         if (err != ErrorNone) {
             continue; // eh, draft may be gone, oh well
@@ -581,6 +570,10 @@ void TaskProcessor::performRemoteDestroyDraft(Task * task) {
         if (err != ErrorNone) {
             continue; // eh, draft may be gone, oh well
         }
+        
+        // remove the stub from our local cache - would eventually get removed
+        // during sync, but we don't want to fetch it's body or anything
+        store->remove(stub.get());
     }
 }
 

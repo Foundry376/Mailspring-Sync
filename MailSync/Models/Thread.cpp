@@ -131,6 +131,10 @@ json & Thread::participants() {
 }
 
 void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> & allLabels) {
+    
+    spdlog::get("logger")->info("Before F: {}", _data["folders"].dump());
+    spdlog::get("logger")->info("Before L: {}", _data["labels"].dump());
+
     // decrement basic attributes
     setUnread(unread() - old.unread);
     setStarred(starred() - old.starred);
