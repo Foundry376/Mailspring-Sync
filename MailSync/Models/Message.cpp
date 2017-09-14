@@ -18,6 +18,39 @@ using namespace std;
 
 string Message::TABLE_NAME = "Message";
 
+/*
+ The concept behind the "deletion placeholder" is that we need something 
+ in the database with the remoteFolder and remoteUID of the message until
+ we finish syncing the deletion to the server. Otherwise the sync worker 
+ could put it back. (If you try to delete a lot of drafts and the deletion
+ queue is long, the delay can be long enough for them to reappear.) Bad!
+
+ In this approach we "free" up the headerMessageId and id, and create an
+ invisible message for a few seconds.
+*/
+Message Message::messageWithDeletionPlaceholderFor(shared_ptr<Message> draft) {
+    json stubJSON = draft->toJSON(); // note: copy
+    stubJSON["id"] = "deleted-" + MailUtils::idRandomlyGenerated();
+    stubJSON["hMsgId"] = "deleted-" + stubJSON["id"].get<string>();
+    stubJSON["subject"] = "Deleting...";
+    
+    // very important to set v=0 so the Message gets both "added" and "deleted"
+    // from the thread. Otherwise we could potentially cause double deletion
+    // and get the counters off by one!
+    stubJSON["v"] = 0;
+    
+    auto stub = Message(stubJSON);
+    auto nolabels = json::array();
+    stub.setDraft(false);
+    stub.setUnread(false);
+    stub.setStarred(false);
+    stub.setRemoteXGMLabels(nolabels);
+    stub.setSyncUnsavedChanges(1);
+    stub.setSyncedAt(time(0) + 1 * 60 * 60);
+
+    return stub;
+}
+
 Message::Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTimestamp) :
 MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 0)
 {
@@ -101,6 +134,10 @@ MessageSnapshot Message::getSnapshot() {
 
 bool Message::supportsMetadata() {
     return true;
+}
+
+bool Message::isDeletionPlaceholder() {
+    return id().substr(0, 8) == "deleted-";
 }
 
 // mutable attributes

@@ -41,6 +41,8 @@ class TaskProcessor {
 public:
     TaskProcessor(shared_ptr<Account> account, MailStore * store, IMAPSession * session);
 
+    void cleanupTasksAfterLaunch();
+    
     void performLocal(Task * task);
     void performRemote(Task * task);
     void cancel(string taskId);
