@@ -41,6 +41,10 @@ void MetadataExpirationWorker::didSaveMetadataWithExpiration(long e) {
 void MetadataExpirationWorker::run() {
     auto logger(spdlog::get("logger"));
     
+    // wait at least 15 seconds before sending the first metadata expiration event,
+    // because plugins make take longer than the main application to load!
+    sleep(15);
+    
     while (true) {
         {
             MailStore store;
@@ -48,7 +52,7 @@ void MetadataExpirationWorker::run() {
             logger->info("Scanning for expired metadata");
 
             long long now = time(0);
-            SQLite::Statement find(store.db(), "SELECT objectType, id FROM ModelPluginMetadata WHERE accountId = ? AND expiration < ?");
+            SQLite::Statement find(store.db(), "SELECT objectType, id FROM ModelPluginMetadata WHERE accountId = ? AND expiration <= ?");
             find.bind(1, _accountId);
             find.bind(2, now);
             map<string, vector<string>> results;
@@ -71,7 +75,7 @@ void MetadataExpirationWorker::run() {
             }
 
             // find the next metadata expiration
-            SQLite::Statement findNext(store.db(), "SELECT expiration FROM ModelPluginMetadata WHERE accountId = ? AND expiration >= ?");
+            SQLite::Statement findNext(store.db(), "SELECT expiration FROM ModelPluginMetadata WHERE accountId = ? AND expiration > ?");
             findNext.bind(1, _accountId);
             findNext.bind(2, now);
             
@@ -80,8 +84,18 @@ void MetadataExpirationWorker::run() {
                 next = findNext.getColumn("expiration").getInt64();
             }
             
+            // always wait one extra second - don't wake /exactly/ when the metadata expires
+            // in case we're somehow scheduled and wake early.
+            next += 1;
+            
+            // always wait at least fifteen seconds - this ensures we don't create a performance
+            // disaster if for some reason metadata gets "stuck" on items.
+            if (next < now + 15) {
+                next = now + 15;
+            }
+            
             // sleep until then, or we're woken to lower the delay
-            logger->info("-- Sleeping until {}", next);
+            logger->info("-- Will wake for next expiration in {}sec", next - now);
             _wakeTime = std::chrono::system_clock::from_time_t((time_t)next);
         }
 
