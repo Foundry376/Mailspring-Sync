@@ -187,7 +187,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
         setAttachmentCount(attachmentCount() + (int)next->files().size());
 
         // increment dates
-        if (!next->isDraft()) {
+        if (!next->isDraft() && !next->isDeletionPlaceholder()) {
             if (next->date() > lastMessageTimestamp()) {
                 _data["lmt"] = next->date();
             }
