@@ -34,6 +34,67 @@ shared_ptr<DeltaStream> SharedDeltaStream() {
     return _globalStream;
 }
 
+// DeltaStreamItem
+
+DeltaStreamItem::DeltaStreamItem(string type, string modelClass, vector<json> modelJSONs) :
+    type(type), modelClass(modelClass), modelJSONs(modelJSONs)
+{
+    
+}
+
+DeltaStreamItem::DeltaStreamItem(string type, MailModel * model) :
+    type(type), modelClass(model->tableName()), modelJSONs(vector<json>{model->toJSONDispatch()})
+{
+}
+
+DeltaStreamItem::DeltaStreamItem(string type, vector<shared_ptr<MailModel>> & models) :
+    type(type), modelClass("none"), modelJSONs({})
+{
+    if (models.size() > 0) {
+        modelClass = models[0]->tableName();
+        for (const auto & m : models) {
+            modelJSONs.push_back(m->toJSONDispatch());
+        }
+    }
+}
+
+bool DeltaStreamItem::concatenate(const DeltaStreamItem & other) {
+    if (other.type != type || other.modelClass != modelClass) {
+        return false;
+    }
+
+    for (const auto & modelJSON : other.modelJSONs) {
+        upsertModelJSON(modelJSON);
+    }
+    return true;
+}
+
+void DeltaStreamItem::upsertModelJSON(const json & item) {
+    // scan and replace any instance of the object already available, or append.
+    // It's important two back-to-back saves of the same object don't create two entries,
+    // only the last one.
+    bool found = false;
+
+    for (int ii = 0; ii < modelJSONs.size(); ii ++) {
+        if (modelJSONs[ii]["id"] == item["id"]) {
+            modelJSONs[ii] = item;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        modelJSONs.push_back(item);
+    }
+}
+
+json DeltaStreamItem::dump() const {
+    return {
+        {"type", type},
+        {"modelJSONs", modelJSONs},
+        {"modelClass", modelClass}
+    };
+}
+
 // Class
 
 DeltaStream::DeltaStream() : scheduled(false) {
@@ -61,17 +122,12 @@ json DeltaStream::waitForJSON() {
     return {};
 }
 
-void DeltaStream::sendJSON(const json & msgJSON) {
-//    spdlog::get("logger")->info("{}", msgJSON.dump());
-    cout << msgJSON.dump() + "\n";
-    cout << flush;
-}
-
 void DeltaStream::flushBuffer() {
     lock_guard<mutex> lock(bufferMtx);
     for (const auto & it : buffer) {
-        for (const auto & msg : it.second) {
-            sendJSON(msg);
+        for (const auto & item : it.second) {
+            cout << item.dump() + "\n";
+            cout << flush;
         }
     }
     buffer = {};
@@ -99,51 +155,26 @@ void DeltaStream::flushWithin(int ms) {
     }
 }
 
-void DeltaStream::bufferMessage(string klass, string type, MailModel * model) {
+void DeltaStream::queueDeltaForDelivery(DeltaStreamItem item) {
     lock_guard<mutex> lock(bufferMtx);
 
-    if (!buffer.count(klass)) {
-        buffer[klass] = {};
+    if (!buffer.count(item.modelClass)) {
+        buffer[item.modelClass] = {};
     }
-    if (buffer[klass].size() > 0 && buffer[klass].back()["type"].get<string>() == type) {
-        // scan and replace any instance of the object already available, or append.
-        // It's important two back-to-back saves of the same object don't create two entries,
-        // only the last one.
-        auto & delta = buffer[klass].back();
-        bool found = false;
-        for (int ii = 0; ii < delta["objects"].size(); ii ++) {
-            if (delta["objects"][ii]["id"].get<string>() == model->id()) {
-                delta["objects"][ii] = model->toJSONDispatch();
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            delta["objects"].push_back(model->toJSONDispatch());
-        }
-    } else {
-        json objs = json::array();
-        objs.push_back(model->toJSONDispatch());
-        buffer[klass].push_back({
-            {"type", type},
-            {"objectClass", klass},
-            {"objects", objs},
-        });
+    if (buffer[item.modelClass].size() == 0 || !buffer[item.modelClass].back().concatenate(item)) {
+        buffer[item.modelClass].push_back(item);
     }
 }
 
-void DeltaStream::emitPersistModel(MailModel * model, int maxDeliveryDelay) {
-    bufferMessage(model->tableName(), "persist", model);
+void DeltaStream::emit(DeltaStreamItem item, int maxDeliveryDelay) {
+    queueDeltaForDelivery(item);
     flushWithin(maxDeliveryDelay);
 }
 
-void DeltaStream::emitUnpersistModel(MailModel * model, int maxDeliveryDelay) {
-    bufferMessage(model->tableName(), "unpersist", model);
-    flushWithin(maxDeliveryDelay);
-}
-
-void DeltaStream::emitMetadataExpiration(MailModel * model, int maxDeliveryDelay) {
-    bufferMessage(model->tableName(), "metadata-expiration", model);
+void DeltaStream::emit(vector<DeltaStreamItem> items, int maxDeliveryDelay) {
+    for (const auto item : items) {
+        queueDeltaForDelivery(item);
+    }
     flushWithin(maxDeliveryDelay);
 }
 
