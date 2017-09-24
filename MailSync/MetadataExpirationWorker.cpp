@@ -70,7 +70,7 @@ void MetadataExpirationWorker::run() {
                 auto models = store.findAllGeneric(pair.first, Query().equal("id", pair.second));
                 for (auto & model : models) {
                     logger->info("-- Sending expiration event for {} {}", pair.first, model->id());
-                    SharedDeltaStream()->emitMetadataExpiration(model.get(), 500);
+                    SharedDeltaStream()->emit(DeltaStreamItem(DELTA_TYPE_METADATA_EXPIRATION, model.get()), 500);
                 }
             }
 

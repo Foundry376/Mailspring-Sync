@@ -186,6 +186,7 @@ vector<shared_ptr<Label>> MailStore::allLabelsCache(string accountId) {
 void MailStore::beginTransaction() {
     _stmtBeginTransaction.exec();
     _stmtBeginTransaction.reset();
+    _transactionOpen = true;
 }
 
 
@@ -197,11 +198,20 @@ void MailStore::rollbackTransaction() {
     _removeQueries = {};
     _stmtRollbackTransaction.exec();
     _stmtRollbackTransaction.reset();
+    _transactionOpen = false;
 }
 
 void MailStore::commitTransaction() {
     _stmtCommitTransaction.exec();
     _stmtCommitTransaction.reset();
+    
+    // emit all of the deltas
+    if (_transactionDeltas.size()) {
+        SharedDeltaStream()->emit(_transactionDeltas, _streamMaxDelay);
+        _transactionDeltas = {};
+    }
+    _transactionOpen = false;
+
 }
 
 void MailStore::save(MailModel * model, bool emit) {
@@ -257,7 +267,8 @@ void MailStore::save(MailModel * model, bool emit) {
     }
 
     if (emit) {
-        SharedDeltaStream()->emitPersistModel(model, _streamMaxDelay);
+        DeltaStreamItem delta {DELTA_TYPE_PERSIST, model};
+        _emit(delta);
     }
 }
 
@@ -276,7 +287,17 @@ void MailStore::remove(MailModel * model) {
     if (model->tableName() == "Label") {
         _labelCacheInvalid = true;
     }
-    SharedDeltaStream()->emitUnpersistModel(model, _streamMaxDelay);
+
+    DeltaStreamItem delta {DELTA_TYPE_PERSIST, model};
+    _emit(delta);
+}
+
+void MailStore::_emit(DeltaStreamItem & delta) {
+    if (_transactionOpen) {
+        _transactionDeltas.push_back(delta);
+    } else {
+        SharedDeltaStream()->emit(delta, _streamMaxDelay);
+    }
 }
 
 shared_ptr<MailModel> MailStore::findGeneric(string type, Query query) {

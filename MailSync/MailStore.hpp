@@ -54,6 +54,10 @@ class MailStore {
     SQLite::Statement _stmtBeginTransaction;
     SQLite::Statement _stmtRollbackTransaction;
     SQLite::Statement _stmtCommitTransaction;
+    
+    bool _transactionOpen;
+    vector<DeltaStreamItem> _transactionDeltas;
+
     map<string, shared_ptr<SQLite::Statement>> _saveUpdateQueries;
     map<string, shared_ptr<SQLite::Statement>> _saveInsertQueries;
     map<string, shared_ptr<SQLite::Statement>> _removeQueries;
@@ -156,20 +160,20 @@ public:
     
     template<typename ModelClass>
     void remove(Query & query) {
-        auto results = findAll<ModelClass>(query);
+        auto models = findAll<ModelClass>(query);
 
         SQLite::Statement statement(this->_db, "DELETE FROM " + ModelClass::TABLE_NAME + query.sql());
         query.bind(statement);
         statement.exec();
         
-        for (auto & result : results) {
-            SharedDeltaStream()->emitUnpersistModel(result.get(), _streamMaxDelay);
-        }
+        DeltaStreamItem delta {DELTA_TYPE_UNPERSIST, models};
+        _emit(delta);
     }
     
 
 private:
-    void notify(string type);
+
+    void _emit(DeltaStreamItem & delta);
 };
 
 

@@ -19,9 +19,28 @@
 using namespace nlohmann;
 using namespace std;
 
+#define DELTA_TYPE_METADATA_EXPIRATION  "metadata-expiration"
+#define DELTA_TYPE_PERSIST              "persist"
+#define DELTA_TYPE_UNPERSIST            "unpersist"
+
+class DeltaStreamItem {
+public:
+    string type;
+    vector<json> modelJSONs;
+    string modelClass;
+    
+    DeltaStreamItem(string type, string modelClass, vector<json> modelJSONs);
+    DeltaStreamItem(string type, vector<shared_ptr<MailModel>> & models);
+    DeltaStreamItem(string type, MailModel * model);
+    
+    bool concatenate(const DeltaStreamItem & other);
+    void upsertModelJSON(const json & modelJSON);
+    json dump() const;
+};
+
 class DeltaStream  {
     mutex bufferMtx;
-    map<string, vector<json>> buffer;
+    map<string, vector<DeltaStreamItem>> buffer;
 
     bool scheduled;
     std::chrono::system_clock::time_point scheduledTime;
@@ -32,17 +51,15 @@ public:
     DeltaStream();
     ~DeltaStream();
 
-    void sendJSON(const json & msg);
     json waitForJSON();
 
     void flushBuffer();
     void flushWithin(int ms);
     
-    void bufferMessage(string klass, string type, MailModel * model);
+    void queueDeltaForDelivery(DeltaStreamItem item);
 
-    void emitPersistModel(MailModel * model, int maxDeliveryDelay);
-    void emitUnpersistModel(MailModel * model, int maxDeliveryDelay);
-    void emitMetadataExpiration(MailModel * model, int maxDeliveryDelay);
+    void emit(DeltaStreamItem item, int maxDeliveryDelay);
+    void emit(vector<DeltaStreamItem> items, int maxDeliveryDelay);
 };
 
 
