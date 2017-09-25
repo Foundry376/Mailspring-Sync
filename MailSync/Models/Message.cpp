@@ -226,11 +226,11 @@ bool Message::isInInbox() {
 }
 
 bool Message::_isIn(string roleAlsoLabelName) {
-    string f = remoteFolder()["role"].get<string>();
-    if (f == roleAlsoLabelName) {
+    string folderRole = remoteFolder()["role"].get<string>();
+    if (folderRole == roleAlsoLabelName) {
         return true;
     }
-    if (f == "all") {
+    if (folderRole == "all") {
         string needle = roleAlsoLabelName;
         for (auto & l : remoteXGMLabels()) {
             string ln = l.get<string>();
