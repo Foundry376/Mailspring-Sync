@@ -934,7 +934,10 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                 if (thread) {
                     Array * xgmValues = new Array();
                     for (auto & l : thread->labels()) {
-                        xgmValues->addObject(AS_MCSTR(_xgmKeyForLabel(l)));
+                        if (l["role"] == "inbox") { continue; }
+                        string xgm = _xgmKeyForLabel(l);
+                        logger->info("-- Will add label to new message: {}", xgm);
+                        xgmValues->addObject(AS_MCSTR(xgm));
                     }
                     session->storeLabelsByUID(sentPath, IndexSet::indexSetWithIndex(sentFolderMessageUID), IMAPStoreFlagsRequestKindAdd, xgmValues, &err);
                     if (err != ErrorNone) {
