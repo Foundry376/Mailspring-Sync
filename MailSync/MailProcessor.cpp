@@ -282,6 +282,7 @@ void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
         auto q = Query().equal("accountId", account->id()).equal("remoteUID", UINT32_MAX - phase);
         auto messages = store->findAll<Message>(q);
         for (auto const & msg : messages) {
+            logger->info("-- Removing \"{}\" ({})", msg->subject(), msg->id());
             store->remove(msg.get());
         }
         
