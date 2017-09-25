@@ -17,16 +17,16 @@ static string MAILSPRING_FOLDER_PREFIX = "[Mailspring]";
 static std::vector<std::string> SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `_State` (id VARCHAR(40) PRIMARY KEY, value TEXT)",
 
-    "CREATE TABLE IF NOT EXISTS `File` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(40), filename TEXT)",
+    "CREATE TABLE IF NOT EXISTS `File` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), filename TEXT)",
     
-    "CREATE TABLE IF NOT EXISTS `Event` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(40), calendarId VARCHAR(40), _start INTEGER, _end INTEGER, is_search_indexed INTEGER DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS `Event` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8), calendarId VARCHAR(40), _start INTEGER, _end INTEGER, is_search_indexed INTEGER DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS EventIsSearchIndexedIndex ON `Event` (is_search_indexed, id)",
 
     "CREATE VIRTUAL TABLE IF NOT EXISTS `EventSearch` USING fts5(tokenize = 'porter unicode61', content_id UNINDEXED, title, description, location, participants)",
 
     "CREATE TABLE IF NOT EXISTS Label ("
       "id VARCHAR(40) PRIMARY KEY,"
-      "accountId VARCHAR(40),"
+      "accountId VARCHAR(8),"
       "version INTEGER,"
       "data TEXT,"
       "path VARCHAR(255),"
@@ -36,7 +36,7 @@ static std::vector<std::string> SETUP_QUERIES = {
     
     "CREATE TABLE IF NOT EXISTS Folder ("
        "id VARCHAR(40) PRIMARY KEY,"
-       "accountId VARCHAR(40),"
+       "accountId VARCHAR(8),"
        "version INTEGER,"
        "data TEXT,"
        "path VARCHAR(255),"
@@ -46,7 +46,7 @@ static std::vector<std::string> SETUP_QUERIES = {
 
     "CREATE TABLE IF NOT EXISTS Thread ("
         "id VARCHAR(42) PRIMARY KEY,"
-        "accountId VARCHAR(42),"
+        "accountId VARCHAR(8),"
         "version INTEGER,"
         "data TEXT,"
         "gThrId VARCHAR(20),"
@@ -74,7 +74,7 @@ static std::vector<std::string> SETUP_QUERIES = {
 
     "CREATE TABLE IF NOT EXISTS ThreadReference ("
         "threadId VARCHAR(42),"
-        "accountId VARCHAR(40),"
+        "accountId VARCHAR(8),"
         "headerMessageId VARCHAR(255),"
         "PRIMARY KEY (threadId, accountId, headerMessageId))",
                                                 
@@ -96,11 +96,11 @@ static std::vector<std::string> SETUP_QUERIES = {
     
     "CREATE VIRTUAL TABLE IF NOT EXISTS `ThreadSearch` USING fts5(tokenize = 'porter unicode61', content_id UNINDEXED, subject, to_, from_, categories, body)",
 
-    "CREATE TABLE IF NOT EXISTS `Account` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(40), email_address TEXT)",
+    "CREATE TABLE IF NOT EXISTS `Account` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8), email_address TEXT)",
 
     "CREATE TABLE IF NOT EXISTS Message ("
         "id VARCHAR(40) PRIMARY KEY,"
-        "accountId VARCHAR(40),"
+        "accountId VARCHAR(8),"
         "version INTEGER,"
         "data TEXT,"
         "headerMessageId VARCHAR(255),"
@@ -122,24 +122,24 @@ static std::vector<std::string> SETUP_QUERIES = {
     "CREATE INDEX IF NOT EXISTS MessageListDraftIndex ON Message(accountId, date DESC) WHERE draft = 1",
     "CREATE INDEX IF NOT EXISTS MessageListUnifiedDraftIndex ON Message(date DESC) WHERE draft = 1",
     
-    "CREATE TABLE IF NOT EXISTS `ModelPluginMetadata` (id VARCHAR(40), `accountId` VARCHAR(40), `objectType` VARCHAR(15), `value` TEXT, `expiration` DATETIME, PRIMARY KEY (`value`, `id`))",
+    "CREATE TABLE IF NOT EXISTS `ModelPluginMetadata` (id VARCHAR(40), `accountId` VARCHAR(8), `objectType` VARCHAR(15), `value` TEXT, `expiration` DATETIME, PRIMARY KEY (`value`, `id`))",
     "CREATE INDEX IF NOT EXISTS `ModelPluginMetadata_id` ON `ModelPluginMetadata` (`id` ASC)",
     "CREATE INDEX IF NOT EXISTS `ModelPluginMetadata_expiration` ON `ModelPluginMetadata` (`expiration` ASC) WHERE expiration IS NOT NULL",
 
-    "CREATE TABLE IF NOT EXISTS `DetatchedPluginMetadata` (objectId VARCHAR(40), objectType VARCHAR(15), accountId VARCHAR(40), pluginId VARCHAR(40), value BLOB, version INTEGER, PRIMARY KEY (`objectId`, `accountId`, `pluginId`))",
+    "CREATE TABLE IF NOT EXISTS `DetatchedPluginMetadata` (objectId VARCHAR(40), objectType VARCHAR(15), accountId VARCHAR(8), pluginId VARCHAR(40), value BLOB, version INTEGER, PRIMARY KEY (`objectId`, `accountId`, `pluginId`))",
 
     "CREATE TABLE IF NOT EXISTS `MessageBody` (id VARCHAR(40) PRIMARY KEY, `value` TEXT)",
     "CREATE UNIQUE INDEX IF NOT EXISTS MessageBodyIndex ON MessageBody(id)",
     
-    "CREATE TABLE IF NOT EXISTS `Contact` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(40), name TEXT, email TEXT, version INTEGER, refs INTEGER DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS `Contact` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8), name TEXT, email TEXT, version INTEGER, refs INTEGER DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS ContactEmailIndex ON Contact(email)",
     "CREATE INDEX IF NOT EXISTS ContactAccountEmailIndex ON Contact(accountId, email)",
 
     "CREATE VIRTUAL TABLE IF NOT EXISTS `ContactSearch` USING fts5(tokenize = 'porter unicode61', content_id UNINDEXED, content)",
 
-    "CREATE TABLE IF NOT EXISTS `Calendar` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(40))",
+    "CREATE TABLE IF NOT EXISTS `Calendar` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8))",
     
-    "CREATE TABLE IF NOT EXISTS `Task` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(40), status VARCHAR(255))",
+    "CREATE TABLE IF NOT EXISTS `Task` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), status VARCHAR(255))",
 };
 
 

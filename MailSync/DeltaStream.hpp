@@ -35,7 +35,7 @@ public:
     
     bool concatenate(const DeltaStreamItem & other);
     void upsertModelJSON(const json & modelJSON);
-    json dump() const;
+    string dump() const;
 };
 
 class DeltaStream  {

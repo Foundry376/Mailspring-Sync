@@ -87,12 +87,13 @@ void DeltaStreamItem::upsertModelJSON(const json & item) {
     }
 }
 
-json DeltaStreamItem::dump() const {
-    return {
+string DeltaStreamItem::dump() const {
+    json j = {
         {"type", type},
         {"modelJSONs", modelJSONs},
         {"modelClass", modelClass}
     };
+    return j.dump();
 }
 
 // Class
