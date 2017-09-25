@@ -544,20 +544,22 @@ void TaskProcessor::performRemoteDestroyDraft(Task * task) {
 
     for (auto & stub : stubs) {
         auto uids = IndexSet::indexSetWithIndex(stub->remoteUID());
+        string folderPath = stub->remoteFolder()["path"].get<string>();
 
-        logger->info("-- Deleting remote draft {}", stub->id());
+        logger->info("-- Deleting remote draft {} ({} UID {})", stub->id(), folderPath, stub->remoteUID());
 
         // Move to the trash folder
         HashMap * uidmap = nullptr;
         ErrorCode err = ErrorCode::ErrorNone;
         Array * auidsInTrash = nullptr;
         IndexSet uidsInTrash;
-        String * folder = AS_MCSTR(stub->remoteFolder()["path"].get<string>());
-        session->moveMessages(folder, uids, trashPath, &uidmap, &err);
+        session->moveMessages(AS_MCSTR(folderPath), uids, trashPath, &uidmap, &err);
         if (err != ErrorNone) {
+            logger->info("X- ignoring moveMessages failure (error: {})", ErrorCodeToTypeMap[err]);
             continue; // eh, draft may be gone, oh well
         }
         if (uidmap == nullptr) {
+            logger->info("X- ignoring moveMessages did not return uidmap");
             continue; // eh, draft may be gone, oh well
         }
         
@@ -568,9 +570,13 @@ void TaskProcessor::performRemoteDestroyDraft(Task * task) {
         }
         session->storeFlagsByUID(trashPath, &uidsInTrash, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
         if (err != ErrorNone) {
+            logger->info("X- ignoring storeFlagsByUID could not add deleted flag (error: {})", ErrorCodeToTypeMap[err]);
             continue; // eh, draft may be gone, oh well
         }
         
+        // Call EXPUNGE to permanently delete messages
+        session->expunge(trashPath, &err);
+
         // remove the stub from our local cache - would eventually get removed
         // during sync, but we don't want to fetch it's body or anything
         store->remove(stub.get());
