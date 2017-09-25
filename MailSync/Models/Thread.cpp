@@ -131,10 +131,6 @@ json & Thread::participants() {
 }
 
 void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> & allLabels) {
-    
-    spdlog::get("logger")->info("Before F: {}", _data["folders"].dump());
-    spdlog::get("logger")->info("Before L: {}", _data["labels"].dump());
-
     // decrement basic attributes
     setUnread(unread() - old.unread);
     setStarred(starred() - old.starred);
@@ -198,7 +194,11 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
                 if (next->date() > lastMessageSentTimestamp()) {
                     _data["lmst"] = next->date();
                 }
-            } else {
+            }
+
+            // Note: Emails you send yourself impact the `lmrt`, so saying
+            // "not sent by me" is not sufficient. TODO: better logic?
+            if (next->isInInbox() || !next->isSentByUser()) {
                 if (next->date() > lastMessageReceivedTimestamp()) {
                     _data["lmrt"] = next->date();
                 }
