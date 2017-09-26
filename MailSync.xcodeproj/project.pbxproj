@@ -698,6 +698,7 @@
 				HEADER_SEARCH_PATHS = (
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
+					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
 				);
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
@@ -735,6 +736,7 @@
 				HEADER_SEARCH_PATHS = (
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
+					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
 				);
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",

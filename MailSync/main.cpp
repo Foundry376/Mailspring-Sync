@@ -107,7 +107,7 @@ void runMetadataExpirationWorker() {
 }
 
 void runForegroundSyncWorker() {
-    SetThreadName("fgWorker");
+    SetThreadName("foreground");
 
     while(true) {
         try {
@@ -124,7 +124,7 @@ void runForegroundSyncWorker() {
 }
 
 void runBackgroundSyncWorker() {
-    SetThreadName("bgWorker");
+    SetThreadName("background");
 
     bool started = false;
 
@@ -384,7 +384,7 @@ int main(int argc, const char * argv[]) {
     spdlog::create("logger", std::begin(sinks), std::end(sinks));
 
     // setup curl
-    curl_global_init(CURL_GLOBAL_ALL ^ CURL_GLOBAL_SSL);
+    curl_global_init(CURL_GLOBAL_ALL);
 
     // get the account via param or stdin
     shared_ptr<Account> account;
