@@ -288,7 +288,7 @@ void MailStore::remove(MailModel * model) {
         _labelCacheInvalid = true;
     }
 
-    DeltaStreamItem delta {DELTA_TYPE_PERSIST, model};
+    DeltaStreamItem delta {DELTA_TYPE_UNPERSIST, model};
     _emit(delta);
 }
 
