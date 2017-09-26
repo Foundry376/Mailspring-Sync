@@ -26,6 +26,7 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      language = ""
       shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
       </Testables>
@@ -45,6 +46,7 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      language = ""
       launchStyle = "0"
       useCustomWorkingDirectory = "NO"
       ignoresPersistentStateOnLaunch = "NO"
@@ -67,7 +69,7 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--identity &apos;{&quot;firstName&quot;:&quot;Ben&quot;, &quot;lastName&quot;:&quot;Gotow&quot;, &quot;emailAddress&quot;:&quot;bengotow@gmail.com&quot;, &quot;token&quot;:&quot;63bf09f8-1277-4bef-b311-c4630c677c7c&quot;}&apos;"
+            argument = "--identity &apos;{&quot;firstName&quot;:&quot;Ben&quot;, &quot;lastName&quot;:&quot;Gotow&quot;, &quot;emailAddress&quot;:&quot;bengotow@gmail.com&quot;, &quot;token&quot;:&quot;47d45a2d-3682-4ea9-992f-563962774192&quot;}&apos;"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
@@ -99,7 +101,7 @@
          </EnvironmentVariable>
          <EnvironmentVariable
             key = "IDENTITY_SERVER"
-            value = "http://Bens-MacBook-Pro.local:5101"
+            value = "https://id.getmailspring.com"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
