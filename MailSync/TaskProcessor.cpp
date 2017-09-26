@@ -481,7 +481,15 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
     {
         MailStoreTransaction transaction{store};
 
-        store->save(&msg);
+        // If the draft already exists, we need to visibly change it's attributes
+        // to trigger the correct didSave hooks, etc. Find and update it.
+        auto existing = store->find<Message>(Query().equal("accountId", msg.accountId()).equal("id", msg.id()));
+        if (existing) {
+            existing->_data = msg._data;
+            store->save(existing.get());
+        } else {
+            store->save(&msg);
+        }
 
         if (draftJSON.count("body")) {
             SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
@@ -699,8 +707,11 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     Message draft = inflateDraft(draftJSON);
     string body = draftJSON["body"].get<string>();
     bool multisend = perRecipientBodies.is_object();
-
+    
     logger->info("- Sending draft {}", draft.headerMessageId());
+    
+    // always ensure the latest draft contents are saved to the database
+    store->save(&draft);
 
     // find the sent folder: folder OR label
     auto sent = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "sent"));
