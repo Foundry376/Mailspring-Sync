@@ -169,6 +169,13 @@ void MailModel::afterSave(MailStore * store) {
         long lowestExpiration = LONG_MAX;
 
         for (const auto & m : _data["metadata"]) {
+            // metadata without any contents is omitted from the join table
+            // so it's possible to "remove" metadata while keeping the versions
+            // incrementing forever.
+            if (m["value"].size() == 0) {
+                continue;
+            }
+
             bool hasExpiration = m["value"].count("expiration") && m["value"]["expiration"].is_number();
 
             insertPluginIds.bind(4, m["pluginId"].get<string>());
