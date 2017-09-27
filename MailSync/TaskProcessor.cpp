@@ -531,6 +531,8 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
             stub.setClientFolder(trash.get());
             store->save(&stub);
             stubIds.push_back(stub.id());
+
+            logger->info("-- Replacing local ID {} with {}", draft->id(), stub.id());
         }
 
         transaction.commit();
@@ -551,6 +553,9 @@ void TaskProcessor::performRemoteDestroyDraft(Task * task) {
     logger->info("-- Identified `trash` folder: {}", trash->path());
 
     for (auto & stub : stubs) {
+        if (stub->remoteUID() == 0) {
+            continue; // not synced to server at all
+        }
         auto uids = IndexSet::indexSetWithIndex(stub->remoteUID());
         string folderPath = stub->remoteFolder()["path"].get<string>();
 
