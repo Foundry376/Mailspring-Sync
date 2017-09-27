@@ -714,9 +714,6 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     bool multisend = perRecipientBodies.is_object();
     
     logger->info("- Sending draft {}", draft.headerMessageId());
-    
-    // always ensure the latest draft contents are saved to the database
-    store->save(&draft);
 
     // find the sent folder: folder OR label
     auto sent = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "sent"));
