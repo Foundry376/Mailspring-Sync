@@ -43,7 +43,7 @@ void MetadataExpirationWorker::run() {
     
     // wait at least 15 seconds before sending the first metadata expiration event,
     // because plugins make take longer than the main application to load!
-    sleep(15);
+    std::this_thread::sleep_for(std::chrono::seconds(15));
     
     while (true) {
         {
