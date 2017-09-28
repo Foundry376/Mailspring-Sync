@@ -12,6 +12,12 @@
 
 #define AS_MCSTR(X)         mailcore::String::uniquedStringWithUTF8Characters(X.c_str())
 
+#if defined _WIN32 || defined __CYGWIN__
+static string FS_PATH_SEP = "\\";
+#else
+static string FS_PATH_SEP = "/";
+#endif
+
 static string MAILSPRING_FOLDER_PREFIX = "[Mailspring]";
 
 static std::vector<std::string> SETUP_QUERIES = {
