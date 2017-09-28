@@ -776,7 +776,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     
     for (json & fileJSON : draft.files()) {
         File file{fileJSON};
-        string root = string(getenv("CONFIG_DIR_PATH")) + "/files";
+        string root = string(getenv("CONFIG_DIR_PATH")) + FS_PATH_SEP + "files";
         string path = MailUtils::pathForFile(root, &file, false);
         Attachment * a = Attachment::attachmentWithContentsOfFile(AS_MCSTR(path));
         if (file.contentId().is_string()) {
