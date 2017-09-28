@@ -52,15 +52,6 @@ static vector<string> unworthyPrefixes = {
 
 static bool calledsrand = false;
 
-inline char separator()
-{
-#if defined _WIN32 || defined __CYGWIN__
-    return '\\';
-#else
-    return '/';
-#endif
-}
-
 bool create_directory(string dir) {
     int c = 0;
 #if defined(_WIN32)
@@ -250,14 +241,14 @@ string MailUtils::pathForFile(string root, File * file, bool create) {
     transform(id.begin(), id.end(), id.begin(), ::tolower);
     
     if (create && !create_directory(root)) { return ""; }
-    string path = root + separator() + id.substr(0, 2);
+    string path = root + FS_PATH_SEP + id.substr(0, 2);
     if (create && !create_directory(path)) { return ""; }
-    path += separator() + id.substr(2, 2);
+    path += FS_PATH_SEP + id.substr(2, 2);
     if (create && !create_directory(path)) { return ""; }
-    path += separator() + id;
+    path += FS_PATH_SEP + id;
     if (create && !create_directory(path)) { return ""; }
     
-    path += separator() + file->safeFilename();
+    path += FS_PATH_SEP + file->safeFilename();
     return path;
 }
 
