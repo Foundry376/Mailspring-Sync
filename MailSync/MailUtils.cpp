@@ -176,14 +176,21 @@ int MailUtils::compareEmails(void * a, void * b, void * context) {
 }
 
 string MailUtils::timestampForTime(time_t time) {
+	// Some messages can have date=-1 if no Date: header is present. Win32
+	// doesn't allow this value, so we always convert it to one second past 1970.
+	if (time == -1) {
+		time = 1;
+	}
+
+	char buffer[32];
 #if defined(_MSC_VER)
-	tm * ptm = nullptr;
-	localtime_s(ptm, &time);
+	tm ptm;
+	localtime_s(&ptm, &time);
+	strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", &ptm);
 #else
     tm * ptm = localtime(&time);
+	strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", ptm);
 #endif
-    char buffer[32];
-    strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", ptm);
     return string(buffer);
 }
 

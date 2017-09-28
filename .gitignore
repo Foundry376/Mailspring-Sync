@@ -5,6 +5,7 @@ MailSync.xcodeproj/xcuserdata
 /build
 /postinstall.sh
 /Windows/debug
+/Windows/release
 /Windows/enc_temp_folder
 /Windows/.vs/
 /Windows/mailsync.VC.*
