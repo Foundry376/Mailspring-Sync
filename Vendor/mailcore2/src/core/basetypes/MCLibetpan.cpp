@@ -179,6 +179,9 @@ static int tmcomp(struct tm * atmp, struct tm * btmp)
 
 time_t mailcore::mkgmtime(struct tm * tmp)
 {
+#if defined(_MSC_VER)
+	return _mkgmtime(tmp);
+#else
     int            dir;
     int            bits;
     int            saved_seconds;
@@ -219,4 +222,5 @@ time_t mailcore::mkgmtime(struct tm * tmp)
     }
     t += saved_seconds;
     return t;
+#endif
 }
