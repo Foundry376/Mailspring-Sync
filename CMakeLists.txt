@@ -7,7 +7,6 @@ SET (CMAKE_C_FLAGS     "-std=c++1z")
 SET (CMAKE_CXX_COMPILER "/usr/bin/g++-5")
 SET (CMAKE_CXX_FLAGS   "-std=c++1z -Wno-unknown-pragmas")
 
-
 find_package (PkgConfig REQUIRED)
 pkg_check_modules (GLIB REQUIRED glib-2.0)
 
@@ -47,6 +46,8 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   add_executable(mailsync MailSync/main.cpp ${SOURCES})
 
+  add_definitions(-DSQLITE_ENABLE_FTS5=1 -DHAVE_USLEEP=1)
+  
   target_link_libraries(mailsync libMailCore.a ${GLIB_LIBRARIES} etpan z xml2 sasl2 tidy resolv curl ctemplate icuuc ssl crypto pthread uuid icui18n icuuc icudata dl)
 
 ENDIF()
