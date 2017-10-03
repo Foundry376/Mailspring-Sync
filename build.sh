@@ -34,7 +34,9 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     sudo make install prefix=/usr >/dev/null
 
   else
-    mkdir "$DEP_BUILDS_DIR"
+    if [ ! -d "$DEP_BUILDS_DIR" ]; then
+      mkdir "$DEP_BUILDS_DIR"
+    fi
 
     # Install curl from source because the Ubuntu trusty version
     # is too old. We need v7.46 or greater.
