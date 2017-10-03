@@ -115,16 +115,21 @@ void setTopLevelExceptionHandlerEnabled(bool enabled) {
     if (!topLevelExceptionHandlerEnabled && enabled) {
         old_terminate = std::set_terminate(stanfordCppLibTerminateHandler);
 #ifdef _WIN32
-        // disabling this code for now because it messes with the
-        // newly added uncaught signal handler
-        // SetErrorMode(SEM_NOGPFAULTERRORBOX);
+        // // disabling this code for now because it messes with the
+        // // newly added uncaught signal handler
+
+		// The system does not display the Windows Error Reporting dialog.
+        SetErrorMode(SEM_NOGPFAULTERRORBOX);
+
+		// The system does not display the critical-error-handler message box. Instead, the system sends the error to the calling process.
         SetErrorMode(SEM_FAILCRITICALERRORS);
-        // SetThreadErrorMode(SEM_FAILCRITICALERRORS, NULL);
-        SetUnhandledExceptionFilter(UnhandledException);
-        // _invalid_parameter_handler newHandler;
-        // newHandler = myInvalidParameterHandler;
-        // _set_invalid_parameter_handler(newHandler);
-        //_set_error_mode(_OUT_TO_STDERR);
+		SetThreadErrorMode(SEM_FAILCRITICALERRORS, NULL);
+
+		SetUnhandledExceptionFilter(UnhandledException);
+        _invalid_parameter_handler newHandler;
+        newHandler = myInvalidParameterHandler;
+        _set_invalid_parameter_handler(newHandler);
+        _set_error_mode(_OUT_TO_STDERR);
 #endif // _WIN32
         
         // also set up a signal handler for things like segfaults / null-pointer-dereferences
@@ -353,11 +358,7 @@ static void signalHandlerEnable() {
     SIGNALS_HANDLED.push_back(SIGSEGV);
     SIGNALS_HANDLED.push_back(SIGILL);
     SIGNALS_HANDLED.push_back(SIGFPE);
-#ifdef SPL_AUTOGRADER_MODE
-    SIGNALS_HANDLED.push_back(SIGINT);
-#else // not SPL_AUTOGRADER_MODE
     SIGNALS_HANDLED.push_back(SIGABRT);
-#endif // SPL_AUTOGRADER_MODE
     if (!handled) {
         for (int sig : SIGNALS_HANDLED) {
             signal(sig, stanfordCppLibSignalHandler);
