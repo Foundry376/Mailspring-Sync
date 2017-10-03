@@ -354,6 +354,45 @@ int main(int argc, const char * argv[]) {
         return runMigrate();
     }
 
+	// get the account via param or stdin
+	shared_ptr<Account> account;
+	if (options[ACCOUNT].count() > 0) {
+		Option ac = options[ACCOUNT];
+		const char * arg = options[ACCOUNT].arg;
+		account = make_shared<Account>(json::parse(arg));
+	}
+	else {
+		cout << "\nWaiting for Account JSON:\n";
+		string inputLine;
+		getline(cin, inputLine);
+		account = make_shared<Account>(json::parse(inputLine.c_str()));
+	}
+
+	if (account->valid() != "") {
+		json resp = { { "error", "Account is missing required fields:" + account->valid() } };
+		cout << "\n" << resp.dump();
+		return 1;
+	}
+
+	// get the identity via param or stdin
+	if (options[IDENTITY].count() > 0) {
+		Option ac = options[IDENTITY];
+		const char * arg = options[IDENTITY].arg;
+		Identity::SetGlobal(make_shared<Identity>(json::parse(arg)));
+	}
+	else {
+		cout << "\nWaiting for Identity JSON:\n";
+		string inputLine;
+		getline(cin, inputLine);
+		Identity::SetGlobal(make_shared<Identity>(json::parse(inputLine.c_str())));
+	}
+
+	if (!Identity::GetGlobal()->valid()) {
+		json resp = { { "error", "Identity is missing required fields." } };
+		cout << "\n" << resp.dump();
+		return 1;
+	}
+
     // setup logging to file or console
     std::vector<shared_ptr<spdlog::sinks::sink>> sinks;
 
@@ -361,7 +400,7 @@ int main(int argc, const char * argv[]) {
         // If we're attached to the mail client, log everything to a
         // rotating log file with the default logger format.
         spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%P %+"));
-        string logPath = string(getenv("CONFIG_DIR_PATH")) + FS_PATH_SEP + "mailsync.log";
+        string logPath = string(getenv("CONFIG_DIR_PATH")) + FS_PATH_SEP + "mailsync" + account->id() + ".log";
         sinks.push_back(make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3));
         sinks.push_back(make_shared<SPDFlusherSink>());
     } else {
@@ -385,43 +424,6 @@ int main(int argc, const char * argv[]) {
 
     // setup curl
     curl_global_init(CURL_GLOBAL_ALL);
-
-    // get the account via param or stdin
-    shared_ptr<Account> account;
-    if (options[ACCOUNT].count() > 0) {
-        Option ac = options[ACCOUNT];
-        const char * arg = options[ACCOUNT].arg;
-        account = make_shared<Account>(json::parse(arg));
-    } else {
-        cout << "\nWaiting for Account JSON:\n";
-        string inputLine;
-        getline(cin, inputLine);
-        account = make_shared<Account>(json::parse(inputLine.c_str()));
-    }
-    
-    if (account->valid() != "") {
-        json resp = {{"error", "Account is missing required fields:" + account->valid()}};
-        cout << "\n" << resp.dump();
-        return 1;
-    }
-    
-    // get the identity via param or stdin
-    if (options[IDENTITY].count() > 0) {
-        Option ac = options[IDENTITY];
-        const char * arg = options[IDENTITY].arg;
-        Identity::SetGlobal(make_shared<Identity>(json::parse(arg)));
-    } else {
-        cout << "\nWaiting for Identity JSON:\n";
-        string inputLine;
-        getline(cin, inputLine);
-        Identity::SetGlobal(make_shared<Identity>(json::parse(inputLine.c_str())));
-    }
-    
-    if (!Identity::GetGlobal()->valid()) {
-        json resp = {{"error", "Identity is missing required fields."}};
-        cout << "\n" << resp.dump();
-        return 1;
-    }
 
     if (mode == "test") {
         return runTestAuth(account);
