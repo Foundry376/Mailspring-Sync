@@ -65,12 +65,12 @@ MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 
     
     _data["files"] = json::array();
     _data["date"] = msg->header()->date();
-    _data["hMsgId"] = msg->header()->messageID()->UTF8Characters();
+    _data["hMsgId"] = msg->header()->messageID() ? msg->header()->messageID()->UTF8Characters() : "no-header-message-id";
     _data["subject"] = msg->header()->subject() ? msg->header()->subject()->UTF8Characters() : "No Subject";
     _data["gMsgId"] = to_string(msg->gmailMessageID());
     
     Array * irt = msg->header()->inReplyTo();
-    if (irt && irt->count()) {
+    if (irt && irt->count() && irt->lastObject()) {
         _data["rtMsgId"] = ((String*)irt->lastObject())->UTF8Characters();
     } else {
         _data["rtMsgId"] = nullptr;
@@ -84,7 +84,9 @@ MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 
     
     // inflate the participant fields
     _data["from"] = json::array();
-    _data["from"] += MailUtils::contactJSONFromAddress(msg->header()->from());
+    if (msg->header()->from()) {
+        _data["from"] += MailUtils::contactJSONFromAddress(msg->header()->from());
+    }
 
     map<string, void*> fields = {
         {"to", msg->header()->to()},
