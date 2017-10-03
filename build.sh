@@ -34,7 +34,9 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     sudo make install prefix=/usr >/dev/null
 
   else
-    mkdir "$DEP_BUILDS_DIR"
+    if [ ! -d "$DEP_BUILDS_DIR" ]; then
+      mkdir "$DEP_BUILDS_DIR"
+    fi
 
     # Install curl from source because the Ubuntu trusty version
     # is too old. We need v7.46 or greater.
@@ -44,7 +46,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     wget -q http://curl.haxx.se/download/curl-7.50.2.tar.bz2
     tar -xjf curl-7.50.2.tar.bz2
     cd curl-7.50.2
-    ./configure --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --quiet --disable-shared --enable-static --without-libidn >/dev/null
+    ./configure --disable-ldaps --enable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --quiet --disable-shared --enable-static --without-libidn --without-librtmp >/dev/null
     make >/dev/null
     sudo ldconfig
 
