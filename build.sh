@@ -46,7 +46,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     wget -q http://curl.haxx.se/download/curl-7.50.2.tar.bz2
     tar -xjf curl-7.50.2.tar.bz2
     cd curl-7.50.2
-    ./configure --disable-ldaps --enable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --quiet --disable-shared --enable-static --without-libidn --without-librtmp >/dev/null
+    ./configure --quiet --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --without-libidn --without-librtmp >/dev/null
     make >/dev/null
     sudo ldconfig
 
