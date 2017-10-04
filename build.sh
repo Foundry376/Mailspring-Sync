@@ -16,9 +16,9 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   # them for us. We just need to tar them up and move them to the artifacts folder
   cd "$APP_ROOT_DIR"
   if [ -e "mailsync.dSYM.zip" ]; then
-    tar -cf "$APP_DIST_DIR/mailsync.tar" mailsync.dSYM.zip mailsync
+    tar -czf "$APP_DIST_DIR/mailsync.tar.gz" mailsync.dSYM.zip mailsync
   else
-    tar -cf "$APP_DIST_DIR/mailsync.tar" mailsync
+    tar -czf "$APP_DIST_DIR/mailsync.tar.gz" mailsync
   fi
 
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
@@ -86,7 +86,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
 
   # Zip this stuff up so we can push it to S3 as a single artifacts
   cd "$APP_ROOT_DIR"
-  tar -cf "$APP_DIST_DIR/mailsync.tar" *.so* mailsync mailsync.bin --wildcards
+  tar -czf "$APP_DIST_DIR/mailsync.tar.gz" *.so* mailsync mailsync.bin --wildcards
 
 else
   echo "Mailsync does not build on $OSTYPE yet.";
