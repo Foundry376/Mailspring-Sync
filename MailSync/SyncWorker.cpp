@@ -233,7 +233,8 @@ bool SyncWorker::syncNow()
         bool firstChunk = false;
 
         if (err != ErrorNone) {
-            throw SyncException(err, "syncNow - folderStatus");
+            logger->warn("SyncNow: unable to get folder status for {} ({}), skipping...", folder->path(), ErrorCodeToTypeMap(err));
+            continue;
         }
 
         // Step 1: Check folder UIDValidity
@@ -251,6 +252,7 @@ bool SyncWorker::syncNow()
         }
         
         if (localStatus["uidvalidity"].get<uint32_t>() != remoteStatus.uidValidity()) {
+            // BG TODO
             throw "blow up the world";
         }
         
