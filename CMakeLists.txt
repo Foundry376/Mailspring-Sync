@@ -88,6 +88,9 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   target_link_libraries(mailsync /tmp/mailsync-build-deps/curl-7.50.2/lib/.libs/libcurl.a)
 
+  find_library(C_ARES_LIB NAMES libcares.a libcares)
+  target_link_libraries(mailsync ${C_ARES_LIB})
+
   #find_library(SASL2_LIB NAMES libsasl2.a libsasl2)
   #target_link_libraries(mailsync ${SASL2_LIB})
 
