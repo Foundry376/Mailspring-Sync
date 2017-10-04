@@ -81,7 +81,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   cp "$MAILSYNC_DIR/mailsync" "$APP_ROOT_DIR/mailsync.bin"
   ldd "$MAILSYNC_DIR/mailsync" | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' "$APP_ROOT_DIR"
 
-  printf "#!/bin/bash\nset -e\nset -o pipefail\nLD_LIBRARY_PATH=\". \${LD_LIBRARY_PATH}\" ./mailsync.bin \"\$@\"" > "$APP_ROOT_DIR/mailsync"
+  printf "#!/bin/bash\nset -e\nset -o pipefail\nLD_LIBRARY_PATH=\". \${LD_LIBRARY_PATH}\" \"\$(dirname \$0)/mailsync.bin\" \"\$@\"" > "$APP_ROOT_DIR/mailsync"
   chmod +x "$APP_ROOT_DIR/mailsync"
 
   # Zip this stuff up so we can push it to S3 as a single artifacts
