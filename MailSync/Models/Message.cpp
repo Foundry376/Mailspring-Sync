@@ -92,6 +92,7 @@ MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 
         {"to", msg->header()->to()},
         {"cc", msg->header()->cc()},
         {"bcc", msg->header()->bcc()},
+        {"replyTo", msg->header()->replyTo()},
     };
     
     for (auto const pair : fields) {
@@ -314,6 +315,10 @@ json & Message::cc(){
 
 json & Message::bcc(){
     return _data["bcc"];
+}
+
+json & Message::replyTo(){
+    return _data["replyTo"];
 }
 
 json & Message::from() {

@@ -116,6 +116,7 @@ public:
     json & cc();
     json & bcc();
     json & from();
+    json & replyTo();
     
     time_t date();
     string subject();

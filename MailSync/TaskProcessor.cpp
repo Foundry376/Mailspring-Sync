@@ -372,7 +372,10 @@ Message TaskProcessor::inflateDraft(json & draftJSON) {
     if (!draftJSON.count("bcc") || draftJSON["bcc"].is_null()) {
         draftJSON["bcc"] = json::array();
     }
-    
+    if (!draftJSON.count("replyTo") || draftJSON["replyTo"].is_null()) {
+        draftJSON["replyTo"] = json::array();
+    }
+
     auto msg = Message{draftJSON};
     
     if (msg.accountId() != account->id()) {
@@ -770,6 +773,12 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         bcc->addObject(MailUtils::addressFromContactJSON(p));
     }
     builder.header()->setBcc(bcc);
+
+    Array * replyTo = new Array();
+    for (json & p : draft.replyTo()) {
+        replyTo->addObject(MailUtils::addressFromContactJSON(p));
+    }
+    builder.header()->setReplyTo(replyTo);
 
     json & fromP = draft.from().at(0);
     builder.header()->setFrom(MailUtils::addressFromContactJSON(fromP));
