@@ -9,3 +9,5 @@ MailSync.xcodeproj/xcuserdata
 /Windows/enc_temp_folder
 /Windows/.vs/
 /Windows/mailsync.VC.*
+/Windows/mailsync.vcxproj.user
+/Windows/.vs/mailsync/v14/.suo
