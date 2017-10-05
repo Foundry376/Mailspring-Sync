@@ -336,10 +336,16 @@ build_headers.bat
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">%(RootDir)%(Directory)\_headers_depends;%(Outputs)</Outputs>
     </CustomBuild>
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\libetpan\build-windows\libetpan\libetpan.vcxproj">
+      <Project>{ba4ded3c-e56f-4484-bfc3-9c13e461a1be}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{AAD35E01-77E4-43CB-BBB4-F7F6692EA829}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>mailcore2</RootNamespace>
+    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -411,7 +417,7 @@ build_headers.bat
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>Crypt32.lib;libtidy.lib;libxml2.lib;ssleay32MD.lib;libeay32MD.lib;zlib.lib;User32.lib;Ws2_32.lib;libctemplate.lib;kernel32.lib;libetpan.lib;pthreadVC2.lib;icudt.lib;icuin.lib;icuio.lib;icule.lib;iculx.lib;icuuc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Crypt32.lib;libtidy.lib;libxml2.lib;ssleay32MD.lib;libeay32MD.lib;zlib.lib;User32.lib;Ws2_32.lib;libctemplate.lib;kernel32.lib;pthreadVC2.lib;icudt.lib;icuin.lib;icuio.lib;icule.lib;iculx.lib;icuuc.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>..\..\..\Externals\lib;..\..\..\Externals\lib\x86</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -435,10 +441,10 @@ build_headers.bat
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <Optimization>MaxSpeed</Optimization>
+      <Optimization>Disabled</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>MAILCORE_DLL;ZLIB_DLL;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MAILCORE_DLL;ZLIB_DLL;_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory);..\..\include;..\..\..\Externals\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\imap;..\..\..\src\core\pop;..\..\..\src\core\nntp;..\..\..\src\core\smtp</AdditionalIncludeDirectories>
     </ClCompile>
@@ -447,7 +453,7 @@ build_headers.bat
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>Crypt32.lib;libtidy.lib;libxml2.lib;ssleay32MD.lib;libeay32MD.lib;zlib.lib;User32.lib;Ws2_32.lib;libctemplate.lib;kernel32.lib;libetpan.lib;pthreadVC2.lib;icudt.lib;icuin.lib;icuio.lib;icule.lib;iculx.lib;icuuc.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Crypt32.lib;libtidy.lib;libxml2.lib;ssleay32MD.lib;libeay32MD.lib;zlib.lib;User32.lib;Ws2_32.lib;libctemplate.lib;kernel32.lib;pthreadVC2.lib;icudt.lib;icuin.lib;icuio.lib;icule.lib;iculx.lib;icuuc.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>..\..\..\Externals\lib;..\..\..\Externals\lib\x86</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
