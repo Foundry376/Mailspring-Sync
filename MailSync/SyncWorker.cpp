@@ -233,7 +233,7 @@ bool SyncWorker::syncNow()
         bool firstChunk = false;
 
         if (err != ErrorNone) {
-            logger->warn("SyncNow: unable to get folder status for {} ({}), skipping...", folder->path(), ErrorCodeToTypeMap(err));
+            logger->warn("SyncNow: unable to get folder status for {} ({}), skipping...", folder->path(), ErrorCodeToTypeMap[err]);
             continue;
         }
 
