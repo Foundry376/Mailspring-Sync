@@ -158,7 +158,7 @@
       <DisableSpecificWarnings>4996; 4267;%(DisableSpecificWarnings)</DisableSpecificWarnings>
       <ForcedIncludeFiles>../StdAfx.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
       <PrecompiledHeaderFile />
-      <Optimization>Disabled</Optimization>
+      <Optimization>MaxSpeed</Optimization>
     </ClCompile>
     <Link>
       <AdditionalOptions>/DLL %(AdditionalOptions)</AdditionalOptions>

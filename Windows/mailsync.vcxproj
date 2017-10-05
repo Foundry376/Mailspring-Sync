@@ -69,7 +69,7 @@ _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;%(PreprocessorDefinitions)</
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <Optimization>Disabled</Optimization>
+      <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CRT_SECURE_NO_WARNINGS;_CONSOLE;_LIB;_TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
