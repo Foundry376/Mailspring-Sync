@@ -189,13 +189,25 @@ int runTestAuth(shared_ptr<Account> account) {
     
     err = ErrorInvalidAccount;
     for (int i = 0; i < folders->count(); i ++) {
+        // Gmail accounts must have "All Mail" enabled, IMAP accounts must have an Inbox.
         string role = MailUtils::roleForFolder((IMAPFolder *)folders->objectAtIndex(i));
-        if ((role == "all") || (role == "inbox")) {
-            err = ErrorNone;
-            break;
+        if (account->IMAPHost() == "imap.gmail.com") {
+            if (role == "all") {
+                err = ErrorNone;
+                break;
+            }
+        } else {
+            if (role == "inbox") {
+                err = ErrorNone;
+                break;
+            }
         }
     }
-    
+    if (err != ErrorNone) {
+        logger.log("\n\nRequired folder not found. Ensure your account has an `Inbox` folder, or if this is a Gmail account, verify that `All Mail` is enabled for IMAP in your Gmail settings.\n");
+        goto done;
+    }
+
     // smtp
     logger.log("\n\n----------SMTP----------\n");
     errorService = "smtp";
