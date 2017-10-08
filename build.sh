@@ -74,14 +74,14 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   cmake .
   make
 
-  # copy build product into the client working directory. There are some libraries
-  # we can't statically link against, so we copy those into the directory as well
-  # and wrap the executable in a script that prefixes the library search path so
-  # local lib versions are found.
+  # copy build product into the client working directory.
   cp "$MAILSYNC_DIR/mailsync" "$APP_ROOT_DIR/mailsync.bin"
-  ldd "$MAILSYNC_DIR/mailsync" | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' "$APP_ROOT_DIR"
 
-  printf "#!/bin/bash\nset -e\nset -o pipefail\nLD_LIBRARY_PATH=\". \${LD_LIBRARY_PATH}\" \"\$(dirname \$0)/mailsync.bin\" \"\$@\"" > "$APP_ROOT_DIR/mailsync"
+  # copy libsasl2 (and potentially others - just add to grep expression)
+  # into the target directory since we don't want to depend on installed version
+  ldd "$MAILSYNC_DIR/mailsync" | grep "=> /" | awk '{print $3}' | grep "libsasl2" | xargs -I '{}' cp -v '{}' "$APP_ROOT_DIR"
+
+  printf "#!/bin/bash\nset -e\nset -o pipefail\nLD_LIBRARY_PATH=\"\$(dirname \$(realpath \$0));\$LD_LIBRARY_PATH\" \"\$(dirname \$0)/mailsync.bin\" \"\$@\"" > "$APP_ROOT_DIR/mailsync"
   chmod +x "$APP_ROOT_DIR/mailsync"
 
   # Zip this stuff up so we can push it to S3 as a single artifacts
