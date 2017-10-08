@@ -25,31 +25,15 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   # we cache this directory between builds to make CI faster.
   # if it exists, just run make install again, otherwise pull
   # the libraries down and build from source.
+  if [ ! -d "$DEP_BUILDS_DIR" ]; then
+    mkdir "$DEP_BUILDS_DIR"
+  fi
+
   if [ -d "$DEP_BUILDS_DIR/libetpan" ]; then
-    echo "Installing curl-7.50.2..."
-    cd "$DEP_BUILDS_DIR/curl-7.50.2"
-    sudo make install prefix=/usr >/dev/null
     echo "Installing libetpan..."
     cd "$DEP_BUILDS_DIR/libetpan"
     sudo make install prefix=/usr >/dev/null
-
   else
-    if [ ! -d "$DEP_BUILDS_DIR" ]; then
-      mkdir "$DEP_BUILDS_DIR"
-    fi
-
-    # Install curl from source because the Ubuntu trusty version
-    # is too old. We need v7.46 or greater.
-    echo "Building and installing curl-7.50.2..."
-    cd "$DEP_BUILDS_DIR"
-    sudo apt-get build-dep curl
-    wget -q http://curl.haxx.se/download/curl-7.50.2.tar.bz2
-    tar -xjf curl-7.50.2.tar.bz2
-    cd curl-7.50.2
-    ./configure --quiet --disable-cookies --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --enable-ares --without-libidn --without-librtmp >/dev/null
-    make >/dev/null
-    sudo ldconfig
-
     # install libetpan from source
     echo "Building and installing libetpan..."
     cd "$DEP_BUILDS_DIR"
@@ -58,6 +42,24 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     ./autogen.sh
     make >/dev/null
     sudo make install prefix=/usr >/dev/null
+  fi
+
+  if [ -d "$DEP_BUILDS_DIR/curl-7.54.0" ]; then
+    echo "Installing curl-7.54.0..."
+    cd "$DEP_BUILDS_DIR/curl-7.54.0"
+    sudo make install prefix=/usr >/dev/null
+  else
+    # Install curl from source because the Ubuntu trusty version
+    # is too old. We need v7.46 or greater.
+    echo "Building and installing curl-7.54.0..."
+    cd "$DEP_BUILDS_DIR"
+    sudo apt-get build-dep curl
+    wget -q http://curl.haxx.se/download/curl-7.54.0.tar.bz2
+    tar -xjf curl-7.54.0.tar.bz2
+    cd curl-7.54.0
+    ./configure --quiet --disable-cookies --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --enable-ares --without-libidn --without-librtmp >/dev/null
+    make >/dev/null
+    sudo ldconfig
   fi
 
   # build mailcore2

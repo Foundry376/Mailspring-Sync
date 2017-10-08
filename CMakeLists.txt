@@ -86,7 +86,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   find_library(ICUDATA_LIB NAMES libicudata.a libicudata)
   target_link_libraries(mailsync ${ICUDATA_LIB})
 
-  target_link_libraries(mailsync /tmp/mailsync-build-deps/curl-7.50.2/lib/.libs/libcurl.a)
+  target_link_libraries(mailsync /tmp/mailsync-build-deps/curl-7.54.0/lib/.libs/libcurl.a)
 
   find_library(C_ARES_LIB NAMES libcares.a libcares)
   target_link_libraries(mailsync ${C_ARES_LIB})
