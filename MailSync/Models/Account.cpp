@@ -53,6 +53,10 @@ string Account::provider() {
     return _data["provider"].get<string>();
 }
 
+string Account::emailAddress() {
+    return _data["emailAddress"].get<string>();
+}
+
 string Account::refreshToken() {
     if (_data["settings"].count("refresh_token") == 0) {
         return "";

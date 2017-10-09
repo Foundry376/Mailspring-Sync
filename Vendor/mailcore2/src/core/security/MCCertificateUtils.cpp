@@ -248,12 +248,14 @@ err:
     }
     else
     {
+        fprintf(stderr, "Verification failed:\n");
+        fprintf(stderr, "X509_verify_cert_error_string:\n");
         fprintf(stderr, X509_verify_cert_error_string(storectx->error));
         /*  get the offending certificate causing the failure */
         X509 *error_cert = X509_STORE_CTX_get_current_cert(storectx);
         X509_NAME *certsubject = X509_NAME_new();
         certsubject = X509_get_subject_name(error_cert);
-        fprintf(stderr, "Verification failed cert:\n");
+        fprintf(stderr, "X509_get_subject_name:\n");
         BIO *outbio = BIO_new_fp(stderr, BIO_NOCLOSE);
         X509_NAME_print_ex(outbio, certsubject, 0, XN_FLAG_MULTILINE);
         BIO_printf(outbio, "\n");
