@@ -43,7 +43,7 @@ bool mailcore::checkCertificate(mailstream * stream, String * hostname)
     }
     
     hostnameCFString = CFStringCreateWithCharacters(NULL, (const UniChar *) hostname->unicodeCharacters(),
-                                                                hostname->length());
+                                                    hostname->length());
     policy = SecPolicyCreateSSL(true, hostnameCFString);
     certificates = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
     
@@ -108,6 +108,10 @@ err:
 #endif
     int status;
     
+    OpenSSL_add_all_algorithms();
+    ERR_load_BIO_strings();
+    ERR_load_crypto_strings();
+    
     carray * cCerts = mailstream_get_certificate_chain(stream);
     if (cCerts == NULL) {
         fprintf(stderr, "warning: No certificate chain retrieved");
@@ -116,26 +120,27 @@ err:
     
     store = X509_STORE_new();
     if (store == NULL) {
+        fprintf(stderr, "Error creating X509_STORE_CTX object");
         goto free_certs;
     }
     
 #ifdef _MSC_VER
-	HCERTSTORE systemStore = CertOpenSystemStore(NULL, L"ROOT");
-
-	PCCERT_CONTEXT previousCert = NULL;
-	while (1) {
-		PCCERT_CONTEXT nextCert = CertEnumCertificatesInStore(systemStore, previousCert);
-		if (nextCert == NULL) {
-			break;
-		}
-		X509 * openSSLCert = d2i_X509(NULL, (const unsigned char **)&nextCert->pbCertEncoded, nextCert->cbCertEncoded);
-		if (openSSLCert != NULL) {
-			X509_STORE_add_cert(store, openSSLCert);
-			X509_free(openSSLCert);
-		}
-		previousCert = nextCert;
-	}
-	CertCloseStore(systemStore, 0);
+    HCERTSTORE systemStore = CertOpenSystemStore(NULL, L"ROOT");
+    
+    PCCERT_CONTEXT previousCert = NULL;
+    while (1) {
+        PCCERT_CONTEXT nextCert = CertEnumCertificatesInStore(systemStore, previousCert);
+        if (nextCert == NULL) {
+            break;
+        }
+        X509 * openSSLCert = d2i_X509(NULL, (const unsigned char **)&nextCert->pbCertEncoded, nextCert->cbCertEncoded);
+        if (openSSLCert != NULL) {
+            X509_STORE_add_cert(store, openSSLCert);
+            X509_free(openSSLCert);
+        }
+        previousCert = nextCert;
+    }
+    CertCloseStore(systemStore, 0);
 #elif defined(ANDROID) || defined(__ANDROID__)
     dir = opendir("/system/etc/security/cacerts");
     while (ent = readdir(dir)) {
@@ -156,10 +161,10 @@ err:
     }
     closedir(dir);
 #endif
-
-	status = X509_STORE_set_default_paths(store);
+    
+    status = X509_STORE_set_default_paths(store);
     if (status != 1) {
-        printf("Error loading the system-wide CA certificates");
+        fprintf(stderr, "Error loading the system-wide CA certificates");
     }
     
     certificates = sk_X509_new_null();
@@ -167,29 +172,44 @@ err:
         MMAPString * str;
         str = (MMAPString *) carray_get(cCerts, i);
         if (str == NULL) {
+            fprintf(stderr, "Could not read carray_get cert");
             goto free_certs;
         }
         BIO *bio = BIO_new_mem_buf((void *) str->str, str->len);
         X509 *certificate = d2i_X509_bio(bio, NULL);
         BIO_free(bio);
         if (!sk_X509_push(certificates, certificate)) {
+            fprintf(stderr, "Could not append certificate via sk_X509_push");
             goto free_certs;
         }
     }
     
     storectx = X509_STORE_CTX_new();
     if (storectx == NULL) {
+        fprintf(stderr, "Could not call X509_STORE_CTX_new");
         goto free_certs;
     }
     
     status = X509_STORE_CTX_init(storectx, store, sk_X509_value(certificates, 0), certificates);
     if (status != 1) {
+        fprintf(stderr, "Could not call X509_STORE_CTX_init");
         goto free_certs;
     }
     
     status = X509_verify_cert(storectx);
     if (status == 1) {
         result = true;
+    } else {
+        fprintf(stderr, X509_verify_cert_error_string(storectx->error));
+        /*  get the offending certificate causing the failure */
+        X509 * error_cert  = X509_STORE_CTX_get_current_cert(storectx);
+        X509_NAME * certsubject = X509_NAME_new();
+        certsubject = X509_get_subject_name(error_cert);
+        fprintf(stderr, "Verification failed cert:\n");
+        BIO * outbio  = BIO_new_fp(stderr, BIO_NOCLOSE);
+        X509_NAME_print_ex(outbio, certsubject, 0, XN_FLAG_MULTILINE);
+        BIO_printf(outbio, "\n");
+        BIO_free_all(outbio);
     }
     
 free_certs:
