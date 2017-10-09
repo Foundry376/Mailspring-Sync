@@ -57,7 +57,11 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     wget -q http://curl.haxx.se/download/curl-7.54.0.tar.bz2
     tar -xjf curl-7.54.0.tar.bz2
     cd curl-7.54.0
-    ./configure --quiet --disable-cookies --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --enable-ares --without-libidn --without-librtmp --with-ssl
+
+    # Fetch the latest Firefox CA Certificate Store
+    curl https://curl.haxx.se/ca/cacert.pem > cacert.pem
+
+    ./configure --quiet --disable-cookies --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --enable-ares --without-libidn --without-librtmp --with-ssl --with-ca-bundle="$DEP_BUILDS_DIR/curl-7.54.0/cacert.pem"
     make >/dev/null
     sudo ldconfig
   fi
