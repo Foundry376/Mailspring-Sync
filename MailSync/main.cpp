@@ -172,6 +172,7 @@ int runTestAuth(shared_ptr<Account> account) {
     AccumulatorLogger logger;
     Array * folders;
     ErrorCode err = ErrorNone;
+    Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
     string errorService = "imap";
 
     // imap
@@ -213,11 +214,7 @@ int runTestAuth(shared_ptr<Account> account) {
     errorService = "smtp";
     smtp.setConnectionLogger(&logger);
     MailUtils::configureSessionForAccount(smtp, account);
-    smtp.connect(&err);
-    if (err != ErrorNone) {
-        goto done;
-    }
-    smtp.loginIfNeeded(&err);
+    smtp.checkAccount(from, &err);
     if (err != ErrorNone) {
         goto done;
     }

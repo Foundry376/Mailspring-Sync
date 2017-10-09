@@ -434,16 +434,6 @@ void MailUtils::configureSessionForAccount(IMAPSession & session, shared_ptr<Acc
     if (account->IMAPAllowInsecureSSL()) {
         session.setCheckCertificateEnabled(false);
     }
-#ifdef __linux__
-    // On Fedora the imap.gmail.com certificate checks always fail
-    // because it doesn't trust Globalsign's root certificate being
-    // "cross" signed with Equifax.
-    // http://openssl.6102.n7.nabble.com/openssl-dev-openssl-org-2634-\
-    // Cross-signed-certs-rejected-by-OpenSSL-because-root-cert-not-base-of-chn-td56649.html
-    if (account->IMAPHost() == "imap.gmail.com") {
-        session.setCheckCertificateEnabled(false);
-    }
-#endif
 }
 
 void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account) {
@@ -468,16 +458,6 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     if (account->SMTPAllowInsecureSSL()) {
         session.setCheckCertificateEnabled(false);
     }
-#ifdef __linux__
-    // On Fedora the imap.gmail.com certificate checks always fail
-    // because it doesn't trust Globalsign's root certificate being
-    // "cross" signed with Equifax.
-    // http://openssl.6102.n7.nabble.com/openssl-dev-openssl-org-2634-\
-    // Cross-signed-certs-rejected-by-OpenSSL-because-root-cert-not-base-of-chn-td56649.html
-    if (account->SMTPHost() == "smtp.gmail.com") {
-        session.setCheckCertificateEnabled(false);
-    }
-#endif
 }
 
 // Worker Sleep Implementation

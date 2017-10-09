@@ -32,6 +32,7 @@ public:
 
     string refreshToken();
     string provider();
+    string emailAddress();
 
     unsigned int IMAPPort();
     string IMAPHost();
