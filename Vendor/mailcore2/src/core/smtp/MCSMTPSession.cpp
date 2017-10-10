@@ -48,6 +48,7 @@ void SMTPSession::init()
     mState = STATE_DISCONNECTED;
     mLastSMTPResponse = NULL;
     mLastLibetpanError = 0;
+    mLastErrorLocation = 0;
     mLastSMTPResponseCode = 0;
     mConnectionLogger = NULL;
     pthread_mutex_init(&mConnectionLoggerLock, NULL);
@@ -204,6 +205,16 @@ int SMTPSession::lastSMTPResponseCode()
     return mLastSMTPResponseCode;
 }
 
+int SMTPSession::lastLibetpanError()
+{
+    return mLastLibetpanError;
+}
+
+int SMTPSession::lastLibetpanErrorLocation()
+{
+    return mLastErrorLocation;
+}
+
 void SMTPSession::body_progress(size_t current, size_t maximum, void * context)
 {
     SMTPSession * session;
@@ -301,6 +312,8 @@ void SMTPSession::connect(ErrorCode * pError)
             MCLog("connect %s %u", MCUTF8(hostname()), (unsigned int) port());
             r = mailsmtp_socket_connect(mSmtp, MCUTF8(hostname()), port());
             saveLastResponse();
+            mLastLibetpanError = r;
+            mLastErrorLocation = 1;
             if (r != MAILSMTP_NO_ERROR) {
                 * pError = ErrorConnection;
                 goto close;
@@ -313,6 +326,8 @@ void SMTPSession::connect(ErrorCode * pError)
                 r = mailsmtp_init(mSmtp);
             }
             saveLastResponse();
+            mLastLibetpanError = r;
+            mLastErrorLocation = 2;
             if (r == MAILSMTP_ERROR_STREAM) {
                 * pError = ErrorConnection;
                 goto close;
@@ -325,6 +340,8 @@ void SMTPSession::connect(ErrorCode * pError)
             MCLog("start TLS");
             r = mailsmtp_socket_starttls(mSmtp);
             saveLastResponse();
+            mLastLibetpanError = r;
+            mLastErrorLocation = 3;
             if (r != MAILSMTP_NO_ERROR) {
                 * pError = ErrorStartTLSNotAvailable;
                 goto close;
@@ -342,6 +359,8 @@ void SMTPSession::connect(ErrorCode * pError)
                 r = mailsmtp_init(mSmtp);
             }
             saveLastResponse();
+            mLastLibetpanError = r;
+            mLastErrorLocation = 4;
             if (r == MAILSMTP_ERROR_STREAM) {
                 * pError = ErrorConnection;
                 goto close;
@@ -356,6 +375,8 @@ void SMTPSession::connect(ErrorCode * pError)
         case ConnectionTypeTLS:
             r = mailsmtp_ssl_connect(mSmtp, MCUTF8(mHostname), port());
             saveLastResponse();
+            mLastLibetpanError = r;
+            mLastErrorLocation = 5;
             if (r != MAILSMTP_NO_ERROR) {
                 * pError = ErrorConnection;
                 goto close;
@@ -372,6 +393,8 @@ void SMTPSession::connect(ErrorCode * pError)
                 r = mailsmtp_init(mSmtp);
             }
             saveLastResponse();
+            mLastLibetpanError = r;
+            mLastErrorLocation = 6;
             if (r == MAILSMTP_ERROR_STREAM) {
                 * pError = ErrorConnection;
                 goto close;
@@ -386,6 +409,8 @@ void SMTPSession::connect(ErrorCode * pError)
         default:
             r = mailsmtp_socket_connect(mSmtp, MCUTF8(hostname()), port());
             saveLastResponse();
+            mLastLibetpanError = r;
+            mLastErrorLocation = 7;
             if (r != MAILSMTP_NO_ERROR) {
                 * pError = ErrorConnection;
                 goto close;
@@ -398,6 +423,8 @@ void SMTPSession::connect(ErrorCode * pError)
                 r = mailsmtp_init(mSmtp);
             }
             saveLastResponse();
+            mLastLibetpanError = r;
+            mLastErrorLocation = 8;
             if (r == MAILSMTP_ERROR_STREAM) {
                 * pError = ErrorConnection;
                 goto close;
@@ -826,6 +853,7 @@ void SMTPSession::internalSendMessage(Address * from, Array * recipients, Data *
         
         * pError = ErrorSendMessage;
         mLastLibetpanError = r;
+        mLastErrorLocation = 9;
         goto err;
     }
 
