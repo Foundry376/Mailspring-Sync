@@ -638,6 +638,13 @@ void SMTPSession::login(ErrorCode * pError)
         }
     }
     saveLastResponse();
+    
+    if (r == MAILSMTP_ERROR_NOT_IMPLEMENTED) {
+        * pError = ErrorNoop; // using this to mean not implemented
+        mShouldDisconnect = true;
+        return;
+    }
+    
     if (r == MAILSMTP_ERROR_STREAM) {
         * pError = ErrorConnection;
         mShouldDisconnect = true;
