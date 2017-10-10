@@ -216,8 +216,10 @@ int runTestAuth(shared_ptr<Account> account) {
     MailUtils::configureSessionForAccount(smtp, account);
     smtp.checkAccount(from, &err);
     if (err != ErrorNone) {
-        logger.log("\nSMTP Last Error Code: " + to_string(smtp.lastSMTPResponseCode()));
+        logger.log("\nSMTP Last Response Code: " + to_string(smtp.lastSMTPResponseCode()));
         logger.log("\n\nSMTP Last Response: " + string(smtp.lastSMTPResponse()->UTF8Characters()));
+        logger.log("\n\nmailsmtp Last Error Code: " + to_string(smtp.lastLibetpanError()));
+        logger.log("\n\nmailsmtp Last Error Location: " + to_string(smtp.lastLibetpanErrorLocation()));
         goto done;
     }
     
