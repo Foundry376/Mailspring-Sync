@@ -83,7 +83,11 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   # into the target directory since we don't want to depend on installed version
   ldd "$MAILSYNC_DIR/mailsync" | grep "=> /" | awk '{print $3}' | grep "libsasl2" | xargs -I '{}' cp -v '{}' "$APP_ROOT_DIR"
 
-  printf "#!/bin/bash\nset -e\nset -o pipefail\nLD_LIBRARY_PATH=\"\$(dirname \$(realpath \$0));\$LD_LIBRARY_PATH\" \"\$(dirname \$0)/mailsync.bin\" \"\$@\"" > "$APP_ROOT_DIR/mailsync"
+  # copy libsasl2's modules into the target directory because they're all shipped separately
+  # (We set SASL_PATH below so it finds these.)
+  cp /usr/lib/x86_64-linux-gnu/sasl2/* "$APP_ROOT_DIR"
+
+  printf "#!/bin/bash\nset -e\nset -o pipefail\nSASL_PATH=\"\$(dirname \$(realpath \$0))\" LD_LIBRARY_PATH=\"\$(dirname \$(realpath \$0));\$LD_LIBRARY_PATH\" \"\$(dirname \$0)/mailsync.bin\" \"\$@\"" > "$APP_ROOT_DIR/mailsync"
   chmod +x "$APP_ROOT_DIR/mailsync"
 
   # Zip this stuff up so we can push it to S3 as a single artifacts
