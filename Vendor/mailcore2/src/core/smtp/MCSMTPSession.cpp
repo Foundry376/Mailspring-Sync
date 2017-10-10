@@ -682,6 +682,8 @@ void SMTPSession::login(ErrorCode * pError)
            && strstr(mSmtp->response_buffer->str, "your password is too simple") != NULL) {
             * pError = ErrorTiscaliSimplePassword;
         } else {
+            mLastErrorLocation = 10;
+            mLastLibetpanError = r;
             * pError = ErrorAuthentication;
         }
         return;
