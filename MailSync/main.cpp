@@ -401,7 +401,7 @@ int main(int argc, const char * argv[]) {
 	}
 
 	if (!Identity::GetGlobal()->valid()) {
-		json resp = { { "error", "Identity is missing required fields." } };
+		json resp = { { "error", "ErrorIdentityMissingFields" } };
 		cout << "\n" << resp.dump();
 		return 1;
 	}
