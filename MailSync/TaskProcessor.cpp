@@ -241,7 +241,8 @@ void TaskProcessor::performLocal(Task * task) {
         task->setStatus("remote");
 
     } catch (SyncException & ex) {
-        logger->info("[{}] -- Failed ({}). Changing status to `complete`", task->id(), ex.toJSON());
+        logger->error("[{}] -- Failed ({}). Changing status to `complete`", task->id(), ex.toJSON().dump());
+        logger->flush();
         task->setError(ex.toJSON());
         task->setStatus("complete");
     }
@@ -304,7 +305,8 @@ void TaskProcessor::performRemote(Task * task) {
             task->setStatus("complete");
         }
     } catch (SyncException & ex) {
-        logger->info("[{}] -- Failed ({}). Changing status to `complete`", task->id(), ex.toJSON());
+        logger->error("[{}] -- Failed ({}). Changing status to `complete`", task->id(), ex.toJSON().dump());
+        logger->flush();
         task->setError(ex.toJSON());
         task->setStatus("complete");
     }
@@ -331,7 +333,7 @@ Message TaskProcessor::inflateDraft(json & draftJSON) {
         folder = store->find<Folder>(q);
     }
     if (folder == nullptr) {
-        throw;
+        throw SyncException("no-drafts-folder", "This account does not have a folder with `role` = `drafts` or `all`.", false);
     }
 
     draftJSON["folder"] = folder->toJSON();
