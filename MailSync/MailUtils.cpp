@@ -194,8 +194,9 @@ string MailUtils::timestampForTime(time_t time) {
     return string(buffer);
 }
 
-string MailUtils::roleForFolder(IMAPFolder * folder) {
+string MailUtils::roleForFolder(string mainPrefix, IMAPFolder * folder) {
     IMAPFolderFlag flags = folder->flags();
+
     if (flags & IMAPFolderFlagAll) {
         return "all";
     }
@@ -224,18 +225,28 @@ string MailUtils::roleForFolder(IMAPFolder * folder) {
         return "trash";
     }
     
+    string delimiter {folder->delimiter()};
     string path = string(folder->path()->UTF8Characters());
 
-    // [Mailspring]/Snoozed = snoozed
-    // [Mailspring]/XXX = xxx
-    if (path.size() > MAILSPRING_FOLDER_PREFIX.size() && path.substr(0, MAILSPRING_FOLDER_PREFIX.size()) == MAILSPRING_FOLDER_PREFIX) {
-        string name = path.substr(MAILSPRING_FOLDER_PREFIX.size() + 1);
-        transform(name.begin(), name.end(), name.begin(), ::tolower);
-        return name;
+    // Strip the namespace prefix if it's present
+    if ((mainPrefix.size() > 0) && (path.size() > mainPrefix.size()) && (path.substr(0, mainPrefix.size()) == mainPrefix)) {
+        path = path.substr(mainPrefix.size());
+    }
+
+    // Lowercase the path
+    transform(path.begin(), path.end(), path.begin(), ::tolower);
+
+    // In our [Mailspring] subfolder, folder names are roles:
+    // [mailspring]/snoozed = snoozed
+    // [mailspring]/XXX = xxx
+    string mailspring = MAILSPRING_FOLDER_PREFIX;
+    transform(mailspring.begin(), mailspring.end(), mailspring.begin(), ::tolower);
+    if (path.size() > mailspring.size() && path.substr(0, mailspring.size()) == mailspring) {
+        return path.substr(mailspring.size() + 1);
     }
     
+    // Match against a lookup table of common names
     // [Gmail]/Spam => [gmail]/spam => spam
-    transform(path.begin(), path.end(), path.begin(), ::tolower);
     if (COMMON_FOLDER_NAMES.find(path) != COMMON_FOLDER_NAMES.end()) {
         return COMMON_FOLDER_NAMES[path];
     }
