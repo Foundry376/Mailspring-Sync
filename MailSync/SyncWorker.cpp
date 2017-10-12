@@ -381,8 +381,8 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         throw SyncException(err, "syncFoldersAndLabels - fetchAllFolders");
     }
 
-    string mainPrefix = session.defaultNamespace()->mainPrefix()->UTF8Characters();
-    char delimiter = ((IMAPFolder *)remoteFolders->objectAtIndex(0))->delimiter();
+    string mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
+    char delimiter = session.defaultNamespace()->mainDelimiter();
 
     // create required Mailspring folders if they don't exist
     // TODO: Consolidate this into role association code below, and make it

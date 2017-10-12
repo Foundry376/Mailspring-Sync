@@ -617,7 +617,7 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     string path = data["path"].get<string>();
     
     // if the requested path is missing the namespace prefix, add it
-    string mainPrefix = session->defaultNamespace()->mainPrefix()->UTF8Characters();
+    string mainPrefix = MailUtils::namespacePrefixOrBlank(session);
     if (mainPrefix != "" && path.find(mainPrefix) != 0) {
         path = mainPrefix + path;
     }

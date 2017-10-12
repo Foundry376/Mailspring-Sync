@@ -189,8 +189,8 @@ int runTestAuth(shared_ptr<Account> account) {
         goto done;
     }
     
-    mainPrefix = session.defaultNamespace()->mainPrefix()->UTF8Characters();
-
+    mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
+    
     err = ErrorInvalidAccount;
     for (int i = 0; i < folders->count(); i ++) {
         // Gmail accounts must have "All Mail" enabled, IMAP accounts must have an Inbox.
