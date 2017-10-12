@@ -47,7 +47,7 @@ public:
 
     static string pathForFile(string root, File * file, bool create);
 
-    static string roleForFolder(IMAPFolder * folder);
+    static string roleForFolder(string mainPrefix, IMAPFolder * folder);
     static string idRandomlyGenerated();
     static string idForMessage(string accountId, IMAPMessage * msg);
     static string idForFolder(string accountId, string folderPath);
