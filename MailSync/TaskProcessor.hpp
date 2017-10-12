@@ -68,6 +68,8 @@ private:
     void performRemoteSendDraft(Task * task);
 
     void performRemoteSendFeatureUsageEvent(Task * task);
+
+    void performLocalChangeRoleMapping(Task * task);
 };
 
 #endif /* TaskProcessor_hpp */

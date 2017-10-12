@@ -232,6 +232,9 @@ void TaskProcessor::performLocal(Task * task) {
             
         } else if (cname == "SendFeatureUsageEventTask") {
             // nothing
+        
+        } else if (cname == "ChangeRoleMappingTask") {
+            performLocalChangeRoleMapping(task);
 
         } else {
             logger->error("Unsure of how to process this task type {}", cname);
@@ -297,6 +300,9 @@ void TaskProcessor::performRemote(Task * task) {
             } else if (cname == "SendFeatureUsageEventTask") {
                 performRemoteSendFeatureUsageEvent(task);
 
+            } else if (cname == "ChangeRoleMappingTask") {
+                // no-op
+                
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
             }
@@ -1054,3 +1060,36 @@ void TaskProcessor::performRemoteSendFeatureUsageEvent(Task * task) {
     logger->info("Incrementing usage of feature succeeded: {}", result.dump());
 }
 
+void TaskProcessor::performLocalChangeRoleMapping(Task * task) {
+    const auto path = task->data()["path"].get<string>();
+    const auto role = task->data()["role"].get<string>();
+    
+    {
+        MailStoreTransaction transaction{store};
+        auto query = Query().equal("accountId", task->accountId()).equal("path", path);
+        shared_ptr<Folder> category = store->find<Folder>(query);
+        if (category == nullptr) {
+            category = store->find<Label>(query);
+        }
+        if (category == nullptr) {
+            throw SyncException("no-matching-folder", "", false);
+        }
+        
+        // find any category with the role already and clear it
+        auto existingQuery = Query().equal("accountId", task->accountId()).equal("role", role);
+        shared_ptr<Folder> existing = store->find<Folder>(existingQuery);
+        if (existing == nullptr) {
+            existing = store->find<Label>(existingQuery);
+        }
+        if (existing != nullptr) {
+            existing->setRole("");
+            store->save(existing.get());
+        }
+    
+        // save role onto the new category
+        category->setRole(role);
+        store->save(category.get());
+        
+        transaction.commit();
+    }
+}

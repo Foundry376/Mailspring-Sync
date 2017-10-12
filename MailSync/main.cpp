@@ -296,7 +296,9 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 			std::this_thread::sleep_for(std::chrono::microseconds(1000));
         }
 
-        if (packet.count("type") && packet["type"].get<string>() == "queue-task") {
+        string type = packet.count("type") ? packet["type"].get<string>() : "";
+
+        if (type == "queue-task") {
             packet["task"]["v"] = 0;
             Task task{packet["task"]};
             processor.performLocal(&task);
@@ -305,19 +307,19 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             fgWorker->idleInterrupt();
         }
         
-        if (packet.count("type") && packet["type"].get<string>() == "cancel-task") {
+        if (type == "cancel-task") {
             // we can't always dequeue a task (if it's started already or potentially even finished).
             // but if we're deleting a draft we want to dequeue saves, etc.
             processor.cancel(packet["taskId"].get<string>());
         }
         
-        if (packet.count("type") && packet["type"].get<string>() == "wake-workers") {
+        if (type == "wake-workers") {
             // mark all folders as busy so the UI shows us syncing mail
             bgWorker->markAllFoldersBusy();
             MailUtils::wakeAllWorkers();
         }
 
-        if (packet.count("type") && packet["type"].get<string>() == "need-bodies") {
+        if (type == "need-bodies") {
             // interrupt the foreground sync worker to do the remote part of the task
             vector<string> ids{};
             for (auto id : packet["ids"]) {
@@ -327,7 +329,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             fgWorker->idleInterrupt();
         }
         
-        if (packet.count("type") && packet["type"].get<string>() == "test-crash") {
+        if (type == "test-crash") {
             throw SyncException("test", "triggered via cin", false);
         }
     }
