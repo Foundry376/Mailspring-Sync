@@ -385,6 +385,8 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     char delimiter = ((IMAPFolder *)remoteFolders->objectAtIndex(0))->delimiter();
 
     // create required Mailspring folders if they don't exist
+    // TODO: Consolidate this into role association code below, and make it
+    // use the same business logic as creating / updating folders from tasks.
     vector<string> mailspringFolders{"Snoozed"};
 
     for (string mailspringFolder : mailspringFolders) {
