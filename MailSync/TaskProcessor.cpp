@@ -858,7 +858,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         // grab the last few items in the sent folder... we know we don't need more than 10
         // because multisend is capped.
         int tries = 0;
-        int delay[] = {0, 1, 3, 5, 5, 10};
+        int delay[] = {0, 1, 3, 3, 3, 5};
         IndexSet * uids = new IndexSet();
         
         while (tries < 5) {
@@ -866,6 +866,10 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                 logger->info("-- No messages found. Sleeping {} to wait for sent folder to settle...", delay[tries]);
 				std::this_thread::sleep_for(std::chrono::seconds(delay[tries]));
             }
+            
+            // note: we must implement tries /before/ any continue or break statements
+            // or user could get into an infinite loop.
+            tries ++;
 
             session->select(sentPath, &err);
             if (err != ErrorNone) {
@@ -894,7 +898,6 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             if (uids->count() > 0) {
                 break;
             }
-            tries ++;
         }
     
         if (multisend && (uids->count() > 0)) {
