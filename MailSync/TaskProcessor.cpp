@@ -616,6 +616,16 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     string accountId = task->accountId();
     string path = data["path"].get<string>();
     
+    // if the requested path is missing the namespace prefix, add it
+    string mainPrefix = session->defaultNamespace()->mainPrefix()->UTF8Characters();
+    if (mainPrefix != "" && path.find(mainPrefix) != 0) {
+        path = mainPrefix + path;
+    }
+    
+    // if the requested path includes "/" delimiters, replace them with the real delimiter
+    char delimiter = session->defaultNamespace()->mainDelimiter();
+    std::replace(path.begin(), path.end(), '/', delimiter);
+
     ErrorCode err = ErrorCode::ErrorNone;
     
     if (data.count("existingPath")) {
@@ -634,16 +644,16 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     
     // must go beneath the first use of session above.
     bool isGmail = session->storedCapabilities()->containsIndex(IMAPCapabilityGmail);
+    shared_ptr<Folder> created = nullptr;
     
     if (isGmail) {
-        Label l = Label(MailUtils::idForFolder(accountId, path), accountId, 0);
-        l.setPath(path);
-        data["created"] = l.toJSON();
+        created = make_shared<Label>(MailUtils::idForFolder(accountId, path), accountId, 0);
     } else {
-        Folder f = Label(MailUtils::idForFolder(accountId, path), accountId, 0);
-        f.setPath(path);
-        data["created"] = f.toJSON();
+        created = make_shared<Folder>(MailUtils::idForFolder(accountId, path), accountId, 0);
     }
+    created->setPath(path);
+    data["created"] = created->toJSON();
+    store->save(created.get());
     
     logger->info("Syncback of folder/label '{}' succeeded.", path);
 }
