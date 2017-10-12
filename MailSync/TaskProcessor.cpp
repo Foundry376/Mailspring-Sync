@@ -767,6 +767,8 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     }
     builder.header()->setSubject(AS_MCSTR(draft.subject()));
     builder.header()->setMessageID(AS_MCSTR(draft.headerMessageId()));
+    builder.header()->setUserAgent(MCSTR("Mailspring"));
+    builder.header()->setDate(time(0));
     
     if (draft.replyToHeaderMessageId() != "") {
         // todo: lookup thread reference entire chain?
