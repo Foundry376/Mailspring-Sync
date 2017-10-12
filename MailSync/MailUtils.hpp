@@ -47,6 +47,8 @@ public:
 
     static string pathForFile(string root, File * file, bool create);
 
+    static string namespacePrefixOrBlank(IMAPSession * session);
+
     static vector<string> roles();
     static string roleForFolder(string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);

@@ -194,6 +194,13 @@ string MailUtils::timestampForTime(time_t time) {
     return string(buffer);
 }
 
+string MailUtils::namespacePrefixOrBlank(IMAPSession * session) {
+    if (!session->defaultNamespace()->mainPrefix()) {
+        return "";
+    }
+    return session->defaultNamespace()->mainPrefix()->UTF8Characters();
+}
+
 vector<string> MailUtils::roles() {
     return {"all", "sent", "drafts", "spam", "important", "starred", "inbox", "trash", "snoozed"};
 }
