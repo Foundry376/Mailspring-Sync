@@ -8,6 +8,7 @@
 
 #include "Folder.hpp"
 #include "MailUtils.hpp"
+#include "MailStore.hpp"
 
 using namespace std;
 
@@ -61,4 +62,23 @@ void Folder::bindToQuery(SQLite::Statement * query) {
     MailModel::bindToQuery(query);
     query->bind(":path", path());
     query->bind(":role", role());
+}
+
+void Folder::beforeSave(MailStore * store) {
+    MailModel::beforeSave(store);
+
+    if (version() == 1) {
+        // ensure ThreadCounts entry is present
+        SQLite::Statement count(store->db(), "INSERT OR IGNORE INTO ThreadCounts (categoryId, unread, total) VALUES (?, 0, 0)");
+        count.bind(1, id());
+        count.exec();
+    }
+}
+
+void Folder::afterRemove(MailStore * store) {
+    MailModel::afterRemove(store);
+
+    SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
+    count.bind(1, id());
+    count.exec();
 }

@@ -38,6 +38,9 @@ public:
     string tableName();
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
+
+    void beforeSave(MailStore * store);
+    void afterRemove(MailStore * store);
 };
 
 #endif /* Folder_hpp */

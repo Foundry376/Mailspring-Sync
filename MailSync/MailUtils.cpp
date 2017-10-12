@@ -194,9 +194,21 @@ string MailUtils::timestampForTime(time_t time) {
     return string(buffer);
 }
 
-string MailUtils::roleForFolder(string mainPrefix, IMAPFolder * folder) {
-    IMAPFolderFlag flags = folder->flags();
+vector<string> MailUtils::roles() {
+    return {"all", "sent", "drafts", "spam", "important", "starred", "inbox", "trash", "snoozed"};
+}
 
+string MailUtils::roleForFolder(string mainPrefix, IMAPFolder * folder) {
+    string role = MailUtils::roleForFolderViaFlags(mainPrefix, folder);
+    if (role == "") {
+        role = MailUtils::roleForFolderViaPath(mainPrefix, folder);
+    }
+    return role;
+}
+
+string MailUtils::roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder) {
+    IMAPFolderFlag flags = folder->flags();
+    
     if (flags & IMAPFolderFlagAll) {
         return "all";
     }
@@ -224,7 +236,10 @@ string MailUtils::roleForFolder(string mainPrefix, IMAPFolder * folder) {
     if (flags & IMAPFolderFlagTrash) {
         return "trash";
     }
-    
+    return "";
+}
+
+string MailUtils::roleForFolderViaPath(string mainPrefix, IMAPFolder * folder) {
     string delimiter {folder->delimiter()};
     string path = string(folder->path()->UTF8Characters());
 

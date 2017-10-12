@@ -380,32 +380,37 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     if (err) {
         throw SyncException(err, "syncFoldersAndLabels - fetchAllFolders");
     }
-    
-    // create required Mailspring folders if they don't exist
+
+    string mainPrefix = session.defaultNamespace()->mainPrefix()->UTF8Characters();
     char delimiter = ((IMAPFolder *)remoteFolders->objectAtIndex(0))->delimiter();
+
+    // create required Mailspring folders if they don't exist
     vector<string> mailspringFolders{"Snoozed"};
+
     for (string mailspringFolder : mailspringFolders) {
-        string mailspringFolderPath = MAILSPRING_FOLDER_PREFIX;
-        mailspringFolderPath += delimiter;
-        mailspringFolderPath += mailspringFolder;
+        string mailspringRole = mailspringFolder;
+        transform(mailspringRole.begin(), mailspringRole.end(), mailspringRole.begin(), ::tolower);
 
         bool found = false;
         for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-            string remotePath = remote->path()->UTF8Characters();
-
-            if (remotePath == mailspringFolderPath) {
+            string remoteRole = MailUtils::roleForFolder(mainPrefix, remote);
+            if (remoteRole == mailspringRole) {
                 found = true;
                 break;
             }
         }
         if (!found) {
+            string mailspringFolderPath = mainPrefix;
+            mailspringFolderPath += MAILSPRING_FOLDER_PREFIX;
+            mailspringFolderPath += delimiter;
+            mailspringFolderPath += mailspringFolder;
             session.createFolder(AS_MCSTR(mailspringFolderPath), &err);
             if (err) {
                 logger->error("Could not create required Mailspring folder: {}. {}", mailspringFolderPath, ErrorCodeToTypeMap[err]);
-            } else {
-                logger->error("Created required Mailspring folder: {}.", mailspringFolderPath);
+                continue;
             }
+            logger->error("Created required Mailspring folder: {}.", mailspringFolderPath);
             IMAPFolder * fake = new IMAPFolder();
             fake->setPath(AS_MCSTR(mailspringFolderPath));
             fake->setDelimiter(delimiter);
@@ -421,66 +426,121 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         
         Query q = Query().equal("accountId", account->id());
         bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
-        auto allLocalFolders = store->findAllMap<Folder>(q, "id");
-        auto allLocalLabels = store->findAllMap<Label>(q, "id");
+        auto unusedLocalFolders = store->findAllMap<Folder>(q, "id");
+        auto unusedLocalLabels = store->findAllMap<Label>(q, "id");
+        map<string, shared_ptr<Folder>> allFoundCategories {};
         
-        // perform
+        // Eliminate unselectable folders
         for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
             if (remote->flags() & IMAPFolderFlagNoSelect) {
                 remoteFolders->removeObjectAtIndex(ii);
                 continue;
             }
+        }
 
-            string remoteRole = MailUtils::roleForFolder(remote);
+        // Find / create local folders and labels to match the remote ones
+        // Note: We don't assign roles, just create the objects here.
+        for (int ii = 0; ii < remoteFolders->count(); ii++) {
+            IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
             string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
             string remotePath = remote->path()->UTF8Characters();
-            
+
+            bool isLabel = false;
+            if (isGmail) {
+                IMAPFolderFlag remoteFlags = remote->flags();
+                isLabel = !(remoteFlags & IMAPFolderFlagAll) && !(remoteFlags & IMAPFolderFlagSpam) && !(remoteFlags & IMAPFolderFlagTrash);
+            }
+
             shared_ptr<Folder> local;
-            
-            if (isGmail && (remoteRole != "all") && (remoteRole != "spam") && (remoteRole != "trash")) {
+
+            if (isLabel) {
                 // Treat as a label
-                if (allLocalLabels.count(remoteId) > 0) {
-                    local = allLocalLabels[remoteId];
-                    allLocalLabels.erase(remoteId);
+                if (unusedLocalLabels.count(remoteId) > 0) {
+                    local = unusedLocalLabels[remoteId];
+                    unusedLocalLabels.erase(remoteId);
                 } else {
-                    local = make_shared<Label>(Label(remoteId, account->id(), 0));
+                    local = make_shared<Label>(remoteId, account->id(), 0);
+                    local->setPath(remotePath);
+                    store->save(local.get());
                 }
 
             } else {
                 // Treat as a folder
-                if (allLocalFolders.count(remoteId) > 0) {
-                    local = allLocalFolders[remoteId];
-                    allLocalFolders.erase(remoteId);
+                if (unusedLocalFolders.count(remoteId) > 0) {
+                    local = unusedLocalFolders[remoteId];
+                    unusedLocalFolders.erase(remoteId);
                 } else {
-                    local = make_shared<Folder>(Folder(remoteId, account->id(), 0));
+                    local = make_shared<Folder>(remoteId, account->id(), 0);
+                    local->setPath(remotePath);
+                    store->save(local.get());
                 }
                 foldersToSync.push_back(local);
             }
             
-            if ((local->role() != remoteRole) || (local->path() != remotePath)) {
-                local->setPath(remotePath);
-                local->setRole(remoteRole);
-                
-                // place items into the thread counts table
-                SQLite::Statement count(store->db(), "INSERT OR IGNORE INTO ThreadCounts (categoryId, unread, total) VALUES (?, 0, 0)");
-                count.bind(1, local->id());
-                count.exec();
-                store->save(local.get());
+            allFoundCategories[remoteId] = local;
+        }
+
+        for (auto role : MailUtils::roles()) {
+            bool found = false;
+
+            // If the role is already assigned, skip
+            for (auto it : allFoundCategories) {
+                if (it.second->role() == role) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                continue;
+            }
+            
+            // find a folder that matches the flags
+            for (int ii = 0; ii < remoteFolders->count(); ii++) {
+                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+                string cr = MailUtils::roleForFolderViaFlags(mainPrefix, remote);
+                if (cr != role) {
+                    continue;
+                }
+                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+                if (!allFoundCategories.count(remoteId)) {
+                    logger->warn("-X found folder for role, couldn't find local object for {}", role);
+                    continue;
+                }
+                allFoundCategories[remoteId]->setRole(role);
+                store->save(allFoundCategories[remoteId].get());
+                found = true;
+                break;
+            }
+                    
+            if (found) {
+                continue;
+            }
+            
+            // find a folder that matches the name
+            for (int ii = 0; ii < remoteFolders->count(); ii++) {
+                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+                string cr = MailUtils::roleForFolderViaPath(mainPrefix, remote);
+                if (cr != role) {
+                    continue;
+                }
+                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+                if (!allFoundCategories.count(remoteId)) {
+                    logger->warn("-X found folder for role, couldn't find local object for {}", role);
+                    continue;
+                }
+                allFoundCategories[remoteId]->setRole(role);
+                store->save(allFoundCategories[remoteId].get());
+                found = true;
+                break;
             }
         }
         
         // delete any folders / labels no longer present on the remote
-        for (auto const item : allLocalFolders) {
-            SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
-            count.bind(1, item.second->id());
-            count.exec();
+        for (auto const item : unusedLocalFolders) {
             store->remove(item.second.get());
         }
-        for (auto const item : allLocalLabels) {
-            SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
-            count.bind(1, item.second->id());
-            count.exec();
+        for (auto const item : unusedLocalLabels) {
             store->remove(item.second.get());
         }
         
