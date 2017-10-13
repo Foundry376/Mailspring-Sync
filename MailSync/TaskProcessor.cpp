@@ -235,6 +235,9 @@ void TaskProcessor::performLocal(Task * task) {
         
         } else if (cname == "ChangeRoleMappingTask") {
             performLocalChangeRoleMapping(task);
+        
+        } else if (cname == "ExpungeAllInFolderTask") {
+            // nothing
 
         } else {
             logger->error("Unsure of how to process this task type {}", cname);
@@ -302,7 +305,10 @@ void TaskProcessor::performRemote(Task * task) {
 
             } else if (cname == "ChangeRoleMappingTask") {
                 // no-op
-                
+
+            } else if (cname == "ExpungeAllInFolderTask") {
+                performRemoteExpungeAllInFolder(task);
+
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
             }
@@ -1103,5 +1109,40 @@ void TaskProcessor::performLocalChangeRoleMapping(Task * task) {
         store->save(category.get());
         
         transaction.commit();
+    }
+}
+
+void TaskProcessor::performRemoteExpungeAllInFolder(Task * task) {
+    AutoreleasePool pool;
+    ErrorCode err = ErrorNone;
+    const auto path = task->data()["folder"]["path"].get<string>();
+    const auto id = task->data()["folder"]["id"].get<string>();
+
+    IndexSet set;
+    set.addRange(RangeMake(1, UINT64_MAX));
+    session->storeFlagsByUID(AS_MCSTR(path), &set, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
+    if (err != ErrorNone) {
+        throw SyncException(err, "storeFlagsByUID");
+    }
+    session->expunge(AS_MCSTR(path), &err);
+    if (err != ErrorNone) {
+        throw SyncException(err, "expunge");
+    }
+    logger->info("-- Expunged {}", path);
+    
+    // delete all the local messages in the folder. We do this in performRemote
+    // because we don't want to block in performLocal for this long. We also pause
+    // as we go to allow the app to recover from the mass deletions.
+    auto all = store->findAll<Message>(Query().equal("accountId", task->accountId()).equal("remoteFolderId", id));
+    for (auto block : MailUtils::chunksOfVector(all, 100)) {
+        {
+            MailStoreTransaction t {store};
+            for (auto msg : block) {
+                store->remove(msg.get());
+            }
+            t.commit();
+        }
+        logger->info("-- Deleted {} local messages", block.size());
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
     }
 }
