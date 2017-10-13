@@ -264,9 +264,14 @@ void MailProcessor::unlinkMessagesFromFolder(Folder & folder, vector<uint32_t> &
             Query qd = Query().equal("remoteFolderId", folder.id()).equal("remoteUID", chunk);
             auto deletedMsgs = store->findAll<Message>(qd);
 
-            for (const auto local : deletedMsgs) {
-                local->setRemoteUID(UINT32_MAX - phase);
-                store->save(local.get());
+            for (const auto msg : deletedMsgs) {
+                if (msg->remoteUID() > UINT32_MAX - 5) {
+                    // we unlinked this message in a previous cycle and it will be deleted momentarily.
+                    continue;
+                }
+                logger->info("-- Unlinking \"{}\" ({})", msg->subject(), msg->id());
+                msg->setRemoteUID(UINT32_MAX - phase);
+                store->save(msg.get());
             }
         }
 

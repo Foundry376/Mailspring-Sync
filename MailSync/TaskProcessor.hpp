@@ -70,6 +70,8 @@ private:
     void performRemoteSendFeatureUsageEvent(Task * task);
 
     void performLocalChangeRoleMapping(Task * task);
+
+    void performRemoteExpungeAllInFolder(Task * task);
 };
 
 #endif /* TaskProcessor_hpp */
