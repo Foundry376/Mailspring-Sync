@@ -114,7 +114,7 @@ err:
 #endif
     int status;
 
-    std::string certificatePaths[6] = {
+    std::string certificatePaths[] = {
         // Debian, Ubuntu, Arch: maintained by update-ca-certificates
         "/etc/ssl/certs/ca-certificates.crt",
         // Red Hat 5+, Fedora, Centos
