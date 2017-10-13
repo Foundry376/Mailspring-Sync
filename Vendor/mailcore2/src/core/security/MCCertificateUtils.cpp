@@ -128,6 +128,8 @@ err:
         // FreeBSD (optional symlink)
         // OpenBSD
         "/etc/ssl/cert.pem",
+        // OpenSUSE
+        "/etc/ssl/ca-bundle.pem",
     };
 
     OpenSSL_add_all_algorithms();
