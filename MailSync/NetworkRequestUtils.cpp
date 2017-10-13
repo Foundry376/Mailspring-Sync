@@ -29,6 +29,8 @@ string FindLinuxCertsBundle() {
         // FreeBSD (optional symlink)
         // OpenBSD
         "/etc/ssl/cert.pem",
+        // OpenSUSE
+        "/etc/ssl/ca-bundle.pem",
     };
     for (size_t ii = 0; ii < 6; ii ++) {
         struct stat   buffer;
