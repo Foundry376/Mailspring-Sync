@@ -15,7 +15,7 @@
 
 string FindLinuxCertsBundle() {
 #ifdef __linux__
-    std::string certificatePaths[6] = {
+    std::string certificatePaths[] = {
         // Debian, Ubuntu, Arch: maintained by update-ca-certificates
         "/etc/ssl/certs/ca-certificates.crt",
         // Red Hat 5+, Fedora, Centos
@@ -32,10 +32,10 @@ string FindLinuxCertsBundle() {
         // OpenSUSE
         "/etc/ssl/ca-bundle.pem",
     };
-    for (size_t ii = 0; ii < 6; ii ++) {
-        struct stat   buffer;
-        if (stat (certificatePaths[ii].c_str(), &buffer) == 0) {
-            return certificatePaths[ii];
+    for (const auto path : certificatePaths) {
+        struct stat buffer;
+        if (stat (path.c_str(), &buffer) == 0) {
+            return path;
         }
     }
 #endif
