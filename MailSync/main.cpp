@@ -449,7 +449,7 @@ int main(int argc, const char * argv[]) {
     }
 
     if (mode == "sync") {
-        spdlog::get("logger")->info("------------- Starting Sync ---------------");
+        spdlog::get("logger")->info("------------- Starting Sync ({}) ---------------", account->emailAddress());
         metadataWorker = make_shared<MetadataWorker>(account);
         metadataExpirationWorker = make_shared<MetadataExpirationWorker>(account->id());
         fgWorker = make_shared<SyncWorker>(account);
