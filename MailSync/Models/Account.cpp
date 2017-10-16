@@ -34,11 +34,18 @@ string Account::valid() {
     }
 
     json & s = _data["settings"];
-    if (!(s.count("imap_port") && s.count("imap_host") && s.count("imap_username") && (s.count("refresh_token") || s.count("imap_password")))) {
-        return "imap_*";
+
+    if (!(s.count("refresh_token") || s.count("imap_password"))) {
+        return "imap_password or refresh_token";
     }
-    if (!(s.count("smtp_port") && s.count("smtp_host") && s.count("smtp_username") && (s.count("refresh_token") || s.count("smtp_password")))) {
-        return "smtp_*";
+    if (!(s.count("refresh_token") || s.count("smtp_password"))) {
+        return "smtp_password or refresh_token";
+    }
+    if (!(s.count("imap_port") && s.count("imap_host") && s.count("imap_username"))) {
+        return "imap configuration";
+    }
+    if (!(s.count("smtp_port") && s.count("smtp_host") && s.count("smtp_username"))) {
+        return "smtp configuration";
     }
     if (!(s.count("imap_allow_insecure_ssl") && s["imap_allow_insecure_ssl"].is_boolean())) {
         return "imap_allow_insecure_ssl";
