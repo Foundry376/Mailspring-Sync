@@ -291,7 +291,9 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 lostCINAt = time(0);
             }
             if (time(0) - lostCINAt > 30) {
-                terminate();
+                // note: don't run termination / stack trace handlers,
+                // just exit.
+                std::exit(141);
             }
 			std::this_thread::sleep_for(std::chrono::microseconds(1000));
         }
