@@ -17,6 +17,8 @@
 using namespace mailcore;
 using namespace std;
 
+std::atomic<int> globalLabelsVersion {1};
+
 #pragma mark Metadata
 
 Metadata MetadataFromJSON(const json & metadata) {
@@ -76,7 +78,7 @@ MailStore::MailStore() :
     _stmtBeginTransaction(_db, "BEGIN IMMEDIATE TRANSACTION"),
     _stmtRollbackTransaction(_db, "ROLLBACK"),
     _stmtCommitTransaction(_db, "COMMIT"),
-    _labelCacheInvalid(true),
+    _labelCacheVersion(0),
     _labelCache()
 {
     _db.setBusyTimeout(10 * 1000);
@@ -176,9 +178,9 @@ void MailStore::saveKeyValue(string key, string value) {
 
 vector<shared_ptr<Label>> MailStore::allLabelsCache(string accountId) {
     // todo bg: this assumes a single accountId will ever be used
-    if (_labelCacheInvalid) {
+    if (_labelCacheVersion != globalLabelsVersion) {
         _labelCache = findAll<Label>(Query().equal("accountId", accountId));
-        _labelCacheInvalid = false;
+        _labelCacheVersion = globalLabelsVersion;
     }
     return _labelCache;
 }
@@ -263,7 +265,7 @@ void MailStore::save(MailModel * model, bool emit) {
     model->afterSave(this);
 
     if (tableName == "Label") {
-        _labelCacheInvalid = true;
+        globalLabelsVersion += 1;
     }
 
     if (emit) {
@@ -285,7 +287,7 @@ void MailStore::remove(MailModel * model) {
     model->afterRemove(this);
 
     if (model->tableName() == "Label") {
-        _labelCacheInvalid = true;
+        globalLabelsVersion += 1;
     }
 
     DeltaStreamItem delta {DELTA_TYPE_UNPERSIST, model};

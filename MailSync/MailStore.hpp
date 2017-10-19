@@ -63,7 +63,7 @@ class MailStore {
     map<string, shared_ptr<SQLite::Statement>> _removeQueries;
     
     vector<shared_ptr<Label>> _labelCache;
-    bool _labelCacheInvalid;
+    int _labelCacheVersion;
     int _streamMaxDelay;
     
 public:
