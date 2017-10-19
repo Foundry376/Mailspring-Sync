@@ -621,7 +621,8 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     json & data = task->data();
     string accountId = task->accountId();
     string path = data["path"].get<string>();
-    
+    string existingPath = data.count("existingPath") ? data["existingPath"].get<string>() : "";
+
     // if the requested path is missing the namespace prefix, add it
     string mainPrefix = MailUtils::namespacePrefixOrBlank(session);
     if (mainPrefix != "" && path.find(mainPrefix) != 0) {
@@ -633,14 +634,11 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     std::replace(path.begin(), path.end(), '/', delimiter);
 
     ErrorCode err = ErrorCode::ErrorNone;
-    
-    if (data.count("existingPath")) {
-        String existing = String(data["existingPath"].get<string>().c_str());
-        String next = String(path.c_str());
-        session->renameFolder(&existing, &next, &err);
+
+    if (existingPath != "") {
+        session->renameFolder(AS_MCSTR(existingPath), AS_MCSTR(path), &err);
     } else {
-        String next = String(path.c_str());
-        session->createFolder(&next, &err);
+        session->createFolder(AS_MCSTR(path), &err);
     }
     
     if (err != ErrorNone) {
@@ -650,16 +648,27 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     
     // must go beneath the first use of session above.
     bool isGmail = session->storedCapabilities()->containsIndex(IMAPCapabilityGmail);
-    shared_ptr<Folder> created = nullptr;
+    shared_ptr<Folder> localModel = nullptr;
     
-    if (isGmail) {
-        created = make_shared<Label>(MailUtils::idForFolder(accountId, path), accountId, 0);
-    } else {
-        created = make_shared<Folder>(MailUtils::idForFolder(accountId, path), accountId, 0);
+    if (existingPath != "") {
+        if (isGmail) {
+            localModel = store->find<Label>(Query().equal("accountId", accountId).equal("id", MailUtils::idForFolder(accountId, existingPath)));
+        } else {
+            localModel = store->find<Folder>(Query().equal("accountId", accountId).equal("id", MailUtils::idForFolder(accountId, existingPath)));
+        }
     }
-    created->setPath(path);
-    data["created"] = created->toJSON();
-    store->save(created.get());
+
+    if (!localModel) {
+        if (isGmail) {
+            localModel = make_shared<Label>(MailUtils::idForFolder(accountId, path), accountId, 0);
+        } else {
+            localModel = make_shared<Folder>(MailUtils::idForFolder(accountId, path), accountId, 0);
+        }
+    }
+
+    localModel->setPath(path);
+    data["created"] = localModel->toJSON();
+    store->save(localModel.get());
     
     logger->info("Syncback of folder/label '{}' succeeded.", path);
 }

@@ -65,7 +65,7 @@ public:
     
     json & labels();
 
-    void applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> & allLabels);
+    void applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> allLabels);
     void upsertReferences(SQLite::Database & db, string headerMessageId, mailcore::Array * references);
 
     string tableName();

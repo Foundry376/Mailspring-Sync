@@ -292,7 +292,7 @@ string MailUtils::pathForFile(string root, File * file, bool create) {
     return path;
 }
 
-shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> & allLabels) {
+shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> allLabels) {
     for (const auto & label : allLabels) {
         if (label->path() == mlname) {
             return label;

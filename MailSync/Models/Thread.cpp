@@ -130,7 +130,7 @@ json & Thread::participants() {
     return _data["participants"];
 }
 
-void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> & allLabels) {
+void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> allLabels) {
     // decrement basic attributes
     setUnread(unread() - old.unread);
     setStarred(starred() - old.starred);
