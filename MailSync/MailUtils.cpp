@@ -202,7 +202,7 @@ string MailUtils::namespacePrefixOrBlank(IMAPSession * session) {
 }
 
 vector<string> MailUtils::roles() {
-    return {"all", "sent", "drafts", "spam", "important", "starred", "inbox", "trash", "snoozed"};
+    return {"all", "sent", "drafts", "spam", "important", "starred", "archive", "inbox", "trash", "snoozed"};
 }
 
 string MailUtils::roleForFolder(string mainPrefix, IMAPFolder * folder) {

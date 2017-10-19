@@ -179,6 +179,8 @@ static std::map<std::string, std::string> COMMON_FOLDER_NAMES = {
     
     {"inbox", "inbox"},
     
+    {"dateneintrag", "archive"},
+    {"archivio", "archive"},
     {"archive", "archive"},
     
     {"postausgang", "sent"},
