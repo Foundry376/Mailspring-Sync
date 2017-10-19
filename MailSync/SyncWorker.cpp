@@ -725,7 +725,7 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         return false;
     }
 
-    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 20");
+    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 20");
     missing.bind(1, folder.id());
     missing.bind(2, (double)(time(0) - 24 * 60 * 60 * 30 * 3)); // three months TODO pref!
     vector<Message> results{};
