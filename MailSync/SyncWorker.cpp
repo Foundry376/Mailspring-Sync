@@ -80,6 +80,29 @@ void SyncWorker::idleCycleIteration()
         idleShouldReloop = false;
         return;
     }
+    
+    // Connect and login to the IMAP server
+    
+    ErrorCode err = ErrorCode::ErrorNone;
+    session.connectIfNeeded(&err);
+    if (err != ErrorCode::ErrorNone) {
+        throw SyncException(err, "connectIfNeeded");
+    }
+    
+    if (idleShouldReloop) {
+        idleShouldReloop = false;
+        return;
+    }
+    
+    session.loginIfNeeded(&err);
+    if (err != ErrorCode::ErrorNone) {
+        throw SyncException(err, "loginIfNeeded");
+    }
+    
+    if (idleShouldReloop) {
+        idleShouldReloop = false;
+        return;
+    }
 
     // Run tasks ready for performRemote. This is set up in an odd way
     // because we want tasks created when a task runs to also be run
@@ -104,29 +127,6 @@ void SyncWorker::idleCycleIteration()
         }
     } while (tasks.size() > 0);
 
-    if (idleShouldReloop) {
-        idleShouldReloop = false;
-        return;
-    }
-
-    // Connect and login to the IMAP server
-    
-    ErrorCode err = ErrorCode::ErrorNone;
-    session.connectIfNeeded(&err);
-    if (err != ErrorCode::ErrorNone) {
-        throw SyncException(err, "connectIfNeeded");
-    }
-
-    if (idleShouldReloop) {
-        idleShouldReloop = false;
-        return;
-    }
-
-    session.loginIfNeeded(&err);
-    if (err != ErrorCode::ErrorNone) {
-        throw SyncException(err, "loginIfNeeded");
-    }
-    
     if (idleShouldReloop) {
         idleShouldReloop = false;
         return;
