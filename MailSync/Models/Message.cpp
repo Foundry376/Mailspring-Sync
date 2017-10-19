@@ -196,6 +196,17 @@ void Message::setReplyToHeaderMessageId(string s) {
     _data["rthMsgId"] = s;
 }
 
+string Message::forwardedHeaderMessageId() {
+    if (_data["fwdMsgId"].is_null()) {
+        return "";
+    }
+    return _data["fwdMsgId"].get<string>();
+}
+
+void Message::setForwardedHeaderMessageId(string s) {
+    _data["fwdMsgId"] = s;
+}
+
 json Message::files() {
     return _data["files"];
 }

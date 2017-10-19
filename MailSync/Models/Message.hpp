@@ -78,6 +78,9 @@ public:
     string replyToHeaderMessageId();
     void setReplyToHeaderMessageId(string s);
     
+    string forwardedHeaderMessageId();
+    void setForwardedHeaderMessageId(string s);
+
     json files();
     void setFiles(vector<File> & files);
 

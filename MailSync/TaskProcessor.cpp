@@ -776,10 +776,14 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     builder.header()->setUserAgent(MCSTR("Mailspring"));
     builder.header()->setDate(time(0));
     
+    // todo: lookup thread reference entire chain?
+
     if (draft.replyToHeaderMessageId() != "") {
-        // todo: lookup thread reference entire chain?
         builder.header()->setReferences(Array::arrayWithObject(AS_MCSTR(draft.replyToHeaderMessageId())));
         builder.header()->setInReplyTo(Array::arrayWithObject(AS_MCSTR(draft.replyToHeaderMessageId())));
+    }
+    if (draft.forwardedHeaderMessageId() != "") {
+        builder.header()->setReferences(Array::arrayWithObject(AS_MCSTR(draft.forwardedHeaderMessageId())));
     }
 
     Array * to = new Array();
