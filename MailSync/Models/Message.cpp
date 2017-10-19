@@ -39,7 +39,7 @@ shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Messag
     // and get the counters off by one!
     stubJSON["v"] = 0;
     
-    auto stub = shared_ptr<Message>(stubJSON);
+    auto stub = make_shared<Message>(stubJSON);
     auto nolabels = json::array();
     stub->setDraft(false);
     stub->setUnread(false);
