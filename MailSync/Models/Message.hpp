@@ -49,7 +49,7 @@ class Message : public MailModel {
 public:
     static string TABLE_NAME;
     
-    static Message messageWithDeletionPlaceholderFor(shared_ptr<Message> draft);
+    static shared_ptr<Message> messageWithDeletionPlaceholderFor(shared_ptr<Message> draft);
 
     Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTimestamp);
     Message(SQLite::Statement & query);

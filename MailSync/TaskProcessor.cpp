@@ -545,11 +545,11 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
             store->remove(draft.get());
             
             auto stub = Message::messageWithDeletionPlaceholderFor(draft);
-            stub.setClientFolder(trash.get());
-            store->save(&stub);
-            stubIds.push_back(stub.id());
+            stub->setClientFolder(trash.get());
+            store->save(stub.get());
+            stubIds.push_back(stub->id());
 
-            logger->info("-- Replacing local ID {} with {}", draft->id(), stub.id());
+            logger->info("-- Replacing local ID {} with {}", draft->id(), stub->id());
         }
 
         transaction.commit();
