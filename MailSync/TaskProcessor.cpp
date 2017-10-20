@@ -66,10 +66,9 @@ void _applyFolder(Message * msg, json & data) {
 void _applyFolderMoveInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
     ErrorCode err = ErrorCode::ErrorNone;
     Folder destFolder{data["folder"]};
-    String destPath = mailcore::String(destFolder.path().c_str());
     
     HashMap * uidmap = nullptr;
-    session->moveMessages(path, uids, &destPath, &uidmap, &err);
+    session->moveMessages(path, uids, AS_MCSTR(destFolder.path()), &uidmap, &err);
     if (err != ErrorCode::ErrorNone) {
         throw SyncException(err, "moveMessages");
     }
@@ -135,29 +134,25 @@ void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSe
     Array * toAdd = new mailcore::Array{};
     toAdd->autorelease();
     for (auto & item : data["labelsToAdd"]) {
-        String * str = new mailcore::String(_xgmKeyForLabel(item).c_str());
-        toAdd->addObject(str);
-        str->autorelease();
+        toAdd->addObject(AS_MCSTR(_xgmKeyForLabel(item)));
     }
 
     Array * toRemove = new mailcore::Array{};
     toRemove->autorelease();
     for (auto & item : data["labelsToRemove"]) {
-        String * str = new mailcore::String(_xgmKeyForLabel(item).c_str());
-        toRemove->addObject(str);
-        str->autorelease();
+        toRemove->addObject(AS_MCSTR(_xgmKeyForLabel(item)));
     }
     
-    if (toRemove->count() > 0) {
-        session->storeLabelsByUID(path, uids, IMAPStoreFlagsRequestKindRemove, toRemove, &err);
-        if (err != ErrorCode::ErrorNone) {
-            throw SyncException(err, "storeLabelsByUID - remove");
-        }
-    }
     if (toAdd->count() > 0) {
         session->storeLabelsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, toAdd, &err);
         if (err != ErrorCode::ErrorNone) {
             throw SyncException(err, "storeLabelsByUID - add");
+        }
+    }
+    if (toRemove->count() > 0) {
+        session->storeLabelsByUID(path, uids, IMAPStoreFlagsRequestKindRemove, toRemove, &err);
+        if (err != ErrorCode::ErrorNone) {
+            throw SyncException(err, "storeLabelsByUID - remove");
         }
     }
 }
@@ -467,12 +462,11 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFol
     
     for (auto pair : msgsByFolder) {
         auto & msgs = pair.second;
-        String path = mailcore::String(pair.first.c_str());
         IndexSet * uids = uidsByFolder[pair.first].get();
         
         // perform the action. NOTE! This function is allowed to mutate the messages,
         // for example to set their remoteUID after a move.
-        applyInFolder(session, &path, uids, msgs, data);
+        applyInFolder(session, AS_MCSTR(pair.first), uids, msgs, data);
     }
     
     // save any changes made by applyInFolder and decrement locks
@@ -718,10 +712,9 @@ void TaskProcessor::performRemoteDestroyCategory(Task * task) {
     json & data = task->data();
     string accountId = task->accountId();
     string path = data["path"].get<string>();
-    String mpath = String(path.c_str());
     ErrorCode err = ErrorCode::ErrorNone;
     
-    session->deleteFolder(&mpath, &err);
+    session->deleteFolder(AS_MCSTR(path), &err);
     
     if (err != ErrorNone) {
         throw SyncException(err, "deleteFolder");
