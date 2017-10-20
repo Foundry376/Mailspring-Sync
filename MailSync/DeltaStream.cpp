@@ -36,15 +36,18 @@ shared_ptr<DeltaStream> SharedDeltaStream() {
 
 // DeltaStreamItem
 
-DeltaStreamItem::DeltaStreamItem(string type, string modelClass, vector<json> modelJSONs) :
-    type(type), modelClass(modelClass), modelJSONs(modelJSONs)
+DeltaStreamItem::DeltaStreamItem(string type, string modelClass, vector<json> inJSONs) :
+    type(type), modelClass(modelClass)
 {
-    
+    for (const auto & itemJSON : inJSONs) {
+        upsertModelJSON(itemJSON);
+    }
 }
 
 DeltaStreamItem::DeltaStreamItem(string type, MailModel * model) :
-    type(type), modelClass(model->tableName()), modelJSONs(vector<json>{model->toJSONDispatch()})
+    type(type), modelClass(model->tableName())
 {
+    upsertModelJSON(model->toJSONDispatch());
 }
 
 DeltaStreamItem::DeltaStreamItem(string type, vector<shared_ptr<MailModel>> & models) :
@@ -53,7 +56,7 @@ DeltaStreamItem::DeltaStreamItem(string type, vector<shared_ptr<MailModel>> & mo
     if (models.size() > 0) {
         modelClass = models[0]->tableName();
         for (const auto & m : models) {
-            modelJSONs.push_back(m->toJSONDispatch());
+            upsertModelJSON(m->toJSONDispatch());
         }
     }
 }
@@ -61,6 +64,16 @@ DeltaStreamItem::DeltaStreamItem(string type, vector<shared_ptr<MailModel>> & mo
 bool DeltaStreamItem::concatenate(const DeltaStreamItem & other) {
     if (other.type != type || other.modelClass != modelClass) {
         return false;
+    }
+
+    // If we already have v1 of a model (specifically v1), we can't accept v2.
+    // It would mean the client couldn't detect a "create" reliably.
+    for (const auto & modelJSON : other.modelJSONs) {
+        string id = modelJSON["id"].get<string>();
+        // if we have this model and it's version is 1, return false
+        if (idIndexes.count(id) && modelJSONs[idIndexes[id]]["v"].get<int>() == 1) {
+            return false;
+        }
     }
 
     for (const auto & modelJSON : other.modelJSONs) {
@@ -73,16 +86,12 @@ void DeltaStreamItem::upsertModelJSON(const json & item) {
     // scan and replace any instance of the object already available, or append.
     // It's important two back-to-back saves of the same object don't create two entries,
     // only the last one.
-    bool found = false;
+    string id = item["id"].get<string>();
 
-    for (int ii = 0; ii < modelJSONs.size(); ii ++) {
-        if (modelJSONs[ii]["id"] == item["id"]) {
-            modelJSONs[ii] = item;
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
+    if (idIndexes.count(id)) {
+        modelJSONs[idIndexes[id]] = item;
+    } else {
+        idIndexes[id] = modelJSONs.size();
         modelJSONs.push_back(item);
     }
 }
