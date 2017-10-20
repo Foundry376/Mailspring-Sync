@@ -261,7 +261,7 @@ void printStackTrace(std::vector<stacktrace::entry> & entries) {
                 lineStr = "(unknown)";
             }
         } else if (entry.line > 0) {
-            lineStr = "line " + integerToString(entry.line);
+            lineStr = "line " + integerToString((int)entry.line);
         }
         
         out << " *** " << std::left << std::setw(lineStrLength) << lineStr

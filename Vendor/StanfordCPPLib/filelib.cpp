@@ -55,7 +55,7 @@ std::string defaultExtension(const std::string& filename, const std::string& ext
     bool force = (extCopy[0] == '*');
     if (force) extCopy = extCopy.substr(1);
     int dot = -1;
-    int len = filename.length();
+    size_t len = filename.length();
     for (int i = 0; i < len; i++) {
         char ch = filename[i];
         if (ch == '.') dot = i;
@@ -101,7 +101,7 @@ std::string getDirectoryPathSeparator() {
 
 std::string getExtension(const std::string& filename) {
     int dot = -1;
-    int len = filename.length();
+    size_t len = filename.length();
     for (int i = 0; i < len; i++) {
         char ch = filename[i];
         if (ch == '.') dot = i;
@@ -132,7 +132,7 @@ std::string getHead(const std::string& filename) {
 
 std::string getRoot(const std::string& filename) {
     int dot = -1;
-    int len = filename.length();
+    size_t len = filename.length();
     for (int i = 0; i < len; i++) {
         char ch = filename[i];
         if (ch == '.') dot = i;
@@ -380,8 +380,8 @@ static void splitPath(const std::string& path, std::vector<std::string> & list) 
 }
 
 static bool recursiveMatch(const std::string& str, int sx, const std::string& pattern, int px) {
-    int slen = str.length();
-    int plen = pattern.length();
+    size_t slen = str.length();
+    size_t plen = pattern.length();
     if (px == plen) return (sx == slen);
     char pch = pattern[px];
     if (pch == '*') {

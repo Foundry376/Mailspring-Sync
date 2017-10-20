@@ -193,7 +193,7 @@ std::string Platform::filelib_getSearchPathSeparator() {
 // Unix implementation; see Windows implementation elsewhere in this file
 std::string Platform::filelib_expandPathname(std::string filename) {
     if (filename == "") return "";
-    int len = filename.length();
+    size_t len = filename.length();
     if (filename[0] == '~') {
         int spos = 1;
         while (spos < len && filename[spos] != '\\' && filename[spos] != '/') {
