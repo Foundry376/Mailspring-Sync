@@ -58,8 +58,8 @@ bool endsWith(const std::string& str, char suffix) {
 }
 
 bool endsWith(const std::string& str, const std::string& suffix) {
-    int nChars = suffix.length();
-    int start = str.length() - nChars;
+    int nChars = (int)suffix.length();
+    int start = (int)str.length() - nChars;
     if (start < 0) return false;
     for (int i = 0; i < nChars; i++) {
         if (str[start + i] != suffix[i]) return false;
@@ -76,7 +76,7 @@ bool endsWith(const std::string& str, const std::string& suffix) {
  */
 bool equalsIgnoreCase(const std::string& s1, const std::string& s2) {
     if (s1.length() != s2.length()) return false;
-    int nChars = s1.length();
+    size_t nChars = s1.length();
     for (int i = 0; i < nChars; i++) {
         if (tolower(s1[i]) != tolower(s2[i])) return false;
     }
@@ -143,7 +143,7 @@ bool startsWith(const std::string& str, char prefix) {
 
 bool startsWith(const std::string& str, const std::string& prefix) {
     if (str.length() < prefix.length()) return false;
-    int nChars = prefix.length();
+    size_t nChars = prefix.length();
     for (int i = 0; i < nChars; i++) {
         if (str[i] != prefix[i]) return false;
     }
@@ -257,7 +257,7 @@ std::string toLowerCase(const std::string& str) {
 }
 
 void toLowerCaseInPlace(std::string& str) {
-    int nChars = str.length();
+    size_t nChars = str.length();
     for (int i = 0; i < nChars; i++) {
         str[i] = tolower(str[i]);
     }
@@ -270,7 +270,7 @@ std::string toUpperCase(const std::string& str) {
 }
 
 void toUpperCaseInPlace(std::string& str) {
-    int nChars = str.length();
+    size_t nChars = str.length();
     for (int i = 0; i < nChars; i++) {
         str[i] = toupper(str[i]);
     }
@@ -330,7 +330,7 @@ int stringIndexOf(const std::string& s, const std::string& substring, int startI
     if (index == std::string::npos) {
         return -1;
     } else {
-        return index;
+        return (int)index;
     }
 }
 
@@ -339,7 +339,7 @@ int stringLastIndexOf(const std::string& s, const std::string& substring, int st
     if (index == std::string::npos) {
         return -1;
     } else {
-        return index;
+        return (int)index;
     }
 }
 
@@ -467,7 +467,7 @@ void urlEncodeInPlace(std::string& str) {
 static const std::string STRING_DELIMITERS = ",:)}]\n";
 
 bool stringNeedsQuoting(const std::string & str) {
-    int n = str.length();
+    size_t n = str.length();
     for (int i = 0; i < n; i++) {
         char ch = str[i];
         if (isspace(ch)) return false;
@@ -530,7 +530,7 @@ void readQuotedString(std::istream & is, std::string & str) {
         }
     } else {
         str += ch;
-        int endTrim = 0;
+        size_t endTrim = 0;
         while (is.get(ch) && STRING_DELIMITERS.find(ch) == std::string::npos) {
             str += ch;
             if (!isspace(ch)) endTrim = str.length();
@@ -543,7 +543,7 @@ void readQuotedString(std::istream & is, std::string & str) {
 void writeQuotedString(std::ostream & os, const std::string & str, bool forceQuotes) {
     if (!forceQuotes && stringNeedsQuoting(str)) forceQuotes = true;
     if (forceQuotes) os << '"';
-    int len = str.length();
+    size_t len = str.length();
     for (int i = 0; i < len; i++) {
         char ch = str.at(i);
         switch (ch) {

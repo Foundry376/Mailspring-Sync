@@ -1208,7 +1208,6 @@ public:
    * @brief Returns a pointer to an array of non-option arguments (only valid
    * if <code>nonOptionsCount() >0 </code>).
    *
-   * @note
    * @li parse() does not copy arguments, so this pointer points into the actual argument
    * vector as passed to parse().
    * @li As explained at nonOptionsCount() this pointer is only changed by parse() calls
