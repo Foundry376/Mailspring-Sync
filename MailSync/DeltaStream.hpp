@@ -28,6 +28,7 @@ public:
     string type;
     vector<json> modelJSONs;
     string modelClass;
+    map<string, size_t> idIndexes;
     
     DeltaStreamItem(string type, string modelClass, vector<json> modelJSONs);
     DeltaStreamItem(string type, vector<shared_ptr<MailModel>> & models);
