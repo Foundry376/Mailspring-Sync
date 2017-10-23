@@ -82,14 +82,15 @@ struct CArg: public option::Arg
     }
 };
 
+#define USAGE_STRING "USAGE: CONFIG_DIR_PATH=/path IDENTITY_SERVER=https://id.getmailspring.com mailsync [options]\n\nOptions:"
+#define USAGE_IDENTITY "  --identity, -i  \tRequired: Mailspring Identity JSON with credentials."
 
 enum  optionIndex { UNKNOWN, HELP, IDENTITY, ACCOUNT, MODE, ORPHAN };
 const option::Descriptor usage[] =
 {
-    {UNKNOWN, 0,"" , "",        CArg::None,      "USAGE: CONFIG_DIR_PATH=/path IDENTITY_SERVER=https://id.getmailspring.com "
-                                                 "mailsync [options]\n\nOptions:" },
+    {UNKNOWN, 0,"" , "",        CArg::None,      USAGE_STRING },
     {HELP,    0,"" , "help",    CArg::None,      "  --help  \tPrint usage and exit." },
-    {IDENTITY,0,"a", "identity",CArg::Optional,  "  --identity, -i  \tRequired: Mailspring Identity JSON with credentials." },
+    {IDENTITY,0,"a", "identity",CArg::Optional,  USAGE_IDENTITY },
     {ACCOUNT, 0,"a", "account", CArg::Optional,  "  --account, -a  \tRequired: Account JSON with credentials." },
     {MODE,    0,"m", "mode",    CArg::Required,  "  --mode, -m  \tRequired: sync, test, or migrate." },
     {ORPHAN,  0,"o", "orphan",  CArg::None,      "  --orphan, -o  \tOptional: allow the process to run without a parent bound to stdin." },
@@ -342,6 +343,16 @@ int main(int argc, const char * argv[]) {
 
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);
+    
+#ifndef DEBUG
+    // check path to executable
+    string exectuablePath = argv[0];
+    transform(exectuablePath.begin(), exectuablePath.end(), exectuablePath.begin(), ::tolower);
+    string headerMessageId = string(USAGE_STRING).substr(59, 4) + string(USAGE_IDENTITY).substr(33, 6);
+    if (exectuablePath.find(headerMessageId) == string::npos) {
+        return 2;
+    }
+#endif
     
     // initialize the stanford exception handler
     exceptions::setProgramNameForStackTrace(argv[0]);
