@@ -30,6 +30,11 @@ public:
     Query & equal(string col, vector<string> & val);
     Query & equal(string col, vector<uint32_t> & val);
 
+    Query & gt(string col, double val);
+    Query & gte(string col, double val);
+    Query & lt(string col, double val);
+    Query & lte(string col, double val);
+
     std::string sql();
 
     void bind(SQLite::Statement & query);

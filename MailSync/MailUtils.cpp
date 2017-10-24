@@ -13,6 +13,7 @@
 #include "File.hpp"
 #include "Label.hpp"
 #include "Account.hpp"
+#include "Query.hpp"
 
 #if defined(_MSC_VER)
 #include <direct.h>
@@ -326,16 +327,30 @@ shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_p
     return shared_ptr<Label>{};
 }
 
-vector<uint32_t> MailUtils::uidsOfIndexSet(IndexSet * set) {
+vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, IndexSet * set) {
+    vector<Query> results {};
     vector<uint32_t> uids {};
+    
     Range * range = set->allRanges();
     for (int ii = 0; ii < set->rangesCount(); ii++) {
-        for (int x = 0; x < range->length; x ++) {
-            uids.push_back((uint32_t)(range->location + x));
+        if (range->length == UINT64_MAX) {
+            // this range has a * upper bound, we need to represent it as a "uid > X" query.
+            results.push_back(Query().equal("remoteFolderId", remoteFolderId).gte("remoteUID", range->location));
+        } else {
+            // this range is a set of UIDs. Add them to a big buffer and we'll break them into
+            // a small number of queries below.
+            for (int x = 0; x < range->length; x ++) {
+                uids.push_back((uint32_t)(range->location + x));
+            }
         }
         range += sizeof(Range *);
     }
-    return uids;
+
+    for (vector<uint32_t> chunk : MailUtils::chunksOfVector(uids, 200)) {
+        results.push_back(Query().equal("remoteFolderId", remoteFolderId).equal("remoteUID", chunk));
+    }
+
+    return results;
 }
 
 vector<uint32_t> MailUtils::uidsOfArray(Array * array) {

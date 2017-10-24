@@ -253,26 +253,23 @@ bool MailProcessor::retrievedFileData(File * file, Data * data) {
     return (data->writeToFile(&mfilepath) == ErrorNone);
 }
 
-void MailProcessor::unlinkMessagesFromFolder(Folder & folder, vector<uint32_t> & uids, int phase)
+void MailProcessor::unlinkMessagesMatchingQuery(Query & query, int phase)
 {
-    logger->info("Unlinking {} messages no longer present in remote range.", uids.size());
+    logger->info("Unlinking messages {} no longer present in remote range.", query.sql());
     
     {
         MailStoreTransaction transaction{store};
-    
-        for (vector<uint32_t> chunk : MailUtils::chunksOfVector(uids, 250)) {
-            Query qd = Query().equal("remoteFolderId", folder.id()).equal("remoteUID", chunk);
-            auto deletedMsgs = store->findAll<Message>(qd);
 
-            for (const auto msg : deletedMsgs) {
-                if (msg->remoteUID() > UINT32_MAX - 5) {
-                    // we unlinked this message in a previous cycle and it will be deleted momentarily.
-                    continue;
-                }
-                logger->info("-- Unlinking \"{}\" ({})", msg->subject(), msg->id());
-                msg->setRemoteUID(UINT32_MAX - phase);
-                store->save(msg.get());
+        auto deletedMsgs = store->findAll<Message>(query);
+
+        for (const auto msg : deletedMsgs) {
+            if (msg->remoteUID() > UINT32_MAX - 5) {
+                // we unlinked this message in a previous cycle and it will be deleted momentarily.
+                continue;
             }
+            logger->info("-- Unlinking \"{}\" ({})", msg->subject(), msg->id());
+            msg->setRemoteUID(UINT32_MAX - phase);
+            store->save(msg.get());
         }
 
         transaction.commit();

@@ -63,7 +63,7 @@ std::string defaultExtension(const std::string& filename, const std::string& ext
     }
     if (dot == -1) {
         force = true;
-        dot = len;
+        dot = (int)len;
     }
     if (force) {
         return filename.substr(0, dot) + extCopy;
