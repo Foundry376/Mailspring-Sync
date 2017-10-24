@@ -55,7 +55,7 @@ string Contact::searchContent() {
         content = content.replace(at, 1, " ");
     }
     if (_data.count("name")) {
-        content = content + _data["name"].get<string>();
+        content = content + " " + _data["name"].get<string>();
     }
 
     return content;
