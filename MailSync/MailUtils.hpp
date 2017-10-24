@@ -21,6 +21,7 @@ class File;
 class Label;
 class Account;
 class Message;
+class Query;
 
 using namespace nlohmann;
 using namespace std;
@@ -43,7 +44,8 @@ public:
     static string timestampForTime(time_t time);
   
     static vector<uint32_t> uidsOfArray(Array * array);
-    static vector<uint32_t> uidsOfIndexSet(IndexSet * set);
+    
+    static vector<Query> queriesForUIDRangesInIndexSet(string remoteFolderId, IndexSet * set);
 
     static string pathForFile(string root, File * file, bool create);
 

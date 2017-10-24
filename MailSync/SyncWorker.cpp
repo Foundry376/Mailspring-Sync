@@ -652,7 +652,10 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         for (auto const &ent : local) {
             deletedUIDs.push_back(ent.first);
         }
-        processor->unlinkMessagesFromFolder(folder, deletedUIDs, unlinkPhase);
+        for (vector<uint32_t> chunk : MailUtils::chunksOfVector(deletedUIDs, 200)) {
+            auto query = Query().equal("remoteFolderId", folder.id()).equal("remoteUID", chunk);
+            processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
+        }
     }
 }
 
@@ -705,11 +708,13 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     }
     
     // for deleted messages, collect UIDs and destroy. Note: vanishedMessages is only
-    // populated when QRESYNC is available.
+    // populated when QRESYNC is available. IMPORTANT: vanished may include an infinite
+    // range, like 12:* so we can't convert it to a fixed array.
     if (result->vanishedMessages() != NULL) {
-        vector<uint32_t> deletedUIDs = MailUtils::uidsOfIndexSet(result->vanishedMessages());
-        logger->info("There have been {} messages removed", deletedUIDs.size());
-        processor->unlinkMessagesFromFolder(folder, deletedUIDs, unlinkPhase);
+        vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), result->vanishedMessages());
+        for (Query & query : queries) {
+            processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
+        }
     }
 
     folder.localStatus()["uidnext"] = remoteUIDNext;

@@ -40,7 +40,7 @@ public:
     void updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp);
     void retrievedMessageBody(Message * message, MessageParser * parser);
     bool retrievedFileData(File * file, Data * data);
-    void unlinkMessagesFromFolder(Folder & folder, vector<uint32_t> & uids, int phase);
+    void unlinkMessagesMatchingQuery(Query & query, int phase);
     void deleteMessagesStillUnlinkedFromPhase(int phase);
     
 private:

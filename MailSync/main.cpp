@@ -353,7 +353,7 @@ int main(int argc, const char * argv[]) {
         return 2;
     }
 #endif
-    
+
     // initialize the stanford exception handler
     exceptions::setProgramNameForStackTrace(argv[0]);
     exceptions::setTopLevelExceptionHandlerEnabled(true);

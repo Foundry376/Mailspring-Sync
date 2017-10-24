@@ -350,6 +350,9 @@ static IndexSet * indexSetFromSet(struct mailimap_set * imap_set)
     for(clistiter * cur = clist_begin(imap_set->set_list) ; cur != NULL ; cur = clist_next(cur)) {
         struct mailimap_set_item * item = (struct mailimap_set_item *) clist_content(cur);
         if (item->set_last == 0) {
+            // convert the *, parsed as zero here:
+            // https://github.com/dinhviethoa/libetpan/blob/9c2066674830408dcdc59f7633e7edfb3f05981a/src/low-level/imap/mailimap_parser.c#L11110
+            // into our representation of *, which is UINT64_MAX
             indexSet->addRange(RangeMake(item->set_first, UINT64_MAX));
         }
         else {

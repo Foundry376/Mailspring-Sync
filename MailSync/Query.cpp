@@ -11,28 +11,51 @@
 
 #include "json.hpp"
 #include "MailUtils.hpp"
+#include "SyncException.hpp"
 
 using namespace nlohmann;
 using namespace std;
 
 
+// TODO: figure out how to use templates for this
+
 Query & Query::equal(string col, string val) {
-    clauses[col] = val;
+    clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }
 
 Query & Query::equal(string col, double val) {
-    clauses[col] = val;
+    clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }
 
 Query & Query::equal(string col, vector<string> & val) {
-    clauses[col] = val;
+    clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }
 
 Query & Query::equal(string col, vector<uint32_t> & val) {
-    clauses[col] = val;
+    clauses[col] = {{"op","="}, {"rhs", val}};
+    return *this;
+}
+
+Query & Query::gt(string col, double val) {
+    clauses[col] = {{"op",">"}, {"rhs", val}};
+    return *this;
+}
+
+Query & Query::gte(string col, double val) {
+    clauses[col] = {{"op",">="}, {"rhs", val}};
+    return *this;
+}
+
+Query & Query::lt(string col, double val) {
+    clauses[col] = {{"op","<"}, {"rhs", val}};
+    return *this;
+}
+
+Query & Query::lte(string col, double val) {
+    clauses[col] = {{"op","<="}, {"rhs", val}};
     return *this;
 }
 
@@ -46,14 +69,20 @@ string Query::sql() {
             if (it != clauses.begin()) {
                 result += " AND ";
             }
-            if (it.value().is_array()) {
-                if (it.value().size() == 0) {
+            string op = it.value()["op"].get<string>();
+            json & rhs = it.value()["rhs"];
+            
+            if (rhs.is_array()) {
+                if (op != "=") {
+                    throw SyncException("query-builder", "Cannot use query operator " + op + " with an array of values", true);
+                }
+                if (rhs.size() == 0) {
                     result += "0 = 1";
                     continue;
                 }
-                result += it.key() + " IN (" + MailUtils::qmarks(it.value().size()) + ")";
+                result += it.key() + " IN (" + MailUtils::qmarks(rhs.size()) + ")";
             } else {
-                result += it.key() + " = ?";
+                result += it.key() + " " + op + " ?";
             }
         }
     }
@@ -63,23 +92,25 @@ string Query::sql() {
 void Query::bind(SQLite::Statement & query) {
     int ii = 1;
     for (json::iterator it = clauses.begin(); it != clauses.end(); ++it) {
-        if (it.value().is_array()) {
-            for (json::iterator at = it.value().begin(); at != it.value().end(); ++at) {
+        json & rhs = it.value()["rhs"];
+
+        if (rhs.is_array()) {
+            for (json::iterator at = rhs.begin(); at != rhs.end(); ++at) {
                 if (at->is_number()) {
                     query.bind(ii++, at->get<double>());
                 } else if (at->is_string()) {
                     query.bind(ii++, at->get<string>());
                 } else {
-                    throw "Unsure of how to bind json to sqlite";
+                    throw SyncException("query-builder", "Unsure of how to bind json to sqlite", true);
                 }
             }
         } else {
-            if (it.value().is_number()) {
-                query.bind(ii++, it.value().get<double>());
-            } else if (it.value().is_string()) {
-                query.bind(ii++, it.value().get<string>());
+            if (rhs.is_number()) {
+                query.bind(ii++, rhs.get<double>());
+            } else if (rhs.is_string()) {
+                query.bind(ii++, rhs.get<string>());
             } else {
-                throw "Unsure of how to bind json to sqlite";
+                throw SyncException("query-builder", "Unsure of how to bind json to sqlite", true);
             }
         }
     }
