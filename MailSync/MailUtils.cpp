@@ -331,23 +331,41 @@ vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, In
     vector<Query> results {};
     vector<uint32_t> uids {};
     
-    Range * range = set->allRanges();
     for (int ii = 0; ii < set->rangesCount(); ii++) {
-        if (range->length == UINT64_MAX) {
+        uint64_t left = RangeLeftBound(set->allRanges()[ii]);
+        uint64_t right = RangeRightBound(set->allRanges()[ii]);
+
+        spdlog::get("logger")->info("- Building queries for range {}-{}", left, right);
+
+        if (left == UINT64_MAX) {
+            // an empty range
+            continue;
+        }
+
+        if (left > right) {
+            // an invalid range
+            spdlog::get("logger")->error("- IndexSet UID range ({}-{}) has a lower bound greatre than it's upper bound.", left, right);
+            continue;
+        }
+
+        if (right == UINT64_MAX) {
             // this range has a * upper bound, we need to represent it as a "uid > X" query.
-            results.push_back(Query().equal("remoteFolderId", remoteFolderId).gte("remoteUID", range->location));
+            results.push_back(Query().equal("remoteFolderId", remoteFolderId).gte("remoteUID", left));
+        } else if (right - left > 50) {
+            // this range has many items, just express it as a bounded range query
+            results.push_back(Query().equal("remoteFolderId", remoteFolderId).gte("remoteUID", left).lt("remoteUID", right));
         } else {
-            // this range is a set of UIDs. Add them to a big buffer and we'll break them into
-            // a small number of queries below.
-            for (int x = 0; x < range->length; x ++) {
-                uids.push_back((uint32_t)(range->location + x));
+            // this range has a few items, throw them in a pile and we'll make a few queries for these specific UIDs
+            for (uint64_t x = left; x < right; x ++) {
+                uids.push_back((uint32_t)x);
             }
         }
-        range += sizeof(Range *);
     }
 
-    for (vector<uint32_t> chunk : MailUtils::chunksOfVector(uids, 200)) {
-        results.push_back(Query().equal("remoteFolderId", remoteFolderId).equal("remoteUID", chunk));
+    if (uids.size() > 0) {
+        for (vector<uint32_t> chunk : MailUtils::chunksOfVector(uids, 200)) {
+            results.push_back(Query().equal("remoteFolderId", remoteFolderId).equal("remoteUID", chunk));
+        }
     }
 
     return results;
