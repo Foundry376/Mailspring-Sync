@@ -460,7 +460,57 @@ string MailUtils::qmarkSets(size_t count, size_t perSet) {
     return qmarks;
 }
 
-void MailUtils::configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account) {
+// *******************************
+// Sessions and Logging
+
+static bool _verboseLogging = false;
+
+void MailUtils::enableVerboseLogging() {
+    _verboseLogging = true;
+}
+
+class MailcoreSPDLogger : public ConnectionLogger {
+  public:
+    void log(string str) {
+        spdlog::get("logger")->info(str);
+    }
+
+    void log(void *sender, ConnectionLogType logType, Data *buffer) {
+        string logTypeString{"unknown"};
+        switch (logType)
+        {
+        case ConnectionLogTypeReceived:
+            logTypeString = "recv";
+            break;
+
+        case ConnectionLogTypeSent:
+            logTypeString = "sent";
+            break;
+
+        case ConnectionLogTypeSentPrivate:
+            logTypeString = "sent-private";
+            break;
+
+        case ConnectionLogTypeErrorParse:
+            logTypeString = "error-parse";
+            break;
+
+        case ConnectionLogTypeErrorReceived:
+            logTypeString = "error-received";
+            break;
+
+        case ConnectionLogTypeErrorSent:
+            logTypeString = "error-sent";
+            break;
+
+        default:
+            break;
+        }
+        spdlog::get("logger")->info("{} {}", logTypeString, (buffer != nullptr) ? buffer->bytes() : "");
+    }
+};
+
+void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Account> account) {
     if (account->refreshToken() != "") {
         XOAuth2Parts parts = SharedXOAuth2TokenManager()->partsForAccount(account);
         session.setUsername(AS_MCSTR(parts.username));
@@ -481,6 +531,10 @@ void MailUtils::configureSessionForAccount(IMAPSession & session, shared_ptr<Acc
     }
     if (account->IMAPAllowInsecureSSL()) {
         session.setCheckCertificateEnabled(false);
+    }
+
+    if (_verboseLogging) {
+        session.setConnectionLogger(new MailcoreSPDLogger());
     }
 }
 
@@ -506,10 +560,14 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     if (account->SMTPAllowInsecureSSL()) {
         session.setCheckCertificateEnabled(false);
     }
+
+    if (_verboseLogging) {
+        session.setConnectionLogger(new MailcoreSPDLogger());
+    }
 }
 
+// *******************************
 // Worker Sleep Implementation
-
 
 std::mutex workerSleepMtx;
 std::condition_variable workerSleepCV;
@@ -523,6 +581,7 @@ void MailUtils::sleepWorkerUntilWakeOrSec(int sec) {
 
 void MailUtils::wakeAllWorkers() {
     lock_guard<mutex> lck(workerSleepMtx);
-    workerSleepCV.notify_all();
-}
 
+    workerSleepCV.notify_all();
+
+}
