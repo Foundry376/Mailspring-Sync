@@ -53,7 +53,6 @@ namespace exceptions {
 #define SIGUNKNOWN ((int) 0xcafebabe)
 #define SIGTIMEOUT ((int) 0xf00df00d)
 static const bool STACK_TRACE_SHOULD_FILTER = true;
-static const bool STACK_TRACE_SHOW_TOP_BOTTOM_BARS = false;
 static bool topLevelExceptionHandlerEnabled = false;
 static void (*old_terminate)() = NULL;
 static std::string PROGRAM_NAME = "";
@@ -234,13 +233,6 @@ void printStackTrace(std::vector<stacktrace::entry> & entries) {
     
     if (lineStrLength > 0) {
         out << " *** Stack trace (line numbers are approximate):" << std::endl;
-        if (STACK_TRACE_SHOW_TOP_BOTTOM_BARS) {
-            out << " *** "
-                      << std::setw(lineStrLength) << std::left
-                      << "file:line" << "  " << "function" << std::endl;
-            out << " *** "
-                      << std::string(lineStrLength + 2 + funcNameLength, '=') << std::endl;
-        }
     } else {
         out << " *** Stack trace:" << std::endl;
     }
@@ -264,29 +256,12 @@ void printStackTrace(std::vector<stacktrace::entry> & entries) {
             lineStr = "line " + integerToString((int)entry.line);
         }
         
-        out << " *** " << std::left << std::setw(lineStrLength) << lineStr
-                  << "  " << entry.function << std::endl;
-        
-        // don't show entries beneath the student's main() function, for simplicity
-        if (entry.function == "main()") {
-            break;
-        }
+        out << " *** " << std::left << std::setw(lineStrLength) << lineStr << "  " << entry.function << std::endl;
     }
     if (entries.size() == 1 && entries[0].address == fakeStackPtr) {
         out << " *** (partial stack due to crash)" << std::endl;
     }
 
-    if (STACK_TRACE_SHOW_TOP_BOTTOM_BARS && lineStrLength > 0) {
-        out << " *** "
-                  << std::string(lineStrLength + 2 + funcNameLength, '=') << std::endl;
-    }
-    
-//    out << " ***" << std::endl;
-//    out << " *** NOTE:" << std::endl;
-//    out << " *** Any line numbers listed above are approximate." << std::endl;
-//    out << " *** To learn more about why the program crashed, we" << std::endl;
-//    out << " *** suggest running your program under the debugger." << std::endl;
-    
     out << " ***" << std::endl;
 
     spdlog::get("logger")->critical(out.str());

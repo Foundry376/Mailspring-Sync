@@ -85,7 +85,7 @@ struct CArg: public option::Arg
 #define USAGE_STRING "USAGE: CONFIG_DIR_PATH=/path IDENTITY_SERVER=https://id.getmailspring.com mailsync [options]\n\nOptions:"
 #define USAGE_IDENTITY "  --identity, -i  \tRequired: Mailspring Identity JSON with credentials."
 
-enum  optionIndex { UNKNOWN, HELP, IDENTITY, ACCOUNT, MODE, ORPHAN };
+enum  optionIndex { UNKNOWN, HELP, IDENTITY, ACCOUNT, MODE, ORPHAN, VERBOSE };
 const option::Descriptor usage[] =
 {
     {UNKNOWN, 0,"" , "",        CArg::None,      USAGE_STRING },
@@ -94,6 +94,7 @@ const option::Descriptor usage[] =
     {ACCOUNT, 0,"a", "account", CArg::Optional,  "  --account, -a  \tRequired: Account JSON with credentials." },
     {MODE,    0,"m", "mode",    CArg::Required,  "  --mode, -m  \tRequired: sync, test, or migrate." },
     {ORPHAN,  0,"o", "orphan",  CArg::None,      "  --orphan, -o  \tOptional: allow the process to run without a parent bound to stdin." },
+    {VERBOSE, 0,"v", "verbose", CArg::None,      "  --verbose, -v  \tOptional: log all IMAP and SMTP traffic for debugging purposes." },
     {0,0,0,0,0,0}
 };
 
@@ -457,6 +458,11 @@ int main(int argc, const char * argv[]) {
     sinks.push_back(stderr_sink);
     
     spdlog::create("logger", std::begin(sinks), std::end(sinks));
+
+    // Tell MailUtils to forward mailcore logs to spdlog if --verbose is passed.
+    if (options[VERBOSE]) {
+        MailUtils::enableVerboseLogging();
+    }
 
     // setup curl
     curl_global_init(CURL_GLOBAL_ALL);

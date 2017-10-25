@@ -69,13 +69,13 @@ public:
 
     static XOAuth2Parts userAndTokenFromXOAuth2(string xoauth2);
 
+    static void enableVerboseLogging();
     static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
     static void configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account);
     
     static void sleepWorkerUntilWakeOrSec(int sec);
     static void wakeAllWorkers();
 
-    
     template<typename T>
     static vector<vector<T>> chunksOfVector(vector<T> & v, size_t chunkSize) {
         vector<vector<T>> results{};
