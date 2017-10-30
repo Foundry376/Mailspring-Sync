@@ -609,10 +609,18 @@ Data * Data::dataWithContentsOfFile(String * filename)
 {
     int r;
     struct stat stat_buf;
-    FILE * f;
+    FILE * f = NULL;
     Data * data;
     
+#ifdef _MSC_VER
+    int r = _wfopen_s(&f, filename->unicodeCharacters(), "rb");
+    if (r != 0) {
+        f = NULL;
+    }
+#else
     f = fopen(filename->fileSystemRepresentation(), "rb");
+#endif
+
     if (f == NULL) {
         return NULL;
     }
@@ -675,7 +683,15 @@ void Data::importSerializable(HashMap * serializable)
 
 ErrorCode Data::writeToFile(String * filename)
 {
+#ifdef _MSC_VER
+    FILE * f = NULL;
+    int r = _wfopen_s(&f, filename->unicodeCharacters(), "wb");
+    if (r != 0) {
+        f = NULL;
+    }
+#else
     FILE * f = fopen(filename->fileSystemRepresentation(), "wb");
+#endif
 
     if (f == NULL) {
         return ErrorFile;
