@@ -25,7 +25,7 @@ MetadataExpirationWorker::MetadataExpirationWorker(string accountId) :
 
 // Called from all threads
 
-void MetadataExpirationWorker::didSaveMetadataWithExpiration(long e) {
+void MetadataExpirationWorker::isSavingMetadataWithExpiration(long e) {
     std::chrono::system_clock::time_point eTime = std::chrono::system_clock::from_time_t(e);
 
     if (eTime < _wakeTime) {
@@ -84,10 +84,6 @@ void MetadataExpirationWorker::run() {
                 next = findNext.getColumn("expiration").getInt64();
             }
             
-            // always wait one extra second - don't wake /exactly/ when the metadata expires
-            // in case we're somehow scheduled and wake early.
-            next += 1;
-            
             // always wait at least fifteen seconds - this ensures we don't create a performance
             // disaster if for some reason metadata gets "stuck" on items.
             if (next < now + 15) {
@@ -101,5 +97,12 @@ void MetadataExpirationWorker::run() {
 
         std::unique_lock<std::mutex> lck(_wakeMtx);
         _wakeCv.wait_until(lck, _wakeTime);
+        
+        // we've been woken up! Wait one second before processing.
+        // We don't want to trigger at /exactly/ the time we're asked in case the client's
+        // time is slightly different. Also, because we can be woken by a model's metadata
+        // changing (INSIDE a transaction block) we need to wait to let the transaction
+        // commit before querying metadata expiration timestamps (Yes this is sort of a hack.)
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }
