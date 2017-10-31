@@ -62,7 +62,8 @@ public:
     MessageSnapshot getSnapshot();
     
     bool isDeletionPlaceholder();
-    
+    bool isHiddenReminder();
+
     bool isUnread();
     void setUnread(bool u);
 

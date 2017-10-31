@@ -143,6 +143,22 @@ bool Message::isDeletionPlaceholder() {
     return id().substr(0, 8) == "deleted-";
 }
 
+bool Message::isHiddenReminder() {
+    // check for "Ben via Mailspring" reminders / unsnoozes
+    if (from().size() != 1) {
+        return false;
+    }
+    if (!from()[0].count("name") || !from()[0]["name"].is_string()) {
+        return false;
+    }
+    auto fromName = from()[0]["name"].get<string>();
+    if (fromName.length() < 15) {
+        return false;
+    }
+    auto fromEnd = fromName.substr(fromName.length() - 14, 14);
+    return (fromEnd == "via Mailspring");
+}
+
 // mutable attributes
 
 bool Message::isUnread() {
