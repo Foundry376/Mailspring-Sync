@@ -195,7 +195,7 @@ void MailModel::afterSave(MailStore * store) {
             // so it can invalidate / recalculate expiration timers
             MetadataExpirationWorker * worker = MetadataExpirationWorkerForAccountId(accountId());
             if (worker != nullptr) {
-                worker->didSaveMetadataWithExpiration(lowestExpiration);
+                worker->isSavingMetadataWithExpiration(lowestExpiration);
             }
         }
     }

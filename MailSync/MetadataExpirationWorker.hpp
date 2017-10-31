@@ -31,7 +31,7 @@ class MetadataExpirationWorker  {
 public:
     MetadataExpirationWorker(string accountId);
     
-    void didSaveMetadataWithExpiration(long e);
+    void isSavingMetadataWithExpiration(long e);
     void run();
 };
 
