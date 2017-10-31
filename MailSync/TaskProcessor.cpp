@@ -402,16 +402,14 @@ ChangeMailModels TaskProcessor::inflateMessages(json & data) {
         for (auto & member : data["threadIds"]) {
             threadIds.push_back(member.get<string>());
         }
-        Query byThreadId = Query().equal("threadId", threadIds);
-        models.messages = store->findAll<Message>(byThreadId);
-        
+        models.messages = store->findAll<Message>(Query().equal("threadId", threadIds));
+
     } else if (data.count("messageIds")) {
         vector<string> messageIds{};
         for (auto & member : data["messageIds"]) {
             messageIds.push_back(member.get<string>());
         }
-        Query byId = Query().equal("id", messageIds);
-        models.messages = store->findAll<Message>(byId);
+        models.messages = store->findAll<Message>(Query().equal("id", messageIds));
     }
     
     return models;
@@ -434,6 +432,30 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
 
         store->save(msg.get());
     }
+
+    // TEMPORARY
+    // if we were given a set of threadIds, we might as well rebalance the counters
+    // and correct any refcounting issues the user may be seeing, since we already
+    // have all the messages in memory.
+    if (data.count("threadIds")) {
+        vector<string> threadIds{};
+        for (auto & member : data["threadIds"]) {
+            threadIds.push_back(member.get<string>());
+        }
+        auto threads = store->findAllMap<Thread>(Query().equal("id", threadIds), "id");
+        auto allLabels = store->allLabelsCache(task->accountId());
+
+        for (auto pair : threads) {
+            pair.second->resetCountedAttributes();
+        }
+        for (auto msg : models.messages) {
+            threads[msg->threadId()]->applyMessageAttributeChanges(MessageEmptySnapshot, msg.get(), allLabels);
+        }
+        for (auto pair : threads) {
+            store->save(pair.second.get());
+        }
+    }
+    // END TEMPORARY
 
     transaction.commit();
 }

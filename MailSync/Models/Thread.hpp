@@ -61,10 +61,9 @@ public:
     time_t lastMessageSentTimestamp();
 
     json & folders();
-    void setFolders(json folders);
-    
     json & labels();
 
+    void resetCountedAttributes();
     void applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> allLabels);
     void upsertReferences(SQLite::Database & db, string headerMessageId, mailcore::Array * references);
 

@@ -28,7 +28,6 @@ using namespace mailcore;
 
 struct ChangeMailModels {
     vector<shared_ptr<Message>> messages;
-    map<string, shared_ptr<Thread>> threads;
 };
 
 

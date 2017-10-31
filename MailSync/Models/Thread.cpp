@@ -130,6 +130,15 @@ json & Thread::participants() {
     return _data["participants"];
 }
 
+void Thread::resetCountedAttributes() {
+    setUnread(0);
+    setStarred(0);
+    _data["folders"] = json::array();
+    _data["labels"] = json::array();
+
+    // now call applyMessageAttributeChanges(empty, msg) for all messages
+}
+
 void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> allLabels) {
     // decrement basic attributes
     setUnread(unread() - old.unread);
