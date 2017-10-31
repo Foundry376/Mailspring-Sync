@@ -698,12 +698,16 @@ void TaskProcessor::performRemoteSyncbackMetadata(Task * task) {
     string id = data["modelId"];
     string pluginId = data["pluginId"];
 
-    const json payload = {
+    json payload = {
         {"objectType", data["modelClassName"]},
         {"version", data["modelMetadataNewVersion"]},
-        {"headerMessageId", data["modelHeaderMessageId"]},
         {"value", data["value"]},
     };
+
+    if (data["modelHeaderMessageId"].is_string()) {
+        payload["headerMessageId"] = data["modelHeaderMessageId"].get<string>();
+    }
+
     const json results = MakeIdentityRequest("/metadata/" + account->id() + "/" + id + "/" + pluginId, "POST", payload);
     logger->info("Syncback of metadata {}:{} = {} succeeded.", id, pluginId, payload.dump());
 }
