@@ -190,7 +190,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
             if (next->date() < firstMessageTimestamp()) {
                 _data["fmt"] = next->date();
             }
-            if (next->isSentByUser()) {
+            if (next->isSentByUser() && !next->isHiddenReminder()) {
                 if (next->date() > lastMessageSentTimestamp()) {
                     _data["lmst"] = next->date();
                 }
