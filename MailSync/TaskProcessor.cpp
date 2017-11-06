@@ -420,8 +420,14 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
     
     json & data = task->data();
     ChangeMailModels models = inflateMessages(data);
+    bool recomputeThreadAttributes = data.count("threadIds");
     
     for (auto msg : models.messages) {
+        // TEMPORARY
+        if (recomputeThreadAttributes) {
+            msg->_skipThreadUpdatesAfterSave = true;
+        }
+        
         // perform local changes
         modifyLocalMessage(msg.get(), data);
 
@@ -437,7 +443,7 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
     // if we were given a set of threadIds, we might as well rebalance the counters
     // and correct any refcounting issues the user may be seeing, since we already
     // have all the messages in memory.
-    if (data.count("threadIds")) {
+    if (recomputeThreadAttributes) {
         vector<string> threadIds{};
         for (auto & member : data["threadIds"]) {
             threadIds.push_back(member.get<string>());

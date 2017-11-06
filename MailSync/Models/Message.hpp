@@ -136,6 +136,7 @@ public:
 
     json toJSONDispatch();
 
+    bool _skipThreadUpdatesAfterSave;
 };
 
 #endif /* Message_hpp */
