@@ -54,6 +54,7 @@ shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Messag
 Message::Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTimestamp) :
 MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 0)
 {
+    _skipThreadUpdatesAfterSave = false;
     _lastSnapshot = MessageEmptySnapshot;
     _data["_sa"] = syncDataTimestamp;
     _data["_suc"] = 0;
@@ -112,12 +113,14 @@ MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 
 Message::Message(SQLite::Statement & query) :
     MailModel(query)
 {
+    _skipThreadUpdatesAfterSave = false;
     _lastSnapshot = getSnapshot();
 }
 
 Message::Message(json json) :
     MailModel(json)
 {
+    _skipThreadUpdatesAfterSave = false;
     if (version() == 0) {
         _lastSnapshot = MessageEmptySnapshot;
     } else {
@@ -396,7 +399,9 @@ void Message::afterSave(MailStore * store) {
 
     // if we have a thread, keep the thread's folder, label, and unread counters
     // in sync by providing it with a before + after snapshot of this message.
-
+    if (_skipThreadUpdatesAfterSave) {
+        return;
+    }
     if (threadId() == "") {
         return;
     }
@@ -408,7 +413,6 @@ void Message::afterSave(MailStore * store) {
     auto allLabels = store->allLabelsCache(accountId());
     thread->applyMessageAttributeChanges(_lastSnapshot, this, allLabels);
     store->save(thread.get());
-
     _lastSnapshot = getSnapshot();
 }
 
