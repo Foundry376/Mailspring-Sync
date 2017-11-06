@@ -515,13 +515,16 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFol
             safe->setRemoteUID(unsafe->remoteUID());
             safe->setRemoteFolder(unsafe->remoteFolder());
             safe->setRemoteXGMLabels(unsafe->remoteXGMLabels());
-
             int suc = safe->syncUnsavedChanges() - 1;
             safe->setSyncUnsavedChanges(suc);
             if (suc == 0) {
                 safe->setSyncedAt(time(0));
             }
-            store->save(safe.get());
+            
+            // We know we do not need to `emit` this change, because it's all internal fields and
+            // remote values, not things reflected in the client. This is good for perf because
+            // the client does silly things like refresh MessageItems when new versions arrive.
+            store->save(safe.get(), false);
         }
         transaction.commit();
     }
