@@ -467,16 +467,18 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
 }
 
 void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data)) {
-    // perform the remote action on the impacted messages
+    // Perform the remote action on the impacted messages
     json & data = task->data();
     
-    // because the messages have had their syncedAt date set to something high,
-    // it's safe to load, mutate, save without wrapping in a transaction, because
-    // the other sync worker will not change them and we only run one task at a time.
+    // Grab the messages, group into folders, and perform the remote changes.
+    // Note that we reload the messages to update them locally because
+    // this code does I/O and is not inside a transaction! Other task
+    // performLocal calls could be happening at the same time.
     vector<shared_ptr<Message>> messages = inflateMessages(data).messages;
     map<string, shared_ptr<IndexSet>> uidsByFolder{};
     map<string, vector<shared_ptr<Message>>> msgsByFolder{};
-    
+    map<string, shared_ptr<Message>> messagesById{};
+
     for (auto msg : messages) {
         string path = msg->remoteFolder()["path"].get<string>();
         uint32_t uid = msg->remoteUID();
@@ -486,6 +488,7 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFol
         }
         uidsByFolder[path]->addIndex(uid);
         msgsByFolder[path].push_back(msg);
+        messagesById[msg->id()] = msg;
     }
     
     for (auto pair : msgsByFolder) {
@@ -497,17 +500,28 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFol
         applyInFolder(session, AS_MCSTR(pair.first), uids, msgs, data);
     }
     
-    // save any changes made by applyInFolder and decrement locks
+    // Reload the messages inside a transaction, save any changes made to "remote" attributes
+    // by applyInFolder and decrement locks
     {
         MailStoreTransaction transaction{store};
-
-        for (auto msg : messages) {
-            int suc = msg->syncUnsavedChanges() - 1;
-            msg->setSyncUnsavedChanges(suc);
-            if (suc == 0) {
-                msg->setSyncedAt(time(0));
+        vector<shared_ptr<Message>> safeMessages = inflateMessages(data).messages;
+        
+        for (auto safe : safeMessages) {
+            if (!messagesById.count(safe->id())) {
+                logger->info("-- Could not find msg {} to apply remote changes", safe->id());
+                continue;
             }
-            store->save(msg.get());
+            auto unsafe = messagesById[safe->id()];
+            safe->setRemoteUID(unsafe->remoteUID());
+            safe->setRemoteFolder(unsafe->remoteFolder());
+            safe->setRemoteXGMLabels(unsafe->remoteXGMLabels());
+
+            int suc = safe->syncUnsavedChanges() - 1;
+            safe->setSyncUnsavedChanges(suc);
+            if (suc == 0) {
+                safe->setSyncedAt(time(0));
+            }
+            store->save(safe.get());
         }
         transaction.commit();
     }

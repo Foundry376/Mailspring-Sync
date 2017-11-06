@@ -112,6 +112,7 @@ public:
     
     json remoteFolder();
     string remoteFolderId();
+    void setRemoteFolder(json folder);
     void setRemoteFolder(Folder * folder);
 
     // immutable attributes

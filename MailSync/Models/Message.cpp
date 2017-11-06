@@ -310,6 +310,10 @@ string Message::remoteFolderId() {
     return _data["remoteFolder"]["id"].get<string>();
 }
 
+void Message::setRemoteFolder(json folder) {
+    _data["remoteFolder"] = folder;
+}
+
 void Message::setRemoteFolder(Folder * folder) {
     _data["remoteFolder"] = folder->toJSON();
     if (_data["remoteFolder"].count("localStatus")) {
