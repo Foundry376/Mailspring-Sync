@@ -48,7 +48,8 @@ void SyncWorker::configure()
 
 void SyncWorker::idleInterrupt()
 {
-    // called on main thread to interrupt idle
+    // called on main / random threads to interrupt idle
+    // do not call functions from here to avoid accidentally running on two threads!
     std::unique_lock<std::mutex> lck(idleMtx);
     idleShouldReloop = true;
     session.interruptIdle();
