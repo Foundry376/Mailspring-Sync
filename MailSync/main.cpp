@@ -311,8 +311,19 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             Task task{packet["task"]};
             processor.performLocal(&task);
     
-            // interrupt the foreground sync worker to do the remote part of the task
-            fgWorker->idleInterrupt();
+            // interrupt the foreground sync worker to do the remote part of the task. We wait a short time
+            // because we want tasks queued back to back to run ASAP and not fight for locks with remote
+            // syncback. This also mitigates any potential remote loads+saves that aren't inside transactions
+            // and could overwrite local changes.
+            static atomic<bool> queuedForegroundWake { false };
+            if (!queuedForegroundWake) {
+                std::thread([]() {
+                    std::this_thread::sleep_for(chrono::milliseconds(300));
+                    fgWorker->idleInterrupt();
+                    queuedForegroundWake = false;
+                }).detach();
+                queuedForegroundWake = true;
+            }
         }
         
         if (type == "cancel-task") {
