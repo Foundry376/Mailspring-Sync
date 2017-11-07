@@ -234,6 +234,9 @@ void TaskProcessor::performLocal(Task * task) {
         } else if (cname == "ExpungeAllInFolderTask") {
             // nothing
 
+        } else if (cname == "GetMessageRFC2822Task") {
+            // nothing
+
         } else {
             logger->error("Unsure of how to process this task type {}", cname);
         }
@@ -303,6 +306,9 @@ void TaskProcessor::performRemote(Task * task) {
 
             } else if (cname == "ExpungeAllInFolderTask") {
                 performRemoteExpungeAllInFolder(task);
+
+            } else if (cname == "GetMessageRFC2822Task") {
+                performRemoteGetMessageRFC2822(task);
 
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
@@ -1200,4 +1206,20 @@ void TaskProcessor::performRemoteExpungeAllInFolder(Task * task) {
         logger->info("-- Deleted {} local messages", block.size());
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
     }
+}
+
+void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
+    AutoreleasePool pool;
+    IMAPProgress cb;
+    ErrorCode err = ErrorNone;
+    const auto id = task->data()["messageId"].get<string>();
+    const auto filepath = task->data()["filepath"].get<string>();
+    auto msg = store->find<Message>(Query().equal("accountId", task->accountId()).equal("id", id));
+
+    Data * data = session->fetchMessageByUID(AS_MCSTR(msg->remoteFolder()["path"].get<string>()), msg->remoteUID(), &cb, &err);
+    if (err != ErrorNone) {
+        logger->error("Unable to fetch rfc2822 for message (UID {}). Error {}", msg->remoteUID(), ErrorCodeToTypeMap[err]);
+        throw SyncException(err, "performRemoteGetMessageRFC2822");
+    }
+    data->writeToFile(AS_MCSTR(filepath));
 }
