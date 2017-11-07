@@ -28,6 +28,13 @@ class CleanHTMLBodyRendererTemplateCallback : public Object, public HTMLRenderer
         return MCSTR("");
     }
 
+    // Normally this calls through to XMLTidy but we have our own sanitizer at the Javascript
+    // level and Tidy has led to some bugs due to its very strict parsing:
+    // https://github.com/Foundry376/Mailspring/issues/301#issuecomment-342265351
+    mailcore::String * cleanHTMLForPart(mailcore::String * html) {
+        return html;
+    }
+
     // TODO: Image attachments can be added to the middle of messages
     // by putting them between two HTML parts and we can render them
     // within the body this way. However the attachments don't have cid's,
