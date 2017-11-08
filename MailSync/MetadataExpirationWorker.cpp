@@ -32,7 +32,9 @@ void MetadataExpirationWorker::isSavingMetadataWithExpiration(long e) {
         // wake the expiration watcher - it will process expired metadata, find this new
         // expiration value, and sleep until that time instead of the old wakeTime.
         std::unique_lock<std::mutex> lck(_wakeMtx);
-        _wakeCv.notify_one();
+        _wakeCv.notify_all();
+    } else {
+        spdlog::get("logger")->info("Metadata on object {} ({}) is further in future than wake time {}", std::chrono::system_clock::to_time_t(eTime), e, std::chrono::system_clock::to_time_t(_wakeTime));
     }
 }
 
@@ -41,6 +43,9 @@ void MetadataExpirationWorker::isSavingMetadataWithExpiration(long e) {
 void MetadataExpirationWorker::run() {
     auto logger(spdlog::get("logger"));
     
+    // Until we run once, no need to bother locking the mutex and waking us
+    _wakeTime = std::chrono::system_clock::from_time_t(0);
+
     // wait at least 15 seconds before sending the first metadata expiration event,
     // because plugins make take longer than the main application to load!
     std::this_thread::sleep_for(std::chrono::seconds(15));
