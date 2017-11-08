@@ -34,7 +34,7 @@ void MetadataExpirationWorker::isSavingMetadataWithExpiration(long e) {
         std::unique_lock<std::mutex> lck(_wakeMtx);
         _wakeCv.notify_all();
     } else {
-        spdlog::get("logger")->info("Metadata on object {} ({}) is further in future than wake time {}", std::chrono::system_clock::to_time_t(eTime), e, std::chrono::system_clock::to_time_t(_wakeTime));
+        spdlog::get("logger")->info("Metadata expiration {} is further in future than wake time {}", e, std::chrono::system_clock::to_time_t(_wakeTime));
     }
 }
 
@@ -89,10 +89,13 @@ void MetadataExpirationWorker::run() {
                 next = findNext.getColumn("expiration").getInt64();
             }
             
-            // always wait at least fifteen seconds - this ensures we don't create a performance
-            // disaster if for some reason metadata gets "stuck" on items.
-            if (next < now + 15) {
-                next = now + 15;
+            // If we just sent expiration events, wait at least 15 seconds before doing another pass,
+            // to avoid nasty issues like repeat sending, etc. if the client takes a few seconds to
+            // remove the metadata. If we didn't find anything (eg we were awoken by new metadata),
+            // wait 5 seconds (min interval for undo send) just to be safe.
+            int minTimeDelay = results.size() > 0 ? 15 : 5;
+            if (next < now + minTimeDelay) {
+                next = now + minTimeDelay;
             }
             
             // sleep until then, or we're woken to lower the delay
