@@ -877,6 +877,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         Attachment * a = Attachment::attachmentWithContentsOfFile(AS_MCSTR(path));
         if (file.contentId().is_string()) {
             a->setContentID(AS_MCSTR(file.contentId().get<string>()));
+            a->setInlineAttachment(true);
             builder.addRelatedAttachment(a);
         } else {
             builder.addAttachment(a);
