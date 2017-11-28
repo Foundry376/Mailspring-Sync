@@ -731,7 +731,7 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         return false;
     }
 
-    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.value IS NULL ORDER BY Message.date DESC LIMIT 20");
+    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.id IS NULL ORDER BY Message.date DESC LIMIT 20");
     missing.bind(1, folder.id());
     missing.bind(2, (double)(time(0) - 24 * 60 * 60 * 30 * 3)); // three months TODO pref!
     vector<Message> results{};
@@ -743,7 +743,18 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         results.push_back(msg);
     }
     
+    SQLite::Statement insertPlaceholder(store->db(), "INSERT OR IGNORE INTO MessageBody (id, value) VALUES (?, ?)");
+
     for (auto result : results) {
+        // write a blank entry into the MessageBody table so we'll only try to fetch each
+        // message once. Otherwise a persistent ErrorFetch or crash for a single message
+        // can cause the account to stay "syncing" forever.
+        insertPlaceholder.bind(1, result.id());
+        insertPlaceholder.bind(2);
+        insertPlaceholder.exec();
+        insertPlaceholder.reset();
+        
+        // attempt to fetch the message boy
         syncMessageBody(&result);
     }
     
