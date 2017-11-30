@@ -21,7 +21,17 @@
 #include "SyncException.hpp"
 
 
-#define TEN_MINUTES         60 * 10
+#define TEN_MINUTES                 60 * 10
+
+#define LS_BUSY                     "busy"
+#define LS_LAST_SHALLOW             "lastShallow"
+#define LS_LAST_DEEP                "lastDeep"
+#define LS_HIGHESTMODSEQ            "highestmodseq"
+#define LS_UIDVALIDITY              "uidvalidity"
+#define LS_UIDVALIDITY_RESET_COUNT  "uidvalidityResetCount"
+#define LS_UIDNEXT                  "uidnext"
+#define LS_SYNCED_MIN_UID           "syncedMinUID"
+
 
 using namespace mailcore;
 using namespace std;
@@ -152,7 +162,7 @@ void SyncWorker::idleCycleIteration()
     
     // Check for mail in the preferred idle folder (inbox / all)
     // TODO: We should probably not do this if it's only been ~5 seconds since the last time
-    bool initialIterationComplete = inbox->localStatus().count("lastShallow") && inbox->localStatus()["lastShallow"].get<int>() != 0;
+    bool initialIterationComplete = inbox->localStatus().count(LS_LAST_SHALLOW) && inbox->localStatus()[LS_LAST_SHALLOW].get<int>() != 0;
     
     if (initialIterationComplete) {
         String path = AS_MCSTR(inbox->path());
@@ -161,12 +171,12 @@ void SyncWorker::idleCycleIteration()
             syncFolderChangesViaCondstore(*inbox, remoteStatus);
         } else {
             uint32_t uidnext = remoteStatus.uidNext();
-            uint32_t syncedMinUID = inbox->localStatus()["syncedMinUID"].get<uint32_t>();
+            uint32_t syncedMinUID = inbox->localStatus()[LS_SYNCED_MIN_UID].get<uint32_t>();
             uint32_t bottomUID = store->fetchMessageUIDAtDepth(*inbox, 100, uidnext);
             if (bottomUID < syncedMinUID) { bottomUID = syncedMinUID; }
             syncFolderUIDRange(*inbox, RangeMake(bottomUID, uidnext - bottomUID), false);
-            inbox->localStatus()["lastShallow"] = time(0);
-            inbox->localStatus()["uidnext"] = uidnext;
+            inbox->localStatus()[LS_LAST_SHALLOW] = time(0);
+            inbox->localStatus()[LS_UIDNEXT] = uidnext;
         }
         syncMessageBodies(*inbox, remoteStatus);
         store->save(inbox.get());
@@ -198,7 +208,7 @@ void SyncWorker::markAllFoldersBusy() {
     MailStoreTransaction transaction(store);
     auto allLocalFolders = store->findAll<Folder>(Query().equal("accountId", account->id()));
     for (auto f : allLocalFolders) {
-        f->localStatus()["busy"] = true;
+        f->localStatus()[LS_BUSY] = true;
         store->save(f.get());
     }
     transaction.commit();
@@ -239,26 +249,58 @@ bool SyncWorker::syncNow()
         }
 
         // Step 1: Check folder UIDValidity
-        if (localStatus.empty() || localStatus["uidvalidity"].is_null()) {
+        if (localStatus.empty() || localStatus[LS_UIDVALIDITY].is_null()) {
             // We're about to fetch the top N UIDs in the folder and start working backwards in time.
             // When we eventually finish and start using CONDSTORE, this will be the highestmodseq
             // from the /oldest/ synced block of UIDs, ensuring we see changes.
-            localStatus["highestmodseq"] = remoteStatus.highestModSeqValue();
-            localStatus["uidvalidity"] = remoteStatus.uidValidity();
-            localStatus["uidnext"] = remoteStatus.uidNext();
-            localStatus["syncedMinUID"] = remoteStatus.uidNext();
-            localStatus["lastShallow"] = 0;
-            localStatus["lastDeep"] = 0;
+            localStatus[LS_HIGHESTMODSEQ] = remoteStatus.highestModSeqValue();
+            localStatus[LS_UIDVALIDITY] = remoteStatus.uidValidity();
+            localStatus[LS_UIDVALIDITY_RESET_COUNT] = 0;
+            localStatus[LS_UIDNEXT] = remoteStatus.uidNext();
+            localStatus[LS_SYNCED_MIN_UID] = remoteStatus.uidNext();
+            localStatus[LS_LAST_SHALLOW] = 0;
+            localStatus[LS_LAST_DEEP] = 0;
             firstChunk = true;
         }
         
-        if (localStatus["uidvalidity"].get<uint32_t>() != remoteStatus.uidValidity()) {
-            // BG TODO
-            throw "blow up the world";
+        if (localStatus[LS_UIDVALIDITY].get<uint32_t>() != remoteStatus.uidValidity()) {
+            // UID Invalidity means that the UIDs the server previously reported for messages
+            // in this folder can no longer be used. To recover from this, we need to:
+            //
+            // 1) Set remoteUID to the "UNLINKED" value for every message in the folder
+            // 2) Run a 'deep' scan which will refetch the metadata for the messages,
+            //    compute the Mailspring message IDs and re-map local models to remote UIDs.
+            //
+            // Notes:
+            // - It's very important that this not generate deltas - because we're only changing
+            //   the folderRemoteUID it should not broadcast this update to the Electron app.
+            //
+            // - UIDNext must be reset to the updated remote value
+            //
+            // - syncedMinUID must be reset to something and we set it to zero. If we haven't
+            //   finished the initial scan of the folder yet, this could result in the creation
+            //   of a huge number of Message models all at once and flood the app. Hopefully
+            //   this scenario is rare.
+            logger->warn("UIDInvalidity! Resetting remoteFolderUIDs, rebuilding index. This may take a moment...");
+            processor->unlinkMessagesMatchingQuery(Query().equal("remoteFolderId", folder->id()), unlinkPhase);
+            syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
+
+            if (localStatus.count(LS_UIDVALIDITY_RESET_COUNT) == 0) {
+                localStatus[LS_UIDVALIDITY_RESET_COUNT] = 1;
+            }
+            localStatus[LS_UIDVALIDITY_RESET_COUNT] = localStatus[LS_UIDVALIDITY_RESET_COUNT].get<uint32_t>() + 1;
+            localStatus[LS_HIGHESTMODSEQ] = remoteStatus.highestModSeqValue();
+            localStatus[LS_UIDVALIDITY] = remoteStatus.uidValidity();
+            localStatus[LS_UIDNEXT] = remoteStatus.uidNext();
+            localStatus[LS_SYNCED_MIN_UID] = 1;
+            localStatus[LS_LAST_SHALLOW] = time(0);
+            localStatus[LS_LAST_DEEP] = time(0);
+            store->save(folder.get());
+            continue;
         }
         
         // Step 2: Initial sync. Until we reach UID 1, we grab chunks of messages
-        uint32_t syncedMinUID = localStatus["syncedMinUID"].get<uint32_t>();
+        uint32_t syncedMinUID = localStatus[LS_SYNCED_MIN_UID].get<uint32_t>();
         uint32_t chunkSize = firstChunk ? 750 : 5000;
 
         if (syncedMinUID > 1) {
@@ -271,7 +313,7 @@ bool SyncWorker::syncNow()
                 chunkMinUID = 1;
             }
             syncFolderUIDRange(*folder, RangeMake(chunkMinUID, syncedMinUID - chunkMinUID), true);
-            localStatus["syncedMinUID"] = chunkMinUID;
+            localStatus[LS_SYNCED_MIN_UID] = chunkMinUID;
             syncedMinUID = chunkMinUID;
         }
         
@@ -279,15 +321,15 @@ bool SyncWorker::syncNow()
         // CONDSTORE, when available, does A + B.
         // XYZRESYNC, when available, does C
         if (hasCondstore && hasQResync) {
-            // Hooray! We never need to fetch the entire range to sync. Just look at highestmodseq / uidnext
-            // and sync if we need to.
+            // Hooray! We never need to fetch the entire range to sync. Just look at
+            // highestmodseq / uidnext and sync if we need to.
             syncFolderChangesViaCondstore(*folder, remoteStatus);
         } else {
             uint32_t remoteUidnext = remoteStatus.uidNext();
-            uint32_t localUidnext = localStatus["uidnext"].get<uint32_t>();
+            uint32_t localUidnext = localStatus[LS_UIDNEXT].get<uint32_t>();
             bool newMessages = remoteUidnext > localUidnext;
-            bool timeForDeepScan = (iterationsSinceLaunch > 0) && (time(0) - localStatus["lastDeep"].get<time_t>() > 2 * 60);
-            bool timeForShallowScan = !timeForDeepScan && (time(0) - localStatus["lastShallow"].get<time_t>() > 2 * 60);
+            bool timeForDeepScan = (iterationsSinceLaunch > 0) && (time(0) - localStatus[LS_LAST_DEEP].get<time_t>() > 2 * 60);
+            bool timeForShallowScan = !timeForDeepScan && (time(0) - localStatus[LS_LAST_SHALLOW].get<time_t>() > 2 * 60);
 
             // Okay. If there are new messages in the folder (UIDnext has increased), do a heavy fetch of
             // those /AND/ get the bodies. This ensures people see both very quickly, which is important.
@@ -322,14 +364,14 @@ bool SyncWorker::syncNow()
                     bottomUID = syncedMinUID;
                 }
                 syncFolderUIDRange(*folder, RangeMake(bottomUID, remoteUidnext - bottomUID), false);
-                localStatus["lastShallow"] = time(0);
-                localStatus["uidnext"] = remoteUidnext;
+                localStatus[LS_LAST_SHALLOW] = time(0);
+                localStatus[LS_UIDNEXT] = remoteUidnext;
             }
             if (timeForDeepScan) {
                 syncFolderUIDRange(*folder, RangeMake(syncedMinUID, UINT64_MAX), false);
-                localStatus["lastShallow"] = time(0);
-                localStatus["lastDeep"] = time(0);
-                localStatus["uidnext"] = remoteUidnext;
+                localStatus[LS_LAST_SHALLOW] = time(0);
+                localStatus[LS_LAST_DEEP] = time(0);
+                localStatus[LS_UIDNEXT] = remoteUidnext;
             }
         }
         
@@ -346,7 +388,7 @@ bool SyncWorker::syncNow()
 
         // Save a general flag that indicates whether we're still doing stuff
         // like syncing message bodies. Set to true below.
-        localStatus["busy"] = moreToDo;
+        localStatus[LS_BUSY] = moreToDo;
         syncAgainImmediately = syncAgainImmediately || moreToDo;
 
         // Save the folder - note that helper methods above mutated localStatus.
@@ -665,8 +707,8 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
 
-    uint32_t uidnext = folder.localStatus()["uidnext"].get<uint32_t>();
-    uint64_t modseq = folder.localStatus()["highestmodseq"].get<uint64_t>();
+    uint32_t uidnext = folder.localStatus()[LS_UIDNEXT].get<uint32_t>();
+    uint64_t modseq = folder.localStatus()[LS_HIGHESTMODSEQ].get<uint64_t>();
     uint64_t remoteModseq = remoteStatus.highestModSeqValue();
     uint32_t remoteUIDNext = remoteStatus.uidNext();
     time_t syncDataTimestamp = time(0);
@@ -718,8 +760,8 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
         }
     }
 
-    folder.localStatus()["uidnext"] = remoteUIDNext;
-    folder.localStatus()["highestmodseq"] = remoteModseq;
+    folder.localStatus()[LS_UIDNEXT] = remoteUIDNext;
+    folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
 }
 
 /*

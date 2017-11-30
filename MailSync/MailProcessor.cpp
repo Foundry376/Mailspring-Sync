@@ -264,21 +264,37 @@ bool MailProcessor::retrievedFileData(File * file, Data * data) {
 
 void MailProcessor::unlinkMessagesMatchingQuery(Query & query, int phase)
 {
+    // Note: This method may be called with a Query() returning the entire folder
+    // in case of UIDInvalidity. Loading + saving is super inefficient in this rare case,
+    // but the field is currently both in the JSON and in a separate column. In the future
+    // we may want to make the column the sole source of truth, but it looks like a
+    // complicated change because _data is used for cloning models, etc and inflation
+    // is very abstracted.
+    
     logger->info("Unlinking messages {} no longer present in remote range.", query.sql());
     
     {
         MailStoreTransaction transaction{store};
 
         auto deletedMsgs = store->findAll<Message>(query);
+        bool logSubjects = deletedMsgs.size() < 40;
+
+        logger->info("-- {} matches.", deletedMsgs.size());
 
         for (const auto msg : deletedMsgs) {
             if (msg->remoteUID() > UINT32_MAX - 5) {
                 // we unlinked this message in a previous cycle and it will be deleted momentarily.
                 continue;
             }
-            logger->info("-- Unlinking \"{}\" ({})", msg->subject(), msg->id());
+            
+            // don't spam the logs when a zillion messages are being deleted
+            if (logSubjects) {
+                logger->info("-- Unlinking \"{}\" ({})", msg->subject(), msg->id());
+            }
             msg->setRemoteUID(UINT32_MAX - phase);
-            store->save(msg.get());
+            
+            // we know we don't need to emit this change because the client can't see the remoteUID
+            store->save(msg.get(), false);
         }
 
         transaction.commit();
