@@ -66,8 +66,13 @@ public:
     
     void fetchRangeInFolder(String * folder, std::string folderId, Range range);
 
+    void cleanMessageCache(Folder & folder);
+    
+    long long countBodiesDownloaded(Folder & folder);
+    long long countBodiesNeeded(Folder & folder);
+    time_t maxAgeForBodySync(Folder & folder);
+    bool shouldCacheBodiesInFolder(Folder & folder);
     bool syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
-
     void syncMessageBody(Message * message);
 };
 

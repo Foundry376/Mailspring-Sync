@@ -21,17 +21,23 @@
 #include "SyncException.hpp"
 
 
-#define TEN_MINUTES                 60 * 10
+#define CACHE_CLEANUP_INTERVAL      60 * 60
+#define SHALLOW_SCAN_INTERVAL       60 * 2
+#define DEEP_SCAN_INTERVAL          60 * 10
 
-#define LS_BUSY                     "busy"
+// These keys are saved to the folder object's "localState".
+// Starred keys are used in the client to show sync progress.
+#define LS_BUSY                     "busy"           // *
+#define LS_UIDNEXT                  "uidnext"        // *
+#define LS_SYNCED_MIN_UID           "syncedMinUID"   // *
+#define LS_BODIES_PRESENT           "bodiesPresent"  // *
+#define LS_BODIES_WANTED            "bodiesWanted"   // *
+#define LS_LAST_CLEANUP             "lastCleanup"
 #define LS_LAST_SHALLOW             "lastShallow"
 #define LS_LAST_DEEP                "lastDeep"
 #define LS_HIGHESTMODSEQ            "highestmodseq"
 #define LS_UIDVALIDITY              "uidvalidity"
 #define LS_UIDVALIDITY_RESET_COUNT  "uidvalidityResetCount"
-#define LS_UIDNEXT                  "uidnext"
-#define LS_SYNCED_MIN_UID           "syncedMinUID"
-
 
 using namespace mailcore;
 using namespace std;
@@ -328,8 +334,8 @@ bool SyncWorker::syncNow()
             uint32_t remoteUidnext = remoteStatus.uidNext();
             uint32_t localUidnext = localStatus[LS_UIDNEXT].get<uint32_t>();
             bool newMessages = remoteUidnext > localUidnext;
-            bool timeForDeepScan = (iterationsSinceLaunch > 0) && (time(0) - localStatus[LS_LAST_DEEP].get<time_t>() > 2 * 60);
-            bool timeForShallowScan = !timeForDeepScan && (time(0) - localStatus[LS_LAST_SHALLOW].get<time_t>() > 2 * 60);
+            bool timeForDeepScan = (iterationsSinceLaunch > 0) && (time(0) - localStatus[LS_LAST_DEEP].get<time_t>() > DEEP_SCAN_INTERVAL);
+            bool timeForShallowScan = !timeForDeepScan && (time(0) - localStatus[LS_LAST_SHALLOW].get<time_t>() > SHALLOW_SCAN_INTERVAL);
 
             // Okay. If there are new messages in the folder (UIDnext has increased), do a heavy fetch of
             // those /AND/ get the bodies. This ensures people see both very quickly, which is important.
@@ -367,6 +373,7 @@ bool SyncWorker::syncNow()
                 localStatus[LS_LAST_SHALLOW] = time(0);
                 localStatus[LS_UIDNEXT] = remoteUidnext;
             }
+            
             if (timeForDeepScan) {
                 syncFolderUIDRange(*folder, RangeMake(syncedMinUID, UINT64_MAX), false);
                 localStatus[LS_LAST_SHALLOW] = time(0);
@@ -384,6 +391,15 @@ bool SyncWorker::syncNow()
         }
         if (syncedMinUID > 1) {
             moreToDo = true;
+        }
+        
+        // Update cache metrics and cleanup bodies we don't want anymore.
+        // these queries are expensive so we do this infrequently and increment
+        // blindly as we download bodies.
+        time_t lastCleanup = localStatus.count(LS_LAST_CLEANUP) ? localStatus[LS_LAST_CLEANUP].get<time_t>() : 0;
+        if (syncedMinUID == 1 && (time(0) - lastCleanup > CACHE_CLEANUP_INTERVAL)) {
+            cleanMessageCache(*folder);
+            localStatus[LS_LAST_CLEANUP] = time(0);
         }
 
         // Save a general flag that indicates whether we're still doing stuff
@@ -764,18 +780,65 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
 }
 
+void SyncWorker::cleanMessageCache(Folder & folder) {
+    logger->info("Cleaning local cache and updating stats");
+    
+    // delete bodies we no longer want. Note: you can't do INNER JOINs within a DELETE
+    SQLite::Statement purge(store->db(), "DELETE FROM MessageBody WHERE MessageBody.id IN (SELECT Message.id FROM Message WHERE Message.remoteFolderId = ? AND Message.draft = 0 AND Message.date < ?)");
+    purge.bind(1, folder.id());
+    purge.bind(2, (double)(time(0) - maxAgeForBodySync(folder)));
+    int purged = purge.exec();
+    logger->info("-- {} message bodies deleted from local cache.", purged);
+    // TODO BG: Remove them from the search index and remove attachments
+
+    // update messages body stats
+    folder.localStatus()[LS_BODIES_PRESENT] = countBodiesDownloaded(folder);
+    folder.localStatus()[LS_BODIES_WANTED] = countBodiesNeeded(folder);
+}
+
+// Message Body Sync
+
+time_t SyncWorker::maxAgeForBodySync(Folder & folder) {
+    return 24 * 60 * 60 * 30 * 3; // three months TODO pref!
+}
+
+bool SyncWorker::shouldCacheBodiesInFolder(Folder & folder) {
+    // who needs this stuff? probably nobody.
+    if ((folder.role() == "spam") || (folder.role() == "trash")) {
+        return false;
+    }
+    return true;
+}
+
+long long SyncWorker::countBodiesDownloaded(Folder & folder) {
+    SQLite::Statement count(store->db(), "SELECT COUNT(Message.id) FROM Message INNER JOIN MessageBody ON MessageBody.id = Message.id WHERE MessageBody.value IS NOT NULL AND Message.remoteFolderId = ?");
+    count.bind(1, folder.id());
+    count.executeStep();
+    return count.getColumn(0).getInt64();
+}
+
+long long SyncWorker::countBodiesNeeded(Folder & folder) {
+    if (!shouldCacheBodiesInFolder(folder)) {
+        return 0;
+    }
+    SQLite::Statement count(store->db(), "SELECT COUNT(Message.id) FROM Message WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0");
+    count.bind(1, folder.id());
+    count.bind(2, (double)(time(0) - maxAgeForBodySync(folder)));
+    count.executeStep();
+    return count.getColumn(0).getInt64();
+}
+
 /*
  Syncs the top N missing message bodies. Returns true if it did work, false if it did nothing.
  */
 bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus) {
-    // who needs this stuff? probably nobody.
-    if ((folder.role() == "spam") || (folder.role() == "trash")) {
+    if (!shouldCacheBodiesInFolder(folder)) {
         return false;
     }
 
     SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.id IS NULL ORDER BY Message.date DESC LIMIT 20");
     missing.bind(1, folder.id());
-    missing.bind(2, (double)(time(0) - 24 * 60 * 60 * 30 * 3)); // three months TODO pref!
+    missing.bind(2, (double)(time(0) - maxAgeForBodySync(folder))); // three months TODO pref!
     vector<Message> results{};
     while (missing.executeStep()) {
         Message msg{missing};
@@ -787,7 +850,16 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
     
     SQLite::Statement insertPlaceholder(store->db(), "INSERT OR IGNORE INTO MessageBody (id, value) VALUES (?, ?)");
 
+    json & ls = folder.localStatus();
+    if (!ls.count(LS_BODIES_PRESENT) || !ls[LS_BODIES_PRESENT].is_number()) {
+        ls[LS_BODIES_PRESENT] = 0;
+    }
+
     for (auto result : results) {
+        // increment local sync state - it's fine if this sometimes fails to save,
+        // we recompute the value via COUNT(*) during cleanup
+        ls[LS_BODIES_PRESENT] = ls[LS_BODIES_PRESENT].get<long long>() + 1;
+
         // write a blank entry into the MessageBody table so we'll only try to fetch each
         // message once. Otherwise a persistent ErrorFetch or crash for a single message
         // can cause the account to stay "syncing" forever.
