@@ -126,6 +126,8 @@ static std::vector<std::string> SETUP_QUERIES = {
         "replyToHeaderMessageId VARCHAR(255),"
         "threadId VARCHAR(40))",
     
+    "CREATE INDEX IF NOT EXISTS MessageUIDScanIndex ON Message(accountId, remoteFolderId, remoteUID)",
+
     "CREATE INDEX IF NOT EXISTS MessageListThreadIndex ON Message(threadId, date ASC)",
     "CREATE INDEX IF NOT EXISTS MessageListHeaderMsgIdIndex ON Message(headerMessageId)",
     "CREATE INDEX IF NOT EXISTS MessageListDraftIndex ON Message(accountId, date DESC) WHERE draft = 1",
