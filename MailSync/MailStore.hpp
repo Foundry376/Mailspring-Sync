@@ -5,6 +5,9 @@
 //  Created by Ben Gotow on 6/15/17.
 //  Copyright © 2017 Foundry 376. All rights reserved.
 //
+//  Use of this file is subject to the terms and conditions defined
+//  in 'LICENSE.md', which is part of the Mailspring-Sync package.
+//
 
 #ifndef MailStore_hpp
 #define MailStore_hpp

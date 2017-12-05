@@ -5,6 +5,9 @@
 //  Created by Ben Gotow on 7/31/17.
 //  Copyright © 2017 Foundry 376. All rights reserved.
 //
+//  Use of this file is subject to the terms and conditions defined
+//  in 'LICENSE.md', which is part of the Mailspring-Sync package.
+//
 
 #ifndef MetadataWorker_hpp
 #define MetadataWorker_hpp
