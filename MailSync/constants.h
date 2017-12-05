@@ -23,7 +23,7 @@ static string FS_PATH_SEP = "/";
 
 static string MAILSPRING_FOLDER_PREFIX = "[Mailspring]";
 
-static std::vector<std::string> SETUP_QUERIES = {
+static std::vector<std::string> V1_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `_State` (id VARCHAR(40) PRIMARY KEY, value TEXT)",
 
     "CREATE TABLE IF NOT EXISTS `File` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), filename TEXT)",
@@ -126,8 +126,6 @@ static std::vector<std::string> SETUP_QUERIES = {
         "replyToHeaderMessageId VARCHAR(255),"
         "threadId VARCHAR(40))",
     
-    "CREATE INDEX IF NOT EXISTS MessageUIDScanIndex ON Message(accountId, remoteFolderId, remoteUID)",
-
     "CREATE INDEX IF NOT EXISTS MessageListThreadIndex ON Message(threadId, date ASC)",
     "CREATE INDEX IF NOT EXISTS MessageListHeaderMsgIdIndex ON Message(headerMessageId)",
     "CREATE INDEX IF NOT EXISTS MessageListDraftIndex ON Message(accountId, date DESC) WHERE draft = 1",
@@ -151,6 +149,10 @@ static std::vector<std::string> SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `Calendar` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8))",
     
     "CREATE TABLE IF NOT EXISTS `Task` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), status VARCHAR(255))",
+};
+
+static std::vector<std::string> V2_SETUP_QUERIES = {
+    "CREATE INDEX IF NOT EXISTS MessageUIDScanIndex ON Message(accountId, remoteFolderId, remoteUID)",
 };
 
 

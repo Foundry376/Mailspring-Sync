@@ -102,13 +102,18 @@ void MailStore::migrate() {
     uv.executeStep();
     int version = uv.getColumn(0).getInt();
 
-    if (version == 0) {
-        for (string sql : SETUP_QUERIES) {
+    if (version < 1) {
+        for (string sql : V1_SETUP_QUERIES) {
+            SQLite::Statement(_db, sql).exec();
+        }
+    }
+    if (version < 2) {
+        for (string sql : V2_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
     }
 
-    SQLite::Statement(_db, "PRAGMA user_version = 1").exec();
+    SQLite::Statement(_db, "PRAGMA user_version = 2").exec();
 }
 
 SQLite::Database & MailStore::db()
