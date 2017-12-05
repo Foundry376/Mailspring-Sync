@@ -5,7 +5,16 @@
 //  Created by Ben Gotow on 6/15/17.
 //  Copyright © 2017 Foundry 376. All rights reserved.
 //
+//  Use of this file is subject to the terms and conditions defined
+//  in 'LICENSE.md', which is part of the Mailspring-Sync package.
+//
 
+/*
+ The DeltaStream is a singleton class that manages broadcasting database events
+ on stdout. It implements various buffering and "repeated save collapsing" logic
+ to avoid spamming the Mailspring client with unnecessary events or waking it
+ too often.
+*/
 #ifndef DeltaStream_hpp
 #define DeltaStream_hpp
 

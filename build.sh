@@ -1,4 +1,8 @@
 #!/bin/bash
+#
+# This script is run by Travis on Mac and Linux to build and package mailsync.
+# Windows uses ./build.cmd.
+#
 export MAILSYNC_DIR=$( cd $(dirname $0) ; pwd -P );
 export APP_ROOT_DIR="$MAILSYNC_DIR/../app"
 export APP_DIST_DIR="$APP_ROOT_DIR/dist"

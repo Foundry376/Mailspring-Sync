@@ -1,2 +1,0 @@
-- Remember to scrub xcode configuration, which contains launch args with my passwords.
-- Also vs2015's .user configuration

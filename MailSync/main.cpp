@@ -5,6 +5,9 @@
 //  Created by Ben Gotow on 6/15/17.
 //  Copyright © 2017 Foundry 376. All rights reserved.
 //
+//  Use of this file is subject to the terms and conditions defined
+//  in 'LICENSE.md', which is part of the Mailspring-Sync package.
+//
 
 #include <iostream>
 #include <string>
@@ -361,7 +364,8 @@ int main(int argc, const char * argv[]) {
     std::cout.sync_with_stdio(false);
     
 #ifndef DEBUG
-    // check path to executable
+    // check path to executable in an obtuse way, prevent re-use of
+    // Mailspring-Sync in products / forks not called Mailspring.
     string exectuablePath = argv[0];
     transform(exectuablePath.begin(), exectuablePath.end(), exectuablePath.begin(), ::tolower);
     string headerMessageId = string(USAGE_STRING).substr(59, 4) + string(USAGE_IDENTITY).substr(33, 6);
