@@ -133,6 +133,27 @@ json & Thread::participants() {
     return _data["participants"];
 }
 
+string Thread::categoriesSearchString() {
+    string categories;
+    for (auto f : folders()) {
+        string role = f.count("role") ? f["role"].get<string>() : "";
+        if (role.length()) {
+            categories += role + " ";
+        } else {
+            categories += f["path"].get<string>() + " ";
+        }
+    }
+    for (auto f : labels()) {
+        string role = f.count("role") ? f["role"].get<string>() : "";
+        if (role.length()) {
+            categories += role + " ";
+        } else {
+            categories += f["path"].get<string>() + " ";
+        }
+    }
+    return categories;
+}
+
 void Thread::resetCountedAttributes() {
     setUnread(0);
     setStarred(0);
@@ -372,18 +393,8 @@ void Thread::afterSave(MailStore * store) {
 
         // update the thread search table if we're indexed
         if (searchRowId()) {
-            string categories;
-            for (auto f : folders()) {
-                categories += ((f.count("role") ? f["role"] : f["path"]).get<string>());
-                categories += " ";
-            }
-            for (auto f : labels()) {
-                categories += ((f.count("role") ? f["role"] : f["path"]).get<string>());
-                categories += " ";
-            }
-            
             SQLite::Statement update(store->db(), "UPDATE ThreadSearch SET categories = ? WHERE rowid = ?");
-            update.bind(1, categories);
+            update.bind(1, categoriesSearchString());
             update.bind(2, (double)searchRowId());
             update.exec();
         }

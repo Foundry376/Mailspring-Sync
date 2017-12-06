@@ -321,20 +321,11 @@ void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
 }
 
 void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull) {
-    string categories;
-    for (auto f : thread->folders()) {
-        categories += ((f.count("role") ? f["role"] : f["path"]).get<string>());
-        categories += " ";
-    }
-    for (auto f : thread->labels()) {
-        categories += ((f.count("role") ? f["role"] : f["path"]).get<string>());
-        categories += " ";
-    }
-    
     // retrieve the current index if there is one
     
     string to;
     string from;
+    string categories = thread->categoriesSearchString();
     string body = thread->subject();
     
     if (thread->searchRowId()) {

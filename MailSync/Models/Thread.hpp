@@ -65,6 +65,7 @@ public:
 
     json & folders();
     json & labels();
+    string categoriesSearchString();
 
     void resetCountedAttributes();
     void applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> allLabels);
