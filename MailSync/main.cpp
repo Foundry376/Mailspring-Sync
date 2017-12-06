@@ -65,7 +65,9 @@ public:
     }
 
     void log(void * sender, ConnectionLogType logType, Data * buffer) {
-        accumulated = accumulated + buffer->bytes();
+        if (buffer) {
+            accumulated = accumulated + buffer->bytes();
+        }
     }
 };
 
