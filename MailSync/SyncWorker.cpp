@@ -171,9 +171,9 @@ void SyncWorker::idleCycleIteration()
     
     // Check for mail in the preferred idle folder (inbox / all)
     // TODO: We should probably not do this if it's only been ~5 seconds since the last time
-    bool initialIterationComplete = inbox->localStatus().count(LS_LAST_SHALLOW) && inbox->localStatus()[LS_LAST_SHALLOW].get<int>() != 0;
+    bool hasStartedSyncingFolder = inbox->localStatus().count(LS_SYNCED_MIN_UID);
     
-    if (initialIterationComplete) {
+    if (hasStartedSyncingFolder) {
         String path = AS_MCSTR(inbox->path());
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
         if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {

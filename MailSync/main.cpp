@@ -121,10 +121,11 @@ void runForegroundSyncWorker() {
             fgWorker->configure();
             fgWorker->idleCycleIteration();
         } catch (SyncException & ex) {
+            spdlog::get("logger")->info("Encountered exception: {}", ex.toJSON().dump());
             if (!ex.isRetryable()) {
                 throw;
             }
-            spdlog::get("logger")->info("Sleeping after exception: {}", ex.toJSON().dump());
+            spdlog::get("logger")->info("--sleeping");
             MailUtils::sleepWorkerUntilWakeOrSec(120);
         }
     }
