@@ -139,11 +139,15 @@ Attachment * Attachment::attachmentWithContentsOfFile(String * filename)
         return attachmentWithData(NULL, Data::data());
     }
     
-    const char * cPath = filename->fileSystemRepresentation();
     struct stat statinfo;
     int r;
-    
-    r = stat(cPath, &statinfo);
+
+#ifdef _MSC_VER
+    r = _wstat(filename->unicodeCharacters(), &statinfo);
+#else
+    r = stat(filename->fileSystemRepresentation(), &statinfo);
+#endif
+
     if (r < 0) {
         return attachmentWithData(filename, Data::data());
     }
