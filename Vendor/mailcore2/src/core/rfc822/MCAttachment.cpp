@@ -139,12 +139,13 @@ Attachment * Attachment::attachmentWithContentsOfFile(String * filename)
         return attachmentWithData(NULL, Data::data());
     }
     
-    struct stat statinfo;
     int r;
 
 #ifdef _MSC_VER
+    struct _stat statinfo;
     r = _wstat(filename->unicodeCharacters(), &statinfo);
 #else
+    struct stat statinfo;
     r = stat(filename->fileSystemRepresentation(), &statinfo);
 #endif
 
