@@ -65,8 +65,6 @@ public:
 
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus);
 
-    IMAPMessagesRequestKind fetchRequestKind(bool heavy);
-    
     void fetchRangeInFolder(String * folder, std::string folderId, Range range);
 
     void cleanMessageCache(Folder & folder);

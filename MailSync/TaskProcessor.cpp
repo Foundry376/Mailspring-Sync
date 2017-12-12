@@ -26,6 +26,133 @@ using namespace std;
 using namespace mailcore;
 using namespace nlohmann;
 
+// A helper function that can move messages between folders and update the provided
+// messages remoteUIDs, even if UIDPLUS and/or MOVE extensions are not present.
+
+void _moveMessagesResilient(IMAPSession * session, String * path, Folder * destFolder, IndexSet * uids, vector<shared_ptr<Message>> messages) {
+    ErrorCode err = ErrorCode::ErrorNone;
+    HashMap * uidmap = nullptr;
+    String * destPath = AS_MCSTR(destFolder->path());
+    bool mustApplyAttributes = false;
+    
+    // First, perform the action - either the MOVE or the COPY, STORE, EXPUNGE
+    // if IMAPCapabilityMove is not present.
+    if (session->storedCapabilities()->containsIndex(IMAPCapabilityMove)) {
+        session->moveMessages(path, uids, destPath, &uidmap, &err);
+        if (err != ErrorCode::ErrorNone) {
+            throw SyncException(err, "moveMessages");
+        }
+    } else {
+        session->copyMessages(path, uids, destPath, &uidmap, &err);
+        if (err != ErrorCode::ErrorNone) {
+            throw SyncException(err, "moveMessages(copy)");
+        }
+        session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
+        session->expunge(path, &err); // this will empty their whole trash...
+        if (err != ErrorCode::ErrorNone) {
+            throw SyncException(err, "moveMessages(copy cleanup)");
+        }
+        mustApplyAttributes = true;
+    }
+
+    // Only returned if UIDPLUS extension is present and the server tells us
+    // which UIDs in the old folder map to which UIDs in the new folder.
+    if (uidmap != nullptr) {
+        for (auto msg : messages) {
+            Value * currentUID = Value::valueWithUnsignedLongValue(msg->remoteUID());
+            Value * newUID = (Value *)uidmap->objectForKey(currentUID);
+            if (!newUID) {
+                throw SyncException("generic", "move did not provide new UID.", false);
+            }
+            msg->setRemoteFolder(destFolder);
+            msg->setRemoteUID(newUID->unsignedIntValue());
+        }
+    } else {
+        // UIDPLUS is not supported, we need to manually find the messages. Thankfully moves
+        // should add higher UIDs to the folder so we can grab the last few and get the messages
+        auto status = session->folderStatus(destPath, &err);
+        IMAPMessagesRequestKind kind = MailUtils::messagesRequestKindFor(session->storedCapabilities(), true);
+        
+        if (status != nullptr) {
+            uint32_t min = status->uidNext() - (uint32_t)messages.size() * 2;
+            if (min < 1) min = 1;
+            IndexSet * set = IndexSet::indexSetWithRange(RangeMake(min, UINT64_MAX));
+            Array * movedMessages = session->fetchMessagesByUID(destPath, kind, set, nullptr, &err);
+            for (auto msg : messages) {
+                bool found = false;
+                for (int ii = 0; ii < movedMessages->count(); ii ++) {
+                    IMAPMessage * movedMessage = (IMAPMessage*)movedMessages->objectAtIndex(ii);
+                    string movedId = MailUtils::idForMessage(msg->accountId(), movedMessage);
+                    if (msg->id() == movedId) {
+                        msg->setRemoteFolder(destFolder);
+                        msg->setRemoteUID(movedMessage->uid());
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    spdlog::get("logger")->error("-- Could not find new UID for message {}", msg->id());
+                }
+            }
+        }
+    }
+    
+    if (mustApplyAttributes) {
+        for (auto msg : messages) {
+            if (msg->remoteFolderId() == destFolder->id()) {
+                MessageFlag flags = MessageFlagNone;
+                if (msg->isStarred())
+                    flags = (MessageFlag)(flags | MessageFlagFlagged);
+                if (!msg->isUnread())
+                    flags = (MessageFlag)(flags | MessageFlagSeen);
+                if (msg->isDraft())
+                    flags = (MessageFlag)(flags | MessageFlagDraft);
+        
+                if (flags != MessageFlagNone) {
+                    session->storeFlagsByUID(destPath, IndexSet::indexSetWithIndex(msg->remoteUID()), IMAPStoreFlagsRequestKindSet, flags, &err);
+                }
+            }
+        }
+    }
+}
+
+// A helper function to permanently remove messages by UID from a given folder path. When a trash folder
+// and CapabilityMove are present, it moves there and expunges. Otherwises it expunges in place.
+
+void _removeMessagesResilient(IMAPSession * session, MailStore * store, string accountId, String * path, IndexSet * uids) {
+    ErrorCode err = ErrorCode::ErrorNone;
+
+    // First, add the "DELETED" flag to the given messages
+    session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
+    if (err != ErrorNone) {
+        spdlog::get("logger")->info("X- removeMessagesResilient could not add deleted flag (error: {})", ErrorCodeToTypeMap[err]);
+        return;
+    }
+    
+    String * trashPath = nullptr;
+    if (session->storedCapabilities()->containsIndex(IMAPCapabilityMove)) {
+        auto trash = store->find<Folder>(Query().equal("accountId", accountId).equal("role", "trash"));
+        if (trash != nullptr) {
+            trashPath = AS_MCSTR(trash->path());
+        }
+    }
+
+    if (trashPath != nullptr) {
+        session->moveMessages(path, uids, trashPath, nullptr, &err);
+        if (err != ErrorNone) {
+            spdlog::get("logger")->info("X- removeMessagesResilient could not move the messages to the trash (error: {})", ErrorCodeToTypeMap[err]);
+            return;
+        }
+        session->expunge(trashPath, &err);
+    } else {
+        session->expunge(path, &err);
+    }
+
+    if (err != ErrorNone) {
+        spdlog::get("logger")->info("X- removeMessagesResilient could not expunge (error: {})", ErrorCodeToTypeMap[err]);
+    }
+}
+
 
 // Small functions that we pass to the generic ChangeMessages runner
 
@@ -67,26 +194,9 @@ void _applyFolder(Message * msg, json & data) {
 }
 
 void _applyFolderMoveInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
-    ErrorCode err = ErrorCode::ErrorNone;
     Folder destFolder{data["folder"]};
     
-    HashMap * uidmap = nullptr;
-    session->moveMessages(path, uids, AS_MCSTR(destFolder.path()), &uidmap, &err);
-    if (err != ErrorCode::ErrorNone) {
-        throw SyncException(err, "moveMessages");
-    }
-    if (uidmap == nullptr) {
-        throw SyncException("generic", "move did not return a uidmap - maybe the UIDs are no longer in the folder?", false);
-    }
-    for (auto msg : messages) {
-        Value * currentUID = Value::valueWithUnsignedLongValue(msg->remoteUID());
-        Value * newUID = (Value *)uidmap->objectForKey(currentUID);
-        if (!newUID) {
-            throw SyncException("generic", "move did not provide new UID.", false);
-        }
-        msg->setRemoteFolder(&destFolder);
-        msg->setRemoteUID(newUID->unsignedIntValue());
-    }
+    _moveMessagesResilient(session, path, &destFolder, uids, messages);
 }
 
 string _xgmKeyForLabel(json & label) {
@@ -609,51 +719,16 @@ void TaskProcessor::performRemoteDestroyDraft(Task * task) {
     vector<string> stubIds = task->data()["stubIds"];
     auto stubs = store->findAll<Message>(Query().equal("id", stubIds));
 
-    // Find the trash folder
-    auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
-    if (trash == nullptr) {
-        throw SyncException("no-trash-folder", "", false);
-    }
-    String * trashPath = AS_MCSTR(trash->path());
-    logger->info("-- Identified `trash` folder: {}", trash->path());
 
     for (auto & stub : stubs) {
         if (stub->remoteUID() == 0) {
             continue; // not synced to server at all
         }
         auto uids = IndexSet::indexSetWithIndex(stub->remoteUID());
-        string folderPath = stub->remoteFolder()["path"].get<string>();
+        String * path = AS_MCSTR(stub->remoteFolder()["path"].get<string>());
 
-        logger->info("-- Deleting remote draft {} ({} UID {})", stub->id(), folderPath, stub->remoteUID());
-
-        // Move to the trash folder
-        HashMap * uidmap = nullptr;
-        ErrorCode err = ErrorCode::ErrorNone;
-        Array * auidsInTrash = nullptr;
-        IndexSet uidsInTrash;
-        session->moveMessages(AS_MCSTR(folderPath), uids, trashPath, &uidmap, &err);
-        if (err != ErrorNone) {
-            logger->info("X- ignoring moveMessages failure (error: {})", ErrorCodeToTypeMap[err]);
-            continue; // eh, draft may be gone, oh well
-        }
-        if (uidmap == nullptr) {
-            logger->info("X- ignoring moveMessages did not return uidmap");
-            continue; // eh, draft may be gone, oh well
-        }
-        
-        // Add the "DELETED" flag
-        auidsInTrash = uidmap->allValues();
-        for (int i = 0; i < auidsInTrash->count(); i ++) {
-            uidsInTrash.addIndex(((Value*)auidsInTrash->objectAtIndex(i))->unsignedLongValue());
-        }
-        session->storeFlagsByUID(trashPath, &uidsInTrash, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
-        if (err != ErrorNone) {
-            logger->info("X- ignoring storeFlagsByUID could not add deleted flag (error: {})", ErrorCodeToTypeMap[err]);
-            continue; // eh, draft may be gone, oh well
-        }
-        
-        // Call EXPUNGE to permanently delete messages
-        session->expunge(trashPath, &err);
+        logger->info("-- Deleting remote draft {}", stub->id());
+        _removeMessagesResilient(session, store, account->id(), path, uids);
 
         // remove the stub from our local cache - would eventually get removed
         // during sync, but we don't want to fetch it's body or anything
@@ -812,14 +887,6 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     }
     String * sentPath = AS_MCSTR(sent->path());
     logger->info("-- Identified `sent` folder: {}", sent->path());
-
-    // find the trash folder
-    auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
-    if (trash == nullptr) {
-        throw SyncException("no-trash-folder", "", false);
-    }
-    String * trashPath = AS_MCSTR(trash->path());
-    logger->info("-- Identified `trash` folder: {}", trash->path());
     
     // build the MIME message
     MessageBuilder builder;
@@ -942,10 +1009,6 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
 
     uint32_t sentFolderMessageUID = 0;
     {
-        HashMap * uidmap = nullptr;
-        Array * auidsInTrash = nullptr;
-        IndexSet uidsInTrash;
-        
         // grab the last few items in the sent folder... we know we don't need more than 10
         // because multisend is capped.
         int tries = 0;
@@ -995,25 +1058,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             // If we sent separate messages to each recipient, we end up with a bunch of sent
             // messages. Delete all of them since they contain the targeted bodies.
             logger->info("-- Deleting {} messages added to sent folder by the SMTP gateway.", uids->count());
-            
-            // Move messages to the trash folder
-            session->moveMessages(sentPath, uids, trashPath, &uidmap, &err);
-            if (err != ErrorNone) {
-                goto endSentCleanup;
-            }
-
-            // Add the "DELETED" flag
-            auidsInTrash = uidmap->allValues();
-            for (int i = 0; i < auidsInTrash->count(); i ++) {
-                uidsInTrash.addIndex(((Value*)auidsInTrash->objectAtIndex(i))->unsignedLongValue());
-            }
-            session->storeFlagsByUID(trashPath, &uidsInTrash, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
-            if (err != ErrorNone) {
-                goto endSentCleanup;
-            }
-            
-            // Call EXPUNGE to permanently delete messages
-            session->expunge(trashPath, &err);
+            _removeMessagesResilient(session, store, account->id(), sentPath, uids);
             
         } else if (!multisend && (uids->count() == 1)) {
             // If we find a single message in the sent folder, we'll move forward with that one.

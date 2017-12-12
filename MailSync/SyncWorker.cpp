@@ -36,6 +36,7 @@
 #define LS_BODIES_PRESENT           "bodiesPresent"  // *
 #define LS_BODIES_WANTED            "bodiesWanted"   // *
 #define LS_LAST_CLEANUP             "lastCleanup"
+/// IMPORTANT: deep/shallow are only used for some IMAP servers
 #define LS_LAST_SHALLOW             "lastShallow"
 #define LS_LAST_DEEP                "lastDeep"
 #define LS_HIGHESTMODSEQ            "highestmodseq"
@@ -614,22 +615,6 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     return foldersToSync;
 }
 
-IMAPMessagesRequestKind SyncWorker::fetchRequestKind(bool heavy) {
-    bool gmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
-    
-    if (heavy) {
-        if (gmail) {
-            return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
-        }
-        return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
-    }
-
-    if (gmail) {
-        return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels);
-    }
-    return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags);
-}
-
 void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages)
 {
     logger->info("syncFolderUIDRange - ({}, UIDs: {} - {}, Heavy: {})", folder.path(), range.location, range.location + range.length, heavyInitialRequest);
@@ -642,7 +627,8 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     String path(AS_MCSTR(folder.path()));
     time_t syncDataTimestamp = time(0);
     
-    Array * remote = session.fetchMessagesByUID(&path, fetchRequestKind(heavyInitialRequest), set, &cb, &err);
+    auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), heavyInitialRequest);
+    Array * remote = session.fetchMessagesByUID(&path, kind, set, &cb, &err);
     if (err) {
         throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID");
     }
@@ -692,7 +678,8 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         logger->error("syncFolderUIDRange - Fetching full headers for {}", heavyNeeded->count());
 
         syncDataTimestamp = time(0);
-        remote = session.fetchMessagesByUID(&path, fetchRequestKind(true), heavyNeeded, &cb, &err);
+        auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), heavyInitialRequest);
+        remote = session.fetchMessagesByUID(&path, kind, heavyNeeded, &cb, &err);
         if (err != ErrorNone) {
             throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID (heavy)");
         }
@@ -745,7 +732,8 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     ErrorCode err = ErrorCode::ErrorNone;
     String path(AS_MCSTR(folder.path()));
     
-    IMAPSyncResult * result = session.syncMessagesByUID(&path, fetchRequestKind(true), uids, modseq, &cb, &err);
+    auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
+    IMAPSyncResult * result = session.syncMessagesByUID(&path, kind, uids, modseq, &cb, &err);
     if (err != ErrorCode::ErrorNone) {
         throw SyncException(err, "syncFolderChangesViaCondstore - syncMessagesByUID");
     }
