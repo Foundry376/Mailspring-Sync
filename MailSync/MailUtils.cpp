@@ -587,6 +587,23 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     }
 }
 
+IMAPMessagesRequestKind MailUtils::messagesRequestKindFor(IndexSet * capabilities, bool heavyOrNeedToComputeIDs) {
+    bool gmail = capabilities->containsIndex(IMAPCapabilityGmail);
+    
+    if (heavyOrNeedToComputeIDs) {
+        if (gmail) {
+            return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
+        }
+        return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
+    }
+    
+    if (gmail) {
+        return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels);
+    }
+    return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags);
+}
+
+
 // *******************************
 // Worker Sleep Implementation
 

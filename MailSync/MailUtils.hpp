@@ -76,6 +76,8 @@ public:
     static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
     static void configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account);
     
+    static IMAPMessagesRequestKind messagesRequestKindFor(IndexSet * capabilities, bool heavyOrNeedToComputeIDs);
+
     static void sleepWorkerUntilWakeOrSec(int sec);
     static void wakeAllWorkers();
 
