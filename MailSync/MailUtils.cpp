@@ -359,7 +359,7 @@ vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, In
             results.push_back(Query().equal("remoteFolderId", remoteFolderId).gte("remoteUID", left).lt("remoteUID", right));
         } else {
             // this range has a few items, throw them in a pile and we'll make a few queries for these specific UIDs
-            for (uint64_t x = left; x < right; x ++) {
+            for (uint64_t x = left; x <= right; x ++) {
                 uids.push_back((uint32_t)x);
             }
         }
