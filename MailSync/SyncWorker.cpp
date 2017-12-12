@@ -177,6 +177,10 @@ void SyncWorker::idleCycleIteration()
     if (hasStartedSyncingFolder) {
         String path = AS_MCSTR(inbox->path());
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
+        
+        // Note: If we have CONDSTORE but don't have QRESYNC, this if/else may result
+        // in us not seeing "vanished" messages until the next shallow sync iteration.
+        // Right now I think that's fine.
         if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
             syncFolderChangesViaCondstore(*inbox, remoteStatus);
         } else {

@@ -76,6 +76,8 @@ public:
 
     SQLite::Database & db();
 
+    void resetForAccount(string accountId);
+    
     string getKeyValue(string key);
     
     void saveKeyValue(string key, string value);

@@ -97,7 +97,7 @@ const option::Descriptor usage[] =
     {HELP,    0,"" , "help",    CArg::None,      "  --help  \tPrint usage and exit." },
     {IDENTITY,0,"a", "identity",CArg::Optional,  USAGE_IDENTITY },
     {ACCOUNT, 0,"a", "account", CArg::Optional,  "  --account, -a  \tRequired: Account JSON with credentials." },
-    {MODE,    0,"m", "mode",    CArg::Required,  "  --mode, -m  \tRequired: sync, test, or migrate." },
+    {MODE,    0,"m", "mode",    CArg::Required,  "  --mode, -m  \tRequired: sync, test, reset, or migrate." },
     {ORPHAN,  0,"o", "orphan",  CArg::None,      "  --orphan, -o  \tOptional: allow the process to run without a parent bound to stdin." },
     {VERBOSE, 0,"v", "verbose", CArg::None,      "  --verbose, -v  \tOptional: log all IMAP and SMTP traffic for debugging purposes." },
     {0,0,0,0,0,0}
@@ -257,12 +257,11 @@ done:
     }
 }
 
-int runMigrate() {
+int runSingleFunctionAndExit(std::function<void()> fn) {
     json resp = {{"error", nullptr}};
     int code = 0;
     try {
-        MailStore store;
-        store.migrate();
+        fn();
     } catch (std::exception & ex) {
         resp["error"] = ex.what();
         code = 1;
@@ -270,6 +269,7 @@ int runMigrate() {
     cout << "\n" << resp.dump();
     return code;
 }
+
 
 void runListenOnMainThread(shared_ptr<Account> account) {
     MailStore store;
@@ -406,7 +406,10 @@ int main(int argc, const char * argv[]) {
     string mode(options[MODE].arg);
     
     if (mode == "migrate") {
-        return runMigrate();
+        return runSingleFunctionAndExit([](){
+            MailStore store;
+            store.migrate();
+        });
     }
 
 	// get the account via param or stdin
@@ -428,6 +431,13 @@ int main(int argc, const char * argv[]) {
 		cout << "\n" << resp.dump();
 		return 1;
 	}
+    
+    if (mode == "reset") {
+        return runSingleFunctionAndExit([&](){
+            MailStore store;
+            store.resetForAccount(account->id());
+        });
+    }
 
 	// get the identity via param or stdin
 	if (options[IDENTITY].count() > 0) {
