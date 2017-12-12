@@ -116,6 +116,15 @@ void MailStore::migrate() {
     SQLite::Statement(_db, "PRAGMA user_version = 2").exec();
 }
 
+void MailStore::resetForAccount(string accountId) {
+    for (string sql : ACCOUNT_RESET_QUERIES) {
+        SQLite::Statement statement {_db, sql };
+        statement.bind(1, accountId);
+        statement.exec();
+    }
+    SQLite::Statement(_db, "VACUUM").exec();
+}
+
 SQLite::Database & MailStore::db()
 {
     return this->_db;

@@ -23,7 +23,29 @@ static string FS_PATH_SEP = "/";
 
 static string MAILSPRING_FOLDER_PREFIX = "[Mailspring]";
 
-static std::vector<std::string> V1_SETUP_QUERIES = {
+static vector<string> ACCOUNT_RESET_QUERIES = {
+    "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Folder` WHERE `accountId` = ?)",
+    "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Label` WHERE `accountId` = ?)",
+    "DELETE FROM `ThreadCategory` WHERE `id` IN (SELECT id FROM `Thread` WHERE `accountId` = ?)",
+    "DELETE FROM `ThreadSearch` WHERE `content_id` IN (SELECT id FROM `Thread` WHERE `accountId` = ?)",
+    "DELETE FROM `ThreadReference` WHERE `accountId` = ?",
+    "DELETE FROM `Thread` WHERE `accountId` = ?",
+    "DELETE FROM `File` WHERE `accountId` = ?",
+    "DELETE FROM `Event` WHERE `accountId` = ?",
+    "DELETE FROM `Label` WHERE `accountId` = ?",
+    "DELETE FROM `MessageBody` WHERE `id` IN (SELECT id FROM `Message` WHERE `accountId` = ?)",
+    "DELETE FROM `Message` WHERE `accountId` = ?",
+    "DELETE FROM `Task` WHERE `accountId` = ?",
+    "DELETE FROM `Folder` WHERE `accountId` = ?",
+    "DELETE FROM `ContactSearch` WHERE `content_id` IN (SELECT id FROM `Contact` WHERE `accountId` = ?)",
+    "DELETE FROM `Contact` WHERE `accountId` = ?",
+    "DELETE FROM `Calendar` WHERE `accountId` = ?",
+    "DELETE FROM `ModelPluginMetadata` WHERE `accountId` = ?",
+    "DELETE FROM `DetatchedPluginMetadata` WHERE `accountId` = ?",
+    "DELETE FROM `Account` WHERE `id` = ?",
+};
+
+static vector<string> V1_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `_State` (id VARCHAR(40) PRIMARY KEY, value TEXT)",
 
     "CREATE TABLE IF NOT EXISTS `File` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), filename TEXT)",
@@ -151,12 +173,12 @@ static std::vector<std::string> V1_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `Task` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), status VARCHAR(255))",
 };
 
-static std::vector<std::string> V2_SETUP_QUERIES = {
+static vector<string> V2_SETUP_QUERIES = {
     "CREATE INDEX IF NOT EXISTS MessageUIDScanIndex ON Message(accountId, remoteFolderId, remoteUID)",
 };
 
 
-static std::map<std::string, std::string> COMMON_FOLDER_NAMES = {
+static map<string, string> COMMON_FOLDER_NAMES = {
     {"gel\xc3\xb6scht", "trash"},
     {"papierkorb", "trash"},
     {"\xd0\x9a\xd0\xbe\xd1\x80\xd0\xb7\xd0\xb8\xd0\xbd\xd0\xb0", "trash"},
