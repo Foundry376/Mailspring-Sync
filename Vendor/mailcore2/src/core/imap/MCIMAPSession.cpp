@@ -1037,6 +1037,11 @@ void IMAPSession::login(ErrorCode * pError)
             setDefaultNamespace(defaultNamespace);
         }
         
+#if 0
+/* This code is sensitive to the escaping of fields in the identity response,
+ (breaks ProtonMail support) and isn't used anywhere in Mailspring. See
+ https://github.com/Foundry376/Mailspring/issues/429
+*/
         if (isIdentityEnabled()) {
             IMAPIdentity * serverIdentity = identity(clientIdentity(), pError);
             if (* pError != ErrorNone) {
@@ -1047,6 +1052,7 @@ void IMAPSession::login(ErrorCode * pError)
                 MC_SAFE_REPLACE_RETAIN(IMAPIdentity, mServerIdentity, serverIdentity);
             }
         }
+#endif
     }
     else {
         // TODO: namespace should be shared with other sessions for non automatic namespace.
