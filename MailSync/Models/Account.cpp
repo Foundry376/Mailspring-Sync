@@ -47,7 +47,7 @@ string Account::valid() {
     if (!(s.count("imap_port") && s.count("imap_host") && s.count("imap_username"))) {
         return "imap configuration";
     }
-    if (!(s.count("smtp_port") && s.count("smtp_host") && s.count("smtp_username"))) {
+    if (!(s.count("smtp_port") && s.count("smtp_host"))) {
         return "smtp configuration";
     }
     if (!(s.count("imap_allow_insecure_ssl") && s["imap_allow_insecure_ssl"].is_boolean())) {
