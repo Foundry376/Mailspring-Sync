@@ -342,6 +342,11 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             // mark all folders as busy so the UI shows us syncing mail
             bgWorker->markAllFoldersBusy();
             MailUtils::wakeAllWorkers();
+            
+            // interrupt the foreground worker's IDLE call, because our network
+            // connection may have been reset and it'll sit for a while otherwise
+            // and wake-workers is called when waking from sleep
+            fgWorker->idleInterrupt();
         }
 
         if (type == "need-bodies") {

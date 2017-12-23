@@ -10,6 +10,7 @@
 //
 
 #include "MailUtils.hpp"
+#include "MetadataExpirationWorker.hpp"
 #include "SyncException.hpp"
 #include "sha256.h"
 #include "constants.h"
@@ -618,8 +619,13 @@ void MailUtils::sleepWorkerUntilWakeOrSec(int sec) {
 }
 
 void MailUtils::wakeAllWorkers() {
-    lock_guard<mutex> lck(workerSleepMtx);
-
-    workerSleepCV.notify_all();
-
+    // wake sync workers that sleep between cycles
+    {
+        lock_guard<mutex> lck(workerSleepMtx);
+        workerSleepCV.notify_all();
+    }
+    
+    // wake the metadata expiration thread to look for metadata
+    // that may have missed it's expiration
+    WakeAllMetadataExpirationWorkers();
 }
