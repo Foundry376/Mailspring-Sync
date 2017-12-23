@@ -40,5 +40,6 @@ public:
 
 
 MetadataExpirationWorker * MetadataExpirationWorkerForAccountId(string aid);
+void WakeAllMetadataExpirationWorkers();
 
 #endif /* MetadataExpirationWorker_hpp */

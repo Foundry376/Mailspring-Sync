@@ -149,12 +149,6 @@ shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * m
     return msg;
 }
 
-// thread has many folderIds with a reference count
-// when message is moved, subtract + add to folder ref counts?
-// keep in JSON?
-
-// TODO: The JS side is clearing attributes placed in the JSON by the native side. Not cool
-
 void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
 {
     if (local->syncedAt() > syncDataTimestamp) {

@@ -20,6 +20,12 @@ MetadataExpirationWorker * MetadataExpirationWorkerForAccountId(string aid) {
     return _workerMap[aid];
 }
 
+void WakeAllMetadataExpirationWorkers() {
+    for (auto pair : _workerMap) {
+        pair.second->isSavingMetadataWithExpiration(0);
+    }
+}
+
 MetadataExpirationWorker::MetadataExpirationWorker(string accountId) :
     _accountId(accountId)
 {
