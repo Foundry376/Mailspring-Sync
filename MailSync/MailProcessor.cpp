@@ -85,7 +85,7 @@ shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * m
     }
 }
 
-    shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
+shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
     shared_ptr<Message> msg = make_shared<Message>(mMsg, folder, syncDataTimestamp);
     shared_ptr<Thread> thread = nullptr;
 
@@ -152,23 +152,55 @@ shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * m
 void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
 {
     if (local->syncedAt() > syncDataTimestamp) {
-        logger->warn("Ignoring changes to {}, more recent data is available {} < {}", local->subject(), syncDataTimestamp, local->syncedAt());
+        logger->warn("Ignoring changes to {}, local data is newer {} < {}", local->subject(), syncDataTimestamp, local->syncedAt());
         return;
     }
-    logger->info("🔸 Updating message {}={} with subject: {}", local->remoteUID(), remote->uid(), local->subject());
     
+    auto updated = MessageAttributesForMessage(remote);
+    auto jlabels = json(updated.labels);
+
+    logger->info("- Updating message {}", local->id());
+    
+    bool noChanges = true;
+    if (updated.unread != local->isUnread()) {
+        logger->info("-- Unread ({} to {})", local->isUnread(), updated.unread);
+        noChanges = false;
+    }
+    if (updated.starred != local->isStarred()) {
+        logger->info("-- Starred ({} to {})", local->isStarred(), updated.starred);
+        noChanges = false;
+    }
+    if (updated.draft != local->isDraft()) {
+        logger->info("-- Starred ({} to {})", local->isDraft(), updated.draft);
+        noChanges = false;
+    }
+    if (updated.uid != local->remoteUID()) {
+        logger->info("-- UID ({} to {})", local->remoteUID(), updated.uid);
+        noChanges = false;
+    }
+    if (folder.id() != local->remoteFolderId()) {
+        logger->info("-- FolderID ({} to {})", local->remoteFolderId(), folder.id());
+        noChanges = false;
+    }
+    if (jlabels != local->remoteXGMLabels()) {
+        logger->info("-- XGMLabels ({} to {})", local->remoteXGMLabels().dump(), jlabels.dump());
+        noChanges = false;
+    }
+
+    if (noChanges) {
+        return;
+    }
+
     {
         MailStoreTransaction transaction{store};
-
-        auto updated = MessageAttributesForMessage(remote);
+    
         local->setUnread(updated.unread);
         local->setStarred(updated.starred);
         local->setDraft(updated.draft);
-        local->setSyncedAt(syncDataTimestamp);
         local->setRemoteUID(updated.uid);
         local->setRemoteFolder(&folder);
+        local->setSyncedAt(syncDataTimestamp);
         local->setClientFolder(&folder);
-        auto jlabels = json(updated.labels);
         local->setRemoteXGMLabels(jlabels);
         
         // Save the message - this will automatically find and update the counters
