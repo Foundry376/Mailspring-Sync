@@ -621,7 +621,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 
 void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages)
 {
-    logger->info("syncFolderUIDRange - ({}, UIDs: {} - {}, Heavy: {})", folder.path(), range.location, range.location + range.length, heavyInitialRequest);
+    logger->info("syncFolderUIDRange - fetching {}, UIDs: {} - {}, Heavy: {}", folder.path(), range.location, range.location + range.length, heavyInitialRequest);
 
     AutoreleasePool pool;
     IndexSet * set = IndexSet::indexSetWithRange(range);
@@ -679,10 +679,10 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     }
     
     if (!heavyInitialRequest && heavyNeeded->count() > 0) {
-        logger->error("syncFolderUIDRange - Fetching full headers for {}", heavyNeeded->count());
+        logger->info("syncFolderUIDRange - Fetching full headers for {}", heavyNeeded->count());
 
         syncDataTimestamp = time(0);
-        auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), heavyInitialRequest);
+        auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
         remote = session.fetchMessagesByUID(&path, kind, heavyNeeded, &cb, &err);
         if (err != ErrorNone) {
             throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID (heavy)");
@@ -831,7 +831,7 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         return false;
     }
 
-    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.id IS NULL ORDER BY Message.date DESC LIMIT 20");
+    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.id IS NULL ORDER BY Message.date DESC LIMIT 30");
     missing.bind(1, folder.id());
     missing.bind(2, (double)(time(0) - maxAgeForBodySync(folder))); // three months TODO pref!
     vector<Message> results{};
