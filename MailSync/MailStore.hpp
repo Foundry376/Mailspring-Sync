@@ -114,7 +114,7 @@ public:
     
     template<typename ModelClass>
     shared_ptr<ModelClass> find(Query & query) {
-        SQLite::Statement statement(this->_db, "SELECT data FROM " + ModelClass::TABLE_NAME + query.sql() + " LIMIT 1");
+        SQLite::Statement statement(this->_db, "SELECT data FROM " + ModelClass::TABLE_NAME + query.getSQL() + " LIMIT 1");
         query.bind(statement);
         if (statement.executeStep()) {
             return make_shared<ModelClass>(statement);
@@ -124,7 +124,11 @@ public:
     
     template<typename ModelClass>
     vector<shared_ptr<ModelClass>> findAll(Query & query) {
-        SQLite::Statement statement(this->_db, "SELECT data FROM " + ModelClass::TABLE_NAME + query.sql());
+        string sql = "SELECT data FROM " + ModelClass::TABLE_NAME + query.getSQL();
+        if (query.getLimit() != 0) {
+            sql = sql + " LIMIT " + to_string(query.getLimit());
+        }
+        SQLite::Statement statement(this->_db, sql);
         query.bind(statement);
         
         vector<shared_ptr<ModelClass>> results;
@@ -137,7 +141,7 @@ public:
     
     template<typename ModelClass>
     map<string, shared_ptr<ModelClass>> findAllMap(Query & query, std::string keyField) {
-        SQLite::Statement statement(this->_db, "SELECT " + keyField + ", data FROM " + ModelClass::TABLE_NAME + query.sql());
+        SQLite::Statement statement(this->_db, "SELECT " + keyField + ", data FROM " + ModelClass::TABLE_NAME + query.getSQL());
         query.bind(statement);
 
         map<string, shared_ptr<ModelClass>> results;
@@ -150,7 +154,7 @@ public:
     
     template<typename ModelClass>
     map<uint32_t, shared_ptr<ModelClass>> findAllUINTMap(Query & query, std::string keyField) {
-        SQLite::Statement statement(this->_db, "SELECT " + keyField + ", data FROM " + ModelClass::TABLE_NAME + query.sql());
+        SQLite::Statement statement(this->_db, "SELECT " + keyField + ", data FROM " + ModelClass::TABLE_NAME + query.getSQL());
         query.bind(statement);
 
         map<uint32_t, shared_ptr<ModelClass>> results;
@@ -167,7 +171,7 @@ public:
     void remove(Query & query) {
         auto models = findAll<ModelClass>(query);
 
-        SQLite::Statement statement(this->_db, "DELETE FROM " + ModelClass::TABLE_NAME + query.sql());
+        SQLite::Statement statement(this->_db, "DELETE FROM " + ModelClass::TABLE_NAME + query.getSQL());
         query.bind(statement);
         statement.exec();
         

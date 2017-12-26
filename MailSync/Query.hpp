@@ -22,9 +22,12 @@ using namespace std;
 
 
 class Query {
-    json clauses;
+    json _clauses;
+    int _limit;
     
 public:
+    Query() noexcept;
+    
     Query & equal(string col, string val);
     Query & equal(string col, double val);
     Query & equal(string col, vector<string> & val);
@@ -35,7 +38,10 @@ public:
     Query & lt(string col, double val);
     Query & lte(string col, double val);
 
-    std::string sql();
+    Query & limit(int l);
+
+    int getLimit();
+    std::string getSQL();
 
     void bind(SQLite::Statement & query);
 };

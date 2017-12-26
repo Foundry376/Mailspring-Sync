@@ -268,7 +268,7 @@ void MailProcessor::unlinkMessagesMatchingQuery(Query & query, int phase)
     // complicated change because _data is used for cloning models, etc and inflation
     // is very abstracted.
     
-    logger->info("Unlinking messages {} no longer present in remote range.", query.sql());
+    logger->info("Unlinking messages {} no longer present in remote range.", query.getSQL());
     
     {
         MailStoreTransaction transaction{store};
@@ -300,16 +300,27 @@ void MailProcessor::unlinkMessagesMatchingQuery(Query & query, int phase)
 
 void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
 {
-    {
+    bool more = true;
+    int chunkSize = 100;
+    
+    // If the user deletes a zillion messages, this function can take a long
+    // time and block the database. Break it up a bit!
+
+    while (more) {
         MailStoreTransaction transaction{store};
         
-        auto q = Query().equal("accountId", account->id()).equal("remoteUID", UINT32_MAX - phase);
+        auto q = Query().equal("accountId", account->id()).equal("remoteUID", UINT32_MAX - phase).limit(chunkSize);
         auto messages = store->findAll<Message>(q);
+        if (messages.size() < chunkSize){
+            more = false;
+        }
+        
         for (auto const & msg : messages) {
             logger->info("-- Removing \"{}\" ({})", msg->subject(), msg->id());
             store->remove(msg.get());
         }
         
+        // send the deltas
         transaction.commit();
     }
 }
