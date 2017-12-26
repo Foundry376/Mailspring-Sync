@@ -19,54 +19,66 @@ using namespace std;
 
 // TODO: figure out how to use templates for this
 
+Query::Query() noexcept : _clauses({}), _limit(0) {
+}
+
 Query & Query::equal(string col, string val) {
-    clauses[col] = {{"op","="}, {"rhs", val}};
+    _clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }
 
 Query & Query::equal(string col, double val) {
-    clauses[col] = {{"op","="}, {"rhs", val}};
+    _clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }
 
 Query & Query::equal(string col, vector<string> & val) {
-    clauses[col] = {{"op","="}, {"rhs", val}};
+    _clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }
 
 Query & Query::equal(string col, vector<uint32_t> & val) {
-    clauses[col] = {{"op","="}, {"rhs", val}};
+    _clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }
 
 Query & Query::gt(string col, double val) {
-    clauses[col] = {{"op",">"}, {"rhs", val}};
+    _clauses[col] = {{"op",">"}, {"rhs", val}};
     return *this;
 }
 
 Query & Query::gte(string col, double val) {
-    clauses[col] = {{"op",">="}, {"rhs", val}};
+    _clauses[col] = {{"op",">="}, {"rhs", val}};
     return *this;
 }
 
 Query & Query::lt(string col, double val) {
-    clauses[col] = {{"op","<"}, {"rhs", val}};
+    _clauses[col] = {{"op","<"}, {"rhs", val}};
     return *this;
 }
 
 Query & Query::lte(string col, double val) {
-    clauses[col] = {{"op","<="}, {"rhs", val}};
+    _clauses[col] = {{"op","<="}, {"rhs", val}};
     return *this;
 }
 
-string Query::sql() {
+Query & Query::limit(int l) {
+    _limit = l;
+    return *this;
+}
+
+int Query::getLimit() {
+    return _limit;
+}
+
+string Query::getSQL() {
     string result = "";
 
-    if (clauses.size() > 0) {
+    if (_clauses.size() > 0) {
         result += " WHERE ";
 
-        for (json::iterator it = clauses.begin(); it != clauses.end(); ++it) {
-            if (it != clauses.begin()) {
+        for (json::iterator it = _clauses.begin(); it != _clauses.end(); ++it) {
+            if (it != _clauses.begin()) {
                 result += " AND ";
             }
             string op = it.value()["op"].get<string>();
@@ -91,7 +103,7 @@ string Query::sql() {
 
 void Query::bind(SQLite::Statement & query) {
     int ii = 1;
-    for (json::iterator it = clauses.begin(); it != clauses.end(); ++it) {
+    for (json::iterator it = _clauses.begin(); it != _clauses.end(); ++it) {
         json & rhs = it.value()["rhs"];
 
         if (rhs.is_array()) {
