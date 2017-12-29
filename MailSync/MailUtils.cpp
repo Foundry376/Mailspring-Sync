@@ -21,6 +21,8 @@
 
 #if defined(_MSC_VER)
 #include <direct.h>
+#include <codecvt>
+#include <locale>
 #endif
 
 using namespace std;
@@ -113,6 +115,26 @@ std::string MailUtils::toBase58(const unsigned char * pbegin, size_t len)
     return str;
 }
 
+string MailUtils::getEnvUTF8(string key) {
+#if defined(_MSC_VER)
+    size_t wKeyLength = MultiByteToWideChar( CP_UTF8, 0, key.c_str(), (int)key.length(), 0, 0 );
+    std::wstring wKey( wKeyLength, L'\0' );
+    MultiByteToWideChar( CP_UTF8, 0, key.c_str(), (int)key.length(), &wKey[0], (int)wKey.length());
+    
+    wchar_t wstr[MAX_PATH];
+    size_t len = _countof(wstr);
+    _wgetenv_s(&len, wstr, wKey);
+    wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+    string out = convert.to_bytes(wstr);
+    return out;
+#else
+    char * val = getenv(key.c_str());
+    if (val == nullptr) {
+        return "";
+    }
+    return string(val);
+#endif
+}
 
 json MailUtils::merge(const json &a, const json &b)
 {

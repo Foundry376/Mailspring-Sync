@@ -77,7 +77,7 @@ bool MessageAttributesMatch(MessageAttributes a, MessageAttributes b) {
 #pragma mark MailStore
 
 MailStore::MailStore() :
-    _db(string(getenv("CONFIG_DIR_PATH")) + FS_PATH_SEP + "edgehill.db", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE),
+    _db(MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "edgehill.db", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE),
     _stmtBeginTransaction(_db, "BEGIN IMMEDIATE TRANSACTION"),
     _stmtRollbackTransaction(_db, "ROLLBACK"),
     _stmtCommitTransaction(_db, "COMMIT"),

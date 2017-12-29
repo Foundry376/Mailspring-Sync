@@ -286,7 +286,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
 
 
 bool MailProcessor::retrievedFileData(File * file, Data * data) {
-    string root = string(getenv("CONFIG_DIR_PATH")) + FS_PATH_SEP + "files";
+    string root = MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "files";
     string path = MailUtils::pathForFile(root, file, true);
     return (data->writeToFile(AS_MCSTR(path)) == ErrorNone);
 }

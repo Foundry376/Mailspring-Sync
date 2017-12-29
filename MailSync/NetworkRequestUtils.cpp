@@ -13,6 +13,7 @@
 #include "NetworkRequestUtils.hpp"
 #include "SyncException.hpp"
 #include "Account.hpp"
+#include "MailUtils.hpp"
 
 #include <sys/stat.h>
 
@@ -60,7 +61,7 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
 
 CURL * CreateRequest(string server, string username, string password, string path, string method, const char * payloadChars) {
     CURL * curl_handle = curl_easy_init();
-    string url { string(getenv(server.c_str())) + path };
+    string url { MailUtils::getEnvUTF8(server) + path };
     url.replace(url.find("://"), 3, "://" + username + ":" + password + "@");
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);

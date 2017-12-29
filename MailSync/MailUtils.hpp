@@ -30,14 +30,16 @@ using namespace nlohmann;
 using namespace std;
 using namespace mailcore;
 
+
 class MailUtils {
 
 private:
     static int compareEmails(void * a, void * b, void * context);
 
 public:
-    static std::string toBase58(const unsigned char * pbegin, size_t len);
-
+    static string toBase58(const unsigned char * pbegin, size_t len);
+    static string getEnvUTF8(string key);
+    
     static json merge(const json &a, const json &b);
     static json contactJSONFromAddress(Address * addr);
     static Address * addressFromContactJSON(json & j);
