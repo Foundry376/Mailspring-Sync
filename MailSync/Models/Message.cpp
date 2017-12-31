@@ -135,6 +135,7 @@ MessageSnapshot Message::getSnapshot() {
     MessageSnapshot s;
     s.unread = isUnread();
     s.starred = isStarred();
+    s.inAllMail = inAllMail();
     s.fileCount = files().size();
     s.remoteXGMLabels = remoteXGMLabels();
     s.clientFolderId = clientFolderId();
@@ -166,6 +167,11 @@ bool Message::isHiddenReminder() {
 }
 
 // mutable attributes
+
+bool Message::inAllMail() {
+    auto role = clientFolder()["role"].get<string>();
+    return role != "spam" && role != "trash";
+}
 
 bool Message::isUnread() {
     return _data["unread"].get<bool>();

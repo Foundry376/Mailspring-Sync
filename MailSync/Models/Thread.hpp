@@ -78,6 +78,7 @@ public:
     void afterRemove(MailStore * store);
 
 private:
+    map<string, bool> captureCategoryIDs();
     void captureInitialState();
     void addMissingParticipants(std::map<std::string, bool> & existing, json & incoming);
 

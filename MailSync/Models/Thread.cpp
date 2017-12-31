@@ -179,6 +179,9 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
             continue;
         }
         int r = f["_refs"].get<int>();
+        
+        // Would be >0, but in the "decrementing to zero" case, we don't want
+        // the folder in the result set at all.
         if (r > 1) {
             f["_refs"] = r - 1;
             f["_u"] = f["_u"].get<int>() - old.unread;
@@ -188,6 +191,9 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
     _data["folders"] = nextFolders;
     
     // decrement label refcounts
+    //
+    // Note: Since labels are within `All Mail`, a message only contributes
+    // to a label's unread count if it is also in `All Mail`.
     for (auto& mlname : old.remoteXGMLabels) {
         shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
         if (ml == nullptr) {
@@ -200,9 +206,12 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
                 continue;
             }
             int r = l["_refs"].get<int>();
+
+            // Would be >0, but in the "decrementing to zero" case, we don't want
+            // the label in the result set at all.
             if (r > 1) {
                 l["_refs"] = r - 1;
-                l["_u"] = l["_u"].get<int>() - old.unread;
+                l["_u"] = l["_u"].get<int>() - old.unread && old.inAllMail; // see Note
                 nextLabels.push_back(l);
             }
         }
@@ -266,7 +275,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
             for (auto& l : labels()) {
                 if (l["id"].get<string>() == ml->id()) {
                     l["_refs"] = l["_refs"].get<int>() + 1;
-                    l["_u"] = l["_u"].get<int>() + next->isUnread();
+                    l["_u"] = l["_u"].get<int>() + next->isUnread() && next->inAllMail(); // See Note
                     found = true;
                     break;
                 }
@@ -274,7 +283,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
             if (!found) {
                 json l = ml->toJSON();
                 l["_refs"] = 1;
-                l["_u"] = next->isUnread() ? 1 : 0;
+                l["_u"] = (next->isUnread() && next->inAllMail()) ? 1 : 0; // See Note
                 labels().push_back(l);
             }
         }
@@ -330,14 +339,7 @@ void Thread::afterSave(MailStore * store) {
     bool _inAllMail = inAllMail();
     double _lmrt = (double)lastMessageReceivedTimestamp();
     double _lmst = (double)lastMessageSentTimestamp();
-
-    map<string, bool> categoryIds{};
-    for (const auto & f : folders()) {
-        categoryIds[f["id"].get<string>()] = f["_u"].get<int>() > 0;
-    }
-    for (const auto & l : labels()) {
-        categoryIds[l["id"].get<string>()] = l["_u"].get<int>() > 0;
-    }
+    map<string, bool> categoryIds = captureCategoryIDs();
 
     // update the ThreadCategory join table to include our folder and labels
     // note this is pretty expensive, so we avoid it if relevant attributes
@@ -420,15 +422,21 @@ void Thread::afterRemove(MailStore * store) {
 
 #pragma mark Private
 
+map<string, bool> Thread::captureCategoryIDs() {
+    map<string, bool> result{};
+    for (const auto & f : folders()) {
+        result[f["id"].get<string>()] = f["_u"].get<int>() > 0;
+    }
+    for (const auto & l : labels()) {
+        result[l["id"].get<string>()] = l["_u"].get<int>() > 0;
+    }
+    return result;
+}
+
 void Thread::captureInitialState() {
     _initialLMST = lastMessageSentTimestamp();
     _initialLMRT = lastMessageReceivedTimestamp();
-    for (const auto & f : folders()) {
-        _initialCategoryIds[f["id"].get<string>()] = f["_u"].get<int>() > 0;
-    }
-    for (const auto & f : labels()) {
-        _initialCategoryIds[f["id"].get<string>()] = f["_u"].get<int>() > 0;
-    }
+    _initialCategoryIds = captureCategoryIDs();
 }
 
 void Thread::addMissingParticipants(std::map<std::string, bool> & existing, json & incoming) {
