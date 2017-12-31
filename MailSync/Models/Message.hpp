@@ -35,12 +35,13 @@ class Message;
 struct MessageSnapshot {
     bool unread;
     bool starred;
+    bool inAllMail;
     size_t fileCount;
     json remoteXGMLabels;
     string clientFolderId;
 };
 
-static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, 0, nullptr, ""};
+static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, false, 0, nullptr, ""};
 
 // Message
 
@@ -66,6 +67,8 @@ public:
     
     bool isDeletionPlaceholder();
     bool isHiddenReminder();
+
+    bool inAllMail();
 
     bool isUnread();
     void setUnread(bool u);
