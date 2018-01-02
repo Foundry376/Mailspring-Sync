@@ -35,6 +35,7 @@ public:
 
     bool valid();
 
+    time_t createdAt();
     string firstName();
     string lastName();
     string emailAddress();

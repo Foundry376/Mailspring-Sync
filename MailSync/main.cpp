@@ -462,6 +462,8 @@ int main(int argc, const char * argv[]) {
 		cout << "\n" << resp.dump();
 		return 1;
 	}
+    
+    MailUtils::setBaseIDVersion(Identity::GetGlobal()->createdAt());
 
     // setup logging to file or console
     std::vector<shared_ptr<spdlog::sinks::sink>> sinks;
