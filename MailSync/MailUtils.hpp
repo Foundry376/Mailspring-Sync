@@ -46,8 +46,8 @@ public:
 
     static string contactKeyForEmail(string email);
 
-    static string timestampForTime(time_t time);
-  
+    static string localTimestampForTime(time_t time);
+
     static vector<uint32_t> uidsOfArray(Array * array);
     
     static vector<Query> queriesForUIDRangesInIndexSet(string remoteFolderId, IndexSet * set);
@@ -60,6 +60,8 @@ public:
     static string roleForFolder(string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaPath(string mainPrefix, IMAPFolder * folder);
+
+    static void setBaseIDVersion(time_t identityCreationDate);
 
     static string idRandomlyGenerated();
     static string idForMessage(string accountId, IMAPMessage * msg);

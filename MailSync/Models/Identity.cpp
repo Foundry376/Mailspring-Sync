@@ -40,6 +40,14 @@ bool Identity::valid() {
     return true;
 }
 
+time_t Identity::createdAt() {
+    string s = _data["createdAt"].get<string>();
+    struct tm timeinfo {};
+    memset(&timeinfo, 0, sizeof(struct tm));
+    strptime(s.c_str(), "%FT%T%z", &timeinfo);
+    return mktime(&timeinfo);
+}
+
 string Identity::firstName() {
     return _data["firstName"].get<string>();
 }

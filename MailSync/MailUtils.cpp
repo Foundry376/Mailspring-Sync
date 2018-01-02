@@ -202,21 +202,21 @@ int MailUtils::compareEmails(void * a, void * b, void * context) {
     return ((String*)a)->compare((String*)b);
 }
 
-string MailUtils::timestampForTime(time_t time) {
-	// Some messages can have date=-1 if no Date: header is present. Win32
-	// doesn't allow this value, so we always convert it to one second past 1970.
-	if (time == -1) {
-		time = 1;
-	}
-
-	char buffer[32];
+string MailUtils::localTimestampForTime(time_t time) {
+    // Some messages can have date=-1 if no Date: header is present. Win32
+    // doesn't allow this value, so we always convert it to one second past 1970.
+    if (time == -1) {
+        time = 1;
+    }
+    
+    char buffer[32];
 #if defined(_MSC_VER)
-	tm ptm;
-	localtime_s(&ptm, &time);
-	strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", &ptm);
+    tm ptm;
+    localtime_s(&ptm, &time);
+    strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", &ptm);
 #else
     tm * ptm = localtime(&time);
-	strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", ptm);
+    strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", ptm);
 #endif
     return string(buffer);
 }
@@ -443,7 +443,35 @@ string MailUtils::idForDraftHeaderMessageId(string accountId, string headerMessa
     return toBase58(hash.data(), 30);
 }
 
+#define SCHEMA_1_START_DATE 1516060800 // 1/16/2018
+
+static int _baseIDSchemaVersion = 0;
+
+void MailUtils::setBaseIDVersion(time_t identityCreationDate) {
+    if (identityCreationDate > SCHEMA_1_START_DATE) {
+        _baseIDSchemaVersion = 1;
+    } else {
+        _baseIDSchemaVersion = 0;
+    }
+}
+
 string MailUtils::idForMessage(string accountId, IMAPMessage * msg) {
+    
+    /* I want to correct flaws in the ID algorithm, but changing this will cause
+     duplicate messages to appear in threads and message metadata to be lost.
+     
+     - Use the new scheme for ANY messages dated > 1/16/2018
+     - Use the new scheme for ALL messages if identity was created after 1/16/2018
+     
+     This should ensure that:
+     - old users get old IDs on old mail, new IDs on new mail
+     - new users get new IDs on all mail
+    */
+    int scheme = _baseIDSchemaVersion;
+    if (msg->header()->date() > SCHEMA_1_START_DATE) {
+        scheme = 1;
+    }
+    
     Array * addresses = new Array();
     addresses->addObjectsFromArray(msg->header()->to());
     addresses->addObjectsFromArray(msg->header()->cc());
@@ -467,7 +495,11 @@ string MailUtils::idForMessage(string accountId, IMAPMessage * msg) {
     
     string src_str = accountId;
     src_str = src_str.append("-");
-    src_str = src_str.append(timestampForTime(msg->header()->date()));
+    if (scheme == 1) {
+        src_str = src_str.append(to_string(msg->header()->date()));
+    } else {
+        src_str = src_str.append(localTimestampForTime(msg->header()->date()));
+    }
     if (subject) {
         src_str = src_str.append(subject->UTF8Characters());
     }
