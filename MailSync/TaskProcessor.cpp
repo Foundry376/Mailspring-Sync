@@ -1012,10 +1012,10 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         // grab the last few items in the sent folder... we know we don't need more than 10
         // because multisend is capped.
         int tries = 0;
-        int delay[] = {0, 1, 3, 3, 3, 5};
+        int delay[] = {0, 1, 1, 2, 2};
         IndexSet * uids = new IndexSet();
         
-        while (tries < 5) {
+        while (tries < 4) {
             if (delay[tries]) {
                 logger->info("-- No messages found. Sleeping {} to wait for sent folder to settle...", delay[tries]);
 				std::this_thread::sleep_for(std::chrono::seconds(delay[tries]));
