@@ -779,7 +779,9 @@ void SyncWorker::cleanMessageCache(Folder & folder) {
     logger->info("Cleaning local cache and updating stats");
     
     // delete bodies we no longer want. Note: you can't do INNER JOINs within a DELETE
-    SQLite::Statement purge(store->db(), "DELETE FROM MessageBody WHERE MessageBody.id IN (SELECT Message.id FROM Message WHERE Message.remoteFolderId = ? AND Message.draft = 0 AND Message.date < ?)");
+    // note: we only delete messages fetchedd more than 14 days ago to avoid deleting
+    // old messages you're actively viewing / could still want
+    SQLite::Statement purge(store->db(), "DELETE FROM MessageBody WHERE MessageBody.fetchedAt < datetime('now', '-14 days') AND MessageBody.id IN (SELECT Message.id FROM Message WHERE Message.remoteFolderId = ? AND Message.draft = 0 AND Message.date < ?)");
     purge.bind(1, folder.id());
     purge.bind(2, (double)(time(0) - maxAgeForBodySync(folder)));
     int purged = purge.exec();

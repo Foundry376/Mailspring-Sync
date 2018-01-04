@@ -177,6 +177,11 @@ static vector<string> V2_SETUP_QUERIES = {
     "CREATE INDEX IF NOT EXISTS MessageUIDScanIndex ON Message(accountId, remoteFolderId, remoteUID)",
 };
 
+static vector<string> V3_SETUP_QUERIES = {
+    "ALTER TABLE `MessageBody` ADD COLUMN fetchedAt DATETIME",
+    "UPDATE `MessageBody` SET fetchedAt = datetime('now')",
+};
+
 
 static map<string, string> COMMON_FOLDER_NAMES = {
     {"gel\xc3\xb6scht", "trash"},

@@ -112,8 +112,13 @@ void MailStore::migrate() {
             SQLite::Statement(_db, sql).exec();
         }
     }
+    if (version < 3) {
+        for (string sql : V3_SETUP_QUERIES) {
+            SQLite::Statement(_db, sql).exec();
+        }
+    }
 
-    SQLite::Statement(_db, "PRAGMA user_version = 2").exec();
+    SQLite::Statement(_db, "PRAGMA user_version = 3").exec();
 }
 
 void MailStore::resetForAccount(string accountId) {
