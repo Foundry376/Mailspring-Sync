@@ -249,7 +249,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         MailStoreTransaction transaction{store};
         
         // write body to the MessageBodies table
-        SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
+        SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value, fetchedAt) VALUES (?, ?, datetime('now'))");
         insert.bind(1, message->id());
         insert.bind(2, chars);
         insert.exec();

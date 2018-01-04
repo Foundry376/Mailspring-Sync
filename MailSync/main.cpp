@@ -339,6 +339,8 @@ void runListenOnMainThread(shared_ptr<Account> account) {
         }
         
         if (type == "wake-workers") {
+            spdlog::get("logger")->info("Waking all workers...");
+
             // mark all folders as busy so the UI shows us syncing mail
             bgWorker->markAllFoldersBusy();
             MailUtils::wakeAllWorkers();
