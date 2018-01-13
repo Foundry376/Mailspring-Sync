@@ -660,7 +660,12 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
         // to trigger the correct didSave hooks, etc. Find and update it.
         auto existing = store->find<Message>(Query().equal("accountId", msg.accountId()).equal("id", msg.id()));
         if (existing) {
+            // NOTE: to accept all changes we just swap the data BUT, the new data
+            // may have an outdated version and the version dicates whether we
+            // INSERT or UPDATE. It's critical we bump the version of `existing`.
+            int existingVersion = existing->version();
             existing->_data = msg._data;
+            existing->_data["v"] = existingVersion + 1;
             store->save(existing.get());
         } else {
             store->save(&msg);
