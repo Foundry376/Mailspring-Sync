@@ -443,7 +443,7 @@ string MailUtils::idForDraftHeaderMessageId(string accountId, string headerMessa
     return toBase58(hash.data(), 30);
 }
 
-#define SCHEMA_1_START_DATE 1516060800 // 1/16/2018
+#define SCHEMA_1_START_DATE 1517443200 // 2/1/2018
 
 static int _baseIDSchemaVersion = 0;
 
