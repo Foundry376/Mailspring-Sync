@@ -117,8 +117,12 @@ void MailStore::migrate() {
             SQLite::Statement(_db, sql).exec();
         }
     }
-
-    SQLite::Statement(_db, "PRAGMA user_version = 3").exec();
+    
+    // Update the version flag. Note that we don't want to go from v3 back to v2
+    // if the user re-opens an older version of the app.
+    if (version < 3) {
+        SQLite::Statement(_db, "PRAGMA user_version = 3").exec();
+    }
 }
 
 void MailStore::resetForAccount(string accountId) {
