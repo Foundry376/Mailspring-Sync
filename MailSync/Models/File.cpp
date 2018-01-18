@@ -32,11 +32,28 @@ File::File(Message * msg, Attachment * a) :
     if (a->mimeType()) {
         _data["contentType"] = a->mimeType()->UTF8Characters();
     }
+    
+    string name = "";
     if (a->filename()) {
-        _data["filename"] = a->filename()->UTF8Characters();
-    } else {
-        _data["filename"] = "";
+        name = a->filename()->UTF8Characters();
     }
+    if (name == "") {
+        if (_data["contentType"] == "text/calendar") {
+            name = "Event.ics";
+        }
+        if (_data["contentType"] == "image/png") {
+            name = "Unnamed Image.png";
+        }
+        if (_data["contentType"] == "image/jpg") {
+            name = "Unnamed Image.jpg";
+        }
+        if (_data["contentType"] == "image/jpeg") {
+            name = "Unnamed Image.jpg";
+        }
+        name = "Unnamed Attachment";
+    }
+    
+    _data["filename"] = name;
     _data["size"] = a->data()->length();
 }
 
