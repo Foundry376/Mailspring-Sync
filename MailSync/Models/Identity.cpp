@@ -11,6 +11,10 @@
 
 #include "Identity.hpp"
 
+#include <time.h>
+#include <iomanip>
+#include <sstream>
+
 using namespace std;
 using namespace mailcore;
 
@@ -41,10 +45,11 @@ bool Identity::valid() {
 }
 
 time_t Identity::createdAt() {
-    string s = _data["createdAt"].get<string>();
     struct tm timeinfo {};
     memset(&timeinfo, 0, sizeof(struct tm));
-    strptime(s.c_str(), "%FT%T%z", &timeinfo);
+    
+    std::istringstream ss(_data["createdAt"].get<string>());
+    ss >> std::get_time(&timeinfo, "%FT%T%z");
     return mktime(&timeinfo);
 }
 
