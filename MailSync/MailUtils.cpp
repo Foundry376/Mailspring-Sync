@@ -123,7 +123,7 @@ string MailUtils::getEnvUTF8(string key) {
     
     wchar_t wstr[MAX_PATH];
     size_t len = _countof(wstr);
-    _wgetenv_s(&len, wstr, len, wKey);
+    _wgetenv_s(&len, wstr, len, wKey.c_str());
     wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
     string out = convert.to_bytes(wstr);
     return out;
