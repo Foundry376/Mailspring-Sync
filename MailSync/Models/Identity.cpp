@@ -47,9 +47,8 @@ bool Identity::valid() {
 time_t Identity::createdAt() {
     struct tm timeinfo {};
     memset(&timeinfo, 0, sizeof(struct tm));
-    
     std::istringstream ss(_data["createdAt"].get<string>());
-    ss >> std::get_time(&timeinfo, "%FT%T%z");
+    ss >> std::get_time(&timeinfo, "%Y-%m-%dT%H:%M:%S.000Z");
     return mktime(&timeinfo);
 }
 
