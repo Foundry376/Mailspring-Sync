@@ -123,7 +123,7 @@ string MailUtils::getEnvUTF8(string key) {
     
     wchar_t wstr[MAX_PATH];
     size_t len = _countof(wstr);
-    _wgetenv_s(&len, wstr, wKey);
+    _wgetenv_s(&len, wstr, len, wKey);
     wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
     string out = convert.to_bytes(wstr);
     return out;
@@ -453,6 +453,7 @@ void MailUtils::setBaseIDVersion(time_t identityCreationDate) {
     } else {
         _baseIDSchemaVersion = 0;
     }
+    spdlog::get("logger")->info("Identity created at {} - using ID Schema {}", identityCreationDate, _baseIDSchemaVersion);
 }
 
 string MailUtils::idForMessage(string accountId, IMAPMessage * msg) {
