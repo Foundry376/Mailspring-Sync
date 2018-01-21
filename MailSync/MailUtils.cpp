@@ -443,7 +443,7 @@ string MailUtils::idForDraftHeaderMessageId(string accountId, string headerMessa
     return toBase58(hash.data(), 30);
 }
 
-#define SCHEMA_1_START_DATE 1517443200 // 2/1/2018
+#define SCHEMA_1_START_DATE 1518652800 // 2/15/2018
 
 static int _baseIDSchemaVersion = 0;
 
@@ -461,8 +461,8 @@ string MailUtils::idForMessage(string accountId, IMAPMessage * msg) {
     /* I want to correct flaws in the ID algorithm, but changing this will cause
      duplicate messages to appear in threads and message metadata to be lost.
      
-     - Use the new scheme for ANY messages dated > 1/16/2018
-     - Use the new scheme for ALL messages if identity was created after 1/16/2018
+     - Use the new scheme for ANY messages dated > 2/15/2018
+     - Use the new scheme for ALL messages if identity was created after 2/15/2018
      
      This should ensure that:
      - old users get old IDs on old mail, new IDs on new mail
