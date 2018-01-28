@@ -470,18 +470,18 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             }
         }
         if (!found) {
-            string mailspringFolderPath = mainPrefix;
-            mailspringFolderPath += MAILSPRING_FOLDER_PREFIX;
-            mailspringFolderPath += delimiter;
-            mailspringFolderPath += mailspringFolder;
-            session.createFolder(AS_MCSTR(mailspringFolderPath), &err);
+            string desiredPath = MAILSPRING_FOLDER_PREFIX_V2 + delimiter + mailspringFolder;
+            if (mainPrefix.size() > 0) {
+                desiredPath = mainPrefix + delimiter + desiredPath;
+            }
+            session.createFolder(AS_MCSTR(desiredPath), &err);
             if (err) {
-                logger->error("Could not create required Mailspring folder: {}. {}", mailspringFolderPath, ErrorCodeToTypeMap[err]);
+                logger->error("Could not create required Mailspring folder: {}. {}", desiredPath, ErrorCodeToTypeMap[err]);
                 continue;
             }
-            logger->error("Created required Mailspring folder: {}.", mailspringFolderPath);
+            logger->error("Created required Mailspring folder: {}.", desiredPath);
             IMAPFolder * fake = new IMAPFolder();
-            fake->setPath(AS_MCSTR(mailspringFolderPath));
+            fake->setPath(AS_MCSTR(desiredPath));
             fake->setDelimiter(delimiter);
             remoteFolders->addObject(fake);
         }

@@ -281,6 +281,11 @@ string MailUtils::roleForFolderViaPath(string mainPrefix, IMAPFolder * folder) {
     if ((mainPrefix.size() > 0) && (path.size() > mainPrefix.size()) && (path.substr(0, mainPrefix.size()) == mainPrefix)) {
         path = path.substr(mainPrefix.size());
     }
+    
+    // Strip the delimiter if the delimiter is the first character after stripping prefix
+    if (path.size() > 1 && path.substr(0, 1) == delimiter) {
+        path = path.substr(1);
+    }
 
     // Lowercase the path
     transform(path.begin(), path.end(), path.begin(), ::tolower);
@@ -288,12 +293,18 @@ string MailUtils::roleForFolderViaPath(string mainPrefix, IMAPFolder * folder) {
     // In our [Mailspring] subfolder, folder names are roles:
     // [mailspring]/snoozed = snoozed
     // [mailspring]/XXX = xxx
-    string mailspring = MAILSPRING_FOLDER_PREFIX;
-    transform(mailspring.begin(), mailspring.end(), mailspring.begin(), ::tolower);
-    if (path.size() > mailspring.size() && path.substr(0, mailspring.size()) == mailspring) {
-        return path.substr(mailspring.size() + 1);
+    string mailspringPrefix = MAILSPRING_FOLDER_PREFIX_V1 + delimiter;
+    transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
+    if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
+        return path.substr(mailspringPrefix.size());
     }
-    
+
+           mailspringPrefix = MAILSPRING_FOLDER_PREFIX_V2 + delimiter;
+    transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
+    if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
+        return path.substr(mailspringPrefix.size());
+    }
+
     // Match against a lookup table of common names
     // [Gmail]/Spam => [gmail]/spam => spam
     if (COMMON_FOLDER_NAMES.find(path) != COMMON_FOLDER_NAMES.end()) {
