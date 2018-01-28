@@ -928,7 +928,6 @@ struct Stats
    * @ref Parser::parse() "parsing" the same argument vectors that were fed
    * into this Stats object.
    *
-   * @note
    * @li This number is always 1 greater than the actual number needed, to give
    * you a sentinel element.
    * @li This number depends only on the @c usage, not the argument vectors, because
@@ -1174,7 +1173,6 @@ public:
   /**
    * @brief Returns the number of valid Option objects in @c buffer[].
    *
-   * @note
    * @li The returned value always reflects the number of Options in the buffer[] array used for
    * the most recent call to parse().
    * @li The count (and the buffer[]) includes unknown options if they are collected
