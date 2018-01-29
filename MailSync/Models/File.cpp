@@ -91,6 +91,10 @@ json & File::contentId() {
     return _data["contentId"];
 }
 
+void File::setContentId(string s) {
+    _data["contentId"] = s;
+}
+
 string File::contentType() {
     return _data["contentType"].get<string>();
 }

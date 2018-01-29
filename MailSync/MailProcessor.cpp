@@ -217,6 +217,8 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
     String * text = html->flattenHTML()->stripWhitespace();
     MC_SAFE_RELEASE(callback);
 
+    const char * chars = html->UTF8Characters();
+
     // build file containers for the attachments and write them to disk
     Array attachments = Array();
     attachments.addObjectsFromArray(parser->attachments());
@@ -235,6 +237,14 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
                 break;
             }
         }
+        
+        // Sometimes the HTML will reference "cid:filename.png@123123garbage" and the file will
+        // not have a contentId. The client does not support this, so if cid:filename.png appears
+        // in the body we manually make it the contentId
+        if (f.contentId().is_null() && strstr(chars, ("cid:" + f.filename()).c_str()) != nullptr) {
+            f.setContentId(f.filename());
+        }
+
         if (!duplicate) {
             if (!retrievedFileData(&f, a->data())) {
                 logger->info("Could not save file data!");
@@ -243,8 +253,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         }
     }
     
-    auto chars = html->UTF8Characters();
-    
+    // enter transaction
     {
         MailStoreTransaction transaction{store};
         
