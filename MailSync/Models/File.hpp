@@ -40,6 +40,7 @@ public:
     string safeFilename();
     string partId();
     json & contentId();
+    void setContentId(string s);
     string contentType();
 
     string tableName();
