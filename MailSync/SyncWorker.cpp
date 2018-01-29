@@ -435,6 +435,36 @@ bool SyncWorker::syncNow()
     return syncAgainImmediately;
 }
 
+void SyncWorker::ensureRootMailspringFolder(Array * remoteFolders)
+{
+    string mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
+    char delimiter = session.defaultNamespace()->mainDelimiter();
+
+    // Create a "Mailspring" container folder if one does not exist
+    string rootFolderPath = MAILSPRING_FOLDER_PREFIX_V2;
+    if (mainPrefix.size() > 0) {
+        rootFolderPath = mainPrefix + delimiter + rootFolderPath;
+    }
+    bool exists = false;
+    for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+        IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+        string path = string(remote->path()->UTF8Characters());
+        if (path == rootFolderPath || path == MAILSPRING_FOLDER_PREFIX_V2) {
+            exists = true;
+        }
+    }
+    
+    if (!exists) {
+        ErrorCode err = ErrorCode::ErrorNone;
+        session.createFolder(AS_MCSTR(rootFolderPath), &err);
+        if (err) {
+            logger->error("Could not create Mailspring container folder: {}. {}", rootFolderPath, ErrorCodeToTypeMap[err]);
+        } else {
+            logger->error("Created Mailspring container folder: {}.", rootFolderPath);
+        }
+    }
+}
+
 vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 {
     // allocated mailcore objects freed when `pool` is removed from the stack
@@ -450,7 +480,8 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 
     string mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
     char delimiter = session.defaultNamespace()->mainDelimiter();
-
+    bool ensuredRoot = false;
+    
     // create required Mailspring folders if they don't exist
     // TODO: Consolidate this into role association code below, and make it
     // use the same business logic as creating / updating folders from tasks.
@@ -470,6 +501,11 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             }
         }
         if (!found) {
+            if (!ensuredRoot) {
+                ensureRootMailspringFolder(remoteFolders);
+                ensuredRoot = true;
+            }
+
             string desiredPath = MAILSPRING_FOLDER_PREFIX_V2 + delimiter + mailspringFolder;
             if (mainPrefix.size() > 0) {
                 desiredPath = mainPrefix + delimiter + desiredPath;

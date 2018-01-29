@@ -57,6 +57,8 @@ public:
     
     bool syncNow();
 
+    void ensureRootMailspringFolder(Array * remoteFolders);
+
     std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
