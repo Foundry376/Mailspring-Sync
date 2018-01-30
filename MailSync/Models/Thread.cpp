@@ -241,9 +241,19 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
             // Note: Emails you send yourself impact the `lmrt`, so saying
             // "not sent by me" is not sufficient. TODO: better logic?
             if (next->isInInbox() || !next->isSentByUser()) {
-                if (next->date() > lastMessageReceivedTimestamp()) {
+                if (_data.count("lmrt_is_fallback") || next->date() > lastMessageReceivedTimestamp()) {
+                    _data.erase("lmrt_is_fallback");
                     _data["lmrt"] = next->date();
                 }
+            } else if (lastMessageReceivedTimestamp() == 0) {
+                // This message should not be used for "last message received", but we
+                // never ever want the value to be zero. It causes the thread to appear
+                // at the bottom of a label view and show "1969" in search results, etc.
+                
+                // Use this value until we find one that does meet our criteria (may be added
+                // later in sync since we scan mail from new to old.)
+                _data["lmrt_is_fallback"] = true;
+                _data["lmrt"] = next->date();
             }
         }
 
