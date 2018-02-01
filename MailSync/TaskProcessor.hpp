@@ -44,6 +44,7 @@ public:
     TaskProcessor(shared_ptr<Account> account, MailStore * store, IMAPSession * session);
 
     void cleanupTasksAfterLaunch();
+    void cleanupOldTasksAtRuntime();
     
     void performLocal(Task * task);
     void performRemote(Task * task);

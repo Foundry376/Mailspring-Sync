@@ -129,9 +129,14 @@ void SyncWorker::idleCycleIteration()
     // because we want tasks created when a task runs to also be run
     // immediately. (eg: A SendDraftTask queueing a SyncbackMetadataTask)
     //
-    int rowid = -1;
     vector<shared_ptr<Task>> tasks;
     TaskProcessor processor { account, store, &session };
+
+    // Ensure our pile of completed tasks doesn't grow unbounded
+    processor.cleanupOldTasksAtRuntime();
+
+    // Find tasks ready for "remote" that we haven't processed yet in this pass
+    int rowid = -1;
     SQLite::Statement statement(store->db(), "SELECT rowid, data FROM Task WHERE accountId = ? AND status = \"remote\" AND rowid > ?");
 
     do {
