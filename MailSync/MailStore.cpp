@@ -97,7 +97,7 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA main.synchronous = NORMAL").exec();
 }
 
-static int CURRENT_VERSION = 3;
+static int CURRENT_VERSION = 4;
 static string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 14 * 24 * 60 * 60; // 14 days
 
@@ -107,10 +107,8 @@ void MailStore::migrate() {
     int version = uv.getColumn(0).getInt();
     uv.reset();
     
-    if (version != CURRENT_VERSION) {
-        cout << "\nRunning Migration\n";
-        cout.flush();
-    }
+    string verb = version == 0 ? "Setup" : "Migration";
+    
     if (version < 1) {
         for (string sql : V1_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
@@ -122,7 +120,15 @@ void MailStore::migrate() {
         }
     }
     if (version < 3) {
+        // This one will be time consuming - display window
+        cout << "\nRunning " << verb;
+        cout.flush();
         for (string sql : V3_SETUP_QUERIES) {
+            SQLite::Statement(_db, sql).exec();
+        }
+    }
+    if (version < 4) {
+        for (string sql : V4_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
     }

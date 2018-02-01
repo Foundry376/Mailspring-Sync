@@ -282,11 +282,27 @@ void TaskProcessor::cleanupTasksAfterLaunch() {
     // look for tasks that are in the `local` state. The app most likely crashed while running these
     // tasks, since they're saved immediately before performLocal is run. Delete them to avoid
     // the app crashing again.
-    auto stuck = store->findAll<Task>(Query().equal("accountId", account->id()).equal("status", "local"));
-    for (auto & t : stuck) {
-        store->remove(t.get());
+    SQLite::Statement stuck(store->db(), "DELETE FROM Task WHERE accountId = ? AND status = \"local\"");
+    stuck.bind(1, account->id());
+    stuck.exec();
+
+    cleanupOldTasksAtRuntime();
+}
+
+void TaskProcessor::cleanupOldTasksAtRuntime() {
+    // Keep only the last 100 completed / cancelled tasks
+    SQLite::Statement count(store->db(), "SELECT COUNT(id) FROM Task WHERE accountId = ? AND (status = \"complete\" OR status = \"cancelled\")");
+    count.bind(1, account->id());
+    count.executeStep();
+    int countToRemove = count.getColumn(0).getInt() - 100;
+    count.reset();
+
+    if (countToRemove > 0) {
+        SQLite::Statement unneeded(store->db(), "DELETE FROM Task WHERE accountId = ? AND (status = \"complete\" OR status = \"cancelled\") ORDER BY rowid ASC LIMIT ?");
+        unneeded.bind(1, account->id());
+        unneeded.bind(2, countToRemove);
+        unneeded.exec();
     }
-    
 }
 
 // PerformLocal is run from the main thread as tasks are received from the client

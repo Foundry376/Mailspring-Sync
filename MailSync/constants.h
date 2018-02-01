@@ -183,6 +183,11 @@ static vector<string> V3_SETUP_QUERIES = {
     "UPDATE `MessageBody` SET fetchedAt = datetime('now')",
 };
 
+static vector<string> V4_SETUP_QUERIES = {
+    "DELETE FROM Task WHERE Task.status = \"complete\" OR Task.status = \"cancelled\"",
+    "CREATE INDEX IF NOT EXISTS TaskByStatus ON Task(accountId, status)",
+};
+
 
 static map<string, string> COMMON_FOLDER_NAMES = {
     {"gel\xc3\xb6scht", "trash"},
