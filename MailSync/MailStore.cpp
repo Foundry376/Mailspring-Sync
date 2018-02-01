@@ -97,11 +97,20 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA main.synchronous = NORMAL").exec();
 }
 
+static int CURRENT_VERSION = 3;
+static string VACUUM_TIME_KEY = "VACUUM_TIME";
+static time_t VACUUM_INTERVAL = 14 * 24 * 60 * 60; // 14 days
+
 void MailStore::migrate() {
     SQLite::Statement uv(_db, "PRAGMA user_version");
     uv.executeStep();
     int version = uv.getColumn(0).getInt();
-
+    uv.reset();
+    
+    if (version != CURRENT_VERSION) {
+        cout << "\nRunning Migration\n";
+        cout.flush();
+    }
     if (version < 1) {
         for (string sql : V1_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
@@ -120,8 +129,32 @@ void MailStore::migrate() {
     
     // Update the version flag. Note that we don't want to go from v3 back to v2
     // if the user re-opens an older version of the app.
-    if (version < 3) {
-        SQLite::Statement(_db, "PRAGMA user_version = 3").exec();
+    if (version < CURRENT_VERSION) {
+        SQLite::Statement(_db, "PRAGMA user_version = " + to_string(CURRENT_VERSION)).exec();
+    }
+
+    // Initialize VACUUM timer if we're on version 0, but make everyone coming
+    // from old versions VACUUM for the first time.
+    if (version == 0) saveKeyValue(VACUUM_TIME_KEY, to_string(time(0)));
+    string vacuumTimeS = getKeyValue(VACUUM_TIME_KEY);
+    time_t vacuumTime = vacuumTimeS != "" ? stol(vacuumTimeS) : 0;
+
+    // VACUUM if it's been a while
+    if (time(0) - vacuumTime > VACUUM_INTERVAL) {
+        cout << "\nRunning Vacuum\n";
+        cout.flush();
+        
+        // Update vacuum timer first so we don't re-attempt vacuuming if it fails
+        saveKeyValue(VACUUM_TIME_KEY, to_string(time(0)));
+        
+        try {
+            SQLite::Statement(_db, "VACUUM").exec();
+        } catch (std::exception & ex) {
+            // Vacuuming can fail if we run out of disk space and isn't mandatory,
+            // so we fail silently and still return 0 to allow the app to launch.
+            cout << "\n" << "Vacuuming failed with SQLite error:";
+            cout << "\n" << ex.what();
+        }
     }
 }
 
@@ -183,6 +216,7 @@ uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint
     if (query.executeStep()) {
         return query.getColumn("remoteUID").getUInt();
     }
+    query.reset();
     return 1;
 }
 
@@ -192,6 +226,7 @@ string MailStore::getKeyValue(string key) {
     if (query.executeStep()) {
         return query.getColumn(0).getString();
     }
+    query.reset();
     return "";
 }
 

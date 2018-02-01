@@ -14,6 +14,7 @@
 #include <time.h>
 #define _TIMESPEC_DEFINED true
 #include <pthread.h>
+#include <sqlite3.h>
 
 #include <MailCore/MailCore.h>
 #include <SQLiteCpp/SQLiteCpp.h>
@@ -403,11 +404,18 @@ int main(int argc, const char * argv[]) {
     }
     
     // check required environment
-    if ((MailUtils::getEnvUTF8("CONFIG_DIR_PATH") == "") ||
-        (MailUtils::getEnvUTF8("IDENTITY_SERVER") == "")) {
+    string eConfigDirPath = MailUtils::getEnvUTF8("CONFIG_DIR_PATH");
+    string eIdentityServer = MailUtils::getEnvUTF8("IDENTITY_SERVER");
+
+    if ((eConfigDirPath == "") || (eIdentityServer == "")) {
         option::printUsage(std::cout, usage);
         return 1;
     }
+
+    // initialize SQLite3 cache directory to the config dir path, ensuring we store
+    // /everything/ in the place the user has specified in case it's symlinked, on
+    // another volume, etc.
+    sqlite3_temp_directory = sqlite3_mprintf("%s", eConfigDirPath.c_str());
 
     // handle --mode migrate early for speed
     string mode(options[MODE].arg);
@@ -472,7 +480,7 @@ int main(int argc, const char * argv[]) {
         // If we're attached to the mail client, log everything to a
         // rotating log file with the default logger format.
         spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%P %+"));
-        string logPath = MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "mailsync-" + account->id() + ".log";
+        string logPath = eConfigDirPath + FS_PATH_SEP + "mailsync-" + account->id() + ".log";
         sinks.push_back(make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3));
         sinks.push_back(make_shared<SPDFlusherSink>());
     } else {
