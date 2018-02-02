@@ -74,6 +74,13 @@ string Account::refreshToken() {
     return _data["settings"]["refresh_token"].get<string>();
 }
 
+string Account::refreshClientId() {
+    if (_data["settings"].count("refresh_client_id") == 0) {
+        return "";
+    }
+    return _data["settings"]["refresh_client_id"].get<string>();
+}
+
 unsigned int Account::IMAPPort() {
     json & val = _data["settings"]["imap_port"];
     return val.is_string() ? stoi(val.get<string>()) : val.get<unsigned int>();

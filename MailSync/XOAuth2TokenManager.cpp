@@ -50,14 +50,28 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
         }
     }
 
-    spdlog::get("logger")->info("Fetching XOAuth2 access token for {}", account->id());
-    json updated = MakeIdentityRequest("/auth/token/refresh", "POST", {
-        {"provider", account->provider()},
-        {"refresh_token", account->refreshToken()}
-    });
+    auto refreshClientId = account->refreshClientId();
+    json updated {};
+    if (refreshClientId != "") {
+        spdlog::get("logger")->info("Fetching XOAuth2 access token from Gmail for {}", account->id());
+        updated = MakeGmailOAuthRequest(refreshClientId, account->refreshToken());
+        updated["expiry_date"] = time(0) + updated["expires_in"].get<int>();
+    } else {
+        /* This flow is deprecated! The first versions of Mailspring still used the server as the third
+         leg of OAuth because I didn't know that registering the app as an iOS client would allow it to
+         bypass sending the client secret to refresh it's token.
+         
+         We'll eventually remove this path but we still need to support users with old saved Gmail accounts.
+         */
+        spdlog::get("logger")->info("Fetching XOAuth2 access token for {}", account->id());
+        updated = MakeIdentityRequest("/auth/token/refresh", "POST", {
+            {"provider", account->provider()},
+            {"refresh_token", account->refreshToken()}
+        });
 
-    if (updated.is_null() || !updated.count("access_token")) {
-        throw SyncException("invalid-xoauth2-resp", "XOAuth2 token expired and the server did not provide a valid response to refresh.", false);
+        if (updated.is_null() || !updated.count("access_token")) {
+            throw SyncException("invalid-xoauth2-resp", "XOAuth2 token expired and the server did not provide a valid response to refresh.", false);
+        }
     }
 
     XOAuth2Parts parts;

@@ -34,6 +34,7 @@ public:
     string valid();
 
     string refreshToken();
+    string refreshClientId();
     string provider();
     string emailAddress();
 
