@@ -282,26 +282,43 @@ void TaskProcessor::cleanupTasksAfterLaunch() {
     // look for tasks that are in the `local` state. The app most likely crashed while running these
     // tasks, since they're saved immediately before performLocal is run. Delete them to avoid
     // the app crashing again.
-    SQLite::Statement stuck(store->db(), "DELETE FROM Task WHERE accountId = ? AND status = \"local\"");
-    stuck.bind(1, account->id());
-    stuck.exec();
+    auto stuck = store->findAll<Task>(Query().equal("accountId", account->id()).equal("status", "local"));
+    for (auto & t : stuck) {
+        store->remove(t.get());
+    }
 
     cleanupOldTasksAtRuntime();
 }
 
 void TaskProcessor::cleanupOldTasksAtRuntime() {
     // Keep only the last 100 completed / cancelled tasks
+    //
+    // Note: We need to load and then delete these rather than using a DELETE query
+    // because the app observes the entire Task queue using a QuerySubscription, and
+    // if we delete them from under it, it won't release them from the array.
+    //
     SQLite::Statement count(store->db(), "SELECT COUNT(id) FROM Task WHERE accountId = ? AND (status = \"complete\" OR status = \"cancelled\")");
     count.bind(1, account->id());
     count.executeStep();
     int countToRemove = count.getColumn(0).getInt() - 100;
     count.reset();
 
-    if (countToRemove > 0) {
-        SQLite::Statement unneeded(store->db(), "DELETE FROM Task WHERE accountId = ? AND (status = \"complete\" OR status = \"cancelled\") ORDER BY rowid ASC LIMIT ?");
+    if (countToRemove > 10) { // slop
+        MailStoreTransaction transaction{store};
+
+        SQLite::Statement unneeded(store->db(), "SELECT data FROM Task WHERE accountId = ? AND (status = \"complete\" OR status = \"cancelled\") ORDER BY rowid ASC LIMIT ?");
         unneeded.bind(1, account->id());
         unneeded.bind(2, countToRemove);
-        unneeded.exec();
+        vector<shared_ptr<Task>> unneededTasks{};
+        while (unneeded.executeStep()) {
+            unneededTasks.push_back(make_shared<Task>(unneeded));
+        }
+        unneeded.reset();
+        for (auto & t : unneededTasks) {
+            store->remove(t.get());
+        }
+        
+        transaction.commit();
     }
 }
 
