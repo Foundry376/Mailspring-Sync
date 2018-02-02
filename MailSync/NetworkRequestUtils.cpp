@@ -59,6 +59,43 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
     return real_size;
 }
 
+const json MakeGmailOAuthRequest(string clientId, string refreshToken) {
+    CURL * curl_handle = curl_easy_init();
+    const char * url = "https://www.googleapis.com/oauth2/v4/token";
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
+    
+    auto c = curl_easy_escape(curl_handle, clientId.c_str(), 0);
+    auto r = curl_easy_escape(curl_handle, refreshToken.c_str(), 0);
+    string payload = "grant_type=refresh_token&client_id=" + string(c) + "&refresh_token=" + string(r);
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Accept: application/json");
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+    curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, "POST");
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payload.c_str());
+    
+    string explicitCertsBundlePath = FindLinuxCertsBundle();
+    if (explicitCertsBundlePath != "") {
+        curl_easy_setopt(curl_handle, CURLOPT_CAINFO, explicitCertsBundlePath.c_str());
+    }
+    string result;
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
+    CURLcode res = curl_easy_perform(curl_handle);
+    ValidateRequestResp(res, curl_handle, url);
+    
+    json resultJSON = nullptr;
+    try {
+        resultJSON = json::parse(result);
+    } catch (std::invalid_argument & ex) {
+        resultJSON = {{"text", result}};
+    }
+    curl_easy_cleanup(curl_handle);
+    return resultJSON;
+}
+
 CURL * CreateRequest(string server, string username, string password, string path, string method, const char * payloadChars) {
     CURL * curl_handle = curl_easy_init();
     string url { MailUtils::getEnvUTF8(server) + path };

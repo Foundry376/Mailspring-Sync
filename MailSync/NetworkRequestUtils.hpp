@@ -26,6 +26,8 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
 CURL * CreateRequest(string server, string username, string password, string path, string method = "GET", const char * payloadChars = nullptr);
 CURL * CreateIdentityRequest(string path, string method = "GET", const char * payloadChars = nullptr);
 
+const json MakeGmailOAuthRequest(string clientId, string refreshToken);
+
 const json MakeRequest(string server, string username, string password, string path, string method = "GET", const json & payload = nullptr);
 const json MakeIdentityRequest(string path, string method = "GET", const json & payload = nullptr);
 
