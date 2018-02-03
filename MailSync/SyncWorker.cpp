@@ -442,30 +442,24 @@ bool SyncWorker::syncNow()
 
 void SyncWorker::ensureRootMailspringFolder(Array * remoteFolders)
 {
-    string mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
-    char delimiter = session.defaultNamespace()->mainDelimiter();
-
-    // Create a "Mailspring" container folder if one does not exist
-    string rootFolderPath = MAILSPRING_FOLDER_PREFIX_V2;
-    if (mainPrefix.size() > 0) {
-        rootFolderPath = mainPrefix + delimiter + rootFolderPath;
-    }
+    auto components = Array::arrayWithObject(AS_MCSTR(MAILSPRING_FOLDER_PREFIX_V2));
+    String * desiredPath = session.defaultNamespace()->pathForComponents(components);
+    
     bool exists = false;
     for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
         IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-        string path = string(remote->path()->UTF8Characters());
-        if (path == rootFolderPath || path == MAILSPRING_FOLDER_PREFIX_V2) {
+        if (remote->path()->isEqual(desiredPath)) {
             exists = true;
         }
     }
     
     if (!exists) {
         ErrorCode err = ErrorCode::ErrorNone;
-        session.createFolder(AS_MCSTR(rootFolderPath), &err);
+        session.createFolder(desiredPath, &err);
         if (err) {
-            logger->error("Could not create Mailspring container folder: {}. {}", rootFolderPath, ErrorCodeToTypeMap[err]);
+            logger->error("Could not create Mailspring container folder: {}. {}", desiredPath->UTF8Characters(), ErrorCodeToTypeMap[err]);
         } else {
-            logger->error("Created Mailspring container folder: {}.", rootFolderPath);
+            logger->error("Created Mailspring container folder: {}.", desiredPath->UTF8Characters());
         }
     }
 }
@@ -484,7 +478,6 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     }
 
     string mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
-    char delimiter = session.defaultNamespace()->mainDelimiter();
     bool ensuredRoot = false;
     
     // create required Mailspring folders if they don't exist
@@ -510,20 +503,20 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 ensureRootMailspringFolder(remoteFolders);
                 ensuredRoot = true;
             }
-
-            string desiredPath = MAILSPRING_FOLDER_PREFIX_V2 + delimiter + mailspringFolder;
-            if (mainPrefix.size() > 0) {
-                desiredPath = mainPrefix + delimiter + desiredPath;
-            }
-            session.createFolder(AS_MCSTR(desiredPath), &err);
+            
+            auto components = Array::array();
+            components->addObject(AS_MCSTR(MAILSPRING_FOLDER_PREFIX_V2));
+            components->addObject(AS_MCSTR(mailspringFolder));
+            String * desiredPath = session.defaultNamespace()->pathForComponents(components);
+            session.createFolder(desiredPath, &err);
             if (err) {
-                logger->error("Could not create required Mailspring folder: {}. {}", desiredPath, ErrorCodeToTypeMap[err]);
+                logger->error("Could not create required Mailspring folder: {}. {}", desiredPath->UTF8Characters(), ErrorCodeToTypeMap[err]);
                 continue;
             }
-            logger->error("Created required Mailspring folder: {}.", desiredPath);
+            logger->error("Created required Mailspring folder: {}.", desiredPath->UTF8Characters());
             IMAPFolder * fake = new IMAPFolder();
-            fake->setPath(AS_MCSTR(desiredPath));
-            fake->setDelimiter(delimiter);
+            fake->setPath(desiredPath);
+            fake->setDelimiter(session.defaultNamespace()->mainDelimiter());
             remoteFolders->addObject(fake);
         }
     }
