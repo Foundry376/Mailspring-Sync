@@ -492,7 +492,7 @@ Message TaskProcessor::inflateDraft(json & draftJSON) {
         folder = store->find<Folder>(q);
     }
     if (folder == nullptr) {
-        throw SyncException("no-drafts-folder", "This account does not have a folder with `role` = `drafts` or `all`.", false);
+        throw SyncException("no-drafts-folder", "Mailspring doesn't know which folder to use for drafts. Visit Preferences > Folders to assign a draft folder.", false);
     }
 
     draftJSON["folder"] = folder->toJSON();
@@ -722,7 +722,7 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
     // Find the trash folder
     auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
     if (trash == nullptr) {
-        throw SyncException("no-trash-folder", "", false);
+        throw SyncException("no-trash-folder", "Mailspring doesn't know which folder to use for trash. Visit Preferences > Folders to assign a trash folder.", false);
     }
 
     auto stubIds = json::array();
@@ -784,16 +784,21 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     string path = data["path"].get<string>();
     string existingPath = data.count("existingPath") ? data["existingPath"].get<string>() : "";
 
-    // if the requested path is missing the namespace prefix, add it
-    string mainPrefix = MailUtils::namespacePrefixOrBlank(session);
-    if (mainPrefix != "" && path.find(mainPrefix) != 0) {
-        path = mainPrefix + path;
-    }
-    
     // if the requested path includes "/" delimiters, replace them with the real delimiter
     char delimiter = session->defaultNamespace()->mainDelimiter();
     std::replace(path.begin(), path.end(), '/', delimiter);
 
+    // if the requested path is missing the namespace prefix, add it
+    // note: the prefix may or may not end with the delimiter character
+    string mainPrefix = MailUtils::namespacePrefixOrBlank(session);
+    if (mainPrefix != "" && path.find(mainPrefix) != 0) {
+        if (mainPrefix[mainPrefix.length() - 1] == delimiter) {
+            path = mainPrefix + path;
+        } else {
+            path = mainPrefix + delimiter + path;
+        }
+    }
+    
     ErrorCode err = ErrorCode::ErrorNone;
 
     if (existingPath != "") {
@@ -804,6 +809,7 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     
     if (err != ErrorNone) {
         data["created"] = nullptr;
+        logger->error("Syncback of folder/label '{}' failed.", path);
         throw SyncException(err, "create/renameFolder");
     }
     
@@ -920,7 +926,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     if (sent == nullptr) {
         sent = store->find<Label>(Query().equal("accountId", account->id()).equal("role", "sent"));
         if (sent == nullptr) {
-            throw SyncException("no-sent-folder", "", false);
+            throw SyncException("no-sent-folder", "Mailspring doesn't know which folder to use for sent mail. Visit Preferences > Folders to assign a sent folder.", false);
         }
     }
     String * sentPath = AS_MCSTR(sent->path());
