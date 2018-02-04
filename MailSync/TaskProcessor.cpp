@@ -492,7 +492,7 @@ Message TaskProcessor::inflateDraft(json & draftJSON) {
         folder = store->find<Folder>(q);
     }
     if (folder == nullptr) {
-        throw SyncException("no-drafts-folder", "Mailspring doesn't know which folder to use for drafts. Visit Preferences > Folders to assign a draft folder.", false);
+        throw SyncException("no-drafts-folder", "Mailspring can't find your Drafts folder. To create and send mail, visit Preferences > Folders and choose a Drafts folder.", false);
     }
 
     draftJSON["folder"] = folder->toJSON();
