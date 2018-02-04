@@ -205,6 +205,9 @@ static map<string, string> COMMON_FOLDER_NAMES = {
     {"deleted messages", "trash"},
     {"[gmail]/trash", "trash"},
     {"trash", "trash"},
+    {"удаленные", "trash"},
+    {"kosz", "trash"},
+    {"yдалённые", "trash"},
     
     {"roskaposti", "spam"},
     {"skr\xc3\xa4ppost", "spam"},
@@ -216,7 +219,10 @@ static map<string, string> COMMON_FOLDER_NAMES = {
     {"junk", "spam"},
     {"junk mail", "spam"},
     {"junk e-mail", "spam"},
-    
+    {"junk email", "spam"},
+    {"bulk mail", "spam"},
+    {"спам", "spam"},
+
     {"inbox", "inbox"},
     
     {"dateneintrag", "archive"},
@@ -238,10 +244,16 @@ static map<string, string> COMMON_FOLDER_NAMES = {
     {"gesendet", "sent"},
     {"ko\xc5\xa1/sent items", "sent"},
     {"gesendete elemente", "sent"},
-
+    {"отправленные", "sent"},
+    {"sentbox", "sent"},
+    {"wys&AUI-ane", "sent"},
+    
     {"drafts", "drafts"},
     {"draft", "drafts"},
     {"brouillons", "drafts"},
+    {"черновики", "drafts"},
+    {"draftbox", "drafts"},
+    {"robocze", "drafts"},
 
 };
 
