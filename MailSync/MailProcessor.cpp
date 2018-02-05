@@ -348,21 +348,34 @@ void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
 {
     bool more = true;
     int chunkSize = 100;
+    int iterations = 0;
     
-    // If the user deletes a zillion messages, this function can take a long
-    // time and block the database. Break it up a bit!
+    // If the user deletes (and we unlink) a zillion messages, we:
+    //
+    // - Delete 100 per transaction to avoid creating a very long-running transaction
+    //
+    // - Bail after 10 iterations. There's really no harm in deleting messages slowly
+    //   since we've unlinked them and they're not visible in the client. We might
+    //   even discover we want them again after all in a large new folder we're pulling
+    //   down in chunks.
 
-    while (more) {
+    while (more && iterations < 10) {
         MailStoreTransaction transaction{store};
-        
+        iterations ++;
+
         auto q = Query().equal("accountId", account->id()).equal("remoteUID", UINT32_MAX - phase).limit(chunkSize);
         auto messages = store->findAll<Message>(q);
         if (messages.size() < chunkSize){
             more = false;
         }
         
+        if (messages.size()) {
+            logger->info("-- Removing {} unlinked messages", messages.size());
+        }
         for (auto const & msg : messages) {
-            logger->info("-- Removing \"{}\" ({})", msg->subject(), msg->id());
+            if (iterations == 1 && !more) { // only log subjects if <100 total
+                logger->info("-- Removing \"{}\" ({})", msg->subject(), msg->id());
+            }
             store->remove(msg.get());
         }
         
