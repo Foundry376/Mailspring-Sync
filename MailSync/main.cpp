@@ -51,6 +51,8 @@ shared_ptr<SyncWorker> fgWorker = nullptr;
 shared_ptr<MetadataWorker> metadataWorker = nullptr;
 shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
 
+bool bgWorkerShouldMarkAll = true;
+
 std::thread * fgThread = nullptr;
 std::thread * bgThread = nullptr;
 std::thread * metadataThread = nullptr;
@@ -104,19 +106,7 @@ const option::Descriptor usage[] =
     {0,0,0,0,0,0}
 };
 
-void runMetadataWorker() {
-    SetThreadName("metadata");
-    metadataWorker->run();
-}
-
-void runMetadataExpirationWorker() {
-    SetThreadName("metadataExpiration");
-    metadataExpirationWorker->run();
-}
-
 void runForegroundSyncWorker() {
-    SetThreadName("foreground");
-
     while(true) {
         try {
             fgWorker->configure();
@@ -133,25 +123,31 @@ void runForegroundSyncWorker() {
 }
 
 void runBackgroundSyncWorker() {
-    SetThreadName("background");
-
     bool started = false;
 
     while(true) {
         try {
             bgWorker->configure();
 
-            if (!started) {
-                // mark any existing folders as busy so the UI shows us syncing mail until
-                // the sync worker gets through its first iteration.
+            // mark any existing folders as busy so the UI shows us syncing mail until
+            // the sync worker gets through its first iteration.
+            if (!started || bgWorkerShouldMarkAll) {
                 bgWorker->markAllFoldersBusy();
+                bgWorkerShouldMarkAll = false;
+            }
+
+            if (!started) {
+                bgWorker->syncFoldersAndLabels();
 
                 // start the "foreground" idle worker after we've completed a single
                 // pass through all the folders. This ensures we have the folder list
                 // and the uidnext / highestmodseq etc are populated.
-                bgWorker->syncFoldersAndLabels();
                 if (!fgThread) {
-                    fgThread = new std::thread(runForegroundSyncWorker);
+                    fgThread = new std::thread([&]() {
+                        SetThreadName("foreground");
+                        fgWorker = make_shared<SyncWorker>(bgWorker->account);
+                        runForegroundSyncWorker();
+                    });
                 }
 
                 started = true;
@@ -326,7 +322,9 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             if (!queuedForegroundWake) {
                 std::thread([]() {
                     std::this_thread::sleep_for(chrono::milliseconds(300));
-                    fgWorker->idleInterrupt();
+                    if (fgWorker) {
+                        fgWorker->idleInterrupt();
+                    }
                     queuedForegroundWake = false;
                 }).detach();
                 queuedForegroundWake = true;
@@ -342,14 +340,17 @@ void runListenOnMainThread(shared_ptr<Account> account) {
         if (type == "wake-workers") {
             spdlog::get("logger")->info("Waking all workers...");
 
-            // mark all folders as busy so the UI shows us syncing mail
-            bgWorker->markAllFoldersBusy();
+            // mark that the background worker should mark all the folders as busy
+            // (on it's thread!)
+            bgWorkerShouldMarkAll = true;
+            
+            // Wake the workers
             MailUtils::wakeAllWorkers();
             
             // interrupt the foreground worker's IDLE call, because our network
             // connection may have been reset and it'll sit for a while otherwise
             // and wake-workers is called when waking from sleep
-            fgWorker->idleInterrupt();
+            if (fgWorker) fgWorker->idleInterrupt();
         }
 
         if (type == "need-bodies") {
@@ -358,8 +359,8 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             for (auto id : packet["ids"]) {
                 ids.push_back(id.get<string>());
             }
-            fgWorker->idleQueueBodiesToSync(ids);
-            fgWorker->idleInterrupt();
+            if (fgWorker) fgWorker->idleQueueBodiesToSync(ids);
+            if (fgWorker) fgWorker->idleInterrupt();
         }
         
         if (type == "test-crash") {
@@ -428,7 +429,7 @@ int main(int argc, const char * argv[]) {
     }
 
 	// get the account via param or stdin
-	shared_ptr<Account> account;
+    shared_ptr<Account> account = nullptr;
 	if (options[ACCOUNT].count() > 0) {
 		Option ac = options[ACCOUNT];
 		const char * arg = options[ACCOUNT].arg;
@@ -516,14 +517,23 @@ int main(int argc, const char * argv[]) {
 
     if (mode == "sync") {
         spdlog::get("logger")->info("------------- Starting Sync ({}) ---------------", account->emailAddress());
-        metadataWorker = make_shared<MetadataWorker>(account);
-        metadataExpirationWorker = make_shared<MetadataExpirationWorker>(account->id());
-        fgWorker = make_shared<SyncWorker>(account);
-        bgWorker = make_shared<SyncWorker>(account);
 
-        bgThread = new std::thread(runBackgroundSyncWorker);
-        metadataThread = new std::thread(runMetadataWorker);
-        metadataExpirationThread = new std::thread(runMetadataExpirationWorker);
+        fgThread = nullptr; // started after background iteration
+        bgThread = new std::thread([&]() {
+            SetThreadName("background");
+            bgWorker = make_shared<SyncWorker>(account);
+            runBackgroundSyncWorker();
+        });
+        metadataThread = new std::thread([&]() {
+             SetThreadName("metadata");
+             metadataWorker = make_shared<MetadataWorker>(account);
+             metadataWorker->run();
+        });
+        metadataExpirationThread = new std::thread([&]() {
+            SetThreadName("metadataExpiration");
+            metadataExpirationWorker = make_shared<MetadataExpirationWorker>(account->id());
+            metadataExpirationWorker->run();
+        });
         
         if (!options[ORPHAN]) {
             runListenOnMainThread(account);

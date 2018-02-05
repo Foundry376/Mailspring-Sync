@@ -33,7 +33,6 @@ class SyncWorker {
     MailStore * store;
     MailProcessor * processor;
     shared_ptr<spdlog::logger> logger;
-    shared_ptr<Account> account;
 
     int unlinkPhase;
     bool idleShouldReloop;
@@ -43,23 +42,34 @@ class SyncWorker {
     std::condition_variable idleCv;
 
 public:
-    SyncWorker(shared_ptr<Account> account);
     
+    shared_ptr<Account> account;
+
+    SyncWorker(shared_ptr<Account> account);
     void configure();
 
 #pragma mark Foreground Worker
+
+public:
+    
     void idleInterrupt();
     void idleQueueBodiesToSync(vector<string> & ids);
     void idleCycleIteration();
+
     
 #pragma mark Background Worker
-    void markAllFoldersBusy();
+
+public:
     
     bool syncNow();
 
-    void ensureRootMailspringFolder(Array * remoteFolders);
+    void markAllFoldersBusy();
 
     std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
+
+private:
+    
+    void ensureRootMailspringFolder(Array * remoteFolders);
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
         
