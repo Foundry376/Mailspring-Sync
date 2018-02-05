@@ -68,9 +68,12 @@ class MailStore {
     vector<shared_ptr<Label>> _labelCache;
     int _labelCacheVersion;
     int _streamMaxDelay;
+    size_t _owningThread;
     
 public:
     MailStore();
+
+    void assertCorrectThread();
 
     void migrate();
 
@@ -114,6 +117,7 @@ public:
     
     template<typename ModelClass>
     shared_ptr<ModelClass> find(Query & query) {
+        assertCorrectThread();
         SQLite::Statement statement(this->_db, "SELECT data FROM " + ModelClass::TABLE_NAME + query.getSQL() + " LIMIT 1");
         query.bind(statement);
         if (statement.executeStep()) {
@@ -124,6 +128,7 @@ public:
     
     template<typename ModelClass>
     vector<shared_ptr<ModelClass>> findAll(Query & query) {
+        assertCorrectThread();
         string sql = "SELECT data FROM " + ModelClass::TABLE_NAME + query.getSQL();
         if (query.getLimit() != 0) {
             sql = sql + " LIMIT " + to_string(query.getLimit());
@@ -141,6 +146,7 @@ public:
     
     template<typename ModelClass>
     map<string, shared_ptr<ModelClass>> findAllMap(Query & query, std::string keyField) {
+        assertCorrectThread();
         SQLite::Statement statement(this->_db, "SELECT " + keyField + ", data FROM " + ModelClass::TABLE_NAME + query.getSQL());
         query.bind(statement);
 
@@ -154,6 +160,7 @@ public:
     
     template<typename ModelClass>
     map<uint32_t, shared_ptr<ModelClass>> findAllUINTMap(Query & query, std::string keyField) {
+        assertCorrectThread();
         SQLite::Statement statement(this->_db, "SELECT " + keyField + ", data FROM " + ModelClass::TABLE_NAME + query.getSQL());
         query.bind(statement);
 
@@ -169,6 +176,7 @@ public:
     
     template<typename ModelClass>
     void remove(Query & query) {
+        assertCorrectThread();
         auto models = findAll<ModelClass>(query);
 
         SQLite::Statement statement(this->_db, "DELETE FROM " + ModelClass::TABLE_NAME + query.getSQL());

@@ -12,6 +12,7 @@
 #include "MailModel.hpp"
 #include "MailUtils.hpp"
 #include "MailStore.hpp"
+#include "SyncException.hpp"
 #include "MetadataExpirationWorker.hpp"
 
 using namespace std;
@@ -124,10 +125,15 @@ json MailModel::toJSONDispatch()
 }
 
 void MailModel::bindToQuery(SQLite::Statement * query) {
-    query->bind(":id", id());
+    auto _id = id();
+    query->bind(":id", _id);
     query->bind(":data", this->toJSON().dump());
     query->bind(":accountId", accountId());
     query->bind(":version", version());
+
+    if (id() != _id) {
+        throw SyncException("assertion-failure", "The ID of a model changed while it was being serialized. How can this happen?", false);
+    }
 }
 
 void MailModel::beforeSave(MailStore * store) {

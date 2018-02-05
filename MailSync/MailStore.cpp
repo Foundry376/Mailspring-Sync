@@ -11,6 +11,7 @@
 
 #include "MailStore.hpp"
 #include "MailUtils.hpp"
+#include "SyncException.hpp"
 #include "constants.h"
 
 #include "Folder.hpp"
@@ -81,6 +82,7 @@ MailStore::MailStore() :
     _stmtBeginTransaction(_db, "BEGIN IMMEDIATE TRANSACTION"),
     _stmtRollbackTransaction(_db, "ROLLBACK"),
     _stmtCommitTransaction(_db, "COMMIT"),
+    _owningThread(spdlog::details::os::thread_id()),
     _labelCacheVersion(0),
     _labelCache()
 {
@@ -164,7 +166,23 @@ void MailStore::migrate() {
     }
 }
 
+void MailStore::assertCorrectThread() {
+    /* Because we re-use SQLite prepared statements and a single SQLite connection
+     per worker, it's extremely important that all calls to each MailStore are made
+     from a single thread. We capture a threadId when you open the MailStore and
+     require that all subseuqent calls are from that thread.
+     
+     Otherwise, it's possible for two threads to bind to the same prepared query,
+     prepare half the values, and execute it, creating a rediculous data inconsistency.
+     */
+    if (spdlog::details::os::thread_id() != _owningThread) {
+        spdlog::get("logger")->error("MailStore thread assertion failure: function called on {} instead of {}", spdlog::details::os::thread_id(), _owningThread);
+        throw SyncException("assertion-failure", "MailStore thread assertion failure", false);
+    }
+}
+
 void MailStore::resetForAccount(string accountId) {
+    assertCorrectThread();
     for (string sql : ACCOUNT_RESET_QUERIES) {
         SQLite::Statement statement {_db, sql };
         statement.bind(1, accountId);
@@ -179,6 +197,7 @@ SQLite::Database & MailStore::db()
 }
 
 map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range range, Folder & folder) {
+    assertCorrectThread();
     SQLite::Statement query(this->_db, "SELECT id, unread, starred, remoteUID, remoteXGMLabels FROM Message WHERE accountId = ? AND remoteFolderId = ? AND remoteUID >= ? AND remoteUID <= ?");
     query.bind(1, folder.accountId());
     query.bind(2, folder.id());
@@ -214,6 +233,7 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
 }
 
 uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint32_t before) {
+    assertCorrectThread();
     SQLite::Statement query(this->_db, "SELECT remoteUID FROM Message WHERE accountId = ? AND remoteFolderId = ? AND remoteUID < ? ORDER BY remoteUID DESC LIMIT 1 OFFSET ?");
     query.bind(1, folder.accountId());
     query.bind(2, folder.id());
@@ -227,6 +247,7 @@ uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint
 }
 
 string MailStore::getKeyValue(string key) {
+    assertCorrectThread();
     SQLite::Statement query(this->_db, "SELECT value FROM _State WHERE id = ?");
     query.bind(1, key);
     if (query.executeStep()) {
@@ -237,6 +258,7 @@ string MailStore::getKeyValue(string key) {
 }
 
 void MailStore::saveKeyValue(string key, string value) {
+    assertCorrectThread();
     SQLite::Statement query(this->_db, "REPLACE INTO _State (id, value) VALUES (?, ?)");
     query.bind(1, key);
     query.bind(2, value);
@@ -253,6 +275,7 @@ vector<shared_ptr<Label>> MailStore::allLabelsCache(string accountId) {
 }
 
 void MailStore::beginTransaction() {
+    assertCorrectThread();
     _stmtBeginTransaction.exec();
     _stmtBeginTransaction.reset();
     _transactionOpen = true;
@@ -284,6 +307,8 @@ void MailStore::commitTransaction() {
 }
 
 void MailStore::save(MailModel * model, bool emit) {
+    assertCorrectThread();
+
     model->incrementVersion();
     model->beforeSave(this);
 
@@ -342,6 +367,7 @@ void MailStore::save(MailModel * model, bool emit) {
 }
 
 void MailStore::remove(MailModel * model) {
+    assertCorrectThread();
     auto tableName = model->tableName();
     if (!_removeQueries.count(tableName)) {
         _removeQueries[tableName] = make_shared<SQLite::Statement>(this->_db, "DELETE FROM " + tableName + " WHERE id = ?");
@@ -370,6 +396,7 @@ void MailStore::_emit(DeltaStreamItem & delta) {
 }
 
 shared_ptr<MailModel> MailStore::findGeneric(string type, Query query) {
+    assertCorrectThread();
     transform(type.begin(), type.end(), type.begin(), ::tolower);
 
     if (type == "message") {
@@ -383,6 +410,7 @@ shared_ptr<MailModel> MailStore::findGeneric(string type, Query query) {
 }
 
 vector<shared_ptr<MailModel>> MailStore::findAllGeneric(string type, Query query) {
+    assertCorrectThread();
     transform(type.begin(), type.end(), type.begin(), ::tolower);
 
     if (type == "message") {
@@ -402,6 +430,7 @@ vector<shared_ptr<MailModel>> MailStore::findAllGeneric(string type, Query query
 }
 
 vector<Metadata> MailStore::findAndDeleteDetatchedPluginMetadata(string accountId, string objectId) {
+    assertCorrectThread();
     if (!_saveInsertQueries.count("metadata")) {
         auto stmt = make_shared<SQLite::Statement>(db(), "SELECT version, value, pluginId, objectType FROM DetatchedPluginMetadata WHERE objectId = ? AND accountId = ?");
         _saveInsertQueries["metadata"] = stmt;
@@ -432,6 +461,7 @@ vector<Metadata> MailStore::findAndDeleteDetatchedPluginMetadata(string accountI
 }
 
 void MailStore::saveDetatchedPluginMetadata(Metadata & m) {
+    assertCorrectThread();
     SQLite::Statement st(db(), "REPLACE INTO DetatchedPluginMetadata (objectId, objectType, accountId, pluginId, value, version) VALUES (?,?,?,?,?,?)");
     st.bind(1, m.objectId);
     st.bind(2, m.objectType);
