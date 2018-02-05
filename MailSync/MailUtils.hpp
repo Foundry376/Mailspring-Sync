@@ -64,7 +64,7 @@ public:
     static void setBaseIDVersion(time_t identityCreationDate);
 
     static string idRandomlyGenerated();
-    static string idForMessage(string accountId, IMAPMessage * msg);
+    static string idForMessage(string accountId, string folderPath, IMAPMessage * msg);
     static string idForFolder(string accountId, string folderPath);
     static string idForFile(Message * message, Attachment * attachment);
     static string idForDraftHeaderMessageId(string accountId, string headerMessageId);

@@ -75,7 +75,7 @@ shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * m
         if (ex.getErrorCode() != 19) { // constraint failed
             throw;
         }
-        Query q = Query().equal("id", MailUtils::idForMessage(folder.accountId(), mMsg));
+        Query q = Query().equal("id", MailUtils::idForMessage(folder.accountId(), folder.path(), mMsg));
         auto localMessage = store->find<Message>(q);
         if (localMessage.get() == nullptr) {
             throw;
