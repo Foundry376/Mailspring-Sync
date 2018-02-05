@@ -82,7 +82,7 @@ void _moveMessagesResilient(IMAPSession * session, String * path, Folder * destF
                 bool found = false;
                 for (int ii = 0; ii < movedMessages->count(); ii ++) {
                     IMAPMessage * movedMessage = (IMAPMessage*)movedMessages->objectAtIndex(ii);
-                    string movedId = MailUtils::idForMessage(msg->accountId(), movedMessage);
+                    string movedId = MailUtils::idForMessage(msg->accountId(), destFolder->path(), movedMessage);
                     if (msg->id() == movedId) {
                         msg->setRemoteFolder(destFolder);
                         msg->setRemoteUID(movedMessage->uid());

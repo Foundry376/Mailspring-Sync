@@ -55,7 +55,7 @@ shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Messag
 }
 
 Message::Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTimestamp) :
-MailModel(MailUtils::idForMessage(folder.accountId(), msg), folder.accountId(), 0)
+MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folder.accountId(), 0)
 {
     _skipThreadUpdatesAfterSave = false;
     _lastSnapshot = MessageEmptySnapshot;

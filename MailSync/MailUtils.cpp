@@ -467,7 +467,7 @@ void MailUtils::setBaseIDVersion(time_t identityCreationDate) {
     spdlog::get("logger")->info("Identity created at {} - using ID Schema {}", identityCreationDate, _baseIDSchemaVersion);
 }
 
-string MailUtils::idForMessage(string accountId, IMAPMessage * msg) {
+string MailUtils::idForMessage(string accountId, string folderPath, IMAPMessage * msg) {
     
     /* I want to correct flaws in the ID algorithm, but changing this will cause
      duplicate messages to appear in threads and message metadata to be lost.
@@ -480,7 +480,7 @@ string MailUtils::idForMessage(string accountId, IMAPMessage * msg) {
      - new users get new IDs on all mail
     */
     int scheme = _baseIDSchemaVersion;
-    if (msg->header()->date() > SCHEMA_1_START_DATE) {
+    if (msg->header()->date() > SCHEMA_1_START_DATE || msg->header()->date() <= 0) {
         scheme = 1;
     }
     
@@ -508,7 +508,20 @@ string MailUtils::idForMessage(string accountId, IMAPMessage * msg) {
     string src_str = accountId;
     src_str = src_str.append("-");
     if (scheme == 1) {
-        src_str = src_str.append(to_string(msg->header()->date()));
+        time_t date = msg->header()->date();
+        if (date > 0) {
+            // Use the unix timestamp, not a formatted (localized) date
+            src_str = src_str.append(to_string(date));
+        } else {
+            // This message has no date information and subject + recipients alone are not enough
+            // to build a stable ID across the mailbox.
+            
+            // As a fallback, we use the Folder + UID. The UID /will/ change when UIDInvalidity
+            // occurs and if the message is moved to another folder, but seeing it as a delete +
+            // create (and losing metadata) is better than sync thrashing caused by it thinking
+            // many UIDs are all the same message.
+            src_str = src_str.append(folderPath + ":" + to_string(msg->uid()));
+        }
     } else {
         src_str = src_str.append(localTimestampForTime(msg->header()->date()));
     }
@@ -519,7 +532,7 @@ string MailUtils::idForMessage(string accountId, IMAPMessage * msg) {
     src_str = src_str.append(participants->UTF8Characters());
     src_str = src_str.append("-");
     src_str = src_str.append(messageID->UTF8Characters());
-    
+
     vector<unsigned char> hash(32);
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
