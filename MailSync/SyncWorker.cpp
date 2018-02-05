@@ -28,6 +28,8 @@
 #define SHALLOW_SCAN_INTERVAL       60 * 2
 #define DEEP_SCAN_INTERVAL          60 * 10
 
+#define MAX_HEAVY_IN_REQUEST        5000
+
 // These keys are saved to the folder object's "localState".
 // Starred keys are used in the client to show sync progress.
 #define LS_BUSY                     "busy"           // *
@@ -320,7 +322,7 @@ bool SyncWorker::syncNow()
         
         // Step 2: Initial sync. Until we reach UID 1, we grab chunks of messages
         uint32_t syncedMinUID = localStatus[LS_SYNCED_MIN_UID].get<uint32_t>();
-        uint32_t chunkSize = firstChunk ? 750 : 5000;
+        uint32_t chunkSize = firstChunk ? 750 : MAX_HEAVY_IN_REQUEST;
 
         if (syncedMinUID > 1) {
             // The UID value space is sparse, meaning there can be huge gaps where there are no
@@ -353,7 +355,8 @@ bool SyncWorker::syncNow()
             // Okay. If there are new messages in the folder (UIDnext has increased), do a heavy fetch of
             // those /AND/ get the bodies. This ensures people see both very quickly, which is important.
             //
-            // TODO: This could potentially grab zillions of messages...
+            // This could potentially grab zillions of messages, in which case syncFolderUIDRange will
+            // bail out and the next "deep" scan will pick up the ones we skipped.
             //
             if (newMessages) {
                 vector<shared_ptr<Message>> synced{};
@@ -655,7 +658,18 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 
 void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages)
 {
-    logger->info("syncFolderUIDRange - fetching {}, UIDs: {} - {}, Heavy: {}", folder.path(), range.location, range.location + range.length, heavyInitialRequest);
+    // Safety check: "0" is not a valid start and causes the server to return only the last item
+    if (range.location == 0) {
+        range.location = 1;
+    }
+    // Safety check: force an attributes-only sync of the range if the requested number of items is so
+    // large the query might never complete if we ask for it all. We might still need to fetch all the
+    // bodies, but we'll cap the number we fetch.
+    if (range.length > MAX_HEAVY_IN_REQUEST * 2) {
+        heavyInitialRequest = false;
+    }
+
+    logger->info("syncFolderUIDRange for {}, UIDs: {} - {}, Heavy: {}", folder.path(), range.location, range.location + range.length, heavyInitialRequest);
 
     AutoreleasePool pool;
     IndexSet * set = IndexSet::indexSetWithRange(range);
@@ -664,17 +678,20 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(folder.path()));
     time_t syncDataTimestamp = time(0);
+    int heavyNeededIdeal = 0;
     
     auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), heavyInitialRequest);
     Array * remote = session.fetchMessagesByUID(&path, kind, set, &cb, &err);
     if (err) {
         throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID");
     }
-    
+
     // Step 2: Fetch the local attributes (unread, starred, etc.) for the same UID range
     map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(range, folder));
     clock_t lastSleepClock = clock();
-    
+
+    logger->info("- remote={}, local={}", remote->count(), local.size());
+
     for (int ii = remote->count() - 1; ii >= 0; ii--) {
         // Never sit in a hard loop inserting things into the database for more than 250ms.
         // This ensures we don't starve another thread waiting for a database connection
@@ -705,7 +722,10 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
                     syncedMessages->push_back(local);
                 }
             } else {
-                heavyNeeded->addIndex(remoteUID);
+                if (heavyNeededIdeal < MAX_HEAVY_IN_REQUEST) {
+                    heavyNeeded->addIndex(remoteUID);
+                }
+                heavyNeededIdeal += 1;
             }
         }
         
@@ -713,8 +733,15 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     }
     
     if (!heavyInitialRequest && heavyNeeded->count() > 0) {
-        logger->info("syncFolderUIDRange - Fetching full headers for {}", heavyNeeded->count());
+        logger->info("- Fetching full headers for {} (of {} needed)", heavyNeeded->count(), heavyNeededIdeal);
 
+        // Note: heavyNeeded could be enormous if the user added a zillion items to a folder, if it's been
+        // years since the app was launched, or if a sync bug caused us to delete messages we shouldn't have.
+        // (eg the issue with uidnext becoming zero suddenly)
+        //
+        // We don't re-fetch them all in one request because it could be an impossibly large amount of data.
+        // Instead we sync MAX_HEAVY_IN_REQUEST and on the next "deep scan" in 10 minutes, we'll sync 5,000 more.
+        //
         syncDataTimestamp = time(0);
         auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
         remote = session.fetchMessagesByUID(&path, kind, heavyNeeded, &cb, &err);
@@ -758,7 +785,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     time_t syncDataTimestamp = time(0);
     
     if (modseq == remoteModseq && uidnext == remoteUIDNext) {
-        logger->info("syncFolderChangesViaCondstore - {}: highestmodseq, uidnext match, no changes.", folder.path());
+        logger->info("syncFolderChangesViaCondstore - {}: highestmodseq + uidnext match, no changes.", folder.path());
         return;
     }
 
@@ -778,9 +805,14 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
     // for modified messages, fetch local copy and apply changes
     Array * modifiedOrAdded = result->modifiedOrAddedMessages();
+    IndexSet * vanished = result->vanishedMessages();
+    
+    logger->info("syncFolderChangesViaCondstore - Changes since HMODSEQ {}: {} changed, {} vanished",
+                 modseq, modifiedOrAdded->count(), (vanished != nullptr) ? vanished->count() : 0);
+
     for (int ii = 0; ii < modifiedOrAdded->count(); ii ++) {
         IMAPMessage * msg = (IMAPMessage *)modifiedOrAdded->objectAtIndex(ii);
-        string id = MailUtils::idForMessage(folder.accountId(), msg);
+        string id = MailUtils::idForMessage(folder.accountId(), folder.path(), msg);
 
         Query query = Query().equal("id", id);
         auto local = store->find<Message>(query);
@@ -798,8 +830,8 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     // for deleted messages, collect UIDs and destroy. Note: vanishedMessages is only
     // populated when QRESYNC is available. IMPORTANT: vanished may include an infinite
     // range, like 12:* so we can't convert it to a fixed array.
-    if (result->vanishedMessages() != NULL) {
-        vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), result->vanishedMessages());
+    if (vanished != NULL) {
+        vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), vanished);
         for (Query & query : queries) {
             processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
         }
