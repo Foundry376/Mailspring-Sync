@@ -159,30 +159,35 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     auto updated = MessageAttributesForMessage(remote);
     auto jlabels = json(updated.labels);
 
-    logger->info("- Updating message {}", local->id());
     
     bool noChanges = true;
     if (updated.unread != local->isUnread()) {
+        if (noChanges) logger->info("- Updating message {}", local->id());
         logger->info("-- Unread ({} to {})", local->isUnread(), updated.unread);
         noChanges = false;
     }
     if (updated.starred != local->isStarred()) {
+        if (noChanges) logger->info("- Updating message {}", local->id());
         logger->info("-- Starred ({} to {})", local->isStarred(), updated.starred);
         noChanges = false;
     }
     if (updated.draft != local->isDraft()) {
+        if (noChanges) logger->info("- Updating message {}", local->id());
         logger->info("-- Starred ({} to {})", local->isDraft(), updated.draft);
         noChanges = false;
     }
     if (updated.uid != local->remoteUID()) {
+        if (noChanges) logger->info("- Updating message {}", local->id());
         logger->info("-- UID ({} to {})", local->remoteUID(), updated.uid);
         noChanges = false;
     }
     if (folder.id() != local->remoteFolderId()) {
+        if (noChanges) logger->info("- Updating message {}", local->id());
         logger->info("-- FolderID ({} to {})", local->remoteFolderId(), folder.id());
         noChanges = false;
     }
     if (jlabels != local->remoteXGMLabels()) {
+        if (noChanges) logger->info("- Updating message {}", local->id());
         logger->info("-- XGMLabels ({} to {})", local->remoteXGMLabels().dump(), jlabels.dump());
         noChanges = false;
     }
