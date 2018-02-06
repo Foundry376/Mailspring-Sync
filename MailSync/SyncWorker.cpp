@@ -28,7 +28,7 @@
 #define SHALLOW_SCAN_INTERVAL       60 * 2
 #define DEEP_SCAN_INTERVAL          60 * 10
 
-#define MAX_HEAVY_IN_REQUEST        5000
+#define MAX_FULL_HEADERS_REQUEST_SIZE  25000
 
 // These keys are saved to the folder object's "localState".
 // Starred keys are used in the client to show sync progress.
@@ -322,7 +322,7 @@ bool SyncWorker::syncNow()
         
         // Step 2: Initial sync. Until we reach UID 1, we grab chunks of messages
         uint32_t syncedMinUID = localStatus[LS_SYNCED_MIN_UID].get<uint32_t>();
-        uint32_t chunkSize = firstChunk ? 750 : MAX_HEAVY_IN_REQUEST;
+        uint32_t chunkSize = firstChunk ? 750 : 5000;
 
         if (syncedMinUID > 1) {
             // The UID value space is sparse, meaning there can be huge gaps where there are no
@@ -662,10 +662,10 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     if (range.location == 0) {
         range.location = 1;
     }
-    // Safety check: force an attributes-only sync of the range if the requested number of items is so
+    // Safety check: force an attributes-only sync of the range if the requested UID range is so
     // large the query might never complete if we ask for it all. We might still need to fetch all the
     // bodies, but we'll cap the number we fetch.
-    if (range.length > MAX_HEAVY_IN_REQUEST * 2) {
+    if (range.length > MAX_FULL_HEADERS_REQUEST_SIZE) {
         heavyInitialRequest = false;
     }
 
@@ -722,7 +722,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
                     syncedMessages->push_back(local);
                 }
             } else {
-                if (heavyNeededIdeal < MAX_HEAVY_IN_REQUEST) {
+                if (heavyNeededIdeal < MAX_FULL_HEADERS_REQUEST_SIZE) {
                     heavyNeeded->addIndex(remoteUID);
                 }
                 heavyNeededIdeal += 1;
@@ -740,7 +740,8 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         // (eg the issue with uidnext becoming zero suddenly)
         //
         // We don't re-fetch them all in one request because it could be an impossibly large amount of data.
-        // Instead we sync MAX_HEAVY_IN_REQUEST and on the next "deep scan" in 10 minutes, we'll sync 5,000 more.
+        // Instead we sync MAX_FULL_HEADERS_REQUEST_SIZE and on the next "deep scan" in 10 minutes, we'll
+        // sync X more.
         //
         syncDataTimestamp = time(0);
         auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
