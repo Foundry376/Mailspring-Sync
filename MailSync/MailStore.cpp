@@ -11,6 +11,7 @@
 
 #include "MailStore.hpp"
 #include "MailUtils.hpp"
+#include "MailStoreTransaction.hpp"
 #include "SyncException.hpp"
 #include "constants.h"
 
@@ -363,6 +364,28 @@ void MailStore::save(MailModel * model, bool emit) {
     if (emit) {
         DeltaStreamItem delta {DELTA_TYPE_PERSIST, model};
         _emit(delta);
+    }
+}
+
+void MailStore::saveFolderStatus(Folder * folder, json & initialStatus) {
+    json & changedStatus = folder->localStatus();
+    if (changedStatus == initialStatus) {
+        return;
+    }
+
+    {
+        MailStoreTransaction transaction(this);
+        auto current = find<Folder>(Query().equal("accountId", folder->accountId()).equal("id", folder->id()));
+        if (current == nullptr) {
+            return;
+        }
+        for (auto it = changedStatus.begin(); it != changedStatus.end(); ++it) {
+            if (initialStatus.count(it.key()) == 0 || initialStatus[it.key()] != it.value()) {
+                current->localStatus()[it.key()] = it.value();
+            }
+        }
+        save(current.get());
+        transaction.commit();
     }
 }
 

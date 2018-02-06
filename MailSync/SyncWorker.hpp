@@ -75,7 +75,7 @@ private:
         
     void syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
 
-    void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus);
+    void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus, bool mustSyncAll);
 
     void fetchRangeInFolder(String * folder, std::string folderId, Range range);
 
