@@ -29,6 +29,8 @@
 #define DEEP_SCAN_INTERVAL          60 * 10
 
 #define MAX_FULL_HEADERS_REQUEST_SIZE  25000
+#define MODSEQ_TRUNCATION_THRESHOLD 4000
+#define MODSEQ_TRUNCATION_UID_COUNT 12000
 
 // These keys are saved to the folder object's "localState".
 // Starred keys are used in the client to show sync progress.
@@ -171,6 +173,7 @@ void SyncWorker::idleCycleIteration()
             throw SyncException("no-inbox", "There is no inbox or all folder to IDLE on.", false);
         }
     }
+    json inboxInitialStatus { inbox->localStatus() };
     
     if (idleShouldReloop) {
         idleShouldReloop = false;
@@ -178,9 +181,8 @@ void SyncWorker::idleCycleIteration()
     }
     
     // Check for mail in the preferred idle folder (inbox / all)
-    // TODO: We should probably not do this if it's only been ~5 seconds since the last time
     bool hasStartedSyncingFolder = inbox->localStatus().count(LS_SYNCED_MIN_UID);
-    
+
     if (hasStartedSyncingFolder) {
         String path = AS_MCSTR(inbox->path());
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
@@ -189,7 +191,7 @@ void SyncWorker::idleCycleIteration()
         // in us not seeing "vanished" messages until the next shallow sync iteration.
         // Right now I think that's fine.
         if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
-            syncFolderChangesViaCondstore(*inbox, remoteStatus);
+            syncFolderChangesViaCondstore(*inbox, remoteStatus, false);
         } else {
             uint32_t uidnext = remoteStatus.uidNext();
             uint32_t syncedMinUID = inbox->localStatus()[LS_SYNCED_MIN_UID].get<uint32_t>();
@@ -199,8 +201,10 @@ void SyncWorker::idleCycleIteration()
             inbox->localStatus()[LS_LAST_SHALLOW] = time(0);
             inbox->localStatus()[LS_UIDNEXT] = uidnext;
         }
+
         syncMessageBodies(*inbox, remoteStatus);
-        store->save(inbox.get());
+        
+        store->saveFolderStatus(inbox.get(), inboxInitialStatus);
     }
 
     // Idle on the folder
@@ -316,7 +320,8 @@ bool SyncWorker::syncNow()
             localStatus[LS_SYNCED_MIN_UID] = 1;
             localStatus[LS_LAST_SHALLOW] = time(0);
             localStatus[LS_LAST_DEEP] = time(0);
-            store->save(folder.get());
+            
+            store->saveFolderStatus(folder.get(), initialLocalStatus);
             continue;
         }
         
@@ -344,7 +349,7 @@ bool SyncWorker::syncNow()
         if (hasCondstore && hasQResync) {
             // Hooray! We never need to fetch the entire range to sync. Just look at
             // highestmodseq / uidnext and sync if we need to.
-            syncFolderChangesViaCondstore(*folder, remoteStatus);
+            syncFolderChangesViaCondstore(*folder, remoteStatus, true);
         } else {
             uint32_t remoteUidnext = remoteStatus.uidNext();
             uint32_t localUidnext = localStatus[LS_UIDNEXT].get<uint32_t>();
@@ -425,9 +430,7 @@ bool SyncWorker::syncNow()
 
         // Save the folder - note that helper methods above mutated localStatus.
         // Avoid the save if we can, because this creates a lot of noise in the client.
-        if (localStatus != initialLocalStatus) {
-            store->save(folder.get());
-        }
+        store->saveFolderStatus(folder.get(), initialLocalStatus);
     }
     
     // We've just unlinked a bunch of messages with PHASE A, now we'll delete the ones
@@ -774,7 +777,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     }
 }
 
-void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus)
+void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus, bool mustSyncAll)
 {
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
@@ -785,16 +788,26 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     uint32_t remoteUIDNext = remoteStatus.uidNext();
     time_t syncDataTimestamp = time(0);
     
+    logger->info("syncFolderChangesViaCondstore - {}: modseq {} to {}, uidnext {} to {}",
+                 folder.path(), modseq, remoteModseq, uidnext, remoteUIDNext);
+
     if (modseq == remoteModseq && uidnext == remoteUIDNext) {
-        logger->info("syncFolderChangesViaCondstore - {}: highestmodseq + uidnext match, no changes.", folder.path());
         return;
     }
 
-    logger->info("syncFolderChangesViaCondstore - {}: highestmodseq changed, requesting changes...", folder.path());
-    
+    // if the difference between our stored modseq and highestModseq is very large,
+    // we can create a request that takes forever to complete and /blocks/ the foreground
+    // worker from performing mailbox actions, which is really bad. To bound the request,
+    // we ask for changes within the last 25,000 UIDs only. Our intermittent "deep" scan
+    // will recover the rest of the changes so it's safe not to ingest them here.
     IndexSet * uids = IndexSet::indexSetWithRange(RangeMake(1, UINT64_MAX));
-    IMAPProgress cb;
+    if (!mustSyncAll && remoteModseq - modseq > MODSEQ_TRUNCATION_THRESHOLD) {
+        uint32_t bottomUID = remoteUIDNext > MODSEQ_TRUNCATION_UID_COUNT ? remoteUIDNext - MODSEQ_TRUNCATION_UID_COUNT : 1;
+        uids = IndexSet::indexSetWithRange(RangeMake(bottomUID, UINT64_MAX));
+        logger->warn("syncFolderChangesViaCondstore - request limited to {}-*, remaining changes will be detected via deep scan", bottomUID);
+    }
 
+    IMAPProgress cb;
     ErrorCode err = ErrorCode::ErrorNone;
     String path(AS_MCSTR(folder.path()));
     

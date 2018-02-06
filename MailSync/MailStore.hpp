@@ -93,6 +93,8 @@ public:
 
     void save(MailModel * model, bool emit = true);
 
+    void saveFolderStatus(Folder * folder, json & initialLocalStatus);
+
     uint32_t fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint32_t before = UINT32_MAX);
 
     map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
