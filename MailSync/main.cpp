@@ -69,7 +69,7 @@ public:
 
     void log(void * sender, ConnectionLogType logType, Data * buffer) {
         if (buffer) {
-            accumulated = accumulated + buffer->bytes();
+            accumulated = accumulated + buffer->stringWithCharset("utf-8")->UTF8Characters();
         }
     }
 };
