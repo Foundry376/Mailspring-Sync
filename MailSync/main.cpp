@@ -392,10 +392,11 @@ int main(int argc, const char * argv[]) {
 
     // parse launch arguments, skip program name argv[0] if present
     argc-=(argc>0); argv+=(argc>0);
-    option::Stats  stats(usage, argc, argv);
-    option::Option options[20], buffer[20];
-    option::Parser parse(usage, argc, argv, options, buffer);
-    
+    option::Stats stats(usage, argc, argv);
+    vector<option::Option> options(stats.options_max);
+    vector<option::Option> buffer(stats.buffer_max);
+    option::Parser parse(usage, argc, argv, &options[0], &buffer[0]);
+
     if (parse.error())
         return 1;
     
