@@ -482,7 +482,12 @@ int main(int argc, const char * argv[]) {
         // If we're attached to the mail client, log everything to a
         // rotating log file with the default logger format.
         spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%P %+"));
+#if defined(_MSC_VER)
+        wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+        wstring logPath = convert.from_bytes(eConfigDirPath) + convert.from_bytes(FS_PATH_SEP + "mailsync-" + account->id() + ".log");
+#else
         string logPath = eConfigDirPath + FS_PATH_SEP + "mailsync-" + account->id() + ".log";
+#endif
         sinks.push_back(make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3));
         sinks.push_back(make_shared<SPDFlusherSink>());
     } else {
