@@ -12,6 +12,7 @@
 #include "DeltaStream.hpp"
 #include "ThreadUtils.h"
 
+#include <iostream>
 #include <stdio.h>
 #include <string.h>
 

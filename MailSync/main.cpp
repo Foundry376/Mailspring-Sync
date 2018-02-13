@@ -61,7 +61,7 @@ std::thread * metadataExpirationThread = nullptr;
 
 class AccumulatorLogger : public ConnectionLogger {
 public:
-    string accumulated;
+    string accumulated = "";
     
     void log(string str) {
         accumulated = accumulated + str;
@@ -69,7 +69,7 @@ public:
 
     void log(void * sender, ConnectionLogType logType, Data * buffer) {
         if (buffer) {
-            accumulated = accumulated + buffer->stringWithCharset("utf-8")->UTF8Characters();
+            accumulated = accumulated + buffer->stringWithCharset("UTF-8")->UTF8Characters();
         }
     }
 };
@@ -435,8 +435,7 @@ int main(int argc, const char * argv[]) {
 		Option ac = options[ACCOUNT];
 		const char * arg = options[ACCOUNT].arg;
 		account = make_shared<Account>(json::parse(arg));
-	}
-	else {
+	} else {
 		cout << "\nWaiting for Account JSON:\n";
 		string inputLine;
 		getline(cin, inputLine);
@@ -461,8 +460,7 @@ int main(int argc, const char * argv[]) {
 		Option ac = options[IDENTITY];
 		const char * arg = options[IDENTITY].arg;
 		Identity::SetGlobal(make_shared<Identity>(json::parse(arg)));
-	}
-	else {
+	} else {
 		cout << "\nWaiting for Identity JSON:\n";
 		string inputLine;
 		getline(cin, inputLine);
