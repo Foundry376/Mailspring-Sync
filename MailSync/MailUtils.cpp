@@ -607,7 +607,7 @@ class MailcoreSPDLogger : public ConnectionLogger {
         default:
             break;
         }
-        string msg = buffer != nullptr ? buffer->stringWithCharset("utf-8")->UTF8Characters() : "";
+        string msg = buffer != nullptr ? buffer->stringWithCharset("UTF-8")->UTF8Characters() : "";
         spdlog::get("logger")->info("{} {}", logTypeString, msg);
     }
 };

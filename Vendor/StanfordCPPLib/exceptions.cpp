@@ -264,7 +264,14 @@ void printStackTrace(std::vector<stacktrace::entry> & entries) {
 
     out << " ***" << std::endl;
 
-    spdlog::get("logger")->critical(out.str());
+    auto logger = spdlog::get("logger");
+    if (logger) {
+        logger->critical(out.str());
+        logger->flush();
+    } else {
+        cerr << out.str();
+        cerr.flush();
+    }
 }
 
 // macro to avoid lots of redundancy in catch statements below
@@ -277,10 +284,10 @@ void printStackTrace(std::vector<stacktrace::entry> & entries) {
 #define FILL_IN_EXCEPTION_TRACE(ex, kind, desc) \
     if ((!std::string(kind).empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, (kind)); } \
     if ((!std::string(desc).empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, (desc)); } \
-    spdlog::get("logger")->flush(); \
-    spdlog::get("logger")->critical(msg); \
+    auto logger = spdlog::get("logger"); \
+    if (logger) { logger->critical(msg); } else { cerr << msg; } \
+    if (logger) { logger->flush(); } else { cerr.flush(); } \
     printStackTrace(); \
-    spdlog::get("logger")->flush(); \
     THROW_NOT_ON_WINDOWS(ex);
 
 static void signalHandlerDisable() {
@@ -347,7 +354,8 @@ static void signalHandlerEnable() {
  */
 static void stanfordCppLibSignalHandler(int sig) {
     // immediately flush any pending spdlogs
-    spdlog::get("logger")->flush();
+    auto logger = spdlog::get("logger");
+    if (logger) logger->flush();
     
     // turn the signal handler off (should run only once; avoid infinite cycle)
     signalHandlerDisable();
@@ -408,14 +416,21 @@ static void stanfordCppLibTerminateHandler() {
     } catch (GenericException& ex) {
         stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, "Mailspring GenericException");
         stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, (ex.toJSON().dump()));
-        spdlog::get("logger")->flush();
-        spdlog::get("logger")->critical(msg);
+        auto logger = spdlog::get("logger");
+        if (logger) {
+            logger->critical(msg);
+            logger->flush();
+        } else {
+            cerr << msg;
+            cerr.flush();
+        }
         ex.printStackTrace();
-        spdlog::get("logger")->flush();
         THROW_NOT_ON_WINDOWS(ex);
         
     } catch (const ErrorException& ex) {
         FILL_IN_EXCEPTION_TRACE(ex, "An ErrorException", ex.what());
+    } catch (const json::exception& ex) {
+        FILL_IN_EXCEPTION_TRACE(ex, "A JSON exception", ex.what());
     } catch (const std::exception& ex) {
         FILL_IN_EXCEPTION_TRACE(ex, "A C++ exception", ex.what());
     } catch (std::string str) {

@@ -89,7 +89,7 @@ const json MakeGmailOAuthRequest(string clientId, string refreshToken) {
     json resultJSON = nullptr;
     try {
         resultJSON = json::parse(result);
-    } catch (std::invalid_argument & ex) {
+    } catch (json::exception & ex) {
         resultJSON = {{"text", result}};
     }
     curl_easy_cleanup(curl_handle);
@@ -137,7 +137,7 @@ const json MakeRequest(string server, string username, string password, string p
     json resultJSON = nullptr;
     try {
         resultJSON = json::parse(result);
-    } catch (std::invalid_argument & ex) {
+    } catch (json::exception & ex) {
         resultJSON = {{"text", result}};
     }
     curl_easy_cleanup(curl_handle);

@@ -148,7 +148,7 @@ void MetadataWorker::onDeltaData(void * contents, size_t bytes) {
             try {
                 json deltaJSON = json::parse(delta);
                 onDelta(deltaJSON);
-            } catch (std::invalid_argument & ex) {
+            } catch (json::exception & ex) {
                 json resp = {{"error", ex.what()}};
                 this->logger->error("Received invalid JSON in server delta stream: {}", delta);
             }
