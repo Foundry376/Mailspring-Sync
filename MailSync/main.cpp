@@ -430,21 +430,20 @@ int main(int argc, const char * argv[]) {
     }
 
 	// get the account via param or stdin
-    const char * accountJSON = nullptr;
+    string accountJSON = "";
     if (options[ACCOUNT].count() > 0) {
         Option ac = options[ACCOUNT];
-        accountJSON = options[ACCOUNT].arg;
+        accountJSON = string(options[ACCOUNT].arg);
     } else {
         cout << "\nWaiting for Account JSON:\n";
-        string inputLine;
-        getline(cin, inputLine);
-        accountJSON = inputLine.c_str();
+        getline(cin, accountJSON);
     }
     shared_ptr<Account> account = nullptr;
     try {
         account = make_shared<Account>(json::parse(accountJSON));
     } catch (json::exception& e) {
-        cout << "Unable to parse Account JSON: " << e.what() << endl;
+        json resp = { { "error", "Invalid Account JSON: " + string(e.what()) }, { "log", accountJSON } };
+        cout << "\n" << resp.dump();
         return 1;
     }
 
@@ -463,20 +462,19 @@ int main(int argc, const char * argv[]) {
     }
 
 	// get the identity via param or stdin
-    const char * identityJSON = nullptr;
+    string identityJSON = "";
 	if (options[IDENTITY].count() > 0) {
 		Option ac = options[IDENTITY];
-		identityJSON = options[IDENTITY].arg;
+		identityJSON = string(options[IDENTITY].arg);
 	} else {
 		cout << "\nWaiting for Identity JSON:\n";
-		string inputLine;
-		getline(cin, inputLine);
-        identityJSON = inputLine.c_str();
+        getline(cin, identityJSON);
 	}
     try {
         Identity::SetGlobal(make_shared<Identity>(json::parse(identityJSON)));
     } catch (json::exception& e) {
-        cout << "Unable to parse Identity JSON: " << e.what() << endl;
+        json resp = { { "error", "Invalid Identity JSON: " + string(e.what()) }, { "log", identityJSON } };
+        cout << "\n" << resp.dump();
         return 1;
     }
 
@@ -498,7 +496,7 @@ int main(int argc, const char * argv[]) {
             wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
             wstring logPath = convert.from_bytes(eConfigDirPath) + convert.from_bytes(FS_PATH_SEP + "mailsync-" + account->id() + ".log");
     #else
-            string logPath = "bla" + eConfigDirPath + FS_PATH_SEP + "mailsync-" + account->id() + ".log";
+            string logPath = eConfigDirPath + FS_PATH_SEP + "mailsync-" + account->id() + ".log";
     #endif
             sinks.push_back(make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3));
             sinks.push_back(make_shared<SPDFlusherSink>());
@@ -513,7 +511,8 @@ int main(int argc, const char * argv[]) {
     #endif
         }
     } catch (spdlog::spdlog_ex& e) {
-        cout << "Unable to configure logging: " << e.what() << endl;
+        json resp = { { "error", "Logging Setup Failed" }, { "log", e.what() } };
+        cout << "\n" << resp.dump();
         return 1;
     }
 
