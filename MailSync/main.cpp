@@ -430,17 +430,24 @@ int main(int argc, const char * argv[]) {
     }
 
 	// get the account via param or stdin
+    const char * accountJSON = nullptr;
+    if (options[ACCOUNT].count() > 0) {
+        Option ac = options[ACCOUNT];
+        accountJSON = options[ACCOUNT].arg;
+    } else {
+        cout << "\nWaiting for Account JSON:\n";
+        string inputLine;
+        getline(cin, inputLine);
+        accountJSON = inputLine.c_str();
+    }
     shared_ptr<Account> account = nullptr;
-	if (options[ACCOUNT].count() > 0) {
-		Option ac = options[ACCOUNT];
-		const char * arg = options[ACCOUNT].arg;
-		account = make_shared<Account>(json::parse(arg));
-	} else {
-		cout << "\nWaiting for Account JSON:\n";
-		string inputLine;
-		getline(cin, inputLine);
-		account = make_shared<Account>(json::parse(inputLine.c_str()));
-	}
+    try {
+        account = make_shared<Account>(json::parse(accountJSON));
+    } catch (json::exception& e) {
+        cout << "Unable to parse Account JSON: " << e.what() << endl;
+        return 1;
+    }
+
 
 	if (account->valid() != "") {
 		json resp = { { "error", "Account is missing required fields:" + account->valid() } };
@@ -456,16 +463,22 @@ int main(int argc, const char * argv[]) {
     }
 
 	// get the identity via param or stdin
+    const char * identityJSON = nullptr;
 	if (options[IDENTITY].count() > 0) {
 		Option ac = options[IDENTITY];
-		const char * arg = options[IDENTITY].arg;
-		Identity::SetGlobal(make_shared<Identity>(json::parse(arg)));
+		identityJSON = options[IDENTITY].arg;
 	} else {
 		cout << "\nWaiting for Identity JSON:\n";
 		string inputLine;
 		getline(cin, inputLine);
-		Identity::SetGlobal(make_shared<Identity>(json::parse(inputLine.c_str())));
+        identityJSON = inputLine.c_str();
 	}
+    try {
+        Identity::SetGlobal(make_shared<Identity>(json::parse(identityJSON)));
+    } catch (json::exception& e) {
+        cout << "Unable to parse Identitiy JSON: " << e.what() << endl;
+        return 1;
+    }
 
 	if (!Identity::GetGlobal()->valid()) {
 		json resp = { { "error", "ErrorIdentityMissingFields" } };
