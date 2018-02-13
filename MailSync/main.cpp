@@ -476,7 +476,7 @@ int main(int argc, const char * argv[]) {
     try {
         Identity::SetGlobal(make_shared<Identity>(json::parse(identityJSON)));
     } catch (json::exception& e) {
-        cout << "Unable to parse Identitiy JSON: " << e.what() << endl;
+        cout << "Unable to parse Identity JSON: " << e.what() << endl;
         return 1;
     }
 
@@ -489,27 +489,32 @@ int main(int argc, const char * argv[]) {
     // setup logging to file or console
     std::vector<shared_ptr<spdlog::sinks::sink>> sinks;
 
-    if (!options[ORPHAN]) {
-        // If we're attached to the mail client, log everything to a
-        // rotating log file with the default logger format.
-        spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%P %+"));
-#if defined(_MSC_VER)
-        wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
-        wstring logPath = convert.from_bytes(eConfigDirPath) + convert.from_bytes(FS_PATH_SEP + "mailsync-" + account->id() + ".log");
-#else
-        string logPath = eConfigDirPath + FS_PATH_SEP + "mailsync-" + account->id() + ".log";
-#endif
-        sinks.push_back(make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3));
-        sinks.push_back(make_shared<SPDFlusherSink>());
-    } else {
-        // If we're attached to a debugger / console, log everything to
-        // stdout in an abbreviated format.
-        spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%l: %v"));
-#if defined(_MSC_VER)
-		sinks.push_back(make_shared<spdlog::sinks::stdout_sink_mt>());
-#else
-        sinks.push_back(make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>());
-#endif
+    try {
+        if (!options[ORPHAN]) {
+            // If we're attached to the mail client, log everything to a
+            // rotating log file with the default logger format.
+            spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%P %+"));
+    #if defined(_MSC_VER)
+            wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+            wstring logPath = convert.from_bytes(eConfigDirPath) + convert.from_bytes(FS_PATH_SEP + "mailsync-" + account->id() + ".log");
+    #else
+            string logPath = "bla" + eConfigDirPath + FS_PATH_SEP + "mailsync-" + account->id() + ".log";
+    #endif
+            sinks.push_back(make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3));
+            sinks.push_back(make_shared<SPDFlusherSink>());
+        } else {
+            // If we're attached to a debugger / console, log everything to
+            // stdout in an abbreviated format.
+            spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%l: %v"));
+    #if defined(_MSC_VER)
+            sinks.push_back(make_shared<spdlog::sinks::stdout_sink_mt>());
+    #else
+            sinks.push_back(make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>());
+    #endif
+        }
+    } catch (spdlog::spdlog_ex& e) {
+        cout << "Unable to configure logging: " << e.what() << endl;
+        return 1;
     }
 
     // Always log critical errors to the stderr as well as a log file / stdout.
