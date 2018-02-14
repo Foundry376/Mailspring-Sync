@@ -12,6 +12,7 @@
 #include <iostream>
 #include <string>
 #include <time.h>
+#define SPDLOG_WCHAR_FILENAMES true
 #define _TIMESPEC_DEFINED true
 #include <pthread.h>
 #include <sqlite3.h>
@@ -493,6 +494,7 @@ int main(int argc, const char * argv[]) {
             // rotating log file with the default logger format.
             spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%P %+"));
     #if defined(_MSC_VER)
+            cout << "\n Using wide paths for SPDLog \n";
             wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
             wstring logPath = convert.from_bytes(eConfigDirPath) + convert.from_bytes(FS_PATH_SEP + "mailsync-" + account->id() + ".log");
     #else
@@ -511,7 +513,7 @@ int main(int argc, const char * argv[]) {
     #endif
         }
     } catch (spdlog::spdlog_ex& e) {
-        json resp = { { "error", "Logging Setup Failed" }, { "log", e.what() } };
+        json resp = { { "error", "Setup Failed: " + string(e.what()) } };
         cout << "\n" << resp.dump();
         return 1;
     }
