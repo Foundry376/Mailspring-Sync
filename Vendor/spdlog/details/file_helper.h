@@ -28,7 +28,10 @@ class file_helper
 
 public:
     const int open_tries = 5;
-    const int open_interval = 10;
+    
+    // NOTE BG CUSTOMIZED - Increased from 10ms to 100ms so total wait over 500ms gives
+    // the older / quit sync worker a moment to exit.
+    const int open_interval = 100;
 
     explicit file_helper() :
         _fd(nullptr)
