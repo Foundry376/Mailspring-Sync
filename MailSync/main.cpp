@@ -485,16 +485,16 @@ int main(int argc, const char * argv[]) {
 		return 1;
 	}
     
-    // setup logging to file or console
     std::vector<shared_ptr<spdlog::sinks::sink>> sinks;
+    bool logToFile = mode == "sync" && !options[ORPHAN];
 
     try {
-        if (!options[ORPHAN]) {
+        if (logToFile) {
             // If we're attached to the mail client, log everything to a
             // rotating log file with the default logger format.
+            // IMPORANT: On Windows, only one sync worker can have this file open at once.
             spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%P %+"));
     #if defined(_MSC_VER)
-            cout << "\n Using wide paths for SPDLog \n";
             wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
             wstring logPath = convert.from_bytes(eConfigDirPath) + convert.from_bytes(FS_PATH_SEP + "mailsync-" + account->id() + ".log");
     #else
