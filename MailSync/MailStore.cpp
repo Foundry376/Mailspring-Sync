@@ -189,6 +189,10 @@ void MailStore::resetForAccount(string accountId) {
         statement.bind(1, accountId);
         statement.exec();
     }
+    
+    // reset the metadata stream cursor so we re-fetch metadata on resync
+    saveKeyValue("cursor-" + accountId, "0");
+
     SQLite::Statement(_db, "VACUUM").exec();
 }
 
