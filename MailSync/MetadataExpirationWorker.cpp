@@ -11,6 +11,7 @@
 
 #include "MetadataExpirationWorker.hpp"
 #include "DeltaStream.hpp"
+#include "MailUtils.hpp"
 
 // Singleton Implementation
 
@@ -81,10 +82,19 @@ void MetadataExpirationWorker::run() {
             
             // iterate through the types, load the models and dispatch them
             for (auto & pair : results) {
-                auto models = store.findAllGeneric(pair.first, Query().equal("id", pair.second));
-                for (auto & model : models) {
-                    logger->info("-- Sending expiration event for {} {}", pair.first, model->id());
-                    SharedDeltaStream()->emit(DeltaStreamItem(DELTA_TYPE_METADATA_EXPIRATION, model.get()), 500);
+                auto chunks = MailUtils::chunksOfVector(pair.second, 100);
+                size_t remaining = chunks.size();
+                
+                for (auto chunk : chunks) {
+                    auto models = store.findAllGeneric(pair.first, Query().equal("id", chunk));
+                    for (auto & model : models) {
+                        logger->info("-- Sending expiration event for {} {}", pair.first, model->id());
+                        SharedDeltaStream()->emit(DeltaStreamItem(DELTA_TYPE_METADATA_EXPIRATION, model.get()), 500);
+                    }
+                    remaining -= 1;
+                    if (remaining > 0) {
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
+                    }
                 }
             }
 
