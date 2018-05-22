@@ -59,6 +59,13 @@ class CleanHTMLBodyRendererTemplateCallback : public Object, public HTMLRenderer
 //    }
 };
 
+string stringByAppendingOrSkipping(string input, string val) {
+    auto valWithSpace = " " + val;
+    if (input.find(valWithSpace) != std::string::npos) {
+        return input;
+    }
+    return input + valWithSpace;
+}
 
 MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
     store(store),
@@ -385,13 +392,12 @@ void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
 }
 
 void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull) {
-    // retrieve the current index if there is one
-    
-    string to;
-    string from;
+    string to = "";
+    string from = "";
     string categories = thread->categoriesSearchString();
-    string body = thread->subject();
+    string body = "";
     
+    // retrieve the current index if there is one
     if (thread->searchRowId()) {
         SQLite::Statement existing(store->db(), "SELECT to_, from_, body FROM ThreadSearch WHERE rowid = ?");
         existing.bind(1, (double)thread->searchRowId());
@@ -404,20 +410,20 @@ void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messa
     
     if (messageToAppendOrNull != nullptr) {
         for (auto c : messageToAppendOrNull->to()) {
-            if (c.count("email")) { to = to + " " + c["email"].get<string>(); }
-            if (c.count("name")) { to = to + " " + c["name"].get<string>(); }
+            if (c.count("email")) { to = stringByAppendingOrSkipping(to, c["email"].get<string>()); }
+            if (c.count("name")) { to = stringByAppendingOrSkipping(to, c["name"].get<string>()); }
         }
         for (auto c : messageToAppendOrNull->cc()) {
-            if (c.count("email")) { to = to + " " + c["email"].get<string>(); }
-            if (c.count("name")) { to = to + " " + c["name"].get<string>(); }
+            if (c.count("email")) { to = stringByAppendingOrSkipping(to, c["email"].get<string>()); }
+            if (c.count("name")) { to = stringByAppendingOrSkipping(to, c["name"].get<string>()); }
         }
         for (auto c : messageToAppendOrNull->bcc()) {
-            if (c.count("email")) { to = to + " " + c["email"].get<string>(); }
-            if (c.count("name")) { to = to + " " + c["name"].get<string>(); }
+            if (c.count("email")) { to = stringByAppendingOrSkipping(to, c["email"].get<string>()); }
+            if (c.count("name")) { to = stringByAppendingOrSkipping(to, c["name"].get<string>()); }
         }
         for (auto c : messageToAppendOrNull->from()) {
-            if (c.count("email")) { from = from + " " + c["email"].get<string>(); }
-            if (c.count("name")) { from = from + " " + c["name"].get<string>(); }
+            if (c.count("email")) { from = stringByAppendingOrSkipping(from, c["email"].get<string>()); }
+            if (c.count("name")) { from = stringByAppendingOrSkipping(from, c["name"].get<string>()); }
         }
     }
     
@@ -434,12 +440,13 @@ void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messa
         update.bind(5, (double)thread->searchRowId());
         update.exec();
     } else {
-        SQLite::Statement insert(store->db(), "INSERT INTO ThreadSearch (to_, from_, body, categories, content_id) VALUES (?, ?, ?, ?, ?)");
-        insert.bind(1, to);
-        insert.bind(2, from);
-        insert.bind(3, body);
-        insert.bind(4, categories);
-        insert.bind(5, thread->id());
+        SQLite::Statement insert(store->db(), "INSERT INTO ThreadSearch (subject, to_, from_, body, categories, content_id) VALUES (?, ?, ?, ?, ?, ?)");
+        insert.bind(1, thread->subject());
+        insert.bind(2, to);
+        insert.bind(3, from);
+        insert.bind(4, body);
+        insert.bind(5, categories);
+        insert.bind(6, thread->id());
         insert.exec();
         thread->setSearchRowId(store->db().getLastInsertRowid());
     }
