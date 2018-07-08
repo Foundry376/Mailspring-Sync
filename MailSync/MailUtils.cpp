@@ -62,7 +62,9 @@ static bool calledsrand = false;
 bool create_directory(string dir) {
     int c = 0;
 #if defined(_WIN32)
-    c = _mkdir(dir.c_str());
+    wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+    wstring dirWide = convert.from_bytes(dir);
+    c = _wmkdir(dirWide.c_str());
 #else
     c = mkdir(dir.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
 #endif
@@ -381,7 +383,7 @@ vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, In
 
         if (left > right) {
             // an invalid range
-            spdlog::get("logger")->error("- IndexSet UID range ({}-{}) has a lower bound greatre than it's upper bound.", left, right);
+            spdlog::get("logger")->error("- IndexSet UID range ({}-{}) has a lower bound greater than it's upper bound.", left, right);
             continue;
         }
 
