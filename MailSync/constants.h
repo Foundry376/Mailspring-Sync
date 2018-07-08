@@ -14,6 +14,7 @@
 #define constants_h
 
 #define AS_MCSTR(X)         mailcore::String::uniquedStringWithUTF8Characters(X.c_str())
+#define AS_WIDE_MCSTR(X)    mailcore::String::stringWithCharacters(X.c_str())
 
 #if defined _WIN32 || defined __CYGWIN__
 static string FS_PATH_SEP = "\\";

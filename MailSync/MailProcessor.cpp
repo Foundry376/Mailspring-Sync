@@ -15,6 +15,12 @@
 #include "File.hpp"
 #include "constants.h"
 
+#if defined(_MSC_VER)
+#include <direct.h>
+#include <codecvt>
+#include <locale>
+#endif
+
 using namespace std;
 using nlohmann::json;
 
@@ -309,7 +315,12 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
 bool MailProcessor::retrievedFileData(File * file, Data * data) {
     string root = MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "files";
     string path = MailUtils::pathForFile(root, file, true);
+#ifdef _MSC_VER
+    wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+    return (data->writeToFile(AS_WIDE_MCSTR(convert.from_bytes(path))) == ErrorNone);
+#else
     return (data->writeToFile(AS_MCSTR(path)) == ErrorNone);
+#endif
 }
 
 void MailProcessor::unlinkMessagesMatchingQuery(Query & query, int phase)

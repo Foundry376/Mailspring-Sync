@@ -22,6 +22,12 @@
 #include "SyncException.hpp"
 #include "NetworkRequestUtils.hpp"
 
+#if defined(_MSC_VER)
+#include <direct.h>
+#include <codecvt>
+#include <locale>
+#endif
+
 using namespace std;
 using namespace mailcore;
 using namespace nlohmann;
@@ -988,7 +994,14 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         File file{fileJSON};
         string root = MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "files";
         string path = MailUtils::pathForFile(root, &file, false);
+        
+#ifdef _MSC_VER
+        wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+        Attachment * a = Attachment::attachmentWithContentsOfFile(AS_WIDE_MCSTR(convert.from_bytes(path)));
+#else
         Attachment * a = Attachment::attachmentWithContentsOfFile(AS_MCSTR(path));
+#endif
+
         if (file.contentId().is_string()) {
             a->setContentID(AS_MCSTR(file.contentId().get<string>()));
             a->setInlineAttachment(true);
@@ -1314,5 +1327,10 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
         logger->error("Unable to fetch rfc2822 for message (UID {}). Error {}", msg->remoteUID(), ErrorCodeToTypeMap[err]);
         throw SyncException(err, "performRemoteGetMessageRFC2822");
     }
+#ifdef _MSC_VER
+    wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+    data->writeToFile(AS_WIDE_MCSTR(convert.from_bytes(filepath)));
+#else
     data->writeToFile(AS_MCSTR(filepath));
+#endif
 }
