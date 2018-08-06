@@ -233,6 +233,7 @@ int runTestAuth(shared_ptr<Account> account) {
         if (smtp.lastLibetpanError()) {
             logger.log("\n\nmailsmtp Last Error Code: " + to_string(smtp.lastLibetpanError()));
             logger.log("\n\nmailsmtp Last Error Location: " + to_string(smtp.lastLibetpanErrorLocation()));
+            logger.log("\n\nmailsmtp Last Auth Type: " + to_string(smtp.authType()));
         }
         goto done;
     }
