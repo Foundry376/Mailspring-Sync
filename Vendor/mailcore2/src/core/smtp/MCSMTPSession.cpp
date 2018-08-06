@@ -523,23 +523,25 @@ void SMTPSession::login(ErrorCode * pError)
         else if (mSmtp->auth & MAILSMTP_AUTH_CRAM_MD5) {
             setAuthType((AuthType) (authType() | AuthTypeSASLCRAMMD5));
         }
-        else if (mSmtp->auth & MAILSMTP_AUTH_GSSAPI) {
-            setAuthType((AuthType) (authType() | AuthTypeSASLGSSAPI));
-        }
         else if (mSmtp->auth & MAILSMTP_AUTH_SRP) {
             setAuthType((AuthType) (authType() | AuthTypeSASLSRP));
-        }
-        else if (mSmtp->auth & MAILSMTP_AUTH_NTLM) {
-            setAuthType((AuthType) (authType() | AuthTypeSASLNTLM));
-        }
-        else if (mSmtp->auth & MAILSMTP_AUTH_KERBEROS_V4) {
-            setAuthType((AuthType) (authType() | AuthTypeSASLKerberosV4));
         }
         else if (mSmtp->auth & MAILSMTP_AUTH_PLAIN) {
             setAuthType((AuthType) (authType() | AuthTypeSASLPlain));
         }
         else if (mSmtp->auth & MAILSMTP_AUTH_LOGIN) {
             setAuthType((AuthType) (authType() | AuthTypeSASLLogin));
+        }
+        // BG MOVED TO BOTTOM
+        // Mailspring doesn't really support these, at least not that I've seen
+        else if (mSmtp->auth & MAILSMTP_AUTH_NTLM) {
+            setAuthType((AuthType) (authType() | AuthTypeSASLNTLM));
+        }
+        else if (mSmtp->auth & MAILSMTP_AUTH_KERBEROS_V4) {
+            setAuthType((AuthType) (authType() | AuthTypeSASLKerberosV4));
+        }
+        else if (mSmtp->auth & MAILSMTP_AUTH_GSSAPI) {
+            setAuthType((AuthType) (authType() | AuthTypeSASLGSSAPI));
         }
     }
 
