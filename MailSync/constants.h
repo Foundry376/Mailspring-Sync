@@ -325,6 +325,7 @@ static map<ErrorCode, string> ErrorCodeToTypeMap = {
     {ErrorConnection, "ErrorConnection"},
     {ErrorInvalidAccount, "ErrorInvalidAccount"},
     {ErrorInvalidRelaySMTP, "ErrorInvalidRelaySMTP"},
+    {ErrorNoImplementedAuthMethods, "ErrorNoImplementedAuthMethods"},
     {ErrorTLSNotAvailable, "ErrorTLSNotAvailable"},
     {ErrorParse, "ErrorParse"},
     {ErrorCertificate, "ErrorCertificate"},
