@@ -511,6 +511,12 @@ void SMTPSession::login(ErrorCode * pError)
         return;
     }
 
+    if ((mUsername == nullptr || mUsername->length() == 0) && (mPassword == nullptr || mPassword->length() == 0)) {
+        mState = STATE_LOGGEDIN;
+        * pError = ErrorNone;
+        return;
+    }
+
     if (authType() == 0) {
 #if TARGET_IPHONE_SIMULATOR || TARGET_OS_IPHONE
         if (0) {
