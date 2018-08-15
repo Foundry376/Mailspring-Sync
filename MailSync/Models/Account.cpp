@@ -91,11 +91,13 @@ string Account::IMAPHost() {
 }
 
 string Account::IMAPUsername() {
-    return _data["settings"]["imap_username"].get<string>();
+    json & s = _data["settings"];
+    return s.count("imap_username") ? s["imap_username"].get<string>() : "";
 }
 
 string Account::IMAPPassword() {
-    return _data["settings"]["imap_password"].get<string>();
+    json & s = _data["settings"];
+    return s.count("imap_password") ? s["imap_password"].get<string>() : "";
 }
 
 string Account::IMAPSecurity() {
@@ -116,11 +118,13 @@ string Account::SMTPHost() {
 }
 
 string Account::SMTPUsername() {
-    return _data["settings"]["smtp_username"].get<string>();
+    json & s = _data["settings"];
+    return s.count("smtp_username") ? s["smtp_username"].get<string>() : "";
 }
 
 string Account::SMTPPassword() {
-    return _data["settings"]["smtp_password"].get<string>();
+    json & s = _data["settings"];
+    return s.count("smtp_password") ? s["smtp_password"].get<string>() : "";
 }
 
 string Account::SMTPSecurity() {
