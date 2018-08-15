@@ -1168,7 +1168,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     }
 
     if (sentFolderMessageUID == 0) {
-        // If we still don't have a message in the sent folder, there's nothing left to do.
+        // If we still don't have a message in the sent folder, there's nothing we can do.
         // Delete the draft and exit.
         store->remove(&draft);
         return;
@@ -1177,6 +1177,10 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     /*
      Finally, pull down the message we created to get it's labels, thread ID, etc. and
      associate our metadata with it.
+     
+     Note: Yes, it's a bit weird that we sync up a message to the sent folder and then
+     immediately pull it's attributes, but we want to get the Thread ID on Gmail, etc.
+     We don't pull down the entire message body.
      */
 
     MailProcessor processor{account, store};
@@ -1189,12 +1193,18 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         kind = (IMAPMessagesRequestKind)(kind | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
     }
     
+    // Important: Courier (and maybe other IMAP servers) won't show us new messages we've created
+    // in the folder unless we re-select the folder. (I think they're treating UIDs like sequence
+    // numbers?). We must re-select the sent folder to pull down the message we created.
+    session->select(sentPath, &err);
+
     time_t syncDataTimestamp = time(0);
     IndexSet * uids = IndexSet::indexSetWithIndex(sentFolderMessageUID);
     Array * remote = session->fetchMessagesByUID(sentPath, kind, uids, nullptr, &err);
 
     // Delete the draft. We do this as close as possible to when we write the message in
-    // so there isn't any flicker in the client.
+    // so there isn't any flicker in the client, but before error checking because we always
+    // want it to always disppear since sending succeeded.
     store->remove(&draft);
 
     if (err != ErrorNone) {
@@ -1202,7 +1212,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         return;
     }
     if (remote->count() == 0) {
-        logger->error("-X Error: No messages were returned. Metadata will not be attached.");
+        logger->error("-X Error: No messages were returned. Metadata will not be attached!");
         return;
     }
 
