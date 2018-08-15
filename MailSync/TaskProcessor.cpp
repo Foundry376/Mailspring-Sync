@@ -1050,7 +1050,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     }
     
     if (err != ErrorNone) {
-        logger->info("-X An SMTP error occurred: {}", ErrorCodeToTypeMap[err]);
+        logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], to_string(smtp.lastLibetpanError()));
         if (succeeded.size() > 0) {
             throw SyncException("send-partially-failed", ErrorCodeToTypeMap[err] + ":::" + succeeded, false);
         } else {
