@@ -231,7 +231,9 @@ int runTestAuth(shared_ptr<Account> account) {
             logger.log("\n\nSMTP Last Response: " + string(smtp.lastSMTPResponse()->UTF8Characters()));
         }
         if (smtp.lastLibetpanError()) {
-            logger.log("\n\nmailsmtp Last Error Code: " + to_string(smtp.lastLibetpanError()));
+            int e = smtp.lastLibetpanError();
+            string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : "Unknown";
+            logger.log("\n\nmailsmtp Last Error Code: " + es);
             logger.log("\n\nmailsmtp Last Error Location: " + to_string(smtp.lastLibetpanErrorLocation()));
             logger.log("\n\nmailsmtp Last Auth Type: " + to_string(smtp.authType()));
         }

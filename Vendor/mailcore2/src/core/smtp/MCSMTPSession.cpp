@@ -723,7 +723,7 @@ void SMTPSession::checkAccount(Address * from, ErrorCode * pError)
         return;
     }
     else if (r != MAILSMTP_NO_ERROR) {
-        * pError = ErrorInvalidAccount;
+        * pError = ErrorInvalidRelaySMTP;
         return;
     }
     
