@@ -505,41 +505,41 @@ void SMTPSession::login(ErrorCode * pError)
     int r;
 
     if ((authType() != AuthTypeXOAuth2) && (authType() != AuthTypeXOAuth2Outlook) &&
-        ((username() == NULL) || (password() == NULL))) {
-        mState = STATE_LOGGEDIN;
-        * pError = ErrorNone;
-        return;
-    }
-
-    if ((mUsername == nullptr || mUsername->length() == 0) && (mPassword == nullptr || mPassword->length() == 0)) {
+        ((mUsername == nullptr || mUsername->length() == 0) || (mPassword == nullptr || mPassword->length() == 0))) {
         mState = STATE_LOGGEDIN;
         * pError = ErrorNone;
         return;
     }
 
     if (authType() == 0) {
-#if TARGET_IPHONE_SIMULATOR || TARGET_OS_IPHONE
-        if (0) {
-        }
-#else
-        if (mSmtp->auth & MAILSMTP_AUTH_DIGEST_MD5) {
-            setAuthType((AuthType) (authType() | AuthTypeSASLDIGESTMD5));
-        }
-#endif
-        else if (mSmtp->auth & MAILSMTP_AUTH_CRAM_MD5) {
-            setAuthType((AuthType) (authType() | AuthTypeSASLCRAMMD5));
-        }
-        else if (mSmtp->auth & MAILSMTP_AUTH_SRP) {
-            setAuthType((AuthType) (authType() | AuthTypeSASLSRP));
-        }
-        else if (mSmtp->auth & MAILSMTP_AUTH_PLAIN) {
+        if (mSmtp->auth & MAILSMTP_AUTH_PLAIN) {
             setAuthType((AuthType) (authType() | AuthTypeSASLPlain));
         }
         else if (mSmtp->auth & MAILSMTP_AUTH_LOGIN) {
             setAuthType((AuthType) (authType() | AuthTypeSASLLogin));
         }
+        
         // BG MOVED TO BOTTOM
-        // Mailspring doesn't really support these, at least not that I've seen
+        
+        // Mailspring doesn't really support these because they require that a secret
+        // has been exchanged. Maybe on some linux systems this value is present elsewhere?
+        //
+        // https://docs.kolab.org/administrator-guide/md5-sasl-mechs.html
+        // https://tools.ietf.org/html/rfc2195
+
+        else if (mSmtp->auth & MAILSMTP_AUTH_DIGEST_MD5) {
+            setAuthType((AuthType) (authType() | AuthTypeSASLDIGESTMD5));
+        }
+        else if (mSmtp->auth & MAILSMTP_AUTH_CRAM_MD5) {
+            setAuthType((AuthType) (authType() | AuthTypeSASLCRAMMD5));
+        }
+
+        // Mailspring doesn't really support these because libsasl2 doesn't actually
+        // seem to implement them. We should surface this to the user somehow.
+
+        else if (mSmtp->auth & MAILSMTP_AUTH_SRP) {
+            setAuthType((AuthType) (authType() | AuthTypeSASLSRP));
+        }
         else if (mSmtp->auth & MAILSMTP_AUTH_NTLM) {
             setAuthType((AuthType) (authType() | AuthTypeSASLNTLM));
         }
@@ -550,7 +550,7 @@ void SMTPSession::login(ErrorCode * pError)
             setAuthType((AuthType) (authType() | AuthTypeSASLGSSAPI));
         }
     }
-
+    
     AuthType correctedAuthType = authType();
     if (mOutlookServer) {
         if (correctedAuthType == AuthTypeXOAuth2) {
@@ -675,7 +675,7 @@ void SMTPSession::login(ErrorCode * pError)
     saveLastResponse();
     
     if (r == MAILSMTP_ERROR_NOT_IMPLEMENTED) {
-        * pError = ErrorNoop; // using this to mean not implemented
+        * pError = ErrorNoImplementedAuthMethods;
         mShouldDisconnect = true;
         return;
     }
