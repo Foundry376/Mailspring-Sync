@@ -8705,7 +8705,8 @@ mailimap_quoted_parse(mailstream * fd, MMAPString * buffer, struct mailimap_pars
   int r;
   int res;
   bool use_msg_body_handler;
-
+  bool found_opening_quote;
+  
   cur_token = * indx;
 
   use_msg_body_handler = (parser_ctx->msg_body_handler != NULL
@@ -8718,9 +8719,10 @@ mailimap_quoted_parse(mailstream * fd, MMAPString * buffer, struct mailimap_pars
 #endif
 
   r = mailimap_dquote_parse(fd, buffer, parser_ctx, &cur_token);
-  if (r != MAILIMAP_NO_ERROR) {
-    res = r;
-    goto err;
+  if (r == MAILIMAP_NO_ERROR) {
+    found_opening_quote = true;
+  } else {
+    found_opening_quote = false;
   }
 
   gstr_quoted = mmap_string_new("");
@@ -8743,35 +8745,62 @@ mailimap_quoted_parse(mailstream * fd, MMAPString * buffer, struct mailimap_pars
       }
     }
     
-    r = mailimap_quoted_char_parse(fd, buffer, parser_ctx, &cur_token, &ch);
-    if (r == MAILIMAP_ERROR_PARSE)
-      break;
-    else if (r == MAILIMAP_NO_ERROR) {
-      if (use_msg_body_handler) {
-        if (!parser_ctx->msg_body_handler(parser_ctx->msg_body_att_type, parser_ctx->msg_body_section,
-                                          &ch, 1,
-                                          parser_ctx->msg_body_handler_context)) {
-          res = MAILIMAP_ERROR_MEMORY;
-          goto free;
+    if (found_opening_quote) {
+      r = mailimap_quoted_char_parse(fd, buffer, parser_ctx, &cur_token, &ch);
+      if (r == MAILIMAP_ERROR_PARSE)
+        break;
+      else if (r == MAILIMAP_NO_ERROR) {
+        if (use_msg_body_handler) {
+          if (!parser_ctx->msg_body_handler(parser_ctx->msg_body_att_type, parser_ctx->msg_body_section,
+                                            &ch, 1,
+                                            parser_ctx->msg_body_handler_context)) {
+            res = MAILIMAP_ERROR_MEMORY;
+            goto free;
+          }
+        }
+        else {
+          if (mmap_string_append_c(gstr_quoted, ch) == NULL) {
+            res = MAILIMAP_ERROR_MEMORY;
+            goto free;
+          }
         }
       }
       else {
-        if (mmap_string_append_c(gstr_quoted, ch) == NULL) {
-          res = MAILIMAP_ERROR_MEMORY;
-          goto free;
-        }
+        res = r;
+        goto free;
       }
-    }
-    else {
-      res = r;
-      goto free;
+
+    } else {
+      if (cur_token >= buffer->len) {
+        res = MAILIMAP_ERROR_PARSE;
+        goto free;
+      }
+      ch = buffer->str[cur_token];
+      if (ch == '{' || ch == '(') {
+        res = MAILIMAP_ERROR_PARSE;
+        goto free;
+      }
+      if (ch == ')' && cur_token == *indx) {
+        res = MAILIMAP_ERROR_PARSE;
+        goto free;
+      }
+      if (ch == ')' || ch == ' ') {
+        break;
+      }
+      if (mmap_string_append_c(gstr_quoted, ch) == NULL) {
+        res = MAILIMAP_ERROR_MEMORY;
+        goto free;
+      }
+      cur_token ++;
     }
   }
 
-  r = mailimap_dquote_parse(fd, buffer, parser_ctx, &cur_token);
-  if (r != MAILIMAP_NO_ERROR) {
-    res = r;
-    goto free;
+  if (found_opening_quote) {
+    r = mailimap_dquote_parse(fd, buffer, parser_ctx, &cur_token);
+    if (r != MAILIMAP_NO_ERROR) {
+      res = r;
+      goto free;
+    }
   }
 
   if (mmap_string_ref(gstr_quoted) < 0) {
