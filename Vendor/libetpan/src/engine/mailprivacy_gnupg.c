@@ -1491,7 +1491,11 @@ static int pgp_sign_mime(struct mailprivacy * privacy,
   
   multipart = mailprivacy_new_file_part(privacy, NULL,
       "multipart/signed", -1);
-  
+  if (multipart == NULL) {
+    res = MAIL_ERROR_MEMORY;
+    goto unlink_description;
+  }
+
   content = multipart->mm_content_type;
   
   param = mailmime_param_new_with_data("micalg", "pgp-sha1");
@@ -1871,7 +1875,11 @@ static int pgp_sign_encrypt_mime(struct mailprivacy * privacy,
   
   multipart = mailprivacy_new_file_part(privacy, NULL,
       "multipart/encrypted", -1);
-  
+  if (multipart == NULL) {
+    res = MAIL_ERROR_MEMORY;
+    goto unlink_description;
+  }
+
   content = multipart->mm_content_type;
   
   param = mailmime_param_new_with_data("protocol",
@@ -1915,10 +1923,10 @@ static int pgp_sign_encrypt_mime(struct mailprivacy * privacy,
       version_filename,
       "application/pgp-encrypted",
       MAILMIME_MECHANISM_8BIT);
-  if (r != MAIL_NO_ERROR) {
+  if (version_mime == NULL) {
     mailprivacy_mime_clear(multipart);
     mailmime_free(multipart);
-    res = r;
+    res = MAIL_ERROR_MEMORY;
     goto unlink_version;
   }
 
@@ -1938,10 +1946,10 @@ static int pgp_sign_encrypt_mime(struct mailprivacy * privacy,
       encrypted_filename,
       "application/octet-stream",
       MAILMIME_MECHANISM_8BIT);
-  if (r != MAIL_NO_ERROR) {
+  if (encrypted_mime == NULL) {
     mailprivacy_mime_clear(multipart);
     mailmime_free(multipart);
-    res = r;
+    res = MAIL_ERROR_MEMORY;
     goto unlink_version;
   }
   
@@ -2092,7 +2100,11 @@ static int pgp_encrypt_mime(struct mailprivacy * privacy,
   
   multipart = mailprivacy_new_file_part(privacy, NULL,
       "multipart/encrypted", -1);
-  
+  if (multipart == NULL) {
+    res = MAIL_ERROR_MEMORY;
+    goto unlink_description;
+  }
+
   content = multipart->mm_content_type;
   
   param = mailmime_param_new_with_data("protocol",
@@ -2135,10 +2147,10 @@ static int pgp_encrypt_mime(struct mailprivacy * privacy,
       version_filename,
       "application/pgp-encrypted",
       MAILMIME_MECHANISM_8BIT);
-  if (r != MAIL_NO_ERROR) {
+  if (version_mime == NULL) {
     mailprivacy_mime_clear(multipart);
     mailmime_free(multipart);
-    res = r;
+    res = MAIL_ERROR_MEMORY;
     goto unlink_version;
   }
 
@@ -2158,10 +2170,10 @@ static int pgp_encrypt_mime(struct mailprivacy * privacy,
       encrypted_filename,
       "application/octet-stream",
       MAILMIME_MECHANISM_8BIT);
-  if (r != MAIL_NO_ERROR) {
+  if (encrypted_mime == NULL) {
     mailprivacy_mime_clear(multipart);
     mailmime_free(multipart);
-    res = r;
+    res = MAIL_ERROR_MEMORY;
     goto unlink_version;
   }
   
