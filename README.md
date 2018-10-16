@@ -49,7 +49,7 @@ Mailspring uses a fairly basic syncing algorithm, which runs on two threads with
 - `libetpan` build inconsistencies:
   + On Win32, we build libetpan from source located inside the repo. This is because I couldn't find a binary of libetpan that included iconv and properly handled email subject lines with foreign characters. The copy in the repo contains local modifications.
   + On Linux, we build libetpan from source downloaded in `./build.sh`.
-  + On Mac, we use a pre-built binary of libetpan.
+  + On Mac, we build libetpan from source located inside the repo. (Same as Win32)
   
 - `libcurl` build inconsistencies:
   + On Win32, we use a libcurl binary present in the source tree.

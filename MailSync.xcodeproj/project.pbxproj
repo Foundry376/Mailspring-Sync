@@ -12,6 +12,8 @@
 		43167F0C1EF5F5C100D8E282 /* Thread.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0A1EF5F5C100D8E282 /* Thread.cpp */; };
 		43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0E1EF5F6C700D8E282 /* Folder.cpp */; };
 		432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */; };
+		43462D632175C6FC002BCBF5 /* libetpan.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43462D572175C5C8002BCBF5 /* libetpan.a */; };
+		43462D652175C75E002BCBF5 /* libctemplate.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43462D642175C75E002BCBF5 /* libctemplate.a */; };
 		4346BCE51EF91305009477FE /* Query.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4346BCE31EF91305009477FE /* Query.cpp */; };
 		4348E5D21F55E7AB004CFB15 /* XOAuth2TokenManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5D11F55E7AB004CFB15 /* XOAuth2TokenManager.cpp */; };
 		4348E5DC1F560FAC004CFB15 /* MailStoreTransaction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */; };
@@ -56,6 +58,27 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		43462D542175C5C8002BCBF5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 43462D4C2175C5C8002BCBF5 /* libetpan.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = 8DC2EF5B0486A6940098B216;
+			remoteInfo = libetpan;
+		};
+		43462D562175C5C8002BCBF5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 43462D4C2175C5C8002BCBF5 /* libetpan.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = C69AB10A10546FE500F32FBD;
+			remoteInfo = "static libetpan";
+		};
+		43462D582175C5C8002BCBF5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 43462D4C2175C5C8002BCBF5 /* libetpan.xcodeproj */;
+			proxyType = 2;
+			remoteGlobalIDString = C682E2C015B315EF00BE9DA7;
+			remoteInfo = "libetpan ios";
+		};
 		43617D721F3D4D4300DB566D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */;
@@ -132,6 +155,8 @@
 		43167F0F1EF5F6C700D8E282 /* Folder.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Folder.hpp; sourceTree = "<group>"; };
 		432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MetadataWorker.cpp; sourceTree = "<group>"; };
 		432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetadataWorker.hpp; sourceTree = "<group>"; };
+		43462D4C2175C5C8002BCBF5 /* libetpan.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = libetpan.xcodeproj; path = "Vendor/libetpan/build-mac/libetpan.xcodeproj"; sourceTree = "<group>"; };
+		43462D642175C75E002BCBF5 /* libctemplate.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libctemplate.a; path = "Vendor/mailcore2/Externals/ctemplate-osx/lib/libctemplate.a"; sourceTree = "<group>"; };
 		4346BCE31EF91305009477FE /* Query.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Query.cpp; sourceTree = "<group>"; };
 		4346BCE41EF91305009477FE /* Query.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Query.hpp; sourceTree = "<group>"; };
 		4348E5D11F55E7AB004CFB15 /* XOAuth2TokenManager.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = XOAuth2TokenManager.cpp; sourceTree = "<group>"; };
@@ -216,7 +241,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				43462D632175C6FC002BCBF5 /* libetpan.a in Frameworks */,
 				43617D841F3D4DDA00DB566D /* libMailCore.a in Frameworks */,
+				43462D652175C75E002BCBF5 /* libctemplate.a in Frameworks */,
 				43CA9A071F0836C1001A24A0 /* Cocoa.framework in Frameworks */,
 				43CA9A051F0836A2001A24A0 /* CoreFoundation.framework in Frameworks */,
 				436489581EF2E94B007816EC /* Security.framework in Frameworks */,
@@ -253,6 +280,16 @@
 			path = Models;
 			sourceTree = "<group>";
 		};
+		43462D4D2175C5C8002BCBF5 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				43462D552175C5C8002BCBF5 /* libetpan.framework */,
+				43462D572175C5C8002BCBF5 /* libetpan.a */,
+				43462D592175C5C8002BCBF5 /* libetpan-ios.a */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
 		43617D681F3D4D4200DB566D /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -271,6 +308,7 @@
 		436489271EF2E905007816EC = {
 			isa = PBXGroup;
 			children = (
+				43462D4C2175C5C8002BCBF5 /* libetpan.xcodeproj */,
 				43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */,
 				436489321EF2E905007816EC /* MailSync */,
 				436489311EF2E905007816EC /* Products */,
@@ -337,6 +375,7 @@
 		436489561EF2E94B007816EC /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				43462D642175C75E002BCBF5 /* libctemplate.a */,
 				43CA9A061F0836C1001A24A0 /* Cocoa.framework */,
 				43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */,
 				436489571EF2E94B007816EC /* Security.framework */,
@@ -449,6 +488,10 @@
 			projectDirPath = "";
 			projectReferences = (
 				{
+					ProductGroup = 43462D4D2175C5C8002BCBF5 /* Products */;
+					ProjectRef = 43462D4C2175C5C8002BCBF5 /* libetpan.xcodeproj */;
+				},
+				{
 					ProductGroup = 43617D681F3D4D4200DB566D /* Products */;
 					ProjectRef = 43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */;
 				},
@@ -461,6 +504,27 @@
 /* End PBXProject section */
 
 /* Begin PBXReferenceProxy section */
+		43462D552175C5C8002BCBF5 /* libetpan.framework */ = {
+			isa = PBXReferenceProxy;
+			fileType = wrapper.framework;
+			path = libetpan.framework;
+			remoteRef = 43462D542175C5C8002BCBF5 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		43462D572175C5C8002BCBF5 /* libetpan.a */ = {
+			isa = PBXReferenceProxy;
+			fileType = archive.ar;
+			path = libetpan.a;
+			remoteRef = 43462D562175C5C8002BCBF5 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		43462D592175C5C8002BCBF5 /* libetpan-ios.a */ = {
+			isa = PBXReferenceProxy;
+			fileType = archive.ar;
+			path = "libetpan-ios.a";
+			remoteRef = 43462D582175C5C8002BCBF5 /* PBXContainerItemProxy */;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
 		43617D731F3D4D4300DB566D /* libMailCore.a */ = {
 			isa = PBXReferenceProxy;
 			fileType = archive.ar;
@@ -700,6 +764,10 @@
 					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/mailcore2/Externals/ctemplate-osx/lib",
+				);
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
 					"-Wno-ambiguous-macro",
@@ -709,8 +777,6 @@
 					"-fno-inline",
 				);
 				OTHER_LDFLAGS = (
-					"-lctemplate",
-					"-letpan",
 					"-lxml2",
 					"-lsasl2",
 					"-liconv",
@@ -738,6 +804,10 @@
 					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/mailcore2/Externals/ctemplate-osx/lib",
+				);
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
 					"-Wno-ambiguous-macro",
@@ -747,8 +817,6 @@
 					"-fno-inline",
 				);
 				OTHER_LDFLAGS = (
-					"-lctemplate",
-					"-letpan",
 					"-lxml2",
 					"-lsasl2",
 					"-liconv",

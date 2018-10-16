@@ -31,6 +31,7 @@
 		27780C3D19CF9D9800C77E44 /* CFNetwork.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 27780C3C19CF9D9800C77E44 /* CFNetwork.framework */; };
 		27780C3E19CF9DDF00C77E44 /* libMailCore-ios.a in Frameworks */ = {isa = PBXBuildFile; fileRef = C6BA2C191705F4E6003F0E9E /* libMailCore-ios.a */; };
 		27E91D601A80D3F4005A3244 /* MCMXRecordResolverOperation.h in CopyFiles */ = {isa = PBXBuildFile; fileRef = 2744B1691A7A4637009E9E67 /* MCMXRecordResolverOperation.h */; };
+		43462D622175C66B002BCBF5 /* libetpan.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43462D612175C66B002BCBF5 /* libetpan.a */; };
 		4B3C1BDE17ABF309008BBF4C /* MCOIMAPQuotaOperation.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4B3C1BDD17ABF307008BBF4C /* MCOIMAPQuotaOperation.mm */; };
 		4B3C1BE117ABF4BC008BBF4C /* MCIMAPQuotaOperation.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4B3C1BDF17ABF4BB008BBF4C /* MCIMAPQuotaOperation.cpp */; };
 		4B3C1BE217ABFF7C008BBF4C /* MCOIMAPQuotaOperation.h in CopyFiles */ = {isa = PBXBuildFile; fileRef = 4B3C1BDC17ABF306008BBF4C /* MCOIMAPQuotaOperation.h */; };
@@ -1512,6 +1513,7 @@
 		27780C3A19CF9CD100C77E44 /* MailCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = MailCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		27780C3C19CF9D9800C77E44 /* CFNetwork.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CFNetwork.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS8.0.sdk/System/Library/Frameworks/CFNetwork.framework; sourceTree = DEVELOPER_DIR; };
 		27780D3419CFA19500C77E44 /* libstdc++.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = "libstdc++.dylib"; path = "Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS8.0.sdk/usr/lib/libstdc++.dylib"; sourceTree = DEVELOPER_DIR; };
+		43462D612175C66B002BCBF5 /* libetpan.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libetpan.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		4B3C1BDC17ABF306008BBF4C /* MCOIMAPQuotaOperation.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MCOIMAPQuotaOperation.h; sourceTree = "<group>"; };
 		4B3C1BDD17ABF307008BBF4C /* MCOIMAPQuotaOperation.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MCOIMAPQuotaOperation.mm; sourceTree = "<group>"; };
 		4B3C1BDF17ABF4BB008BBF4C /* MCIMAPQuotaOperation.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MCIMAPQuotaOperation.cpp; sourceTree = "<group>"; };
@@ -2162,6 +2164,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				43462D622175C66B002BCBF5 /* libetpan.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2883,6 +2886,7 @@
 		C64EA78E169F259200778456 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				43462D612175C66B002BCBF5 /* libetpan.a */,
 				C600B6221A244CC3000728F1 /* CFNetwork.framework */,
 				C6B5AE1119F63496001352A6 /* Foundation.framework */,
 				C6B5AE0F19F6347C001352A6 /* Security.framework */,
@@ -3238,7 +3242,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = C64EA53B169E772200778456 /* Build configuration list for PBXNativeTarget "static mailcore2 osx" */;
 			buildPhases = (
-				C64EA780169E867600778456 /* ShellScript */,
 				C64EA74B169E854B00778456 /* CopyFiles */,
 				C64EA533169E772200778456 /* Sources */,
 				C64EA534169E772200778456 /* Frameworks */,
@@ -3311,7 +3314,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = C6BA2C161705F4E6003F0E9E /* Build configuration list for PBXNativeTarget "static mailcore2 ios" */;
 			buildPhases = (
-				C6BA2B0A1705F4E6003F0E9E /* ShellScript */,
 				C6BA2B0B1705F4E6003F0E9E /* CopyFiles */,
 				C6BA2B981705F4E6003F0E9E /* Sources */,
 				C6BA2C151705F4E6003F0E9E /* Frameworks */,
@@ -3451,32 +3453,6 @@
 			shellPath = /bin/sh;
 			shellScript = "rsync -a --verbose \"$BUILT_PRODUCTS_DIR/include/MailCore/\" \"$BUILT_PRODUCTS_DIR/$PUBLIC_HEADERS_FOLDER_PATH\"\n";
 		};
-		C64EA780169E867600778456 /* ShellScript */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 12;
-			files = (
-			);
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"$SRCROOT/../scripts/get-mac.sh\"\n";
-		};
-		C6BA2B0A1705F4E6003F0E9E /* ShellScript */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"$SRCROOT/../scripts/get-ios.sh\"\n";
-		};
 		C6BD28A6170BD87600A91AC1 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -3488,7 +3464,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "rsync -a  \"$BUILT_PRODUCTS_DIR/include/MailCore/\" \"$BUILT_PRODUCTS_DIR/$PUBLIC_HEADERS_FOLDER_PATH\"";
+			shellScript = "rsync -a  \"$BUILT_PRODUCTS_DIR/include/MailCore/\" \"$BUILT_PRODUCTS_DIR/$PUBLIC_HEADERS_FOLDER_PATH\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -4279,7 +4255,6 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				HEADER_SEARCH_PATHS = (
-					"\"$(SRCROOT)/../Externals/libetpan/include\"",
 					"\"$(SRCROOT)/../Externals/icu4c/include\"",
 					"\"$(SRCROOT)/../Externals/ctemplate/include\"",
 					/usr/include/tidy,
@@ -4292,7 +4267,6 @@
 				IOS_LIBRARY_SEARCH_PATHS = "\"$(SRCROOT)/../Externals/libetpan-ios/lib\" \"$(SRCROOT)/../Externals/ctemplate-ios/lib\" \"$(SRCROOT)/../Externals/libsasl-ios/lib\" \"$(SRCROOT)/../Externals/tidy-html5-ios/lib\"";
 				IPHONEOS_DEPLOYMENT_TARGET = 8.0;
 				LIBRARY_SEARCH_PATHS = (
-					"\"$(SRCROOT)/../Externals/libetpan/lib\"",
 					"\"$(SRCROOT)/../Externals/icu4c/lib\"",
 					"\"$(SRCROOT)/../Externals/ctemplate/lib\"",
 				);
@@ -4334,7 +4308,6 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				HEADER_SEARCH_PATHS = (
-					"\"$(SRCROOT)/../Externals/libetpan/include\"",
 					"\"$(SRCROOT)/../Externals/icu4c/include\"",
 					"\"$(SRCROOT)/../Externals/ctemplate/include\"",
 					/usr/include/tidy,
@@ -4347,7 +4320,6 @@
 				IOS_LIBRARY_SEARCH_PATHS = "\"$(SRCROOT)/../Externals/libetpan-ios/lib\" \"$(SRCROOT)/../Externals/ctemplate-ios/lib\" \"$(SRCROOT)/../Externals/libsasl-ios/lib\" \"$(SRCROOT)/../Externals/tidy-html5-ios/lib\"";
 				IPHONEOS_DEPLOYMENT_TARGET = 8.0;
 				LIBRARY_SEARCH_PATHS = (
-					"\"$(SRCROOT)/../Externals/libetpan/lib\"",
 					"\"$(SRCROOT)/../Externals/icu4c/lib\"",
 					"\"$(SRCROOT)/../Externals/ctemplate/lib\"",
 				);
