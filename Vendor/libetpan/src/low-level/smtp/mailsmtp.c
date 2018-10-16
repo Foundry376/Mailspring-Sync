@@ -1224,6 +1224,8 @@ const char * mailsmtp_strerror(int errnum)
     return "Transaction failed";
   case MAILSMTP_ERROR_MEMORY:
     return "Memory error";
+  case MAILSMTP_ERROR_AUTH_NOT_SUPPORTED:
+    return "Authentication is not supported";
   case MAILSMTP_ERROR_CONNECTION_REFUSED:
     return "Connection refused";
   case MAILSMTP_ERROR_STARTTLS_TEMPORARY_FAILURE:
