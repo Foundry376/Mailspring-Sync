@@ -26,26 +26,17 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   fi
 
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
+  echo "Building and installing libetpan..."
+  cd "$MAILSYNC_DIR/Vendor/libetpan"
+  ./autogen.sh
+  make >/dev/null
+  sudo make install prefix=/usr >/dev/null
+
   # we cache this directory between builds to make CI faster.
   # if it exists, just run make install again, otherwise pull
   # the libraries down and build from source.
   if [ ! -d "$DEP_BUILDS_DIR" ]; then
     mkdir "$DEP_BUILDS_DIR"
-  fi
-
-  if [ -d "$DEP_BUILDS_DIR/libetpan" ]; then
-    echo "Installing libetpan..."
-    cd "$DEP_BUILDS_DIR/libetpan"
-    sudo make install prefix=/usr >/dev/null
-  else
-    # install libetpan from source
-    echo "Building and installing libetpan..."
-    cd "$DEP_BUILDS_DIR"
-    git clone --depth=1 https://github.com/dinhviethoa/libetpan
-    cd ./libetpan
-    ./autogen.sh
-    make >/dev/null
-    sudo make install prefix=/usr >/dev/null
   fi
 
   if [ -d "$DEP_BUILDS_DIR/curl-7.54.0" ]; then
