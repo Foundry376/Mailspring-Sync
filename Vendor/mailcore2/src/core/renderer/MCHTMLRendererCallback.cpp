@@ -262,13 +262,13 @@ mailcore::String * HTMLRendererTemplateCallback::templateForAttachment(AbstractP
 
 mailcore::String * HTMLRendererTemplateCallback::templateForMessage(AbstractMessage * message)
 {
-    return MCSTR("<div style=\"padding-bottom: 20px;\">{{HEADER}}</div><div>{{BODY}}</div>");
+    return MCSTR("<div>{{BODY}}</div>");
 }
 
 
 mailcore::String * HTMLRendererTemplateCallback::templateForEmbeddedMessage(AbstractMessagePart * part)
 {
-    return MCSTR("<div style=\"padding-bottom: 20px;\">{{HEADER}}</div><div>{{BODY}}</div>");
+    return MCSTR("<div>{{BODY}}</div>");
 }
 
 mailcore::String * HTMLRendererTemplateCallback::templateForAttachmentSeparator()
