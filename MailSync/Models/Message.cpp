@@ -136,7 +136,7 @@ MessageSnapshot Message::getSnapshot() {
     s.unread = isUnread();
     s.starred = isStarred();
     s.inAllMail = inAllMail();
-    s.fileCount = files().size();
+    s.fileCount = fileCountForThreadList();
     s.remoteXGMLabels = remoteXGMLabels();
     s.clientFolderId = clientFolderId();
     return s;
@@ -245,6 +245,24 @@ void Message::setFiles(vector<File> & files) {
         arr.push_back(file.toJSON());
     }
     _data["files"] = arr;
+}
+
+/* Mailspring displays the "attachment" icon only if the following criteria are met.
+   To make search and the thread list consistent, I'm moving the impl here to C++.
+ 
+ !f.contentId || f.size > 12 * 1024
+ */
+int Message::fileCountForThreadList() {
+    if (!files().is_array()) return 0;
+    
+    int count = 0;
+    for (auto & file : files()) {
+        if (file["contentId"].is_null() || file["size"].get<int>() > 12 * 1024) {
+            count ++;
+        }
+    }
+
+    return count;
 }
 
 bool Message::isDraft() {

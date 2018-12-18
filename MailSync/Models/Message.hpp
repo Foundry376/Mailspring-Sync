@@ -90,6 +90,7 @@ public:
 
     json files();
     void setFiles(vector<File> & files);
+    int fileCountForThreadList();
 
     bool isDraft();
     void setDraft(bool d);
