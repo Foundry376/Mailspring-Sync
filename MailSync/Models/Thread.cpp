@@ -157,6 +157,7 @@ string Thread::categoriesSearchString() {
 void Thread::resetCountedAttributes() {
     setUnread(0);
     setStarred(0);
+    setAttachmentCount(0);
     _data["folders"] = json::array();
     _data["labels"] = json::array();
 
@@ -222,7 +223,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
         // increment basic attributes
         setUnread(unread() + next->isUnread());
         setStarred(starred() + next->isStarred());
-        setAttachmentCount(attachmentCount() + (int)next->files().size());
+        setAttachmentCount(attachmentCount() + (int)next->fileCountForThreadList());
 
         // increment dates
         if (!next->isDraft() && !next->isDeletionPlaceholder()) {
@@ -327,7 +328,7 @@ string Thread::tableName() {
 }
 
 vector<string> Thread::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "gThrId", "unread", "starred", "inAllMail", "subject", "lastMessageTimestamp", "lastMessageReceivedTimestamp", "lastMessageSentTimestamp", "firstMessageTimestamp"};
+    return vector<string>{"id", "data", "accountId", "version", "gThrId", "unread", "starred", "inAllMail", "subject", "lastMessageTimestamp", "lastMessageReceivedTimestamp", "lastMessageSentTimestamp", "firstMessageTimestamp", "hasAttachments"};
 }
 
 void Thread::bindToQuery(SQLite::Statement * query) {
@@ -341,6 +342,7 @@ void Thread::bindToQuery(SQLite::Statement * query) {
     query->bind(":lastMessageSentTimestamp", (double)lastMessageSentTimestamp());
     query->bind(":lastMessageReceivedTimestamp", (double)lastMessageReceivedTimestamp());
     query->bind(":firstMessageTimestamp", (double)firstMessageTimestamp());
+    query->bind(":hasAttachments", (double)attachmentCount());
 }
 
 void Thread::afterSave(MailStore * store) {
