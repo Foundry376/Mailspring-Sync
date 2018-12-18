@@ -428,7 +428,24 @@ string MailUtils::idForFolder(string accountId, string folderPath) {
 
 string MailUtils::idForFile(Message * message, Attachment * attachment) {
     vector<unsigned char> hash(32);
-    string src_str = message->id() + ":" + message->accountId() + ":" + attachment->partID()->UTF8Characters() + ":" + attachment->uniqueID()->UTF8Characters();
+    string src_str = message->id() + ":" + message->accountId();
+    bool has_something_unique = false;
+    
+    if (attachment->partID() != nullptr) {
+        src_str = src_str + ":" + attachment->partID()->UTF8Characters();
+        has_something_unique = true;
+    }
+    if (attachment->uniqueID() != nullptr) {
+        src_str = src_str + ":" + attachment->uniqueID()->UTF8Characters();
+        has_something_unique = true;
+    }
+    
+    if (has_something_unique == false) {
+        string description = attachment->description()->UTF8Characters();
+        spdlog::get("logger")->warn("Encountered an attachment with no partID or uniqueID to form a unique ID. Falling back to description. Debug Info:\n" + description);
+        src_str = src_str + ":" + description;
+    }
+    
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
 }
