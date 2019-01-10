@@ -86,6 +86,16 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
     _data["labels"] = attrs.labels;
     _data["draft"] = attrs.draft;
     
+    _data["extraHeaders"] = json::object();
+    auto extra = msg->header()->allExtraHeadersNames();
+    for (int ii = 0; ii < extra->count(); ii ++) {
+        auto const key = (String *)extra->objectAtIndex(ii);
+        if (key == nullptr) continue;
+        auto const val = msg->header()->extraHeaderValueForName(key);
+        if (val == nullptr) continue;
+        _data["extraHeaders"][key->UTF8Characters()] = val->UTF8Characters();
+    }
+    
     // inflate the participant fields
     _data["from"] = json::array();
     if (msg->header()->from()) {

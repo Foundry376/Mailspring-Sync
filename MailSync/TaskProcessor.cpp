@@ -887,7 +887,7 @@ void TaskProcessor::performRemoteSyncbackMetadata(Task * task) {
         payload["headerMessageId"] = data["modelHeaderMessageId"].get<string>();
     }
 
-    const json results = MakeIdentityRequest("/metadata/" + account->id() + "/" + id + "/" + pluginId, "POST", payload);
+    const json results = PerformIdentityRequest("/metadata/" + account->id() + "/" + id + "/" + pluginId, "POST", payload);
     logger->info("Syncback of metadata {}:{} = {} succeeded.", id, pluginId, payload.dump());
 }
 
@@ -1251,7 +1251,7 @@ void TaskProcessor::performRemoteSendFeatureUsageEvent(Task * task) {
     };
 
     logger->info("Incrementing usage of feature: {}", feature);
-    auto result = MakeIdentityRequest("/api/feature_usage_event", "POST", payload);
+    auto result = PerformIdentityRequest("/api/feature_usage_event", "POST", payload);
     logger->info("Incrementing usage of feature succeeded: {}", result.dump());
 }
 

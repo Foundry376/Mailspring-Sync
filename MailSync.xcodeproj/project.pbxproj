@@ -11,6 +11,8 @@
 		43167F091EF5F59E00D8E282 /* Message.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F071EF5F59E00D8E282 /* Message.cpp */; };
 		43167F0C1EF5F5C100D8E282 /* Thread.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0A1EF5F5C100D8E282 /* Thread.cpp */; };
 		43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0E1EF5F6C700D8E282 /* Folder.cpp */; };
+		43256B0621E7EEC900590F1B /* CalendarWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43256B0521E7EEC900590F1B /* CalendarWorker.cpp */; };
+		43256B0B21E802DD00590F1B /* DavXML.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43256B0A21E802DD00590F1B /* DavXML.cpp */; };
 		432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */; };
 		43462D632175C6FC002BCBF5 /* libetpan.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43462D572175C5C8002BCBF5 /* libetpan.a */; };
 		43462D652175C75E002BCBF5 /* libctemplate.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43462D642175C75E002BCBF5 /* libctemplate.a */; };
@@ -153,6 +155,12 @@
 		43167F0B1EF5F5C100D8E282 /* Thread.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Thread.hpp; sourceTree = "<group>"; };
 		43167F0E1EF5F6C700D8E282 /* Folder.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Folder.cpp; sourceTree = "<group>"; };
 		43167F0F1EF5F6C700D8E282 /* Folder.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Folder.hpp; sourceTree = "<group>"; };
+		43256AF821E7EE9E00590F1B /* CalendarWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CalendarWorker.hpp; sourceTree = "<group>"; };
+		43256B0521E7EEC900590F1B /* CalendarWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CalendarWorker.cpp; sourceTree = "<group>"; };
+		43256B0721E7FFF800590F1B /* libxml2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libxml2.tbd; path = usr/lib/libxml2.tbd; sourceTree = SDKROOT; };
+		43256B0921E802B400590F1B /* MailSync.xcodeproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = MailSync.xcodeproj; sourceTree = "<group>"; };
+		43256B0A21E802DD00590F1B /* DavXML.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DavXML.cpp; sourceTree = "<group>"; };
+		43256B0C21E802E700590F1B /* DavXML.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = DavXML.hpp; sourceTree = "<group>"; };
 		432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MetadataWorker.cpp; sourceTree = "<group>"; };
 		432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetadataWorker.hpp; sourceTree = "<group>"; };
 		43462D4C2175C5C8002BCBF5 /* libetpan.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = libetpan.xcodeproj; path = "Vendor/libetpan/build-mac/libetpan.xcodeproj"; sourceTree = "<group>"; };
@@ -328,6 +336,10 @@
 			isa = PBXGroup;
 			children = (
 				436489331EF2E905007816EC /* main.cpp */,
+				43256B0C21E802E700590F1B /* DavXML.hpp */,
+				43256B0A21E802DD00590F1B /* DavXML.cpp */,
+				43256AF821E7EE9E00590F1B /* CalendarWorker.hpp */,
+				43256B0521E7EEC900590F1B /* CalendarWorker.cpp */,
 				4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */,
 				432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */,
 				432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */,
@@ -375,6 +387,7 @@
 		436489561EF2E94B007816EC /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				43256B0721E7FFF800590F1B /* libxml2.tbd */,
 				43462D642175C75E002BCBF5 /* libctemplate.a */,
 				43CA9A061F0836C1001A24A0 /* Cocoa.framework */,
 				43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */,
@@ -394,6 +407,7 @@
 				436489851EF2F905007816EC /* Exception.cpp */,
 				436489861EF2F905007816EC /* Statement.cpp */,
 				436489871EF2F905007816EC /* Transaction.cpp */,
+				43256B0921E802B400590F1B /* MailSync.xcodeproj */,
 			);
 			name = SQLite;
 			sourceTree = "<group>";
@@ -607,6 +621,7 @@
 				43167EFF1EF5F57C00D8E282 /* MailModel.cpp in Sources */,
 				4368DCBC1F43851A00F22FFD /* exceptions.cpp in Sources */,
 				43C8149E1F08072D00D28F0B /* Account.cpp in Sources */,
+				43256B0B21E802DD00590F1B /* DavXML.cpp in Sources */,
 				43167F091EF5F59E00D8E282 /* Message.cpp in Sources */,
 				4378B8341F439EE700C65630 /* error.cpp in Sources */,
 				436489891EF2F905007816EC /* Column.cpp in Sources */,
@@ -621,6 +636,7 @@
 				4346BCE51EF91305009477FE /* Query.cpp in Sources */,
 				43B48E851F339B24002D202E /* Identity.cpp in Sources */,
 				4368DCCC1F43857D00F22FFD /* platform.cpp in Sources */,
+				43256B0621E7EEC900590F1B /* CalendarWorker.cpp in Sources */,
 				4368DCC11F43851A00F22FFD /* call_stack_windows.cpp in Sources */,
 				4378B8371F439FAD00C65630 /* GenericException.cpp in Sources */,
 				4364899B1EF335A9007816EC /* DeltaStream.cpp in Sources */,
@@ -763,6 +779,7 @@
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
+					/usr/include/libxml2,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
@@ -803,6 +820,7 @@
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/include",
 					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
+					/usr/include/libxml2,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",

@@ -76,30 +76,11 @@ const json MakeGmailOAuthRequest(string clientId, string refreshToken) {
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payload.c_str());
     
-    string explicitCertsBundlePath = FindLinuxCertsBundle();
-    if (explicitCertsBundlePath != "") {
-        curl_easy_setopt(curl_handle, CURLOPT_CAINFO, explicitCertsBundlePath.c_str());
-    }
-    string result;
-    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
-    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
-    CURLcode res = curl_easy_perform(curl_handle);
-    ValidateRequestResp(res, curl_handle, url);
-    
-    json resultJSON = nullptr;
-    try {
-        resultJSON = json::parse(result);
-    } catch (json::exception & ex) {
-        resultJSON = {{"text", result}};
-    }
-    curl_easy_cleanup(curl_handle);
-    return resultJSON;
+    return PerformJSONRequest(curl_handle);
 }
 
-CURL * CreateRequest(string server, string username, string password, string path, string method, const char * payloadChars) {
+CURL * CreateJSONRequest(string url, string method, const char * payloadChars) {
     CURL * curl_handle = curl_easy_init();
-    string url { MailUtils::getEnvUTF8(server) + path };
-    url.replace(url.find("://"), 3, "://" + username + ":" + password + "@");
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
 
@@ -112,28 +93,25 @@ CURL * CreateRequest(string server, string username, string password, string pat
         curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
     }
 
+    return curl_handle;
+}
+
+const string PerformRequest(CURL * curl_handle) {
     string explicitCertsBundlePath = FindLinuxCertsBundle();
     if (explicitCertsBundlePath != "") {
         curl_easy_setopt(curl_handle, CURLOPT_CAINFO, explicitCertsBundlePath.c_str());
     }
-
-    return curl_handle;
-}
-
-
-CURL * CreateIdentityRequest(string path, string method, const char * payloadChars) {
-    return CreateRequest("IDENTITY_SERVER", Identity::GetGlobal()->token(), "", path, method, payloadChars);
-}
-
-const json MakeRequest(string server, string username, string password, string path, string method, const json & payload) {
-    string payloadString = payload.dump();
-    CURL * curl_handle = CreateRequest(server, username, password, path, method, payloadString.c_str());
+    
     string result;
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
     CURLcode res = curl_easy_perform(curl_handle);
-    ValidateRequestResp(res, curl_handle, path);
-    
+    ValidateRequestResp(res, curl_handle);
+    return result;
+}
+
+const json PerformJSONRequest(CURL * curl_handle) {
+    string result = PerformRequest(curl_handle);
     json resultJSON = nullptr;
     try {
         resultJSON = json::parse(result);
@@ -144,24 +122,38 @@ const json MakeRequest(string server, string username, string password, string p
     return resultJSON;
 }
 
-const json MakeIdentityRequest(string path, string method, const json & payload) {
-    return MakeRequest("IDENTITY_SERVER", Identity::GetGlobal()->token(), "", path, method, payload);
-}
+void ValidateRequestResp(CURLcode res, CURL * curl_handle) {
+    char * url;
+    if (curl_easy_getinfo(curl_handle, CURLINFO_EFFECTIVE_URL, &url) != CURLE_OK) {
+        throw SyncException(res, "Unable to get URL");
+    }
 
-void ValidateRequestResp(CURLcode res, CURL * curl_handle, string path) {
     if (res != CURLE_OK) {
         curl_easy_cleanup(curl_handle);
-        throw SyncException(res, path);
+        throw SyncException(res, string(url));
     }
     
     long http_code = 0;
     curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &http_code);
 
-    if (http_code != 200) {
+    if (http_code < 200 || http_code > 209) {
         curl_easy_cleanup(curl_handle);
         bool retryable = ((http_code != 403) && (http_code != 401));
-        throw SyncException("Invalid Response Code: " + to_string(http_code), path, retryable);
+        throw SyncException("Invalid Response Code: " + to_string(http_code), string(url), retryable);
     }
 }
 
+// Shorthand methods for Identity Server
 
+CURL * CreateIdentityRequest(string path, string method, const char * payloadChars) {
+    string url { MailUtils::getEnvUTF8("IDENTITY_SERVER") + path };
+    string username = Identity::GetGlobal()->token();
+    string password = "";
+    url.replace(url.find("://"), 3, "://" + username + ":" + password + "@");
+    return CreateJSONRequest(url, method, payloadChars);
+}
+
+const json PerformIdentityRequest(string path, string method, const json & payload) {
+    string payloadString = payload.dump();
+    return PerformJSONRequest(CreateIdentityRequest(path, method, payloadString.c_str()));
+}
