@@ -23,14 +23,19 @@ using namespace std;
 
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp);
 
-CURL * CreateRequest(string server, string username, string password, string path, string method = "GET", const char * payloadChars = nullptr);
-CURL * CreateIdentityRequest(string path, string method = "GET", const char * payloadChars = nullptr);
+CURL * CreateJSONRequest(string url, string method = "GET", const char * payloadChars = nullptr);
+CURL * CreateCalDavRequest(string url, string method = "GET", const char * payloadChars = nullptr);
 
 const json MakeGmailOAuthRequest(string clientId, string refreshToken);
 
-const json MakeRequest(string server, string username, string password, string path, string method = "GET", const json & payload = nullptr);
-const json MakeIdentityRequest(string path, string method = "GET", const json & payload = nullptr);
+const string PerformRequest(CURL * curl_handle);
+const json PerformJSONRequest(CURL * curl_handle);
 
-void ValidateRequestResp(CURLcode res, CURL * curl_handle, string path);
+void ValidateRequestResp(CURLcode res, CURL * curl_handle);
+
+// Shorthand methods for Identity Server
+
+CURL * CreateIdentityRequest(string path, string method = "GET", const char * payloadChars = nullptr);
+const json PerformIdentityRequest(string path, string method = "GET", const json & payload = nullptr);
 
 #endif /* NetworkRequestUtils_hpp */

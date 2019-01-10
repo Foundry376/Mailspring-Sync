@@ -64,7 +64,7 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
          We'll eventually remove this path but we still need to support users with old saved Gmail accounts.
          */
         spdlog::get("logger")->info("Fetching XOAuth2 access token for {}", account->id());
-        updated = MakeIdentityRequest("/auth/token/refresh", "POST", {
+        updated = PerformIdentityRequest("/auth/token/refresh", "POST", {
             {"provider", account->provider()},
             {"refresh_token", account->refreshToken()}
         });

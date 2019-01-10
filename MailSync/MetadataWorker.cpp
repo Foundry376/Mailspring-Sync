@@ -79,7 +79,7 @@ void MetadataWorker::run() {
 
 bool MetadataWorker::fetchMetadata(int page) {
     int pageSize = 500;
-    const json & metadata = MakeIdentityRequest("/metadata/" + account->id() + "?limit=" + to_string(pageSize) + "&offset=" + to_string(pageSize * page));
+    const json & metadata = PerformIdentityRequest("/metadata/" + account->id() + "?limit=" + to_string(pageSize) + "&offset=" + to_string(pageSize * page));
     for (const auto & metadatum : metadata) {
         applyMetadataJSON(metadatum);
     }
@@ -87,7 +87,7 @@ bool MetadataWorker::fetchMetadata(int page) {
 }
 
 void MetadataWorker::fetchDeltaCursor() {
-    const json & result = MakeIdentityRequest("/deltas/" + account->id() + "/head");
+    const json & result = PerformIdentityRequest("/deltas/" + account->id() + "/head");
     if (result == nullptr || !result.count("cursor")) {
         logger->info("Unexpected response from /delta/head: {}", result ? result.dump() : "nullptr");
         throw SyncException("no-cursor", "/delta/head API did not return JSON with a cursor", true);
@@ -122,7 +122,7 @@ void MetadataWorker::fetchDeltasBlocking() {
         logger->info("Metadata delta stream closed.");
     }
 
-    ValidateRequestResp(res, curl_handle, "/delta/streaming");
+    ValidateRequestResp(res, curl_handle);
     curl_easy_cleanup(curl_handle);
 }
 

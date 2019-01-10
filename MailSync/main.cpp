@@ -38,6 +38,7 @@
 #include "TaskProcessor.hpp"
 #include "ThreadUtils.h"
 #include "constants.h"
+#include "CalendarWorker.hpp"
 #include "SPDLogExtensions.hpp"
 
 using namespace nlohmann;
@@ -101,7 +102,7 @@ const option::Descriptor usage[] =
     {HELP,    0,"" , "help",    CArg::None,      "  --help  \tPrint usage and exit." },
     {IDENTITY,0,"a", "identity",CArg::Optional,  USAGE_IDENTITY },
     {ACCOUNT, 0,"a", "account", CArg::Optional,  "  --account, -a  \tRequired: Account JSON with credentials." },
-    {MODE,    0,"m", "mode",    CArg::Required,  "  --mode, -m  \tRequired: sync, test, reset, or migrate." },
+    {MODE,    0,"m", "mode",    CArg::Required,  "  --mode, -m  \tRequired: sync, test, reset, calendar, or migrate." },
     {ORPHAN,  0,"o", "orphan",  CArg::None,      "  --orphan, -o  \tOptional: allow the process to run without a parent bound to stdin." },
     {VERBOSE, 0,"v", "verbose", CArg::None,      "  --verbose, -v  \tOptional: log all IMAP and SMTP traffic for debugging purposes." },
     {0,0,0,0,0,0}
@@ -566,6 +567,11 @@ int main(int argc, const char * argv[]) {
         } else {
             bgThread->join(); // will block forever.
         }
+    }
+    
+    if (mode == "calendar") {
+        auto worker = CalendarWorker(account);
+        worker.run();
     }
 
     return 0;
