@@ -42,6 +42,8 @@ void CalendarWorker::run() {
 
     // Iterate over the calendars that expose "VEVENT" components
     calendarSetDoc->evaluateXPath("//D:response[./D:propstat/D:prop/caldav:supported-calendar-component-set/caldav:comp[@name='VEVENT']]", ([&](xmlNodePtr node) {
+        // Make a few xpath queries relative to the "D:response" calendar node (using "./")
+        // to retrieve the attributes we're interested in.
         auto name = calendarSetDoc->nodeContentAtXPath(".//D:displayname/text()", node);
         auto path = calendarSetDoc->nodeContentAtXPath(".//D:href/text()", node);
         fprintf(stdout, "%s\n", name.c_str());
@@ -52,6 +54,9 @@ void CalendarWorker::run() {
 }
 
 void CalendarWorker::runForCalendar(string name, string path) {
+    // Request the ETAG value of every event in the calendar. We should compare these
+    // values against a set in the database. Any event we don't have should be added
+    // and any event in the database absent from the response should be deleted.
     auto eventEtagsDoc = performXMLRequest(path, "REPORT", "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /></d:prop><c:filter></c:filter></c:calendar-query>");
     
     eventEtagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
@@ -91,6 +96,8 @@ shared_ptr<DavXML> CalendarWorker::performXMLRequest(string path, string method,
     return make_shared<DavXML>(result, url);
 }
 
+
+// This is just some sample code that shows how to pull various bits of data out of xml nodes
 
 void CalendarWorker::print_xpath_nodes(xmlNodeSetPtr nodes, FILE* output) {
     xmlNodePtr cur;
