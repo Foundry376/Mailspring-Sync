@@ -29,8 +29,9 @@ public:
     
     virtual ~DavXML() noexcept; // nothrow
 
-    void evaluateXPath(string expr, void (*yieldBlock)(xmlNodePtr));
-
+    void evaluateXPath(string expr, std::function<void(xmlNodePtr)> yieldBlock, xmlNodePtr withinNode = nullptr);
+    string nodeContentAtXPath(string expr, xmlNodePtr withinNode = nullptr);
+    
 private:
     // Transaction must be non-copyable
     DavXML(const DavXML&);

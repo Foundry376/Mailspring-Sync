@@ -33,7 +33,7 @@ DavXML::~DavXML() noexcept // nothrow
     }
 }
 
-void DavXML::evaluateXPath(string expr, void (*yieldBlock)(xmlNodePtr))
+void DavXML::evaluateXPath(string expr, std::function<void(xmlNodePtr)> yieldBlock, xmlNodePtr withinNode)
 {
     if (xpathContext == nullptr) {
         xpathContext = xmlXPathNewContext(doc);
@@ -43,13 +43,21 @@ void DavXML::evaluateXPath(string expr, void (*yieldBlock)(xmlNodePtr))
         }
     
         xmlXPathRegisterNs(xpathContext, (const xmlChar *)"d", (const xmlChar *)"DAV:");
+        xmlXPathRegisterNs(xpathContext, (const xmlChar *)"D", (const xmlChar *)"DAV:");
         xmlXPathRegisterNs(xpathContext, (const xmlChar *)"caldav", (const xmlChar *)"urn:ietf:params:xml:ns:caldav");
+        xmlXPathRegisterNs(xpathContext, (const xmlChar *)"cs", (const xmlChar *)"http://calendarserver.org/ns/");
+        xmlXPathRegisterNs(xpathContext, (const xmlChar *)"ical", (const xmlChar *)"http://apple.com/ns/ical/");
     }
 
-    string xpathExpr = "//caldav:calendar-home-set/d:href/text()";
-    xmlXPathObjectPtr xpathObj = xmlXPathEvalExpression((const xmlChar *)expr.c_str(), xpathContext);
-    if (xpathObj == NULL) {
-        fprintf(stderr,"Error: unable to evaluate xpath expression \"%s\"\n", xpathExpr.c_str());
+    xmlXPathObjectPtr xpathObj = nullptr;
+
+    if (withinNode == nullptr) {
+        xpathObj = xmlXPathEvalExpression((const xmlChar *)expr.c_str(), xpathContext);
+    } else {
+        xpathObj = xmlXPathNodeEval(withinNode, (const xmlChar *)expr.c_str(), xpathContext);
+    }
+    if (xpathObj == nullptr) {
+        fprintf(stderr,"Error: unable to evaluate xpath expression \"%s\"\n", expr.c_str());
         return;
     }
     
@@ -70,4 +78,12 @@ void DavXML::evaluateXPath(string expr, void (*yieldBlock)(xmlNodePtr))
     xmlXPathFreeObject(xpathObj);
 }
 
+string DavXML::nodeContentAtXPath(string expr, xmlNodePtr withinNode) {
+    string result = "";
+    evaluateXPath(expr, ([&](xmlNodePtr cur) {
+        result = string((char *)cur->content);
+        return;
+    }), withinNode);
+    return result;
+}
 

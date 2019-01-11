@@ -36,10 +36,29 @@ CalendarWorker::CalendarWorker(shared_ptr<Account> account) :
 }
 
 void CalendarWorker::run() {
-    auto doc = performXMLRequest(principalPath, "PROPFIND", "<d:propfind xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\" xmlns:cs=\"http://calendarserver.org/ns/\"><d:prop><d:displayname /><c:calendar-home-set /><cs:getctag /></d:prop></d:propfind>");
 
-    doc->evaluateXPath("//caldav:calendar-home-set/d:href/text()", ([](xmlNodePtr cur){
-        fprintf(stdout, "= node \"%s\": type %d, content: \"%s\"\n", cur->name, cur->type, cur->content);
+    // Fetch the list of calendars from the principal URL
+    auto calendarSetDoc = performXMLRequest(principalPath, "PROPFIND", "<d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:resourcetype /><d:displayname /><cs:getctag /><c:supported-calendar-component-set /></d:prop></d:propfind>");
+
+    // Iterate over the calendars that expose "VEVENT" components
+    calendarSetDoc->evaluateXPath("//D:response[./D:propstat/D:prop/caldav:supported-calendar-component-set/caldav:comp[@name='VEVENT']]", ([&](xmlNodePtr node) {
+        auto name = calendarSetDoc->nodeContentAtXPath(".//D:displayname/text()", node);
+        auto path = calendarSetDoc->nodeContentAtXPath(".//D:href/text()", node);
+        fprintf(stdout, "%s\n", name.c_str());
+        fprintf(stdout, "%s\n", path.c_str());
+        
+        runForCalendar(name, path);
+    }));
+}
+
+void CalendarWorker::runForCalendar(string name, string path) {
+    auto eventEtagsDoc = performXMLRequest(path, "REPORT", "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /></d:prop><c:filter></c:filter></c:calendar-query>");
+    
+    eventEtagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+        auto etag = eventEtagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+        auto icsHref = eventEtagsDoc->nodeContentAtXPath(".//D:href/text()", node);
+        fprintf(stdout, "%s\n", icsHref.c_str());
+        fprintf(stdout, "%s\n", etag.c_str());
     }));
 }
 
