@@ -67,7 +67,7 @@ void CalendarWorker::run() {
                 if (local[id]->name() != name) {
                     local[id]->setName(name);
                     store->save(local[id].get());
-                }s
+                }
             } else {
                 Calendar cal = Calendar(id, account->id());
                 cal.setPath(path);
@@ -81,7 +81,7 @@ void CalendarWorker::run() {
     }));
 }
 
-void CalendarWorker::runForCalendar(string id, string name, string path) {
+void CalendarWorker::runForCalendar(string calendarId, string name, string path) {
     map<ETAG, string> remote {};
     {
         // Request the ETAG value of every event in the calendar. We should compare these
@@ -101,10 +101,10 @@ void CalendarWorker::runForCalendar(string id, string name, string path) {
     // and DELETE missing events. To do this we query just the index for IDs and go from there.
     map<ETAG, bool> local {};
     {
-        SQLite::Statement findIds(store->db(), "SELECT id FROM Event WHERE calendarId = ?");
-        findIds.bind(1, id);
-        while (findIds.executeStep()) {
-            local[findIds.getColumn("id")] = true;
+        SQLite::Statement findEtags(store->db(), "SELECT etag FROM Event WHERE calendarId = ?");
+        findEtags.bind(1, calendarId);
+        while (findEtags.executeStep()) {
+            local[findEtags.getColumn("etag")] = true;
         }
     }
 
@@ -119,6 +119,10 @@ void CalendarWorker::runForCalendar(string id, string name, string path) {
         if (remote.count(pair.first)) continue;
         deleted.push_back(pair.first);
     }
+    
+    // request the last (newest) events first. Technically this should be unordered
+    // by now, but it appears to work for me.
+    std::reverse(needed.begin(), needed.end());
     
     logger->info("{}", path);
     logger->info("  remote: {} etags", remote.size());
@@ -144,15 +148,20 @@ void CalendarWorker::runForCalendar(string id, string name, string path) {
             
             icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
                 auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-                auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
-                auto event = Event(etag, account->id(), id, icsData);
-                store->save(&event);
+                if (local.count(etag) == 0) {
+                    auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
+                    auto event = Event(etag, account->id(), calendarId, icsData);
+                    store->save(&event);
+                    local[etag] = true;
+                } else {
+                    // we didn't ask for this, or we already received it in this session
+                }
             }));
             
             if (!deletionChunks.empty()) {
                 auto deletionChunk = deletionChunks.back();
                 deletionChunks.pop_back();
-                auto deletionEvents = store->findAll<Event>(Query().equal("id", deletionChunk));
+                auto deletionEvents = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("etag", deletionChunk));
                 for (auto & e : deletionEvents) {
                     store->remove(e.get());
                 }
@@ -165,7 +174,7 @@ void CalendarWorker::runForCalendar(string id, string name, string path) {
     {
         MailStoreTransaction transaction {store};
         for (auto & deletionChunk : deletionChunks) {
-            auto deletionEvents = store->findAll<Event>(Query().equal("id", deletionChunk));
+            auto deletionEvents = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("etag", deletionChunk));
             for (auto & e : deletionEvents) {
                 store->remove(e.get());
             }

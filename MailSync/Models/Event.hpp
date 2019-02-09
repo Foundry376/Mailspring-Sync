@@ -33,6 +33,7 @@ public:
     Event(string etag, string accountId, string calendarId, string icsData);
     Event(SQLite::Statement & query);
     
+    string etag();
     string calendarId();
     string icsData();
 

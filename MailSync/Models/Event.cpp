@@ -33,12 +33,15 @@ Date endOf(ICalendarEvent * event) {
         // TODO BEN
     }
 
-    DISTANT_FUTURE = "20400413T175959Z";
+    DISTANT_FUTURE = "20370000T000000";
     return DISTANT_FUTURE;
 }
 
-Event::Event(string etag, string accountId, string calendarId, string icsData) : MailModel(etag, accountId) {
+Event::Event(string etag, string accountId, string calendarId, string icsData)
+: MailModel(MailUtils::idForEvent(accountId, calendarId, etag), accountId) {
     _data["cid"] = calendarId;
+    _data["ics"] = icsData;
+    _data["etag"] = etag;
 
     // Build our start and end time from the ics data. These values represent the time range in which
     // the event needs to be considered for display, so we include the entire time the event is recurring.
@@ -46,7 +49,6 @@ Event::Event(string etag, string accountId, string calendarId, string icsData) :
     auto calEvent = cal.Events.front();
     _data["_start"] = calEvent->DtStart.unix();
     _data["_end"] = endOf(calEvent).unix();
-    _data["ics"] = icsData;
 }
 
 Event::Event(SQLite::Statement & query) :
@@ -70,6 +72,10 @@ string Event::icsData() {
     return _data["ics"].get<string>();
 }
 
+string Event::etag() {
+    return _data["etag"].get<string>();
+}
+
 int Event::_start() {
     return _data["_start"].get<int>();
 }
@@ -79,7 +85,7 @@ int Event::_end() {
 }
 
 vector<string> Event::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "calendarId", "_start", "_end"};
+    return vector<string>{"id", "data", "accountId", "calendarId", "_start", "_end", "etag"};
 }
 
 void Event::bindToQuery(SQLite::Statement * query) {
@@ -89,4 +95,5 @@ void Event::bindToQuery(SQLite::Statement * query) {
     query->bind(":calendarId", calendarId());
     query->bind(":_start", _start());
     query->bind(":_end", _end());
+    query->bind(":etag", etag());
 }

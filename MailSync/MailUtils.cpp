@@ -486,6 +486,17 @@ void MailUtils::setBaseIDVersion(time_t identityCreationDate) {
     spdlog::get("logger")->info("Identity created at {} - using ID Schema {}", identityCreationDate, _baseIDSchemaVersion);
 }
 
+string MailUtils::idForEvent(string accountId, string calendarId, string etag) {
+    string src_str = accountId;
+    src_str = src_str.append("-");
+    src_str = src_str.append(calendarId);
+    src_str = src_str.append("-");
+    src_str = src_str.append(etag);
+    vector<unsigned char> hash(32);
+    picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
+    return toBase58(hash.data(), 30);
+}
+
 string MailUtils::idForCalendar(string accountId, string url) {
     string src_str = accountId;
     src_str = src_str.append("-");
@@ -493,7 +504,6 @@ string MailUtils::idForCalendar(string accountId, string url) {
     vector<unsigned char> hash(32);
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
-
 }
 
 string MailUtils::idForMessage(string accountId, string folderPath, IMAPMessage * msg) {
