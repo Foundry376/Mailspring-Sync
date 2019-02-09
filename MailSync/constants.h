@@ -190,6 +190,12 @@ static vector<string> V4_SETUP_QUERIES = {
     "CREATE INDEX IF NOT EXISTS TaskByStatus ON Task(accountId, status)",
 };
 
+static vector<string> V5_SETUP_QUERIES = {
+    "DELETE FROM `Event`",
+    "ALTER TABLE `Event` ADD COLUMN etag VARCHAR(40)",
+    "CREATE INDEX IF NOT EXISTS EventETag ON Event(calendarId, etag)",
+};
+
 
 static map<string, string> COMMON_FOLDER_NAMES = {
     {"gel\xc3\xb6scht", "trash"},
