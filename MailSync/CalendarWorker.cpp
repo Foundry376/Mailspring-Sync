@@ -17,10 +17,20 @@
 #include "Thread.hpp"
 #include "Contact.hpp"
 #include "SyncException.hpp"
+#include "Event.hpp"
+#include "Calendar.hpp"
 #include "NetworkRequestUtils.hpp"
 
 #include <string>
 #include <curl/curl.h>
+
+struct EventResult {
+    std::string icsHref;
+    std::string etag;
+};
+
+typedef string ETAG;
+
 
 CalendarWorker::CalendarWorker(shared_ptr<Account> account) :
     store(new MailStore()),
@@ -36,35 +46,132 @@ CalendarWorker::CalendarWorker(shared_ptr<Account> account) :
 }
 
 void CalendarWorker::run() {
-
     // Fetch the list of calendars from the principal URL
     auto calendarSetDoc = performXMLRequest(principalPath, "PROPFIND", "<d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:resourcetype /><d:displayname /><cs:getctag /><c:supported-calendar-component-set /></d:prop></d:propfind>");
 
+    auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
+    
     // Iterate over the calendars that expose "VEVENT" components
     calendarSetDoc->evaluateXPath("//D:response[./D:propstat/D:prop/caldav:supported-calendar-component-set/caldav:comp[@name='VEVENT']]", ([&](xmlNodePtr node) {
         // Make a few xpath queries relative to the "D:response" calendar node (using "./")
         // to retrieve the attributes we're interested in.
         auto name = calendarSetDoc->nodeContentAtXPath(".//D:displayname/text()", node);
         auto path = calendarSetDoc->nodeContentAtXPath(".//D:href/text()", node);
+        auto id = MailUtils::idForCalendar(account->id(), path);
         fprintf(stdout, "%s\n", name.c_str());
         fprintf(stdout, "%s\n", path.c_str());
         
-        runForCalendar(name, path);
+        // upsert the Calendar object
+        {
+            if (local[id]) {
+                if (local[id]->name() != name) {
+                    local[id]->setName(name);
+                    store->save(local[id].get());
+                }s
+            } else {
+                Calendar cal = Calendar(id, account->id());
+                cal.setPath(path);
+                cal.setName(name);
+                store->save(&cal);
+            }
+        }
+        
+        // sync
+        runForCalendar(id, name, path);
     }));
 }
 
-void CalendarWorker::runForCalendar(string name, string path) {
-    // Request the ETAG value of every event in the calendar. We should compare these
-    // values against a set in the database. Any event we don't have should be added
-    // and any event in the database absent from the response should be deleted.
-    auto eventEtagsDoc = performXMLRequest(path, "REPORT", "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /></d:prop><c:filter></c:filter></c:calendar-query>");
+void CalendarWorker::runForCalendar(string id, string name, string path) {
+    map<ETAG, string> remote {};
+    {
+        // Request the ETAG value of every event in the calendar. We should compare these
+        // values against a set in the database. Any event we don't have should be added
+        // and any event in the database absent from the response should be deleted.
+        auto eventEtagsDoc = performXMLRequest(path, "REPORT", "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /></d:prop><c:filter></c:filter></c:calendar-query>");
+
+        eventEtagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+            auto etag = eventEtagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+            auto icsHref = eventEtagsDoc->nodeContentAtXPath(".//D:href/text()", node);
+            remote[string(etag.c_str())] = string(icsHref.c_str());
+        }));
+    }
     
-    eventEtagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
-        auto etag = eventEtagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-        auto icsHref = eventEtagsDoc->nodeContentAtXPath(".//D:href/text()", node);
-        fprintf(stdout, "%s\n", icsHref.c_str());
-        fprintf(stdout, "%s\n", etag.c_str());
-    }));
+
+    // Because etags change when the event content changes, we only need to ADD new events
+    // and DELETE missing events. To do this we query just the index for IDs and go from there.
+    map<ETAG, bool> local {};
+    {
+        SQLite::Statement findIds(store->db(), "SELECT id FROM Event WHERE calendarId = ?");
+        findIds.bind(1, id);
+        while (findIds.executeStep()) {
+            local[findIds.getColumn("id")] = true;
+        }
+    }
+
+    // identify new and deleted events
+    vector<ETAG> deleted {};
+    vector<string> needed {};
+    for (auto & pair : remote) {
+        if (local.count(pair.first)) continue;
+        needed.push_back(pair.second);
+    }
+    for (auto & pair : local) {
+        if (remote.count(pair.first)) continue;
+        deleted.push_back(pair.first);
+    }
+    
+    logger->info("{}", path);
+    logger->info("  remote: {} etags", remote.size());
+    logger->info("   local: {} etags", local.size());
+    logger->info(" deleted: {}", deleted.size());
+    logger->info("  needed: {}", needed.size());
+    
+    auto deletionChunks = MailUtils::chunksOfVector(deleted, 100);
+    
+    for (auto chunk : MailUtils::chunksOfVector(needed, 50)) {
+        string payload = "";
+        for (auto & icsHref : chunk) {
+            payload += "<D:href>" + icsHref + "</D:href>";
+        }
+        
+        // Fetch the data
+        auto icsDoc = performXMLRequest(path, "REPORT", "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
+        
+        // Insert the event objects and remove deleted events within the same transaction.
+        // Most of the time, this results in an event being replaced within a single transaction.
+        {
+            MailStoreTransaction transaction {store};
+            
+            icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+                auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+                auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
+                auto event = Event(etag, account->id(), id, icsData);
+                store->save(&event);
+            }));
+            
+            if (!deletionChunks.empty()) {
+                auto deletionChunk = deletionChunks.back();
+                deletionChunks.pop_back();
+                auto deletionEvents = store->findAll<Event>(Query().equal("id", deletionChunk));
+                for (auto & e : deletionEvents) {
+                    store->remove(e.get());
+                }
+            }
+            transaction.commit();
+        }
+    }
+
+    // Delete any remaining events
+    {
+        MailStoreTransaction transaction {store};
+        for (auto & deletionChunk : deletionChunks) {
+            auto deletionEvents = store->findAll<Event>(Query().equal("id", deletionChunk));
+            for (auto & e : deletionEvents) {
+                store->remove(e.get());
+            }
+        }
+        transaction.commit();
+    }
 }
 
 shared_ptr<DavXML> CalendarWorker::performXMLRequest(string path, string method, string payload) {
