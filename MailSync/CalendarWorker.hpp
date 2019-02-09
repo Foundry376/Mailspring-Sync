@@ -39,7 +39,7 @@ public:
     CalendarWorker(shared_ptr<Account> account);
     
     void run();
-    void runForCalendar(string name, string path);
+    void runForCalendar(string id, string name, string path);
 
     shared_ptr<DavXML> performXMLRequest(string path, string method, string payload = "");
 

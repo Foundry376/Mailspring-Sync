@@ -42,6 +42,11 @@
 		4368DCCC1F43857D00F22FFD /* platform.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4368DCCA1F43857D00F22FFD /* platform.cpp */; };
 		4378B8341F439EE700C65630 /* error.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4378B8321F439EE700C65630 /* error.cpp */; };
 		4378B8371F439FAD00C65630 /* GenericException.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4378B8361F439FAD00C65630 /* GenericException.cpp */; };
+		43A687DF220EB14C000D75CC /* Event.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A687DE220EB14C000D75CC /* Event.cpp */; };
+		43A687EA220EB40F000D75CC /* types.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A687E1220EB40F000D75CC /* types.cpp */; };
+		43A687EB220EB40F000D75CC /* date.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A687E3220EB40F000D75CC /* date.cpp */; };
+		43A687EC220EB40F000D75CC /* icalendar.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A687E6220EB40F000D75CC /* icalendar.cpp */; };
+		43A687F0220EC054000D75CC /* Calendar.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A687EF220EC054000D75CC /* Calendar.cpp */; };
 		43B48E851F339B24002D202E /* Identity.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B48E841F339B24002D202E /* Identity.cpp */; };
 		43B48E8B1F37C7FF002D202E /* NetworkRequestUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B48E891F37C7FF002D202E /* NetworkRequestUtils.cpp */; };
 		43C8149E1F08072D00D28F0B /* Account.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43C8149D1F08072D00D28F0B /* Account.cpp */; };
@@ -213,6 +218,16 @@
 		4378B8331F439EE700C65630 /* error.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = error.h; sourceTree = "<group>"; };
 		4378B8351F439F8A00C65630 /* GenericException.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = GenericException.hpp; sourceTree = "<group>"; };
 		4378B8361F439FAD00C65630 /* GenericException.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GenericException.cpp; sourceTree = "<group>"; };
+		43A687D1220EB146000D75CC /* Event.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Event.hpp; sourceTree = "<group>"; };
+		43A687DE220EB14C000D75CC /* Event.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Event.cpp; sourceTree = "<group>"; };
+		43A687E1220EB40F000D75CC /* types.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = types.cpp; sourceTree = "<group>"; };
+		43A687E2220EB40F000D75CC /* types.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = types.h; sourceTree = "<group>"; };
+		43A687E3220EB40F000D75CC /* date.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = date.cpp; sourceTree = "<group>"; };
+		43A687E4220EB40F000D75CC /* date.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = date.h; sourceTree = "<group>"; };
+		43A687E5220EB40F000D75CC /* icalendar.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = icalendar.h; sourceTree = "<group>"; };
+		43A687E6220EB40F000D75CC /* icalendar.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = icalendar.cpp; sourceTree = "<group>"; };
+		43A687EE220EC04F000D75CC /* Calendar.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Calendar.hpp; sourceTree = "<group>"; };
+		43A687EF220EC054000D75CC /* Calendar.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Calendar.cpp; sourceTree = "<group>"; };
 		43A742BB1F05DB8F003978AA /* optionparser.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = optionparser.h; sourceTree = "<group>"; };
 		43B48E7C1F339AEC002D202E /* Identity.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Identity.hpp; sourceTree = "<group>"; };
 		43B48E841F339B24002D202E /* Identity.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Identity.cpp; sourceTree = "<group>"; };
@@ -270,6 +285,8 @@
 				43167F0A1EF5F5C100D8E282 /* Thread.cpp */,
 				43EAFED81EFEF7090046589B /* File.hpp */,
 				43EAFED91EFEF7110046589B /* File.cpp */,
+				43A687D1220EB146000D75CC /* Event.hpp */,
+				43A687DE220EB14C000D75CC /* Event.cpp */,
 				43EAFEDD1F001F160046589B /* Contact.hpp */,
 				43EAFEDB1F001F100046589B /* Contact.cpp */,
 				43EAFED21EFCEB550046589B /* Task.hpp */,
@@ -278,6 +295,8 @@
 				43C8149D1F08072D00D28F0B /* Account.cpp */,
 				43B48E7C1F339AEC002D202E /* Identity.hpp */,
 				43B48E841F339B24002D202E /* Identity.cpp */,
+				43A687EE220EC04F000D75CC /* Calendar.hpp */,
+				43A687EF220EC054000D75CC /* Calendar.cpp */,
 				43167F0F1EF5F6C700D8E282 /* Folder.hpp */,
 				43167F0E1EF5F6C700D8E282 /* Folder.cpp */,
 				43CA94201EFB9E8C006685D0 /* Label.hpp */,
@@ -377,6 +396,7 @@
 				436489921EF31AC0007816EC /* constants.h */,
 				43A742BB1F05DB8F003978AA /* optionparser.h */,
 				436489911EF30E1F007816EC /* sha256.h */,
+				43A687E0220EB40F000D75CC /* icalendarlib */,
 				4368DCA91F43851A00F22FFD /* StanfordCPPLib */,
 				4364899C1EF3449A007816EC /* nlohmann */,
 				436489751EF2F8E3007816EC /* SQLite */,
@@ -452,6 +472,20 @@
 			);
 			path = stacktrace;
 			sourceTree = "<group>";
+		};
+		43A687E0220EB40F000D75CC /* icalendarlib */ = {
+			isa = PBXGroup;
+			children = (
+				43A687E1220EB40F000D75CC /* types.cpp */,
+				43A687E2220EB40F000D75CC /* types.h */,
+				43A687E3220EB40F000D75CC /* date.cpp */,
+				43A687E4220EB40F000D75CC /* date.h */,
+				43A687E5220EB40F000D75CC /* icalendar.h */,
+				43A687E6220EB40F000D75CC /* icalendar.cpp */,
+			);
+			name = icalendarlib;
+			path = Vendor/icalendarlib;
+			sourceTree = SOURCE_ROOT;
 		};
 /* End PBXGroup section */
 
@@ -630,10 +664,13 @@
 				43CA9A121F1174FD001A24A0 /* ThreadUtils.cpp in Sources */,
 				4368DCBF1F43851A00F22FFD /* simpio.cpp in Sources */,
 				43EAFEDC1F001F110046589B /* Contact.cpp in Sources */,
+				43A687DF220EB14C000D75CC /* Event.cpp in Sources */,
 				43CA94161EF9E610006685D0 /* MailProcessor.cpp in Sources */,
 				43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */,
 				43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */,
 				4346BCE51EF91305009477FE /* Query.cpp in Sources */,
+				43A687F0220EC054000D75CC /* Calendar.cpp in Sources */,
+				43A687EC220EB40F000D75CC /* icalendar.cpp in Sources */,
 				43B48E851F339B24002D202E /* Identity.cpp in Sources */,
 				4368DCCC1F43857D00F22FFD /* platform.cpp in Sources */,
 				43256B0621E7EEC900590F1B /* CalendarWorker.cpp in Sources */,
@@ -655,9 +692,11 @@
 				43CA9A0A1F0D4C1B001A24A0 /* ProgressCollectors.cpp in Sources */,
 				43DC3C531F666E1B0060A9B8 /* MetadataExpirationWorker.cpp in Sources */,
 				4364898C1EF2F905007816EC /* Statement.cpp in Sources */,
+				43A687EB220EB40F000D75CC /* date.cpp in Sources */,
 				432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */,
 				4364898B1EF2F905007816EC /* Exception.cpp in Sources */,
 				4364898D1EF2F905007816EC /* Transaction.cpp in Sources */,
+				43A687EA220EB40F000D75CC /* types.cpp in Sources */,
 				4368DCC01F43851A00F22FFD /* call_stack_gcc.cpp in Sources */,
 				436489881EF2F905007816EC /* Backup.cpp in Sources */,
 				436489981EF32A81007816EC /* MailStore.cpp in Sources */,
