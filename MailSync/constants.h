@@ -190,9 +190,9 @@ static vector<string> V4_SETUP_QUERIES = {
     "CREATE INDEX IF NOT EXISTS TaskByStatus ON Task(accountId, status)",
 };
 
-static vector<string> V5_SETUP_QUERIES = {
-    "DELETE FROM `Event`",
-    "ALTER TABLE `Event` ADD COLUMN etag VARCHAR(40)",
+static vector<string> V6_SETUP_QUERIES = {
+    "DROP TABLE IF EXISTS `Event`",
+    "CREATE TABLE IF NOT EXISTS `Event` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8), etag VARCHAR(40), calendarId VARCHAR(40), recurrenceStart INTEGER, recurrenceEnd INTEGER)",
     "CREATE INDEX IF NOT EXISTS EventETag ON Event(calendarId, etag)",
 };
 

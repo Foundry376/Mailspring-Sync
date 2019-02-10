@@ -38,14 +38,19 @@ CalendarWorker::CalendarWorker(shared_ptr<Account> account) :
     logger(spdlog::get("logger"))
 {
     // For now, we assume Gmail
-    server = "https://apidata.googleusercontent.com";
-    principalPath = "/caldav/v2/" + account->emailAddress();
-    
+    if (account->provider() == "gmail") {
+        server = "https://apidata.googleusercontent.com";
+        principalPath = "/caldav/v2/" + account->emailAddress();
+    }
     // Initialize libxml
     xmlInitParser();
 }
 
 void CalendarWorker::run() {
+    if (server == "" || principalPath == "") {
+        return;
+    }
+
     // Fetch the list of calendars from the principal URL
     auto calendarSetDoc = performXMLRequest(principalPath, "PROPFIND", "<d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:resourcetype /><d:displayname /><cs:getctag /><c:supported-calendar-component-set /></d:prop></d:propfind>");
 
@@ -150,9 +155,19 @@ void CalendarWorker::runForCalendar(string calendarId, string name, string path)
                 auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
                 if (local.count(etag) == 0) {
                     auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
-                    auto event = Event(etag, account->id(), calendarId, icsData);
-                    store->save(&event);
-                    local[etag] = true;
+                    if (icsData != "") {
+                        local[etag] = true;
+                        ICalendar cal(icsData);
+                        auto icsEvent = cal.Events.front();
+                        if (!icsEvent->DtStart.IsEmpty() && !icsEvent->DtEnd.IsEmpty()) {
+                            auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                            store->save(&event);
+                        } else {
+                            logger->info("Received calendar event but it has no start/end time?\n\n{}\n\n", icsData);
+                        }
+                    } else {
+                        logger->info("Received calendar event {} with an empty body", etag);
+                    }
                 } else {
                     // we didn't ask for this, or we already received it in this session
                 }
@@ -211,49 +226,4 @@ shared_ptr<DavXML> CalendarWorker::performXMLRequest(string path, string method,
     string result = PerformRequest(curl_handle);
     return make_shared<DavXML>(result, url);
 }
-
-
-// This is just some sample code that shows how to pull various bits of data out of xml nodes
-
-void CalendarWorker::print_xpath_nodes(xmlNodeSetPtr nodes, FILE* output) {
-    xmlNodePtr cur;
-    int size;
-    int i;
-    
-    assert(output);
-    size = (nodes) ? nodes->nodeNr : 0;
-    
-    fprintf(output, "Result (%d nodes):\n", size);
-    for(i = 0; i < size; ++i) {
-        assert(nodes->nodeTab[i]);
-        
-        if(nodes->nodeTab[i]->type == XML_NAMESPACE_DECL) {
-            xmlNsPtr ns;
-            
-            ns = (xmlNsPtr)nodes->nodeTab[i];
-            cur = (xmlNodePtr)ns->next;
-            if(cur->ns) {
-                fprintf(output, "= namespace \"%s\"=\"%s\" for node %s:%s\n",
-                        ns->prefix, ns->href, cur->ns->href, cur->name);
-            } else {
-                fprintf(output, "= namespace \"%s\"=\"%s\" for node %s\n",
-                        ns->prefix, ns->href, cur->name);
-            }
-        } else if(nodes->nodeTab[i]->type == XML_ELEMENT_NODE) {
-            cur = nodes->nodeTab[i];
-            if(cur->ns) {
-                fprintf(output, "= element node \"%s:%s\"\n",
-                        cur->ns->href, cur->name);
-            } else {
-                fprintf(output, "= element node \"%s\"\n",
-                        cur->name);
-            }
-        } else {
-            cur = nodes->nodeTab[i];
-            fprintf(output, "= node \"%s\": type %d, content: \"%s\"\n", cur->name, cur->type, cur->content);
-        }
-    }
-}
-
-
 

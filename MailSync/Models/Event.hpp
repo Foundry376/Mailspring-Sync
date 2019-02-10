@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <string>
 #include "json.hpp"
+#include "icalendar.h"
 #include "spdlog/spdlog.h"
 
 #include "MailModel.hpp"
@@ -30,15 +31,15 @@ class Event : public MailModel {
 public:
     static string TABLE_NAME;
 
-    Event(string etag, string accountId, string calendarId, string icsData);
+Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent * event);
     Event(SQLite::Statement & query);
     
     string etag();
     string calendarId();
     string icsData();
 
-    int _start();
-    int _end();
+    int recurrenceStart();
+    int recurrenceEnd();
 
     string tableName();
     string constructorName();

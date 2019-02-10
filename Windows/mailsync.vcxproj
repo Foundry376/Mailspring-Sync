@@ -54,7 +54,7 @@
       <PreprocessorDefinitions>WIN32;_CRT_SECURE_NO_WARNINGS;_CONSOLE;_LIB;
 _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;SPDLOG_WCHAR_FILENAMES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\Vendor\SQLiteCpp\sqlite3;..\MailSync\Models;..\MailSync;.\Externals\include;..\Vendor\mailcore2\Externals\include;..\Vendor\StanfordCPPLib;..\Vendor;..\Vendor\SQLiteCpp\include;..\Vendor\nlohmann;..\Vendor\mailcore2\build-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\Vendor\SQLiteCpp\sqlite3;..\Vendor\icalendarlib;..\MailSync\Models;..\MailSync;.\Externals\include;..\Vendor\mailcore2\Externals\include;..\Vendor\StanfordCPPLib;..\Vendor;..\Vendor\SQLiteCpp\include;..\Vendor\nlohmann;..\Vendor\mailcore2\build-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
     </ClCompile>
@@ -74,7 +74,7 @@ _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;SPDLOG_WCHAR_FILENAMES;%(Pre
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CRT_SECURE_NO_WARNINGS;_CONSOLE;_LIB;_TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;SPDLOG_WCHAR_FILENAMES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\Vendor\SQLiteCpp\sqlite3;..\MailSync\Models;..\MailSync;.\Externals\include;..\Vendor\mailcore2\Externals\include;..\Vendor\StanfordCPPLib;..\Vendor;..\Vendor\SQLiteCpp\include;..\Vendor\nlohmann;..\Vendor\mailcore2\build-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\Vendor\SQLiteCpp\sqlite3;..\Vendor\icalendarlib;..\MailSync\Models;..\MailSync;.\Externals\include;..\Vendor\mailcore2\Externals\include;..\Vendor\StanfordCPPLib;..\Vendor;..\Vendor\SQLiteCpp\include;..\Vendor\nlohmann;..\Vendor\mailcore2\build-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -106,6 +106,8 @@ _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;SPDLOG_WCHAR_FILENAMES;%(Pre
     <ClCompile Include="..\MailSync\Models\File.cpp" />
     <ClCompile Include="..\MailSync\Models\Folder.cpp" />
     <ClCompile Include="..\MailSync\Models\Identity.cpp" />
+    <ClCompile Include="..\MailSync\Models\Calendar.cpp" />
+    <ClCompile Include="..\MailSync\Models\Event.cpp" />
     <ClCompile Include="..\MailSync\Models\Label.cpp" />
     <ClCompile Include="..\MailSync\Models\MailModel.cpp" />
     <ClCompile Include="..\MailSync\Models\Message.cpp" />
@@ -126,6 +128,9 @@ _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;SPDLOG_WCHAR_FILENAMES;%(Pre
     <ClCompile Include="..\Vendor\SQLiteCpp\src\Exception.cpp" />
     <ClCompile Include="..\Vendor\SQLiteCpp\src\Statement.cpp" />
     <ClCompile Include="..\Vendor\SQLiteCpp\src\Transaction.cpp" />
+    <ClCompile Include="..\Vendor\icalendarlib\date.cpp" />
+    <ClCompile Include="..\Vendor\icalendarlib\icalendar.cpp" />
+    <ClCompile Include="..\Vendor\icalendarlib\types.cpp" />
     <ClCompile Include="..\Vendor\StanfordCPPLib\error.cpp" />
     <ClCompile Include="..\Vendor\StanfordCPPLib\exceptions.cpp" />
     <ClCompile Include="..\Vendor\StanfordCPPLib\filelib.cpp" />
