@@ -87,6 +87,12 @@
     <ClCompile Include="..\MailSync\Models\Identity.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\MailSync\Models\Calendar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\MailSync\Models\Event.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\MailSync\Models\Label.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

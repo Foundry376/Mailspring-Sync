@@ -37,18 +37,16 @@ Date endOf(ICalendarEvent * event) {
     return DISTANT_FUTURE;
 }
 
-Event::Event(string etag, string accountId, string calendarId, string icsData)
+Event::Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent * event)
 : MailModel(MailUtils::idForEvent(accountId, calendarId, etag), accountId) {
     _data["cid"] = calendarId;
-    _data["ics"] = icsData;
+    _data["ics"] = ics;
     _data["etag"] = etag;
 
     // Build our start and end time from the ics data. These values represent the time range in which
     // the event needs to be considered for display, so we include the entire time the event is recurring.
-    ICalendar cal(icsData);
-    auto calEvent = cal.Events.front();
-    _data["_start"] = calEvent->DtStart.unix();
-    _data["_end"] = endOf(calEvent).unix();
+    _data["rs"] = event->DtStart.unix();
+    _data["re"] = endOf(event).unix();
 }
 
 Event::Event(SQLite::Statement & query) :
@@ -76,24 +74,24 @@ string Event::etag() {
     return _data["etag"].get<string>();
 }
 
-int Event::_start() {
-    return _data["_start"].get<int>();
+int Event::recurrenceStart() {
+    return _data["rs"].get<int>();
 }
 
-int Event::_end() {
-    return _data["_end"].get<int>();
+int Event::recurrenceEnd() {
+    return _data["re"].get<int>();
 }
 
 vector<string> Event::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "calendarId", "_start", "_end", "etag"};
+    return vector<string>{"id", "data", "accountId", "etag", "calendarId", "recurrenceStart", "recurrenceEnd"};
 }
 
 void Event::bindToQuery(SQLite::Statement * query) {
     query->bind(":id", id());
     query->bind(":data", this->toJSON().dump());
     query->bind(":accountId", accountId());
-    query->bind(":calendarId", calendarId());
-    query->bind(":_start", _start());
-    query->bind(":_end", _end());
     query->bind(":etag", etag());
+    query->bind(":calendarId", calendarId());
+    query->bind(":recurrenceStart", recurrenceStart());
+    query->bind(":recurrenceEnd", recurrenceEnd());
 }

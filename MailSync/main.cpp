@@ -367,7 +367,19 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             if (fgWorker) fgWorker->idleQueueBodiesToSync(ids);
             if (fgWorker) fgWorker->idleInterrupt();
         }
-        
+
+        if (type == "sync-calendar") {
+            static atomic<bool> runningCalendarSync { false };
+            if (!runningCalendarSync) {
+                std::thread([&]() {
+                    auto worker = CalendarWorker(account);
+                    worker.run();
+                    runningCalendarSync = false;
+                }).detach();
+                runningCalendarSync = true;
+            }
+        }
+
         if (type == "test-crash") {
             throw SyncException("test", "triggered via cin", false);
         }
