@@ -372,6 +372,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             static atomic<bool> runningCalendarSync { false };
             if (!runningCalendarSync) {
                 std::thread([&]() {
+                    SetThreadName("calendar");
                     auto worker = CalendarWorker(account);
                     worker.run();
                     runningCalendarSync = false;
