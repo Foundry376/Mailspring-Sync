@@ -118,6 +118,7 @@ _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;SPDLOG_WCHAR_FILENAMES;%(Pre
     <ClCompile Include="..\MailSync\Query.cpp" />
     <ClCompile Include="..\MailSync\SyncException.cpp" />
     <ClCompile Include="..\MailSync\SyncWorker.cpp" />
+    <ClCompile Include="..\MailSync\CalendarWorker.cpp" />
     <ClCompile Include="..\MailSync\TaskProcessor.cpp" />
     <ClCompile Include="..\MailSync\ThreadUtils.cpp" />
     <ClCompile Include="..\MailSync\XOAuth2TokenManager.cpp" />
