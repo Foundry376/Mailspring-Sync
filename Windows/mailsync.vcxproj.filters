@@ -45,6 +45,9 @@
     <ClCompile Include="..\MailSync\MetadataExpirationWorker.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\MailSync\CalendarWorker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\MailSync\MetadataWorker.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
