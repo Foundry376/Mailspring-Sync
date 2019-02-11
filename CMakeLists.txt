@@ -61,6 +61,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   find_library(XML_LIB NAMES libxml2.a libxml2)
   target_link_libraries(mailsync ${XML_LIB})
+  target_include_directories(mailsync PRIVATE /usr/include/libxml2)
 
   find_library(LZMA_LIB NAMES liblzma.a liblzma)
   target_link_libraries(mailsync ${LZMA_LIB})

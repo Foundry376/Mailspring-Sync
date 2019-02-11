@@ -54,7 +54,8 @@ void DavXML::evaluateXPath(string expr, std::function<void(xmlNodePtr)> yieldBlo
     if (withinNode == nullptr) {
         xpathObj = xmlXPathEvalExpression((const xmlChar *)expr.c_str(), xpathContext);
     } else {
-        xpathObj = xmlXPathNodeEval(withinNode, (const xmlChar *)expr.c_str(), xpathContext);
+        xpathContext->node = withinNode;
+        xpathObj = xmlXPathEvalExpression((const xmlChar *)expr.c_str(), xpathContext);
     }
     if (xpathObj == nullptr) {
         fprintf(stderr,"Error: unable to evaluate xpath expression \"%s\"\n", expr.c_str());

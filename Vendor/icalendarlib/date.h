@@ -2,6 +2,7 @@
 #define _DATE_H
 
 #include <string>
+#include <cstring>
 #include <cstdio>
 #include <ctime>
 #include <time.h>
