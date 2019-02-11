@@ -93,6 +93,12 @@ CURL * CreateJSONRequest(string url, string method, const char * payloadChars) {
         curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
     }
 
+    // Ensure /all/ curl code paths run this code for RHEL 7.6 and other linux distros
+    string explicitCertsBundlePath = FindLinuxCertsBundle();
+    if (explicitCertsBundlePath != "") {
+        curl_easy_setopt(curl_handle, CURLOPT_CAINFO, explicitCertsBundlePath.c_str());
+    }
+
     return curl_handle;
 }
 
