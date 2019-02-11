@@ -92,6 +92,7 @@ struct CArg: public option::Arg
     }
 };
 
+// Important do not change these without updating result code 2 check below
 #define USAGE_STRING "USAGE: CONFIG_DIR_PATH=/path IDENTITY_SERVER=https://id.getmailspring.com mailsync [options]\n\nOptions:"
 #define USAGE_IDENTITY "  --identity, -i  \tRequired: Mailspring Identity JSON with credentials."
 
