@@ -263,6 +263,8 @@ static map<string, string> COMMON_FOLDER_NAMES = {
     {"draftbox", "drafts"},
     {"robocze", "drafts"},
 
+    {"Mailspring/Snoozed", "snoozed"},
+    {"Mailspring.Snoozed", "snoozed"},
 };
 
 static map<int, string> LibEtPanCodeToTypeMap = {
