@@ -131,31 +131,63 @@ void _removeMessagesResilient(IMAPSession * session, MailStore * store, string a
     // First, add the "DELETED" flag to the given messages
     session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
     if (err != ErrorNone) {
-        spdlog::get("logger")->info("X- removeMessagesResilient could not add deleted flag (error: {})", ErrorCodeToTypeMap[err]);
+        spdlog::get("logger")->info("X- removeMessages could not add deleted flag (error: {})", ErrorCodeToTypeMap[err]);
         return;
     }
     
+    // If possible, move the messages to the identified trash folder.
+    // Sometimes [on Gmail] this is necessary to properly mark them as deleted.
     String * trashPath = nullptr;
     if (session->storedCapabilities()->containsIndex(IMAPCapabilityMove)) {
         auto trash = store->find<Folder>(Query().equal("accountId", accountId).equal("role", "trash"));
-        if (trash != nullptr) {
-            trashPath = AS_MCSTR(trash->path());
-        }
+        if (trash != nullptr) trashPath = AS_MCSTR(trash->path());
     }
 
     if (trashPath != nullptr) {
-        session->moveMessages(path, uids, trashPath, nullptr, &err);
+        HashMap * uidMapping = nullptr;
+        session->moveMessages(path, uids, trashPath, &uidMapping, &err);
         if (err != ErrorNone) {
-            spdlog::get("logger")->info("X- removeMessagesResilient could not move the messages to the trash (error: {})", ErrorCodeToTypeMap[err]);
-            return;
+            spdlog::get("logger")->info("X- removeMessages could not move to {} (error: {})", trashPath->UTF8Characters(), ErrorCodeToTypeMap[err]);
+        } else {
+            // If we were successful moving to the trash, we will now expunge from here, and the UIDs
+            // we had before are no longer valid so we'll need to expunge the entire folder.
+            uids->removeAllIndexes();
+            path = trashPath;
+            
+            // If we got a UID mapping back, we can make an Expunge UIDs request for the specific deleted UIDs.
+            // We also re-flag them as deleted because Gmail removes the Deleted attribute when the items are moved.
+            if (uidMapping) {
+                Array * uidsInNewFolder = uidMapping->allValues();
+                for (int ii = 0; ii < uidsInNewFolder->count(); ii ++) {
+                    Value * val = (Value *)uidsInNewFolder->objectAtIndex(ii);
+                    uids->addIndex(val->unsignedLongValue());
+                }
+                spdlog::get("logger")->info("-- removeMessages re-applying deleted flag after moving to {}", trashPath->UTF8Characters());
+                session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
+                if (err != ErrorNone) {
+                    spdlog::get("logger")->info("X- removeMessages could not add deleted flag (error: {})", ErrorCodeToTypeMap[err]);
+                    err = ErrorNone;
+                }
+            }
         }
-        session->expunge(trashPath, &err);
+    }
+    
+    if (uids->count() > 0) {
+        spdlog::get("logger")->info("-- removeMessages Expunging (UIDs) from {}", path->UTF8Characters());
+        session->expungeUIDs(path, uids, &err);
+        if (err != ErrorNone) {
+            spdlog::get("logger")->info("-- removeMessages Expunge (UIDs) failed (error: {})", ErrorCodeToTypeMap[err]);
+            spdlog::get("logger")->info("-- removeMessages Expunging (Basic) from {}", path->UTF8Characters());
+            err = ErrorNone;
+            session->expunge(path, &err);
+        }
     } else {
+        spdlog::get("logger")->info("-- removeMessages Expunging (Basic) from {}", path->UTF8Characters());
         session->expunge(path, &err);
     }
 
     if (err != ErrorNone) {
-        spdlog::get("logger")->info("X- removeMessagesResilient could not expunge (error: {})", ErrorCodeToTypeMap[err]);
+        spdlog::get("logger")->info("X- removeMessages Expunge failed (error: {})", ErrorCodeToTypeMap[err]);
     }
 }
 
@@ -1072,51 +1104,33 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         int delay[] = {0, 1, 1, 2, 2};
         IndexSet * uids = new IndexSet();
         
-        while (tries < 4) {
+        while (tries < 4 && uids->count() == 0) {
             if (delay[tries]) {
                 logger->info("-- No messages found. Sleeping {} to wait for sent folder to settle...", delay[tries]);
 				std::this_thread::sleep_for(std::chrono::seconds(delay[tries]));
             }
-            
-            // note: we must implement tries /before/ any continue or break statements
-            // or user could get into an infinite loop.
             tries ++;
-
-            session->select(sentPath, &err);
-            if (err != ErrorNone) {
-                continue;
-            }
-
-            logger->info("-- Fetching the last 10 messages in the sent folder.");
-            IMAPProgress cb;
-            IndexSet * set = new IndexSet();
-            int min = session->lastFolderMessageCount() > 10 ? (session->lastFolderMessageCount() - 10) : 0;
-            set->addRange(RangeMake(min, session->lastFolderMessageCount() - min));
-            Array * lastFew = session->fetchMessagesByNumber(sentPath, IMAPMessagesRequestKindHeaders, set, &cb, &err);
-            if (err != ErrorNone) {
-                continue;
-            }
-
-            for (int ii = 0; ii < lastFew->count(); ii ++) {
-                auto msg = (IMAPMessage *)lastFew->objectAtIndex(ii);
-                string msgId = msg->header()->messageID()->UTF8Characters();
-                if (msgId == draft.headerMessageId()) {
-                    logger->info("--- Found message-id match");
-                    uids->addIndex(msg->uid());
-                }
-            }
-            
-            if (uids->count() > 0) {
-                break;
-            }
+            session->findUIDsOfRecentHeaderMessageID(sentPath, AS_MCSTR(draft.headerMessageId()), uids);
         }
     
         if (multisend && (uids->count() > 0)) {
             // If we sent separate messages to each recipient, we end up with a bunch of sent
-            // messages. Delete all of them since they contain the targeted bodies.
-            logger->info("-- Deleting {} messages added to sent folder by the SMTP gateway.", uids->count());
+            // messages. Delete all of them since they contain the targeted bodies with link/open tracking.
+            logger->info("-- Deleting {} messages added to {} by the SMTP gateway.", uids->count(), sentPath->UTF8Characters());
             _removeMessagesResilient(session, store, account->id(), sentPath, uids);
             
+            // In Gmail, moving the messages from Sent -> Trash and expunging them just places them in All Mail
+            // for some reason. Deleting them AGAIN from All Mail works properly, so we do that here.
+            auto all = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "all"));
+            if (all != nullptr) {
+                uids->removeAllIndexes();
+                session->findUIDsOfRecentHeaderMessageID(AS_MCSTR(all->path()), AS_MCSTR(draft.headerMessageId()), uids);
+                if (uids->count() > 0) {
+                    logger->info("-- Deleting {} messages just moved to {} by the SMTP gateway.", uids->count(), all->path());
+                    _removeMessagesResilient(session, store, account->id(), AS_MCSTR(all->path()), uids);
+                }
+            }
+
         } else if (!multisend && (uids->count() == 1)) {
             // If we find a single message in the sent folder, we'll move forward with that one.
             sentFolderMessageUID = (uint32_t)uids->allRanges()[0].location;
