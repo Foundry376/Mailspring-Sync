@@ -245,6 +245,15 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
     vector<File> files;
     for (int ii = 0; ii < attachments.count(); ii ++) {
         Attachment * a = (Attachment *)attachments.objectAtIndex(ii);
+        if (a->contentID() && a->isInlineAttachment() == false) {
+            // This is suspicious - the item has a content ID but we don't think it's an attachment?
+            // Look in the content of the message for "cid:XXX". If we find it, the MIME was missing
+            // the Content-Disposition but the client should render it inline.
+            if (html->locationOfString(MCSTR("cid:")->stringByAppendingString(a->contentID())) != -1) {
+                a->setInlineAttachment(true);
+            }
+        }
+        
         File f = File(message, a);
         
         bool duplicate = false;
