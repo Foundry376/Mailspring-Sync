@@ -68,7 +68,7 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
     _data["remoteUID"] = msg->uid();
     
     _data["files"] = json::array();
-    _data["date"] = msg->header()->date();
+    _data["date"] = msg->header()->date() == -1 ? msg->header()->receivedDate() : msg->header()->date();
     _data["hMsgId"] = msg->header()->messageID() ? msg->header()->messageID()->UTF8Characters() : "no-header-message-id";
     _data["subject"] = msg->header()->subject() ? msg->header()->subject()->UTF8Characters() : "No Subject";
     _data["gMsgId"] = to_string(msg->gmailMessageID());

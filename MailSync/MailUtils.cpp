@@ -517,6 +517,8 @@ string MailUtils::idForMessage(string accountId, string folderPath, IMAPMessage 
      This should ensure that:
      - old users get old IDs on old mail, new IDs on new mail
      - new users get new IDs on all mail
+     
+     Scheme is 0 or 1
     */
     int scheme = _baseIDSchemaVersion;
     if (msg->header()->date() > SCHEMA_1_START_DATE || msg->header()->date() <= 0) {
@@ -548,6 +550,9 @@ string MailUtils::idForMessage(string accountId, string folderPath, IMAPMessage 
     src_str = src_str.append("-");
     if (scheme == 1) {
         time_t date = msg->header()->date();
+        if (date == -1) {
+            date = msg->header()->receivedDate();
+        }
         if (date > 0) {
             // Use the unix timestamp, not a formatted (localized) date
             src_str = src_str.append(to_string(date));
@@ -712,9 +717,9 @@ IMAPMessagesRequestKind MailUtils::messagesRequestKindFor(IndexSet * capabilitie
     
     if (heavyOrNeedToComputeIDs) {
         if (gmail) {
-            return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
+            return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindInternalDate | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
         }
-        return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
+        return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindInternalDate | IMAPMessagesRequestKindFlags);
     }
     
     if (gmail) {
