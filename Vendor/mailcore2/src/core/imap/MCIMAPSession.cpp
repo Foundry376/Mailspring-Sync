@@ -4232,7 +4232,9 @@ void IMAPSession::applyCapabilities(IndexSet * capabilities)
     if (capabilities->containsIndex(IMAPCapabilityId)) {
         mIdentityEnabled = true;
     }
-    if (capabilities->containsIndex(IMAPCapabilityXList)) {
+    if (mWelcomeString->locationOfString(MCSTR("IdeaImapServer")) != -1) {
+        // Home.pl servers running "IdeaImapServer" improperly advertise xlist or we can't parse the response.
+    } else if (capabilities->containsIndex(IMAPCapabilityXList)) {
         mXListEnabled = true;
     }
     if (capabilities->containsIndex(IMAPCapabilityGmail)) {
@@ -4258,11 +4260,8 @@ void IMAPSession::applyCapabilities(IndexSet * capabilities)
     }
     if (mHermesServer) {
         // Hermes server improperly advertise a namespace capability.
-    }
-    else {
-        if (capabilities->containsIndex(IMAPCapabilityNamespace)) {
-            mNamespaceEnabled = true;
-        }
+    } else if (capabilities->containsIndex(IMAPCapabilityNamespace)) {
+        mNamespaceEnabled = true;
     }
     if (capabilities->containsIndex(IMAPCapabilityCompressDeflate)) {
         mCompressionEnabled = true;
