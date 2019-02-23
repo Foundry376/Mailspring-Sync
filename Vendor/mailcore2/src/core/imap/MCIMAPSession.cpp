@@ -1977,6 +1977,63 @@ void IMAPSession::moveMessages(String * folder, IndexSet * uidSet, String * dest
     mailimap_set_free(set);
 }
 
+void IMAPSession::findUIDsOfRecentHeaderMessageID(String * folder, String * headerMessageID, IndexSet * uids) {
+    IndexSet * set = new IndexSet();
+    ErrorCode err;
+
+    selectIfNeeded(folder, &err);
+    if (err != ErrorNone) {
+        return;
+    }
+    
+    int min = lastFolderMessageCount() > 15 ? (lastFolderMessageCount() - 15) : 0;
+    set->addRange(RangeMake(min, lastFolderMessageCount() - min));
+    Array * lastFew = fetchMessagesByNumber(folder, IMAPMessagesRequestKindHeaders, set, nullptr, &err);
+    if (err != ErrorNone) {
+        return;
+    }
+    
+    for (int ii = 0; ii < lastFew->count(); ii ++) {
+        auto msg = (IMAPMessage *)lastFew->objectAtIndex(ii);
+        if (msg->header()->messageID()->isEqual(headerMessageID)) {
+            uids->addIndex(msg->uid());
+        }
+    }
+}
+
+void IMAPSession::expungeUIDs(String * folder, IndexSet * uidSet, ErrorCode *pError)
+{
+    int r;
+    struct mailimap_set * set;
+    
+    set = setFromIndexSet(uidSet);
+    if (clist_count(set->set_list) == 0) {
+        mailimap_set_free(set);
+        return;
+    }
+    
+    selectIfNeeded(folder, pError);
+    if (* pError != ErrorNone)
+        return;
+
+    r =  mailimap_uid_expunge(mImap, set);
+    if (r == MAILIMAP_ERROR_STREAM) {
+        mShouldDisconnect = true;
+        * pError = ErrorConnection;
+        return;
+    }
+    else if (r == MAILIMAP_ERROR_PARSE) {
+        mShouldDisconnect = true;
+        * pError = ErrorParse;
+        return;
+    }
+    else if (hasError(r)) {
+        * pError = ErrorExpunge;
+        return;
+    }
+    * pError = ErrorNone;
+}
+
 void IMAPSession::expunge(String * folder, ErrorCode * pError)
 {
     int r;

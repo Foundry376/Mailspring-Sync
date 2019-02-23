@@ -95,6 +95,10 @@ namespace mailcore {
         virtual void moveMessages(String * folder, IndexSet * uidSet, String * destFolder,
                                   HashMap ** pUidMapping, ErrorCode * pError);
 
+        virtual void findUIDsOfRecentHeaderMessageID(String * folder, String * headerMessageID, IndexSet * uids);
+
+        virtual void expungeUIDs(String * folder, IndexSet * uidSet, ErrorCode *pError);
+        
         virtual void expunge(String * folder, ErrorCode * pError);
         
         virtual Array * /* IMAPMessage */ fetchMessagesByUID(String * folder, IMAPMessagesRequestKind requestKind,
