@@ -303,6 +303,15 @@ void MailStore::rollbackTransaction() {
     _transactionOpen = false;
 }
 
+// This method allows you to perform work in a transaction and then prevent the
+// transaction from emitting any deltas to the client app. If you KNOW the
+// transaction is only changing internal data, you can safely do this without the
+// client falling out of sync and it can be a performance win in key places where
+// many unnecessary updates would cause thrashing on the JS side.
+void MailStore::unsafeEraseTransactionDeltas() {
+    _transactionDeltas = {};
+}
+
 void MailStore::commitTransaction() {
     _stmtCommitTransaction.exec();
     _stmtCommitTransaction.reset();
@@ -316,7 +325,7 @@ void MailStore::commitTransaction() {
 
 }
 
-void MailStore::save(MailModel * model, bool emit) {
+void MailStore::save(MailModel * model) {
     assertCorrectThread();
 
     model->incrementVersion();
@@ -370,10 +379,8 @@ void MailStore::save(MailModel * model, bool emit) {
         globalLabelsVersion += 1;
     }
 
-    if (emit) {
-        DeltaStreamItem delta {DELTA_TYPE_PERSIST, model};
-        _emit(delta);
-    }
+    DeltaStreamItem delta {DELTA_TYPE_PERSIST, model};
+    _emit(delta);
 }
 
 void MailStore::saveFolderStatus(Folder * folder, json & initialStatus) {

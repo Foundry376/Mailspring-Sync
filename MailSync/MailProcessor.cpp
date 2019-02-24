@@ -153,12 +153,17 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         // Make the thread accessible by all of the message references
         upsertThreadReferences(thread->id(), thread->accountId(), msg->headerMessageId(), references);
 
-        // Index contacts for autocomplete
-        upsertContacts(msg.get());
-
         transaction.commit();
     }
-    
+
+    {
+        // Index contacts for autocomplete. We do this separately in a transaction that does not
+        // emit any deltas, since the client doesn't need to be bothered with contacts changes.
+        MailStoreTransaction transaction{store};
+        upsertContacts(msg.get());
+        store->unsafeEraseTransactionDeltas();
+        transaction.commit();
+    }
     return msg;
 }
 
@@ -362,11 +367,12 @@ void MailProcessor::unlinkMessagesMatchingQuery(Query & query, int phase)
                 logger->info("-- Unlinking \"{}\" ({})", msg->subject(), msg->id());
             }
             msg->setRemoteUID(UINT32_MAX - phase);
-            
-            // we know we don't need to emit this change because the client can't see the remoteUID
-            store->save(msg.get(), false);
+            store->save(msg.get());
         }
 
+        // we know we don't need to emit this change because the client can't see the remoteUID,
+        // the only change that we make here.
+        store->unsafeEraseTransactionDeltas();
         transaction.commit();
     }
 }
@@ -532,7 +538,7 @@ void MailProcessor::upsertContacts(Message * message) {
         // update refcounts of existing items if this is a sent message
         if (incrementCounters) {
             result->incrementRefs();
-            store->save(result.get(), false);
+            store->save(result.get());
         }
         byEmail.erase(result->email());
     }
@@ -549,7 +555,7 @@ void MailProcessor::upsertContacts(Message * message) {
         if (incrementCounters) {
             c.incrementRefs();
         }
-        store->save(&c, false);
+        store->save(&c);
         
         // also index for search
         searchInsert.bind(1, c.id());
