@@ -89,9 +89,11 @@ public:
     
     void rollbackTransaction();
 
+    void unsafeEraseTransactionDeltas();
+
     void commitTransaction();
 
-    void save(MailModel * model, bool emit = true);
+    void save(MailModel * model);
 
     void saveFolderStatus(Folder * folder, json & initialLocalStatus);
 
