@@ -453,16 +453,16 @@ void TaskProcessor::performRemote(Task * task) {
             task->setStatus("cancelled");
         } else {
             if (cname == "ChangeUnreadTask") {
-                performRemoteChangeOnMessages(task, _applyUnreadInIMAPFolder);
+                performRemoteChangeOnMessages(task, false, _applyUnreadInIMAPFolder);
                 
             } else if (cname == "ChangeStarredTask") {
-                performRemoteChangeOnMessages(task, _applyStarredInIMAPFolder);
+                performRemoteChangeOnMessages(task, false, _applyStarredInIMAPFolder);
                 
             } else if (cname == "ChangeFolderTask") {
-                performRemoteChangeOnMessages(task, _applyFolderMoveInIMAPFolder);
+                performRemoteChangeOnMessages(task, true, _applyFolderMoveInIMAPFolder);
 
             } else if (cname == "ChangeLabelsTask") {
-                performRemoteChangeOnMessages(task, _applyLabelChangeInIMAPFolder);
+                performRemoteChangeOnMessages(task, false, _applyLabelChangeInIMAPFolder);
                 
             } else if (cname == "SyncbackDraftTask") {
                 // right now we don't syncback drafts
@@ -656,7 +656,7 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
     transaction.commit();
 }
 
-void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data)) {
+void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool updatesFolder, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data)) {
     // Perform the remote action on the impacted messages
     json & data = task->data();
     
@@ -691,7 +691,7 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFol
     }
     
     // Reload the messages inside a transaction, save any changes made to "remote" attributes
-    // by applyInFolder and decrement locks
+    // by applyInFolder and decrement locks.
     {
         MailStoreTransaction transaction{store};
         vector<shared_ptr<Message>> safeMessages = inflateMessages(data).messages;
@@ -702,20 +702,25 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, void (*applyInFol
                 continue;
             }
             auto unsafe = messagesById[safe->id()];
-            safe->setRemoteUID(unsafe->remoteUID());
-            safe->setRemoteFolder(unsafe->remoteFolder());
-            safe->setRemoteXGMLabels(unsafe->remoteXGMLabels());
+
+            // NOTE: We only want to apply the attributes the `applyInFolder` method modifies
+            // to avoid overwriting other changes that may have happened. For example, running
+            // performRemote on a ChangeUnreadTask shouldn't set setRemoteFolder.
+            if (updatesFolder) {
+                safe->setRemoteUID(unsafe->remoteUID());
+                safe->setRemoteFolder(unsafe->remoteFolder());
+            }
             int suc = safe->syncUnsavedChanges() - 1;
             safe->setSyncUnsavedChanges(suc);
             if (suc == 0) {
                 safe->setSyncedAt(time(0));
             }
-            
-            // We know we do not need to `emit` this change, because it's all internal fields and
-            // remote values, not things reflected in the client. This is good for perf because
-            // the client does silly things like refresh MessageItems when new versions arrive.
-            store->save(safe.get(), false);
+            store->save(safe.get());
         }
+        // We know we do not need to `emit` this change, because it's all internal fields and
+        // remote values, not things reflected in the client. This is good for perf because
+        // the client does silly things like refresh MessageItems when new versions arrive.
+        store->unsafeEraseTransactionDeltas();
         transaction.commit();
     }
 }
