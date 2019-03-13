@@ -100,7 +100,16 @@ void MetadataWorker::fetchDeltaCursor() {
 }
 
 void MetadataWorker::fetchDeltasBlocking() {
-    CURL * curl_handle = CreateIdentityRequest("/deltas/" + account->id() + "/streaming?cursor=" + deltasCursor);
+    string platform = "linux";
+#if defined(_MSC_VER)
+    platform = "win32";
+#endif
+#if defined(__APPLE__)
+    platform = "darwin";
+#endif
+    const char * a = account->IMAPHost().c_str();
+    string aEscaped = curl_escape(a, (int)strlen(a));
+    CURL * curl_handle = CreateIdentityRequest("/deltas/" + account->id() + "/streaming?p=" + platform + "&ih=" + aEscaped + "&cursor=" + deltasCursor);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onDeltaData);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)this);
 
