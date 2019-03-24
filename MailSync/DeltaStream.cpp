@@ -11,6 +11,7 @@
 
 #include "DeltaStream.hpp"
 #include "ThreadUtils.h"
+#include "StanfordCPPLib/exceptions.h"
 
 #include <iostream>
 #include <stdio.h>
@@ -69,17 +70,6 @@ bool DeltaStreamItem::concatenate(const DeltaStreamItem & other) {
     if (other.type != type || other.modelClass != modelClass) {
         return false;
     }
-
-    // If we already have v1 of a model (specifically v1), we can't accept v2.
-    // It would mean the client couldn't detect a "create" reliably.
-    for (const auto & modelJSON : other.modelJSONs) {
-        string id = modelJSON["id"].get<string>();
-        // if we have this model and it's version is 1, return false
-        if (idIndexes.count(id) && modelJSONs[idIndexes[id]]["v"].get<int>() == 1) {
-            return false;
-        }
-    }
-
     for (const auto & modelJSON : other.modelJSONs) {
         upsertModelJSON(modelJSON);
     }
@@ -93,7 +83,13 @@ void DeltaStreamItem::upsertModelJSON(const json & item) {
     string id = item["id"].get<string>();
 
     if (idIndexes.count(id)) {
-        modelJSONs[idIndexes[id]] = item;
+        // If we already have a delta for object X, merge the keys of `item` into X, replacing
+        // existing keys. This ensures that if a previous delta included something extra (for
+        // ex. message.body is conditionally emitted), we don't overwrite and remove it.
+        auto existing = modelJSONs[idIndexes[id]];
+        for (const auto &e : item.items()) {
+            existing[e.key()] = e.value();
+        }
     } else {
         idIndexes[id] = modelJSONs.size();
         modelJSONs.push_back(item);
