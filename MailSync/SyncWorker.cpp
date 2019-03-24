@@ -913,34 +913,50 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         return false;
     }
 
-    vector<Message> results{};
+    vector<string> ids{};
+    vector<shared_ptr<Message>> results{};
 
+    // very slow query = 400ms+
+    SQLite::Statement missing(store->db(), "SELECT Message.id, Message.remoteUID FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.accountId = ? AND Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.id IS NULL ORDER BY Message.date DESC LIMIT 30");
+    missing.bind(1, folder.accountId());
+    missing.bind(2, folder.id());
+    missing.bind(3, (double)(time(0) - maxAgeForBodySync(folder))); // three months TODO pref!
+    while (missing.executeStep()) {
+        if (missing.getColumn(1).getUInt() >= UINT32_MAX - 2) {
+            continue; // message is scheduled for cleanup
+        }
+        ids.push_back(missing.getColumn(0).getString());
+    }
+    
     {
         MailStoreTransaction transaction { store };
 
-        SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.id IS NULL ORDER BY Message.date DESC LIMIT 30");
-        missing.bind(1, folder.id());
-        missing.bind(2, (double)(time(0) - maxAgeForBodySync(folder))); // three months TODO pref!
-        while (missing.executeStep()) {
-            Message msg{missing};
-            if (msg.remoteUID() >= UINT32_MAX - 2) {
-                continue; // message is scheduled for cleanup
-            }
-            results.push_back(msg);
+        // very fast query for the messages found during very slow query that still have no message body.
+        // Inserting empty message body reserves them for processing here. We do this within a transaction
+        // to ensure we don't process the same message twice.
+        SQLite::Statement stillMissing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.id IN (" + MailUtils::qmarks(ids.size()) + ") AND MessageBody.id IS NULL");
+        int ii = 1;
+        for (auto id : ids) {
+            stillMissing.bind(ii++, id);
         }
-        
-        SQLite::Statement insertPlaceholder(store->db(), "INSERT OR IGNORE INTO MessageBody (id, value) VALUES (?, ?)");
+        while (stillMissing.executeStep()) {
+            results.push_back(make_shared<Message>(stillMissing));
+        }
+        if (results.size() < ids.size()) {
+            logger->info("Body for {} messages already being fetched.", ids.size() - results.size());
+        }
 
+        SQLite::Statement insertPlaceholder(store->db(), "INSERT OR IGNORE INTO MessageBody (id, value) VALUES (?, ?)");
         for (auto result : results) {
             // write a blank entry into the MessageBody table so we'll only try to fetch each
             // message once. Otherwise a persistent ErrorFetch or crash for a single message
             // can cause the account to stay "syncing" forever.
-            insertPlaceholder.bind(1, result.id());
+            insertPlaceholder.bind(1, result->id());
             insertPlaceholder.bind(2);
             insertPlaceholder.exec();
             insertPlaceholder.reset();
         }
-        
+
         transaction.commit();
     }
 
@@ -955,7 +971,7 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         ls[LS_BODIES_PRESENT] = ls[LS_BODIES_PRESENT].get<long long>() + 1;
 
         // attempt to fetch the message boy
-        syncMessageBody(&result);
+        syncMessageBody(result.get());
     }
     
     return results.size() > 0;
