@@ -913,38 +913,47 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         return false;
     }
 
-    SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.id IS NULL ORDER BY Message.date DESC LIMIT 30");
-    missing.bind(1, folder.id());
-    missing.bind(2, (double)(time(0) - maxAgeForBodySync(folder))); // three months TODO pref!
     vector<Message> results{};
-    while (missing.executeStep()) {
-        Message msg{missing};
-        if (msg.remoteUID() >= UINT32_MAX - 2) {
-            continue; // message is scheduled for cleanup
+
+    {
+        MailStoreTransaction transaction { store };
+
+        SQLite::Statement missing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.id IS NULL ORDER BY Message.date DESC LIMIT 30");
+        missing.bind(1, folder.id());
+        missing.bind(2, (double)(time(0) - maxAgeForBodySync(folder))); // three months TODO pref!
+        while (missing.executeStep()) {
+            Message msg{missing};
+            if (msg.remoteUID() >= UINT32_MAX - 2) {
+                continue; // message is scheduled for cleanup
+            }
+            results.push_back(msg);
         }
-        results.push_back(msg);
+        
+        SQLite::Statement insertPlaceholder(store->db(), "INSERT OR IGNORE INTO MessageBody (id, value) VALUES (?, ?)");
+
+        for (auto result : results) {
+            // write a blank entry into the MessageBody table so we'll only try to fetch each
+            // message once. Otherwise a persistent ErrorFetch or crash for a single message
+            // can cause the account to stay "syncing" forever.
+            insertPlaceholder.bind(1, result.id());
+            insertPlaceholder.bind(2);
+            insertPlaceholder.exec();
+            insertPlaceholder.reset();
+        }
+        
+        transaction.commit();
     }
-    
-    SQLite::Statement insertPlaceholder(store->db(), "INSERT OR IGNORE INTO MessageBody (id, value) VALUES (?, ?)");
 
     json & ls = folder.localStatus();
     if (!ls.count(LS_BODIES_PRESENT) || !ls[LS_BODIES_PRESENT].is_number()) {
         ls[LS_BODIES_PRESENT] = 0;
     }
-
+    
     for (auto result : results) {
         // increment local sync state - it's fine if this sometimes fails to save,
         // we recompute the value via COUNT(*) during cleanup
         ls[LS_BODIES_PRESENT] = ls[LS_BODIES_PRESENT].get<long long>() + 1;
 
-        // write a blank entry into the MessageBody table so we'll only try to fetch each
-        // message once. Otherwise a persistent ErrorFetch or crash for a single message
-        // can cause the account to stay "syncing" forever.
-        insertPlaceholder.bind(1, result.id());
-        insertPlaceholder.bind(2);
-        insertPlaceholder.exec();
-        insertPlaceholder.reset();
-        
         // attempt to fetch the message boy
         syncMessageBody(&result);
     }
