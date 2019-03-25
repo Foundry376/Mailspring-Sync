@@ -489,7 +489,7 @@ json Message::toJSONDispatch() {
     json j = toJSON();
     if (_bodyForDispatch.length() > 0) {
         j["body"] = _bodyForDispatch;
-        j["bodyFetchedPerformMailRules"] = true;
+        j["fullSyncComplete"] = true;
     }
     return j;
 }
