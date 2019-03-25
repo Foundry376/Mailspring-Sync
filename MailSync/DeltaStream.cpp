@@ -90,6 +90,7 @@ void DeltaStreamItem::upsertModelJSON(const json & item) {
         for (const auto &e : item.items()) {
             existing[e.key()] = e.value();
         }
+        modelJSONs[idIndexes[id]] = existing;
     } else {
         idIndexes[id] = modelJSONs.size();
         modelJSONs.push_back(item);
