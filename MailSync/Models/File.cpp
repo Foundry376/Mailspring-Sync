@@ -38,19 +38,30 @@ File::File(Message * msg, Attachment * a) :
         name = a->filename()->UTF8Characters();
     }
     if (name == "") {
-        if (_data["contentType"] == "text/calendar") {
+        name = "Unnamed Attachment";
+
+        string type = _data["contentType"];
+        if (type == "text/calendar") {
             name = "Event.ics";
         }
-        if (_data["contentType"] == "image/png") {
+        if (type == "image/png" || type == "image/x-png") {
             name = "Unnamed Image.png";
         }
-        if (_data["contentType"] == "image/jpg") {
+        if (type == "image/jpg") {
             name = "Unnamed Image.jpg";
         }
-        if (_data["contentType"] == "image/jpeg") {
+        if (type == "image/jpeg") {
             name = "Unnamed Image.jpg";
         }
-        name = "Unnamed Attachment";
+        if (type == "image/gif") {
+            name = "Unnamed Image.gif";
+        }
+        if (type == "message/delivery-status") {
+            name = "Delivery Status.txt";
+        }
+        if (type == "message/feedback-report") {
+            name = "Feedback Report.txt";
+        }
     }
     
     _data["filename"] = name;
