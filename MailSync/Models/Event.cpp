@@ -42,6 +42,7 @@ Event::Event(string etag, string accountId, string calendarId, string ics, ICale
     _data["cid"] = calendarId;
     _data["ics"] = ics;
     _data["etag"] = etag;
+    _data["icsuid"] = event->UID;
 
     // Build our start and end time from the ics data. These values represent the time range in which
     // the event needs to be considered for display, so we include the entire time the event is recurring.
@@ -70,6 +71,10 @@ string Event::icsData() {
     return _data["ics"].get<string>();
 }
 
+string Event::icsUID() {
+    return _data["icsuid"].get<string>();
+}
+
 string Event::etag() {
     return _data["etag"].get<string>();
 }
@@ -83,12 +88,13 @@ int Event::recurrenceEnd() {
 }
 
 vector<string> Event::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "etag", "calendarId", "recurrenceStart", "recurrenceEnd"};
+    return vector<string>{"id", "data", "icsuid", "accountId", "etag", "calendarId", "recurrenceStart", "recurrenceEnd"};
 }
 
 void Event::bindToQuery(SQLite::Statement * query) {
     query->bind(":id", id());
     query->bind(":data", this->toJSON().dump());
+    query->bind(":icsuid", icsUID());
     query->bind(":accountId", accountId());
     query->bind(":etag", etag());
     query->bind(":calendarId", calendarId());

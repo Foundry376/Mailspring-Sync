@@ -37,7 +37,8 @@ Event(string etag, string accountId, string calendarId, string ics, ICalendarEve
     string etag();
     string calendarId();
     string icsData();
-
+    string icsUID();
+    
     int recurrenceStart();
     int recurrenceEnd();
 
