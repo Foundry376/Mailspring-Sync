@@ -76,6 +76,7 @@ private:
 
     void performRemoteExpungeAllInFolder(Task * task);
     void performRemoteGetMessageRFC2822(Task * task);
+    void performRemoteSendRSVP(Task * task);
 
 };
 

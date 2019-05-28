@@ -421,6 +421,9 @@ void TaskProcessor::performLocal(Task * task) {
         } else if (cname == "GetMessageRFC2822Task") {
             // nothing
 
+        } else if (cname == "EventRSVPTask") {
+            // nothing
+
         } else {
             logger->error("Unsure of how to process this task type {}", cname);
         }
@@ -494,6 +497,9 @@ void TaskProcessor::performRemote(Task * task) {
             } else if (cname == "GetMessageRFC2822Task") {
                 performRemoteGetMessageRFC2822(task);
 
+            } else if (cname == "EventRSVPTask") {
+                performRemoteSendRSVP(task);
+                
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
             }
@@ -1362,4 +1368,72 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
 #else
     data->writeToFile(AS_MCSTR(filepath));
 #endif
+}
+
+
+
+void TaskProcessor::performRemoteSendRSVP(Task * task) {
+    AutoreleasePool pool;
+    ErrorCode err = ErrorNone;
+    
+    if (!task->data().count("ics") || !task->data().count("subject") || !task->data().count("to")) {
+        throw SyncException(err, "missing-json");
+    }
+    
+    // load the draft and body from the task
+    string ics = task->data()["ics"].get<string>();
+    string icsMethod = "REPLY";
+    string subject = task->data()["subject"].get<string>();
+    string organizer = task->data()["to"].get<string>();
+
+    // build the MIME message
+    MessageBuilder builder;
+    builder.header()->setSubject(AS_MCSTR(subject));
+    builder.header()->setUserAgent(MCSTR("Mailspring"));
+    builder.header()->setDate(time(0));
+
+    Array * to = new Array();
+    to->addObject(Address::addressWithMailbox(AS_MCSTR(organizer)));
+    builder.header()->setTo(to);
+    
+    Array * replyTo = new Array();
+    Address * me = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
+    replyTo->addObject(me);
+
+    builder.header()->setReplyTo(replyTo);
+    builder.header()->setFrom(me);
+    builder.setTextBody(MCSTR(""));
+    
+    Data * data;
+    Attachment * icsAttachment;
+    
+    icsAttachment = new Attachment();
+    icsAttachment->setMimeType(MCSTR("text/calendar"));
+    icsAttachment->setContentTypeParameter(MCSTR("method"), AS_MCSTR(icsMethod));
+    data = AS_MCSTR(ics)->dataUsingEncoding("utf-8");
+    icsAttachment->setData(data);
+    builder.addAttachment(icsAttachment);
+    icsAttachment->autorelease();
+    
+    // Save the message data / body we'll write to the sent folder
+    Data * messageDataForSent = builder.data();
+    
+    /*
+     OK! If we've reached this point we're going to deliver the message. To do multisend,
+     we need to hit the SMTP gateway more than once. If one request fails we stop and mark
+     the task as failed, but keep track of who got the message.
+     */
+    
+    SMTPSession smtp;
+    SMTPProgress sprogress;
+    MailUtils::configureSessionForAccount(smtp, account);
+    string succeeded;
+
+    logger->info("-- Sending RSVP to organizer {}", organizer);
+    smtp.sendMessage(messageDataForSent, &sprogress, &err);
+
+    if (err != ErrorNone) {
+        logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], to_string(smtp.lastLibetpanError()));
+        throw SyncException("send-failed", ErrorCodeToTypeMap[err], false);
+    }
 }

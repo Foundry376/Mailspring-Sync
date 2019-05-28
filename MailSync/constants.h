@@ -196,6 +196,11 @@ static vector<string> V6_SETUP_QUERIES = {
     "CREATE INDEX IF NOT EXISTS EventETag ON Event(calendarId, etag)",
 };
 
+static vector<string> V7_SETUP_QUERIES = {
+    "ALTER TABLE `Event` ADD COLUMN icsuid VARCHAR(150)",
+    "CREATE INDEX IF NOT EXISTS EventUID ON Event(accountId, icsuid)",
+};
+
 
 static map<string, string> COMMON_FOLDER_NAMES = {
     {"gel\xc3\xb6scht", "trash"},
