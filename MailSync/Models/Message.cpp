@@ -75,9 +75,9 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
     
     Array * irt = msg->header()->inReplyTo();
     if (irt && irt->count() && irt->lastObject()) {
-        _data["rtMsgId"] = ((String*)irt->lastObject())->UTF8Characters();
+        _data["rthMsgId"] = ((String*)irt->lastObject())->UTF8Characters();
     } else {
-        _data["rtMsgId"] = nullptr;
+        _data["rthMsgId"] = nullptr;
     }
 
     MessageAttributes attrs = MessageAttributesForMessage(msg);
