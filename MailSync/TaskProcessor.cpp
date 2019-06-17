@@ -529,58 +529,62 @@ void TaskProcessor::cancel(string taskId) {
 #pragma mark Privates
 
 Message TaskProcessor::inflateDraft(json & draftJSON) {
-    Query q = Query().equal("accountId", account->id()).equal("role", "drafts");
-    auto folder = store->find<Folder>(q);
-    if (folder.get() == nullptr) {
-        q = Query().equal("accountId", account->id()).equal("role", "all");
-        folder = store->find<Folder>(q);
-    }
-    if (folder == nullptr) {
-        throw SyncException("no-drafts-folder", "Mailspring can't find your Drafts folder. To create and send mail, visit Preferences > Folders and choose a Drafts folder.", false);
-    }
-
-    draftJSON["folder"] = folder->toJSON();
-    draftJSON["remoteFolder"] = folder->toJSON();
+    Query q = Query().equal("headerMessageId", draftJSON["hMsgId"].get<string>()).equal("accountId", account->id());
+    auto existing = store->find<Message>(q);
     
-    // set other JSON attributes the client may not have populated,
-    // but we require to be non-null
-    draftJSON["remoteUID"] = 0;
-    draftJSON["draft"] = true;
-    draftJSON["unread"] = false;
-    draftJSON["starred"] = false;
+    // set other JSON attributes the client may not have populated, but we require to be non-null
+    
+    // Note BG 2019 - I don't know why this is so defensive. I guess these objects JSON is created client-side
+    // and we don't want the C++ to need to trust that the JS and the C++ are exactly aligned?
+    
+    // Followup: This is because the client only serializes the fields it's aware of, so remoteUID, etc.
+    // ARE actually missing.
+    
+    json base;
+    if (existing) {
+        base = existing->_data;
+    } else {
+        Query q = Query().equal("accountId", account->id()).equal("role", "drafts");
+        auto folder = store->find<Folder>(q);
+        if (folder.get() == nullptr) {
+            q = Query().equal("accountId", account->id()).equal("role", "all");
+            folder = store->find<Folder>(q);
+        }
+        if (folder == nullptr) {
+            throw SyncException("no-drafts-folder", "Mailspring can't find your Drafts folder. To create and send mail, visit Preferences > Folders and choose a Drafts folder.", false);
+        }
+        base = {
+            {"remoteUID", 0},
+            {"draft", true},
+            {"unread", false},
+            {"starred", false},
+            {"folder", folder->toJSON()},
+            {"remoteFolder", folder->toJSON()},
+            {"date", time(0)},
+            {"_sa", 0},
+            {"_suc", 0},
+            {"labels", json::array()},
+            {"id", MailUtils::idForDraftHeaderMessageId(draftJSON["aid"], draftJSON["hMsgId"])},
+            {"threadId", ""},
+            {"gMsgId", ""},
+            {"files", json::array()},
+            {"from", json::array()},
+            {"to", json::array()},
+            {"cc", json::array()},
+            {"bcc", json::array()},
+            {"replyTo", json::array()},
+        };
+    }
+
+    // Take the base values (either our local copy of the draft with our metadata, or a new stub) and smash in
+    // the values provided by the client. This allows us to retain the actual remoteUID, remoteFolder, etc. if
+    // the draft is synced remotely.
+    
+    draftJSON.insert(base.begin(), base.end());
+    
+    // Always update the timestamp
     draftJSON["date"] = time(0);
-    draftJSON["_sa"] = 0;
-    draftJSON["_suc"] = 0;
-    draftJSON["labels"] = json::array();
-
-    if (!draftJSON.count("id") || draftJSON["id"].is_null()) {
-        draftJSON["id"] = MailUtils::idForDraftHeaderMessageId(draftJSON["aid"], draftJSON["hMsgId"]);
-    }
-    if (!draftJSON.count("threadId") || draftJSON["threadId"].is_null()) {
-        draftJSON["threadId"] = "";
-    }
-    if (!draftJSON.count("gMsgId") || draftJSON["gMsgId"].is_null()) {
-        draftJSON["gMsgId"] = "";
-    }
-    if (!draftJSON.count("files") || draftJSON["files"].is_null()) {
-        draftJSON["files"] = json::array();
-    }
-    if (!draftJSON.count("from") || draftJSON["from"].is_null()) {
-        draftJSON["from"] = json::array();
-    }
-    if (!draftJSON.count("to") || draftJSON["to"].is_null()) {
-        draftJSON["to"] = json::array();
-    }
-    if (!draftJSON.count("cc") || draftJSON["cc"].is_null()) {
-        draftJSON["cc"] = json::array();
-    }
-    if (!draftJSON.count("bcc") || draftJSON["bcc"].is_null()) {
-        draftJSON["bcc"] = json::array();
-    }
-    if (!draftJSON.count("replyTo") || draftJSON["replyTo"].is_null()) {
-        draftJSON["replyTo"] = json::array();
-    }
-
+    
     auto msg = Message{draftJSON};
     
     if (msg.accountId() != account->id()) {
@@ -1102,11 +1106,21 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     }
     
     /* 
-     Sending complete! Next, scan the sent folder for the message(s) we just sent through the SMTP
+     Sending complete! First, delete the draft from the server so the user knows it has been sent
+     and we don't re-sync it to the app after we delete it below.
+     */
+    if (draft.remoteUID() != 0) {
+        auto uids = IndexSet::indexSetWithIndex(draft.remoteUID());
+        String * path = AS_MCSTR(draft.remoteFolder()["path"].get<string>());
+        
+        logger->info("-- Deleting remote draft with UID {}", draft.remoteUID());
+        _removeMessagesResilient(session, store, account->id(), path, uids);
+    }
+
+     /* Next, scan the sent folder for the message(s) we just sent through the SMTP
      gateway and clean them up. Some mail servers automatically place messages in the sent
      folder, others don't.
      */
-
     uint32_t sentFolderMessageUID = 0;
     {
         // grab the last few items in the sent folder... we know we don't need more than 10
