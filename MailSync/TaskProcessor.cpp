@@ -957,10 +957,10 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     AutoreleasePool pool;
     ErrorCode err = ErrorNone;
 
-    // We never intend for a send task to run more than once. As soon as we
-    // successfully send a single SMTP request successfully, we set this bit
+    // We never intend for a send task to run more than once. We set this bit
     // to ensure that - even if we don't report failures properly - we never
-    // get a send task "stuck" in the queue sending over and over.
+    // get a send task "stuck" in the queue sending over and over. All retries
+    // are user-triggered and create a new task.
     if (task->data().count("_performRemoteRan")) { return; }
     task->data()["_performRemoteRan"] = true;
     store->save(task);
@@ -1191,7 +1191,8 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                 if (thread) {
                     Array * xgmValues = new Array();
                     for (auto & l : thread->labels()) {
-                        if (l["role"] == "inbox") { continue; }
+                        string role = l["role"].get<string>();
+                        if (role == "inbox" || role == "sent" || role == "drafts") { continue; }
                         string xgm = _xgmKeyForLabel(l);
                         logger->info("-- Will add label to new message: {}", xgm);
                         xgmValues->addObject(AS_MCSTR(xgm));
