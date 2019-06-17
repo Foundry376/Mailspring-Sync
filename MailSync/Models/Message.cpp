@@ -85,7 +85,10 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
     _data["starred"] = attrs.starred;
     _data["labels"] = attrs.labels;
     _data["draft"] = attrs.draft;
-    
+    if (folder.role() == "drafts") {
+        _data["draft"] = true;
+    }
+
     _data["extraHeaders"] = json::object();
     auto extra = msg->header()->allExtraHeadersNames();
     for (int ii = 0; ii < extra->count(); ii ++) {
