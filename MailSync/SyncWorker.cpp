@@ -680,17 +680,23 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
     IMAPProgress cb;
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(folder.path()));
-    time_t syncDataTimestamp = time(0);
     int heavyNeededIdeal = 0;
     
+    // Step 1: Fetch the local attributes (unread, starred, etc.)
+    // Note: we do this first because the remote fetch may take a long time, and if the data that
+    // comes back is already stale, we want to calculate changes (deletes, especially) based on
+    // old <> old, not new <> old, since new, freshly downloaded messages will always be missing
+    // in the stale server set and will be marked for deletion. Re-downloading is better.
+    map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(range, folder));
+
+    // Step 2: Fetch the remote attributes (unread, starred, etc.) for the same UID range
+    time_t syncDataTimestamp = time(0);
     auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), heavyInitialRequest);
     Array * remote = session.fetchMessagesByUID(&path, kind, set, &cb, &err);
     if (err) {
         throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID");
     }
 
-    // Step 2: Fetch the local attributes (unread, starred, etc.) for the same UID range
-    map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(range, folder));
     clock_t lastSleepClock = clock();
 
     logger->info("- remote={}, local={}", remote->count(), local.size());
