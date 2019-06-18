@@ -53,7 +53,7 @@ public:
 private:
     ChangeMailModels inflateMessages(json & data);
     ChangeMailModels inflateThreadsAndMessages(json & data);
-    Message inflateDraft(json & draftJSON);
+    Message inflateClientDraftJSON(json & draftJSON, shared_ptr<Message> existing);
 
     void performLocalChangeOnMessages(Task * task,  void (*modifyLocalMessage)(Message *, json &));
     void performRemoteChangeOnMessages(Task * task, bool updatesFolder, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data));
