@@ -449,7 +449,7 @@ void Message::afterSave(MailStore * store) {
     if (threadId() == "") {
         return;
     }
-    auto thread = store->find<Thread>(Query().equal("accountId", accountId()).equal("id", threadId()));
+    auto thread = store->find<Thread>(Query().equal("id", threadId()));
     if (thread == nullptr) {
         return;
     }
@@ -469,7 +469,7 @@ void Message::afterRemove(MailStore * store) {
     if (threadId() == "") {
         return;
     }
-    auto thread = store->find<Thread>(Query().equal("accountId", accountId()).equal("id", threadId()));
+    auto thread = store->find<Thread>(Query().equal("id", threadId()));
     if (thread == nullptr) {
         return;
     }

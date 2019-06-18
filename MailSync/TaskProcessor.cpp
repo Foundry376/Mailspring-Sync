@@ -528,10 +528,7 @@ void TaskProcessor::cancel(string taskId) {
 
 #pragma mark Privates
 
-Message TaskProcessor::inflateDraft(json & draftJSON) {
-    Query q = Query().equal("headerMessageId", draftJSON["hMsgId"].get<string>()).equal("accountId", account->id());
-    auto existing = store->find<Message>(q);
-    
+Message TaskProcessor::inflateClientDraftJSON(json & draftJSON, shared_ptr<Message> existing = nullptr) {
     // set other JSON attributes the client may not have populated, but we require to be non-null
     
     // Note BG 2019 - I don't know why this is so defensive. I guess these objects JSON is created client-side
@@ -581,7 +578,7 @@ Message TaskProcessor::inflateDraft(json & draftJSON) {
     // the draft is synced remotely.
     
     draftJSON.insert(base.begin(), base.end());
-    
+
     // Always update the timestamp
     draftJSON["date"] = time(0);
     
@@ -737,29 +734,34 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool updatesFolde
 
 void TaskProcessor::performLocalSaveDraft(Task * task) {
     json & draftJSON = task->data()["draft"];
-    Message msg = inflateDraft(draftJSON);
-
+    
     {
         MailStoreTransaction transaction{store};
 
         // If the draft already exists, we need to visibly change it's attributes
         // to trigger the correct didSave hooks, etc. Find and update it.
-        auto existing = store->find<Message>(Query().equal("accountId", msg.accountId()).equal("id", msg.id()));
+        shared_ptr<Message> existing = nullptr;
+        if (draftJSON.count("id")) {
+            existing = store->find<Message>(Query().equal("id", draftJSON["id"].get<string>()));
+        }
+
+        Message draft = inflateClientDraftJSON(draftJSON, existing);
+
         if (existing) {
             // NOTE: to accept all changes we just swap the data BUT, the new data
             // may have an outdated version and the version dicates whether we
             // INSERT or UPDATE. It's critical we bump the version of `existing`.
             int existingVersion = existing->version();
-            existing->_data = msg._data;
+            existing->_data = draft._data;
             existing->_data["v"] = existingVersion + 1;
             store->save(existing.get());
         } else {
-            store->save(&msg);
+            store->save(&draft);
         }
 
         if (draftJSON.count("body")) {
             SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value) VALUES (?, ?)");
-            insert.bind(1, msg.id());
+            insert.bind(1, draft.id());
             insert.bind(2, draftJSON["body"].get<string>());
             insert.exec();
         }
@@ -968,9 +970,14 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     // load the draft and body from the task
     json & draftJSON = task->data()["draft"];
     json & perRecipientBodies = task->data()["perRecipientBodies"];
-    Message draft = inflateDraft(draftJSON);
     string body = draftJSON["body"].get<string>();
     bool multisend = perRecipientBodies.is_object();
+
+    shared_ptr<Message> existing = nullptr;
+    if (draftJSON.count("id")) {
+        existing = store->find<Message>(Query().equal("id", draftJSON["id"].get<string>()));
+    }
+    Message draft = inflateClientDraftJSON(draftJSON, existing);
     
     logger->info("- Sending draft {}", draft.headerMessageId());
 
@@ -1187,7 +1194,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         // the sent folder.
         if (session->storedCapabilities()->containsIndex(IMAPCapabilityGmail)) {
             if (draft.threadId() != "") {
-                auto thread = store->find<Thread>(Query().equal("accountId", draft.accountId()).equal("id", draft.threadId()));
+                auto thread = store->find<Thread>(Query().equal("id", draft.threadId()));
                 if (thread) {
                     Array * xgmValues = new Array();
                     for (auto & l : thread->labels()) {
@@ -1370,7 +1377,8 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
     ErrorCode err = ErrorNone;
     const auto id = task->data()["messageId"].get<string>();
     const auto filepath = task->data()["filepath"].get<string>();
-    auto msg = store->find<Message>(Query().equal("accountId", task->accountId()).equal("id", id));
+    
+    auto msg = store->find<Message>(Query().equal("id", id));
 
     Data * data = session->fetchMessageByUID(AS_MCSTR(msg->remoteFolder()["path"].get<string>()), msg->remoteUID(), &cb, &err);
     if (err != ErrorNone) {
