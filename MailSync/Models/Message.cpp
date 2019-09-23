@@ -494,5 +494,11 @@ json Message::toJSONDispatch() {
         j["body"] = _bodyForDispatch;
         j["fullSyncComplete"] = true;
     }
+    // We need to store this attribute because deltas can be flattened / concatenated together
+    // in the buffer before they're sent to the client, so it's possible for the client to only
+    // get V2 if bodies sync rapidly.
+    if (version() == 1) {
+        j["headersSyncComplete"] = true;
+    }
     return j;
 }
