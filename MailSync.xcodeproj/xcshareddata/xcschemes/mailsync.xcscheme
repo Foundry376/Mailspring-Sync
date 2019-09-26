@@ -27,8 +27,6 @@
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
-      <Testables>
-      </Testables>
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
@@ -38,8 +36,8 @@
             ReferencedContainer = "container:MailSync.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
-      <AdditionalOptions>
-      </AdditionalOptions>
+      <Testables>
+      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
@@ -67,6 +65,14 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
+            argument = "--account &apos;{&quot;id&quot;:&quot;c23f78f2&quot;,&quot;metadata&quot;:[],&quot;name&quot;:&quot;Ben Gotow&quot;,&quot;provider&quot;:&quot;icloud&quot;,&quot;emailAddress&quot;:&quot;bengotow@icloud.com&quot;,&quot;settings&quot;:{&quot;imap_allow_insecure_ssl&quot;:false,&quot;imap_host&quot;:&quot;imap.mail.me.com&quot;,&quot;imap_port&quot;:993,&quot;imap_security&quot;:&quot;SSL / TLS&quot;,&quot;imap_username&quot;:&quot;bengotow@icloud.com&quot;,&quot;smtp_allow_insecure_ssl&quot;:false,&quot;smtp_host&quot;:&quot;smtp.mail.me.com&quot;,&quot;smtp_port&quot;:587,&quot;smtp_security&quot;:&quot;STARTTLS&quot;,&quot;smtp_username&quot;:&quot;bengotow@icloud.com&quot;,&quot;imap_password&quot;:&quot;kihp-oghp-kasn-hgio&quot;,&quot;smtp_password&quot;:&quot;kihp-oghp-kasn-hgio&quot;},&quot;label&quot;:&quot;bengotow@icloud.com&quot;,&quot;autoaddress&quot;:{&quot;type&quot;:&quot;bcc&quot;,&quot;value&quot;:&quot;&quot;},&quot;aliases&quot;:[],&quot;syncState&quot;:&quot;ok&quot;,&quot;syncError&quot;:null,&quot;__cls&quot;:&quot;Account&quot;}&apos;"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--account &apos;{&quot;id&quot;:&quot;b1f50c49&quot;,&quot;metadata&quot;:[],&quot;name&quot;:&quot;Ben Gotow&quot;,&quot;provider&quot;:&quot;gmail&quot;,&quot;emailAddress&quot;:&quot;ben@foundry376.com&quot;,&quot;settings&quot;:{&quot;imap_host&quot;:&quot;imap.gmail.com&quot;,&quot;imap_port&quot;:993,&quot;imap_username&quot;:&quot;ben@foundry376.com&quot;,&quot;imap_security&quot;:&quot;SSL / TLS&quot;,&quot;imap_allow_insecure_ssl&quot;:false,&quot;smtp_host&quot;:&quot;smtp.gmail.com&quot;,&quot;smtp_port&quot;:587,&quot;smtp_username&quot;:&quot;ben@foundry376.com&quot;,&quot;smtp_security&quot;:&quot;STARTTLS&quot;,&quot;smtp_allow_insecure_ssl&quot;:false,&quot;refresh_client_id&quot;:&quot;662287800555-0a5h4ii0e9hsbpq0mqtul7fja0jhf9uf.apps.googleusercontent.com&quot;,&quot;refresh_token&quot;:&quot;1/Z2X9dNuR5kAhaQF82Xnkry0rfYSUbmOUGcYaMNqqoVw&quot;},&quot;label&quot;:&quot;ben@foundry376.com&quot;,&quot;autoaddress&quot;:{&quot;type&quot;:&quot;bcc&quot;,&quot;value&quot;:&quot;&quot;},&quot;aliases&quot;:[],&quot;syncState&quot;:&quot;ok&quot;,&quot;syncError&quot;:null,&quot;__cls&quot;:&quot;Account&quot;}&apos;"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
             argument = "--verbose"
             isEnabled = "NO">
          </CommandLineArgument>
@@ -79,7 +85,7 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--mode migrate"
+            argument = "--mode sync"
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
@@ -88,7 +94,11 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--account &apos;{&quot;id&quot;:&quot;5b33db9b&quot;,&quot;metadata&quot;:[],&quot;name&quot;:&quot;Ben Gotow (Careless)&quot;,&quot;provider&quot;:&quot;gmail&quot;,&quot;emailAddress&quot;:&quot;careless@foundry376.com&quot;,&quot;settings&quot;:{&quot;imap_allow_insecure_ssl&quot;:false,&quot;imap_host&quot;:&quot;imap.gmail.com&quot;,&quot;imap_port&quot;:&quot;993&quot;,&quot;imap_security&quot;:&quot;SSL / TLS&quot;,&quot;imap_username&quot;:&quot;careless@foundry376.com&quot;,&quot;smtp_allow_insecure_ssl&quot;:false,&quot;smtp_host&quot;:&quot;smtp.gmail.com&quot;,&quot;smtp_port&quot;:&quot;465&quot;,&quot;smtp_security&quot;:&quot;SSL / TLS&quot;,&quot;smtp_username&quot;:&quot;careless@foundry376.com&quot;,&quot;refresh_token&quot;:&quot;1/EFleGFaZwzg9HHXtPFg2qqheBaZ0a--eHhkTvr25qKU&quot;},&quot;label&quot;:&quot;careless@foundry376.com&quot;,&quot;aliases&quot;:[],&quot;syncState&quot;:&quot;ok&quot;,&quot;__cls&quot;:&quot;Account&quot;}&apos;"
-            isEnabled = "YES">
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--account &apos;{&quot;id&quot;:&quot;b1f50c49&quot;,&quot;metadata&quot;:[],&quot;name&quot;:&quot;Ben Gotow&quot;,&quot;provider&quot;:&quot;gmail&quot;,&quot;emailAddress&quot;:&quot;ben@foundry376.com&quot;,&quot;settings&quot;:{&quot;imap_host&quot;:&quot;imap.gmail.com&quot;,&quot;imap_port&quot;:993,&quot;imap_username&quot;:&quot;ben@foundry376.com&quot;,&quot;imap_security&quot;:&quot;SSL / TLS&quot;,&quot;imap_allow_insecure_ssl&quot;:false,&quot;smtp_host&quot;:&quot;smtp.gmail.com&quot;,&quot;smtp_port&quot;:587,&quot;smtp_username&quot;:&quot;ben@foundry376.com&quot;,&quot;smtp_security&quot;:&quot;STARTTLS&quot;,&quot;smtp_allow_insecure_ssl&quot;:false,&quot;refresh_client_id&quot;:&quot;581706103933-sobipuocao73ud9atmu0t7hlmmactlef.apps.googleusercontent.com&quot;,&quot;refresh_token&quot;:&quot;1/fU0rhzj_MG2Pu7fysWqv4ttHgwEYajEG2-DodWngT7g&quot;},&quot;label&quot;:&quot;ben@foundry376.com&quot;,&quot;autoaddress&quot;:{&quot;type&quot;:&quot;bcc&quot;,&quot;value&quot;:&quot;&quot;},&quot;aliases&quot;:[],&quot;syncState&quot;:&quot;ok&quot;,&quot;syncError&quot;:null,&quot;__cls&quot;:&quot;Account&quot;}&apos;"
+            isEnabled = "NO">
          </CommandLineArgument>
       </CommandLineArguments>
       <EnvironmentVariables>
@@ -103,8 +113,6 @@
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
-      <AdditionalOptions>
-      </AdditionalOptions>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

@@ -201,6 +201,14 @@ static vector<string> V7_SETUP_QUERIES = {
     "CREATE INDEX IF NOT EXISTS EventUID ON Event(accountId, icsuid)",
 };
 
+static vector<string> V8_SETUP_QUERIES = {
+    "ALTER TABLE `Contact` ADD COLUMN hidden TINYINT(1) DEFAULT 0",
+    "ALTER TABLE `Contact` ADD COLUMN source VARCHAR(10) DEFAULT 'mail'",
+    "CREATE INDEX IF NOT EXISTS ContactBrowseIndex ON Contact(hidden,refs,accountId)",
+    "CREATE TABLE `ContactGroup` (`id` varchar(40),`accountId` varchar(40), `data` BLOB, `version` INTEGER, `name` varchar(300), PRIMARY KEY (id))",
+    "CREATE TABLE `ContactContactGroup` (`id` varchar(40),`value` varchar(40), PRIMARY KEY (id, value));"
+};
+
 
 static map<string, string> COMMON_FOLDER_NAMES = {
     {"gel\xc3\xb6scht", "trash"},
@@ -243,10 +251,10 @@ static map<string, string> COMMON_FOLDER_NAMES = {
     {"archive", "archive"},
     
     {"postausgang", "sent"},
+    {"sent", "sent"},
     {"[gmail]/sent mail", "sent"},
     {"\xeb\xb3\xb4\xeb\x82\xbc\xed\x8e\xb8\xec\xa7\x80\xed\x95\xa8", "sent"},
     {"elementos enviados", "sent"},
-    {"sent", "sent"},
     {"sent items", "sent"},
     {"sent messages", "sent"},
     {"odeslan\xc3\xa9", "sent"},

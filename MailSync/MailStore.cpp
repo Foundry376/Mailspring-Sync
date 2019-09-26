@@ -100,7 +100,7 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA main.synchronous = NORMAL").exec();
 }
 
-static int CURRENT_VERSION = 7;
+static int CURRENT_VERSION = 8;
 static string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 14 * 24 * 60 * 60; // 14 days
 
@@ -142,6 +142,11 @@ void MailStore::migrate() {
     }
     if (version < 7) {
         for (string sql : V7_SETUP_QUERIES) {
+            SQLite::Statement(_db, sql).exec();
+        }
+    }
+    if (version < 8) {
+        for (string sql : V8_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
     }

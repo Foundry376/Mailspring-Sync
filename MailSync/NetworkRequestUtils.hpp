@@ -23,7 +23,7 @@ using namespace std;
 
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp);
 
-CURL * CreateJSONRequest(string url, string method = "GET", const char * payloadChars = nullptr);
+CURL * CreateJSONRequest(string url, string method = "GET", string authorization = "", const char * payloadChars = nullptr);
 CURL * CreateCalDavRequest(string url, string method = "GET", const char * payloadChars = nullptr);
 
 const json MakeGmailOAuthRequest(string clientId, string refreshToken);

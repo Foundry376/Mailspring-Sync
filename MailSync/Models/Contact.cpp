@@ -19,9 +19,10 @@ using namespace mailcore;
 
 string Contact::TABLE_NAME = "Contact";
 
-Contact::Contact(string accountId, string canonicalizedEmail, json json) : MailModel(json) {
+Contact::Contact(string accountId, string canonicalizedEmail, json json, string source) : MailModel(json) {
     _data["aid"] = accountId;
     _data["email"] = canonicalizedEmail;
+    _data["s"] = source;
     if (!_data.count("refs")) {
         _data["refs"] = 0;
     }
@@ -50,6 +51,33 @@ string Contact::email() {
     return _data["email"].get<string>();
 }
 
+string Contact::source() {
+    return _data.count("s") ? _data["s"].get<string>() : "";
+}
+
+string Contact::etag() {
+    return _data.count("etag") ? _data["etag"].get<string>() : "";
+}
+
+string Contact::remoteCollectionId() {
+    return _data.count("rci") ? _data["rci"].get<string>() : "";
+}
+
+json Contact::info() {
+    return _data["info"];
+}
+
+void Contact::setInfo(json info) {
+    _data["info"] = info;
+}
+
+bool Contact::hidden() {
+    return _data.count("h") ? _data["h"].get<bool>() : false;
+}
+void Contact::setHidden(bool b) {
+    _data["h"] = b;
+}
+
 string Contact::searchContent() {
     string content = _data["email"].get<string>();
     
@@ -73,11 +101,40 @@ void Contact::incrementRefs() {
 }
 
 vector<string> Contact::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "refs", "email"};
+    return vector<string>{"id", "data", "accountId", "version", "refs", "email", "hidden", "source", "etag", "remoteCollectionId" };
 }
 
 void Contact::bindToQuery(SQLite::Statement * query) {
     MailModel::bindToQuery(query);
     query->bind(":refs", refs());
     query->bind(":email", email());
+    query->bind(":hidden", hidden() ? 1 : 0);
+    query->bind(":source", source());
+    query->bind(":etag", etag());
+    query->bind(":remoteCollectionId", remoteCollectionId());
+}
+
+
+void Contact::afterSave(MailStore * store) {
+    MailModel::afterSave(store);
+
+    if (version() == 1) {
+        SQLite::Statement insert(store->db(), "INSERT INTO ContactSearch (content_id, content) VALUES (?, ?)");
+        insert.bind(1, id());
+        insert.bind(2, searchContent());
+        insert.exec();
+    } else if (source() != CONTACT_SOURCE_MAIL) {
+        SQLite::Statement update(store->db(), "UPDATE ContactSearch SET content = ? WHERE content_id = ?");
+        update.bind(1, searchContent());
+        update.bind(2, id());
+        update.exec();
+    }
+}
+
+void Contact::afterRemove(MailStore * store) {
+    MailModel::afterRemove(store);
+    
+    SQLite::Statement update(store->db(), "DELETE FROM ContactSearch WHERE content_id = ?");
+    update.bind(1, id());
+    update.exec();
 }

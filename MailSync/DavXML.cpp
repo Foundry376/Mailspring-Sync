@@ -45,6 +45,7 @@ void DavXML::evaluateXPath(string expr, std::function<void(xmlNodePtr)> yieldBlo
         xmlXPathRegisterNs(xpathContext, (const xmlChar *)"d", (const xmlChar *)"DAV:");
         xmlXPathRegisterNs(xpathContext, (const xmlChar *)"D", (const xmlChar *)"DAV:");
         xmlXPathRegisterNs(xpathContext, (const xmlChar *)"caldav", (const xmlChar *)"urn:ietf:params:xml:ns:caldav");
+        xmlXPathRegisterNs(xpathContext, (const xmlChar *)"carddav", (const xmlChar *)"urn:ietf:params:xml:ns:carddav");
         xmlXPathRegisterNs(xpathContext, (const xmlChar *)"cs", (const xmlChar *)"http://calendarserver.org/ns/");
         xmlXPathRegisterNs(xpathContext, (const xmlChar *)"ical", (const xmlChar *)"http://apple.com/ns/ical/");
     }

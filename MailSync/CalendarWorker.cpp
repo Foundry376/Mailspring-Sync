@@ -10,6 +10,7 @@
 //
 
 #include "CalendarWorker.hpp"
+#include "ContactGroup.hpp"
 #include "MailStore.hpp"
 #include "MailStoreTransaction.hpp"
 #include "MailUtils.hpp"
@@ -20,9 +21,14 @@
 #include "Event.hpp"
 #include "Calendar.hpp"
 #include "NetworkRequestUtils.hpp"
+#include "../Vendor/ccard/wrap.hpp"
 
 #include <string>
 #include <curl/curl.h>
+
+#define CARDDAV_SYNC_SOURCE "carddav"
+#define XKIND "X-ADDRESSBOOKSERVER-KIND"
+#define XMEMBERS "X-ADDRESSBOOKSERVER-MEMBER"
 
 struct EventResult {
     std::string icsHref;
@@ -31,6 +37,28 @@ struct EventResult {
 
 typedef string ETAG;
 
+string firstPropVal(json attrs, string key, string fallback = "") {
+    if (!attrs.count(key)) return fallback;
+    if (!attrs[key].size()) return fallback;
+    return attrs[key][0].get<string>();
+}
+
+string replacePath(string url, string path) {
+    unsigned long hostStart = url.find("://");
+    unsigned long hostEnd = 0;
+    if (hostStart == string::npos) {
+        hostEnd = url.find("/");
+    } else {
+        hostEnd = url.substr(hostStart + 3).find("/");
+        if (hostEnd != string::npos) {
+            hostEnd += hostStart + 3;
+        }
+    }
+    if (path.find("/") != 0) {
+        path = "/" + path;
+    }
+    return url.substr(0, hostEnd) + path;
+}
 
 CalendarWorker::CalendarWorker(shared_ptr<Account> account) :
     store(new MailStore()),
@@ -39,20 +67,203 @@ CalendarWorker::CalendarWorker(shared_ptr<Account> account) :
 {
     // For now, we assume Gmail
     if (account->provider() == "gmail") {
-        server = "https://apidata.googleusercontent.com";
-        principalPath = "/caldav/v2/" + account->emailAddress();
+        calHost = "apidata.googleusercontent.com";
+        calPrincipal = "/caldav/v2/" + account->emailAddress();
+        cardHost = "";
+        cardPrincipal = "";
+    }
+    if (account->provider() == "icloud") {
+        calHost = "";
+        calPrincipal = "";
+        cardHost = "contacts.icloud.com";
+        cardPrincipal = "discover";
     }
     // Initialize libxml
     xmlInitParser();
 }
 
 void CalendarWorker::run() {
-    if (server == "" || principalPath == "") {
+    runContacts();
+    runCalendars();
+}
+
+void CalendarWorker::runContacts() {
+    if (cardHost == "") {
+        return;
+    }
+    if (cardPrincipal == "discover") {
+        // Fetch the list of calendars from the principal URL
+        auto principalDoc = performXMLRequest(cardHost + "/", "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>");
+        cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
+    }
+    
+    // Fetch the address book home set URL
+    auto abSetDoc = performXMLRequest(cardHost + cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>");
+    auto abSetURL = abSetDoc->nodeContentAtXPath("//carddav:addressbook-home-set/D:href/text()");
+    if (abSetURL.find("http") == string::npos) {
+        abSetURL = cardHost + abSetURL;
+    }
+    
+    // Hit the home address book set to retrieve the individual address books
+    auto abSetContentsDoc = performXMLRequest(abSetURL, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\"><d:prop><d:resourcetype /></d:prop></d:propfind>");
+                                              
+    // Iterate over the address books and run a sync on each one
+    abSetContentsDoc->evaluateXPath("//D:response[.//carddav:addressbook]", ([&](xmlNodePtr node) {
+        string abHREF = abSetContentsDoc->nodeContentAtXPath(".//D:href/text()", node);
+        string abURL = (abHREF.find("http") == string::npos) ? replacePath(abSetURL, abHREF) : abHREF;
+        runForAddressBook(MailUtils::idForCalendar(account->id(), abHREF), abURL);
+    }));
+}
+
+void CalendarWorker::runForAddressBook(string abID, string abURL) {
+    map<ETAG, string> remote {};
+    {
+        auto etagsDoc = performXMLRequest(abURL, "REPORT", "<c:addressbook-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /></d:prop></c:addressbook-query>");
+
+        etagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+            auto etag = etagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+            auto href = etagsDoc->nodeContentAtXPath(".//D:href/text()", node);
+            remote[string(etag.c_str())] = string(href.c_str());
+        }));
+    }
+    
+
+    // Because etags change when the event content changes, we only need to ADD new events
+    // and DELETE missing events. To do this we query just the index for IDs and go from there.
+    map<ETAG, bool> local {};
+    {
+        SQLite::Statement findEtags(store->db(), "SELECT etag FROM Contact WHERE remoteCollectionId = ?");
+        findEtags.bind(1, abID);
+        while (findEtags.executeStep()) {
+            local[findEtags.getColumn("etag")] = true;
+        }
+    }
+
+    // identify new and deleted events
+    vector<ETAG> deleted {};
+    vector<string> needed {};
+    for (auto & pair : remote) {
+        if (local.count(pair.first)) continue;
+        needed.push_back(pair.second);
+    }
+    for (auto & pair : local) {
+        if (remote.count(pair.first)) continue;
+        deleted.push_back(pair.first);
+    }
+    
+    // request the last (newest) events first. Technically this should be unordered
+    // by now, but it appears to work for me.
+    std::reverse(needed.begin(), needed.end());
+    
+    logger->info("{}", abURL);
+    logger->info("  remote: {} etags", remote.size());
+    logger->info("   local: {} etags", local.size());
+    logger->info(" deleted: {}", deleted.size());
+    logger->info("  needed: {}", needed.size());
+    
+    auto deletionChunks = MailUtils::chunksOfVector(deleted, 100);
+    
+    for (auto chunk : MailUtils::chunksOfVector(needed, 100)) {
+        string payload = "";
+        for (auto & href : chunk) {
+            payload += "<d:href>" + href + "</d:href>";
+        }
+        
+        // Fetch the data
+        auto abDoc = performXMLRequest(abURL, "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop>" + payload + "</c:addressbook-multiget>");
+        
+        // Insert the event objects and remove deleted events within the same transaction.
+        // Most of the time, this results in an event being replaced within a single transaction.
+        {
+            MailStoreTransaction transaction {store};
+            
+            if (!deletionChunks.empty()) {
+                for (auto & deletionChunk : deletionChunks) {
+                    // Delete the contacts
+                    vector<string> possibleGroupIds {};
+                    auto deletedItem = store->findAll<Contact>(Query().equal("remoteCollectionId", abID).equal("etag", deletionChunk));
+                    for (auto & e : deletedItem) {
+                        possibleGroupIds.push_back(e->id());
+                        store->remove(e.get());
+                    }
+                    
+                    // Because contact groups are built from contacts, we might have a group matching the contact's ID.
+                    // In that case, retrieve and delete the groups too. (The relations are deleted in afterRemove).
+                    auto deletedGroups = store->findAll<ContactGroup>(Query().equal("id", possibleGroupIds));
+                    for (auto & g : deletedGroups) {
+                        store->remove(g.get());
+                    }
+                }
+                deletionChunks.clear();
+            }
+            
+            abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+                auto etag = abDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+                if (local.count(etag) == 0) {
+                    auto href = abDoc->nodeContentAtXPath(".//D:href/text()", node);
+                    auto vcard = abDoc->nodeContentAtXPath(".//carddav:address-data/text()", node);
+                    if (vcard != "") {
+                        local[etag] = true;
+
+                        auto jcard = vcsToJSON(vcard);
+                        string id = firstPropVal(jcard->attrs, "UID", MailUtils::idForCalendar(account->id(), href));
+                        string email = firstPropVal(jcard->attrs, "EMAIL", "");
+                        string name = firstPropVal(jcard->attrs, "FN", firstPropVal(jcard->attrs, "N", ""));
+                        
+                        json basicJSON = {{"id", id}, {"name", name}, {"email", email}, {"etag", etag}, {"rci", abID}, {"info", {{"vcf", vcard}}}, {"refs", CONTACT_MAX_REFS}};
+                        auto contact = Contact(account->id(), email, basicJSON, CARDDAV_SYNC_SOURCE);
+                        
+                        if (firstPropVal(jcard->attrs, XKIND) == "group") {
+                            contact.setHidden(true);
+                            
+                            // Support iCloud's "Contact Groups are just Contacts with a member list field" idea
+                            // by hiding the contact (so it's still synced via etag) and creating a group for it.
+                            // Note that we have to tear this down when we unsync the contact.
+                            auto group = store->find<ContactGroup>(Query().equal("id", id));
+                            if (!group) {
+                                group = make_shared<ContactGroup>(id, account->id());
+                            }
+                            group->setName(name);
+                            store->save(group.get());
+                            
+                            SQLite::Statement removeMembers(store->db(), "DELETE FROM ContactContactGroup WHERE id = ?");
+                            removeMembers.bind(1, group->id());
+                            removeMembers.exec();
+
+                            SQLite::Statement insertMembers(store->db(), "INSERT OR IGNORE INTO ContactContactGroup (id, value) VALUES (?,?)");
+                            jcard = vcsToJSON(vcard);
+                            for (const auto & memberId : jcard->attrs[XMEMBERS]) {
+                                string mid = memberId.get<string>();
+                                if (mid.find("urn:uuid:") == 0) {
+                                    mid = mid.substr(9);
+                                }
+                                insertMembers.bind(1, mid);
+                                insertMembers.bind(2, group->id());
+                                insertMembers.exec();
+                                insertMembers.reset();
+                            }
+                        }
+
+                        store->save(&contact);
+                    
+                    } else {
+                        logger->info("Received addressbook entry {} with an empty body", etag);
+                    }
+                }
+            }));
+            
+            transaction.commit();
+        }
+    }
+}
+
+void CalendarWorker::runCalendars() {
+    if (calHost == "") {
         return;
     }
 
     // Fetch the list of calendars from the principal URL
-    auto calendarSetDoc = performXMLRequest(principalPath, "PROPFIND", "<d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:resourcetype /><d:displayname /><cs:getctag /><c:supported-calendar-component-set /></d:prop></d:propfind>");
+    auto calendarSetDoc = performXMLRequest(calHost + calPrincipal, "PROPFIND", "<d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:resourcetype /><d:displayname /><cs:getctag /><c:supported-calendar-component-set /></d:prop></d:propfind>");
 
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
     
@@ -82,17 +293,17 @@ void CalendarWorker::run() {
         }
         
         // sync
-        runForCalendar(id, name, path);
+        runForCalendar(id, name, calHost + path);
     }));
 }
 
-void CalendarWorker::runForCalendar(string calendarId, string name, string path) {
+void CalendarWorker::runForCalendar(string calendarId, string name, string url) {
     map<ETAG, string> remote {};
     {
         // Request the ETAG value of every event in the calendar. We should compare these
         // values against a set in the database. Any event we don't have should be added
         // and any event in the database absent from the response should be deleted.
-        auto eventEtagsDoc = performXMLRequest(path, "REPORT", "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /></d:prop><c:filter></c:filter></c:calendar-query>");
+        auto eventEtagsDoc = performXMLRequest(url, "REPORT", "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /></d:prop></c:calendar-query>");
 
         eventEtagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             auto etag = eventEtagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
@@ -129,7 +340,7 @@ void CalendarWorker::runForCalendar(string calendarId, string name, string path)
     // by now, but it appears to work for me.
     std::reverse(needed.begin(), needed.end());
     
-    logger->info("{}", path);
+    logger->info("{}", url);
     logger->info("  remote: {} etags", remote.size());
     logger->info("   local: {} etags", local.size());
     logger->info(" deleted: {}", deleted.size());
@@ -144,7 +355,7 @@ void CalendarWorker::runForCalendar(string calendarId, string name, string path)
         }
         
         // Fetch the data
-        auto icsDoc = performXMLRequest(path, "REPORT", "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
+        auto icsDoc = performXMLRequest(url, "REPORT", "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
         
         // Insert the event objects and remove deleted events within the same transaction.
         // Most of the time, this results in an event being replaced within a single transaction.
@@ -198,12 +409,8 @@ void CalendarWorker::runForCalendar(string calendarId, string name, string path)
     }
 }
 
-shared_ptr<DavXML> CalendarWorker::performXMLRequest(string path, string method, string payload) {
-    string url = server + path;
-    CURL * curl_handle = curl_easy_init();
-    const char * payloadChars = payload.c_str();
-    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
+shared_ptr<DavXML> CalendarWorker::performXMLRequest(string _url, string method, string payload) {
+    string url = _url.find("http") != 0 ? "https://" + _url : _url;
     
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Prefer: return-minimal");
@@ -215,10 +422,16 @@ shared_ptr<DavXML> CalendarWorker::performXMLRequest(string path, string method,
         string authorization = "Authorization: Bearer " + parts.accessToken;
         headers = curl_slist_append(headers, authorization.c_str());
     } else {
-        // to use basic auth:
-        // url.replace(url.find("://"), 3, "://" + username + ":" + password + "@");
+        string plain = account->IMAPUsername() + ":" + account->IMAPPassword();
+        string encoded = MailUtils::toBase64(plain.c_str(), strlen(plain.c_str()));
+        string authorization = "Authorization: Basic " + encoded;
+        headers = curl_slist_append(headers, authorization.c_str());
     }
     
+    CURL * curl_handle = curl_easy_init();
+    const char * payloadChars = payload.c_str();
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);

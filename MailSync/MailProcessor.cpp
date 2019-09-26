@@ -530,13 +530,13 @@ void MailProcessor::upsertContacts(Message * message) {
         return;
     }
 
-    Query query = Query().equal("email", emails);
+    Query query = Query().equal("email", emails).equal("source", CONTACT_SOURCE_MAIL);
     auto results = store->findAll<Contact>(query);
     bool incrementCounters = message->isSentByUser();
     
     for (auto & result : results) {
         // update refcounts of existing items if this is a sent message
-        if (incrementCounters) {
+        if (incrementCounters && result->refs() < CONTACT_MAX_REFS) {
             result->incrementRefs();
             store->save(result.get());
         }
@@ -547,21 +547,13 @@ void MailProcessor::upsertContacts(Message * message) {
         return;
     }
 
-    SQLite::Statement searchInsert(store->db(), "INSERT INTO ContactSearch (content_id, content) VALUES (?, ?)");
-
     for (auto & result : byEmail) {
         // insert remaining items
-        Contact c{message->accountId(), result.first, result.second};
+        Contact c{message->accountId(), result.first, result.second, CONTACT_SOURCE_MAIL};
         if (incrementCounters) {
             c.incrementRefs();
         }
         store->save(&c);
-        
-        // also index for search
-        searchInsert.bind(1, c.id());
-        searchInsert.bind(2, c.searchContent());
-        searchInsert.exec();
-        searchInsert.reset();
     }
 }
 

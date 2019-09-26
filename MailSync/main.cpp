@@ -33,6 +33,7 @@
 #include "SyncWorker.hpp"
 #include "MetadataWorker.hpp"
 #include "MetadataExpirationWorker.hpp"
+#include "GoogleContactsWorker.hpp"
 #include "SyncException.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
@@ -585,6 +586,11 @@ int main(int argc, const char * argv[]) {
     
     if (mode == "calendar") {
         auto worker = CalendarWorker(account);
+        worker.run();
+    }
+    
+    if (mode == "contacts") {
+        auto worker = GoogleContactsWorker(account);
         worker.run();
     }
 
