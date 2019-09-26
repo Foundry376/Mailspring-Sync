@@ -9,8 +9,8 @@
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
 
-#ifndef CalendarWorker_hpp
-#define CalendarWorker_hpp
+#ifndef DAVWorker_hpp
+#define DAVWorker_hpp
 
 #include "Account.hpp"
 #include "Identity.hpp"
@@ -27,7 +27,7 @@
 
 using namespace std;
 
-class CalendarWorker {
+class DAVWorker {
     MailStore * store;
     shared_ptr<spdlog::logger> logger;
     shared_ptr<Account> account;
@@ -38,7 +38,7 @@ class CalendarWorker {
     string cardPrincipal;
     
 public:
-    CalendarWorker(shared_ptr<Account> account);
+    DAVWorker(shared_ptr<Account> account);
     
     void run();
     
@@ -53,4 +53,4 @@ public:
     void print_xpath_nodes(xmlNodeSetPtr nodes, FILE* output);
 };
 
-#endif /* CalendarWorker_hpp */
+#endif /* DAVWorker_hpp */

@@ -9,7 +9,7 @@
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
 
-#include "CalendarWorker.hpp"
+#include "DAVWorker.hpp"
 #include "ContactGroup.hpp"
 #include "MailStore.hpp"
 #include "MailStoreTransaction.hpp"
@@ -60,7 +60,7 @@ string replacePath(string url, string path) {
     return url.substr(0, hostEnd) + path;
 }
 
-CalendarWorker::CalendarWorker(shared_ptr<Account> account) :
+DAVWorker::DAVWorker(shared_ptr<Account> account) :
     store(new MailStore()),
     account(account),
     logger(spdlog::get("logger"))
@@ -72,22 +72,62 @@ CalendarWorker::CalendarWorker(shared_ptr<Account> account) :
         cardHost = "";
         cardPrincipal = "";
     }
-    if (account->provider() == "icloud") {
+    if (account->IMAPHost().find("mail.me.com") != string::npos) {
         calHost = "";
         calPrincipal = "";
         cardHost = "contacts.icloud.com";
         cardPrincipal = "discover";
     }
+    if (account->IMAPHost().find("imap.aol.com") != string::npos) {
+        calHost = "caldav.aol.com";
+        calPrincipal = "discover";
+        cardHost = "carddav.aol.com";
+        cardPrincipal = "discover";
+    }
+    if (account->IMAPHost().find("imap.gmx.com") != string::npos || account->IMAPHost().find("imap.gmx.net") != string::npos) {
+        calHost = "caldav.gmx.net";
+        calPrincipal = "discover";
+        cardHost = "carddav.gmx.net";
+        cardPrincipal = "discover";
+    }
+    if (account->IMAPHost().find("imap.mail.ru") != string::npos) {
+        calHost = "calendar.mail.ru";
+        calPrincipal = "discover";
+        cardHost = "";
+        cardPrincipal = "";
+    }
+    if (account->IMAPHost().find("imap.yandex.com") != string::npos) {
+        calHost = "yandex.ru";
+        calPrincipal = "discover";
+        cardHost = "yandex.ru";
+        cardPrincipal = "discover";
+    }
+    if (account->IMAPHost().find("securemail.a1.net") != string::npos) {
+        calHost = "caldav.a1.net";
+        calPrincipal = "discover";
+        cardHost = "carddav.a1.net";
+        cardPrincipal = "discover";
+    }
+    if (account->IMAPHost().find("imap.zoho.com") != string::npos) {
+        calHost = "calendar.zoho.com";
+        calPrincipal = "discover";
+        cardHost = "contacts.zoho.com";
+        cardPrincipal = "discover";
+    }
+    
+    logger->info("CalDav config: {} {}", calHost, calPrincipal);
+    logger->info("CardDav config: {} {}", cardHost, cardPrincipal);
+    
     // Initialize libxml
     xmlInitParser();
 }
 
-void CalendarWorker::run() {
+void DAVWorker::run() {
     runContacts();
     runCalendars();
 }
 
-void CalendarWorker::runContacts() {
+void DAVWorker::runContacts() {
     if (cardHost == "") {
         return;
     }
@@ -115,7 +155,7 @@ void CalendarWorker::runContacts() {
     }));
 }
 
-void CalendarWorker::runForAddressBook(string abID, string abURL) {
+void DAVWorker::runForAddressBook(string abID, string abURL) {
     map<ETAG, string> remote {};
     {
         auto etagsDoc = performXMLRequest(abURL, "REPORT", "<c:addressbook-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /></d:prop></c:addressbook-query>");
@@ -257,7 +297,7 @@ void CalendarWorker::runForAddressBook(string abID, string abURL) {
     }
 }
 
-void CalendarWorker::runCalendars() {
+void DAVWorker::runCalendars() {
     if (calHost == "") {
         return;
     }
@@ -274,8 +314,6 @@ void CalendarWorker::runCalendars() {
         auto name = calendarSetDoc->nodeContentAtXPath(".//D:displayname/text()", node);
         auto path = calendarSetDoc->nodeContentAtXPath(".//D:href/text()", node);
         auto id = MailUtils::idForCalendar(account->id(), path);
-        fprintf(stdout, "%s\n", name.c_str());
-        fprintf(stdout, "%s\n", path.c_str());
         
         // upsert the Calendar object
         {
@@ -297,7 +335,7 @@ void CalendarWorker::runCalendars() {
     }));
 }
 
-void CalendarWorker::runForCalendar(string calendarId, string name, string url) {
+void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     map<ETAG, string> remote {};
     {
         // Request the ETAG value of every event in the calendar. We should compare these
@@ -409,7 +447,7 @@ void CalendarWorker::runForCalendar(string calendarId, string name, string url) 
     }
 }
 
-shared_ptr<DavXML> CalendarWorker::performXMLRequest(string _url, string method, string payload) {
+shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, string payload) {
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
     
     struct curl_slist *headers = NULL;

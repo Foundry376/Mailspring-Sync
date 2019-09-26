@@ -158,10 +158,10 @@ void ValidateRequestResp(CURLcode res, CURL * curl_handle) {
 
 CURL * CreateIdentityRequest(string path, string method, const char * payloadChars) {
     string url { MailUtils::getEnvUTF8("IDENTITY_SERVER") + path };
-    string username = Identity::GetGlobal()->token();
-    string password = "";
-    url.replace(url.find("://"), 3, "://" + username + ":" + password + "@");
-    return CreateJSONRequest(url, method, payloadChars);
+    string plain = Identity::GetGlobal()->token() + ":";
+    string encoded = MailUtils::toBase64(plain.c_str(), strlen(plain.c_str()));
+    string authorization = "Basic " + encoded;
+    return CreateJSONRequest(url, method, authorization, payloadChars);
 }
 
 const json PerformIdentityRequest(string path, string method, const json & payload) {
