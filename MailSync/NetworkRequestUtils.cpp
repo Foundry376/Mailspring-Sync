@@ -79,19 +79,24 @@ const json MakeGmailOAuthRequest(string clientId, string refreshToken) {
     return PerformJSONRequest(curl_handle);
 }
 
-CURL * CreateJSONRequest(string url, string method, const char * payloadChars) {
+CURL * CreateJSONRequest(string url, string method, string authorization, const char * payloadChars) {
     CURL * curl_handle = curl_easy_init();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
 
+    struct curl_slist *headers = NULL;
+
+    if (authorization != "") {
+        headers = curl_slist_append(headers, ("Authorization: " + authorization).c_str());
+    }
     if (method == "POST") {
-        struct curl_slist *headers = NULL;
         headers = curl_slist_append(headers, "Accept: application/json");
         headers = curl_slist_append(headers, "Content-Type: application/json");
         curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, "POST");
-        curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
     }
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
+
 
     // Ensure /all/ curl code paths run this code for RHEL 7.6 and other linux distros
     string explicitCertsBundlePath = FindLinuxCertsBundle();

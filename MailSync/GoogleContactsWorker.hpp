@@ -9,8 +9,8 @@
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
 
-#ifndef CalendarWorker_hpp
-#define CalendarWorker_hpp
+#ifndef GoogleContactsWorker_hpp
+#define GoogleContactsWorker_hpp
 
 #include "Account.hpp"
 #include "Identity.hpp"
@@ -27,30 +27,16 @@
 
 using namespace std;
 
-class CalendarWorker {
+class GoogleContactsWorker {
     MailStore * store;
     shared_ptr<spdlog::logger> logger;
     shared_ptr<Account> account;
 
-    string calHost;
-    string calPrincipal;
-    string cardHost;
-    string cardPrincipal;
-    
 public:
-    CalendarWorker(shared_ptr<Account> account);
-    
+    GoogleContactsWorker(shared_ptr<Account> account);
+
     void run();
-    
-    void runContacts();
-    void runForAddressBook(string abID, string abURL);
-
-    void runCalendars();
-    void runForCalendar(string id, string name, string path);
-
-    shared_ptr<DavXML> performXMLRequest(string path, string method, string payload = "");
-
-    void print_xpath_nodes(xmlNodeSetPtr nodes, FILE* output);
+    void paginateGoogleCollection(string urlRoot, string authorization, string syncTokenKey, std::function<void(json)> yieldBlock);
 };
 
-#endif /* CalendarWorker_hpp */
+#endif /* GoogleContactsWorker_hpp */

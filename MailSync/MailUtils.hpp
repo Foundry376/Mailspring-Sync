@@ -38,6 +38,8 @@ private:
 
 public:
     static string toBase58(const unsigned char * pbegin, size_t len);
+    static string toBase64(const char * pbegin, size_t len);
+    
     static string getEnvUTF8(string key);
     
     static json merge(const json &a, const json &b);
