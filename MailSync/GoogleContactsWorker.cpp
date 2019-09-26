@@ -24,7 +24,7 @@
 #include <curl/curl.h>
 
 string GOOGLE_SYNC_SOURCE = "gpeople";
-string PERSON_FIELDS = "emailAddresses,genders,names,nicknames,phoneNumbers,photos,urls,birthdays,addresses,userDefined,relations,occupations,organizations   ";
+string PERSON_FIELDS = "emailAddresses,genders,names,nicknames,phoneNumbers,photos,urls,birthdays,addresses,userDefined,relations,occupations,organizations";
 
 GoogleContactsWorker::GoogleContactsWorker(shared_ptr<Account> account) :
     store(new MailStore()),

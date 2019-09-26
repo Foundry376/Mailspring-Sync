@@ -33,13 +33,13 @@
 #include "SyncWorker.hpp"
 #include "MetadataWorker.hpp"
 #include "MetadataExpirationWorker.hpp"
+#include "DAVWorker.hpp"
 #include "GoogleContactsWorker.hpp"
 #include "SyncException.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
 #include "ThreadUtils.h"
 #include "constants.h"
-#include "CalendarWorker.hpp"
 #include "SPDLogExtensions.hpp"
 
 using namespace nlohmann;
@@ -51,6 +51,9 @@ using option::ArgStatus;
 
 shared_ptr<SyncWorker> bgWorker = nullptr;
 shared_ptr<SyncWorker> fgWorker = nullptr;
+shared_ptr<DAVWorker> davWorker = nullptr;
+shared_ptr<GoogleContactsWorker> contactsWorker = nullptr;
+
 shared_ptr<MetadataWorker> metadataWorker = nullptr;
 shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
 
@@ -58,6 +61,7 @@ bool bgWorkerShouldMarkAll = true;
 
 std::thread * fgThread = nullptr;
 std::thread * bgThread = nullptr;
+std::thread * calContactsThread = nullptr;
 std::thread * metadataThread = nullptr;
 std::thread * metadataExpirationThread = nullptr;
 
@@ -172,6 +176,23 @@ void runBackgroundSyncWorker() {
         }
 
         MailUtils::sleepWorkerUntilWakeOrSec(120);
+    }
+}
+
+void runCalContactsSyncWorker() {
+    while(true) {
+        try {
+            davWorker->run();
+            if (contactsWorker) {
+                contactsWorker->run();
+            }
+        } catch (SyncException & ex) {
+            spdlog::get("logger")->info("Encountered cal / contacts exception: {}", ex.toJSON().dump());
+            if (!ex.isRetryable()) {
+                throw;
+            }
+        }
+        MailUtils::sleepWorkerUntilWakeOrSec(60 * 5);
     }
 }
 
@@ -375,7 +396,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             if (!runningCalendarSync) {
                 std::thread([&]() {
                     SetThreadName("calendar");
-                    auto worker = CalendarWorker(account);
+                    auto worker = DAVWorker(account);
                     worker.run();
                     runningCalendarSync = false;
                 }).detach();
@@ -566,6 +587,14 @@ int main(int argc, const char * argv[]) {
             bgWorker = make_shared<SyncWorker>(account);
             runBackgroundSyncWorker();
         });
+        calContactsThread = new std::thread([&]() {
+            SetThreadName("calContacts");
+            if (account->provider() == "gmail") {
+                contactsWorker = make_shared<GoogleContactsWorker>(account);
+            }
+            davWorker = make_shared<DAVWorker>(account);
+            runCalContactsSyncWorker();
+        });
         metadataThread = new std::thread([&]() {
              SetThreadName("metadata");
              metadataWorker = make_shared<MetadataWorker>(account);
@@ -584,15 +613,5 @@ int main(int argc, const char * argv[]) {
         }
     }
     
-    if (mode == "calendar") {
-        auto worker = CalendarWorker(account);
-        worker.run();
-    }
-    
-    if (mode == "contacts") {
-        auto worker = GoogleContactsWorker(account);
-        worker.run();
-    }
-
     return 0;
 }
