@@ -15,7 +15,6 @@
 #include "MailUtils.hpp"
 #include "Message.hpp"
 #include "Thread.hpp"
-#include "Contact.hpp"
 #include "SyncException.hpp"
 #include "NetworkRequestUtils.hpp"
 
