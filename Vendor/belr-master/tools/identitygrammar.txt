@@ -1,0 +1,10 @@
+address = scheme ":" [user] "@" host [ gruu-parameter ]
+scheme = "sip" / "sips"
+user = 1*( alphanum / escaped / "-" / "+" / "_" / "~" / "." )
+escaped = "%" HEXDIG HEXDIG
+host = *( domainlabel "." ) toplabel [ "." ]
+domainlabel = alphanum / (alphanum *( alphanum / ( *("-") alphanum) ) )
+toplabel = ALPHA / (ALPHA *( alphanum / (*("-") alphanum ) ) )
+gruu-parameter = ";gr=" gruu-value
+gruu-value = 1*( alphanum / "-" / "_" / ":" )
+alphanum = ALPHA / DIGIT

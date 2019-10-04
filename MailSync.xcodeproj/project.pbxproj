@@ -11,16 +11,17 @@
 		43167F091EF5F59E00D8E282 /* Message.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F071EF5F59E00D8E282 /* Message.cpp */; };
 		43167F0C1EF5F5C100D8E282 /* Thread.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0A1EF5F5C100D8E282 /* Thread.cpp */; };
 		43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0E1EF5F6C700D8E282 /* Folder.cpp */; };
-		43256B0621E7EEC900590F1B /* CalendarWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43256B0521E7EEC900590F1B /* CalendarWorker.cpp */; };
+		43256B0621E7EEC900590F1B /* DAVWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43256B0521E7EEC900590F1B /* DAVWorker.cpp */; };
 		43256B0B21E802DD00590F1B /* DavXML.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43256B0A21E802DD00590F1B /* DavXML.cpp */; };
 		432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */; };
+		4330C0012346F4330004E1D9 /* libbelcard.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4330BFFE2346F4330004E1D9 /* libbelcard.a */; };
+		4330C0022346F4330004E1D9 /* libbelr.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4330BFFF2346F4330004E1D9 /* libbelr.a */; };
+		4330C0032346F4330004E1D9 /* libbctoolbox.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4330C0002346F4330004E1D9 /* libbctoolbox.a */; };
 		43462D632175C6FC002BCBF5 /* libetpan.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43462D572175C5C8002BCBF5 /* libetpan.a */; };
 		43462D652175C75E002BCBF5 /* libctemplate.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43462D642175C75E002BCBF5 /* libctemplate.a */; };
 		4346BCE51EF91305009477FE /* Query.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4346BCE31EF91305009477FE /* Query.cpp */; };
 		4348E5D21F55E7AB004CFB15 /* XOAuth2TokenManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5D11F55E7AB004CFB15 /* XOAuth2TokenManager.cpp */; };
 		4348E5DC1F560FAC004CFB15 /* MailStoreTransaction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */; };
-		43615714233C82E700F2282D /* cardparser.c in Sources */ = {isa = PBXBuildFile; fileRef = 43615713233C82E700F2282D /* cardparser.c */; };
-		43615716233C833100F2282D /* wrap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43615715233C833000F2282D /* wrap.cpp */; };
 		43617D841F3D4DDA00DB566D /* libMailCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43617D731F3D4D4300DB566D /* libMailCore.a */; };
 		436489341EF2E905007816EC /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489331EF2E905007816EC /* main.cpp */; };
 		436489581EF2E94B007816EC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489571EF2E94B007816EC /* Security.framework */; };
@@ -164,14 +165,17 @@
 		43167F0B1EF5F5C100D8E282 /* Thread.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Thread.hpp; sourceTree = "<group>"; };
 		43167F0E1EF5F6C700D8E282 /* Folder.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Folder.cpp; sourceTree = "<group>"; };
 		43167F0F1EF5F6C700D8E282 /* Folder.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Folder.hpp; sourceTree = "<group>"; };
-		43256AF821E7EE9E00590F1B /* CalendarWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CalendarWorker.hpp; sourceTree = "<group>"; };
-		43256B0521E7EEC900590F1B /* CalendarWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CalendarWorker.cpp; sourceTree = "<group>"; };
+		43256AF821E7EE9E00590F1B /* DAVWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = DAVWorker.hpp; sourceTree = "<group>"; };
+		43256B0521E7EEC900590F1B /* DAVWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DAVWorker.cpp; sourceTree = "<group>"; };
 		43256B0721E7FFF800590F1B /* libxml2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libxml2.tbd; path = usr/lib/libxml2.tbd; sourceTree = SDKROOT; };
 		43256B0921E802B400590F1B /* MailSync.xcodeproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = MailSync.xcodeproj; sourceTree = "<group>"; };
 		43256B0A21E802DD00590F1B /* DavXML.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DavXML.cpp; sourceTree = "<group>"; };
 		43256B0C21E802E700590F1B /* DavXML.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = DavXML.hpp; sourceTree = "<group>"; };
 		432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MetadataWorker.cpp; sourceTree = "<group>"; };
 		432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetadataWorker.hpp; sourceTree = "<group>"; };
+		4330BFFE2346F4330004E1D9 /* libbelcard.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbelcard.a; path = Vendor/built/lib/libbelcard.a; sourceTree = "<group>"; };
+		4330BFFF2346F4330004E1D9 /* libbelr.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbelr.a; path = Vendor/built/lib/libbelr.a; sourceTree = "<group>"; };
+		4330C0002346F4330004E1D9 /* libbctoolbox.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbctoolbox.a; path = Vendor/built/lib/libbctoolbox.a; sourceTree = "<group>"; };
 		43462D4C2175C5C8002BCBF5 /* libetpan.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = libetpan.xcodeproj; path = "Vendor/libetpan/build-mac/libetpan.xcodeproj"; sourceTree = "<group>"; };
 		43462D642175C75E002BCBF5 /* libctemplate.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libctemplate.a; path = "Vendor/mailcore2/Externals/ctemplate-osx/lib/libctemplate.a"; sourceTree = "<group>"; };
 		4346BCE31EF91305009477FE /* Query.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Query.cpp; sourceTree = "<group>"; };
@@ -181,10 +185,6 @@
 		4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MailStoreTransaction.cpp; sourceTree = "<group>"; };
 		4348E5DD1F560FDF004CFB15 /* MailStoreTransaction.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MailStoreTransaction.hpp; sourceTree = "<group>"; };
 		4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = SPDLogExtensions.hpp; sourceTree = "<group>"; };
-		43615712233C82E700F2282D /* cardparser.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = cardparser.h; sourceTree = "<group>"; };
-		43615713233C82E700F2282D /* cardparser.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = cardparser.c; sourceTree = "<group>"; };
-		43615715233C833000F2282D /* wrap.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = wrap.cpp; sourceTree = "<group>"; };
-		43615717233C87FE00F2282D /* wrap.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = wrap.hpp; sourceTree = "<group>"; };
 		43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = mailcore2.xcodeproj; path = "Vendor/mailcore2/build-mac/mailcore2.xcodeproj"; sourceTree = "<group>"; };
 		436489301EF2E905007816EC /* mailsync */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = mailsync; sourceTree = BUILT_PRODUCTS_DIR; };
 		436489331EF2E905007816EC /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
@@ -279,9 +279,12 @@
 				43462D632175C6FC002BCBF5 /* libetpan.a in Frameworks */,
 				43617D841F3D4DDA00DB566D /* libMailCore.a in Frameworks */,
 				43462D652175C75E002BCBF5 /* libctemplate.a in Frameworks */,
+				4330C0032346F4330004E1D9 /* libbctoolbox.a in Frameworks */,
 				43CA9A071F0836C1001A24A0 /* Cocoa.framework in Frameworks */,
+				4330C0022346F4330004E1D9 /* libbelr.a in Frameworks */,
 				43CA9A051F0836A2001A24A0 /* CoreFoundation.framework in Frameworks */,
 				436489581EF2E94B007816EC /* Security.framework in Frameworks */,
+				4330C0012346F4330004E1D9 /* libbelcard.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -331,18 +334,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		43615711233C82E700F2282D /* ccard */ = {
-			isa = PBXGroup;
-			children = (
-				43615715233C833000F2282D /* wrap.cpp */,
-				43615717233C87FE00F2282D /* wrap.hpp */,
-				43615712233C82E700F2282D /* cardparser.h */,
-				43615713233C82E700F2282D /* cardparser.c */,
-			);
-			name = ccard;
-			path = Vendor/ccard;
-			sourceTree = SOURCE_ROOT;
-		};
 		43617D681F3D4D4200DB566D /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -383,8 +374,8 @@
 				436489331EF2E905007816EC /* main.cpp */,
 				43256B0C21E802E700590F1B /* DavXML.hpp */,
 				43256B0A21E802DD00590F1B /* DavXML.cpp */,
-				43256AF821E7EE9E00590F1B /* CalendarWorker.hpp */,
-				43256B0521E7EEC900590F1B /* CalendarWorker.cpp */,
+				43256AF821E7EE9E00590F1B /* DAVWorker.hpp */,
+				43256B0521E7EEC900590F1B /* DAVWorker.cpp */,
 				4385C98B233AA6FD00E5A357 /* GoogleContactsWorker.hpp */,
 				4385C98C233AA6FE00E5A357 /* GoogleContactsWorker.cpp */,
 				4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */,
@@ -424,7 +415,6 @@
 				436489921EF31AC0007816EC /* constants.h */,
 				43A742BB1F05DB8F003978AA /* optionparser.h */,
 				436489911EF30E1F007816EC /* sha256.h */,
-				43615711233C82E700F2282D /* ccard */,
 				43A687E0220EB40F000D75CC /* icalendarlib */,
 				4368DCA91F43851A00F22FFD /* StanfordCPPLib */,
 				4364899C1EF3449A007816EC /* nlohmann */,
@@ -438,6 +428,9 @@
 			children = (
 				43256B0721E7FFF800590F1B /* libxml2.tbd */,
 				43462D642175C75E002BCBF5 /* libctemplate.a */,
+				4330C0002346F4330004E1D9 /* libbctoolbox.a */,
+				4330BFFE2346F4330004E1D9 /* libbelcard.a */,
+				4330BFFF2346F4330004E1D9 /* libbelr.a */,
 				43CA9A061F0836C1001A24A0 /* Cocoa.framework */,
 				43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */,
 				436489571EF2E94B007816EC /* Security.framework */,
@@ -686,7 +679,6 @@
 				4368DCBC1F43851A00F22FFD /* exceptions.cpp in Sources */,
 				43C8149E1F08072D00D28F0B /* Account.cpp in Sources */,
 				43256B0B21E802DD00590F1B /* DavXML.cpp in Sources */,
-				43615714233C82E700F2282D /* cardparser.c in Sources */,
 				43167F091EF5F59E00D8E282 /* Message.cpp in Sources */,
 				4378B8341F439EE700C65630 /* error.cpp in Sources */,
 				436489891EF2F905007816EC /* Column.cpp in Sources */,
@@ -698,7 +690,6 @@
 				43A687DF220EB14C000D75CC /* Event.cpp in Sources */,
 				43CA94161EF9E610006685D0 /* MailProcessor.cpp in Sources */,
 				43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */,
-				43615716233C833100F2282D /* wrap.cpp in Sources */,
 				43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */,
 				4385C98F233AC65200E5A357 /* ContactGroup.cpp in Sources */,
 				4346BCE51EF91305009477FE /* Query.cpp in Sources */,
@@ -706,7 +697,7 @@
 				43A687EC220EB40F000D75CC /* icalendar.cpp in Sources */,
 				43B48E851F339B24002D202E /* Identity.cpp in Sources */,
 				4368DCCC1F43857D00F22FFD /* platform.cpp in Sources */,
-				43256B0621E7EEC900590F1B /* CalendarWorker.cpp in Sources */,
+				43256B0621E7EEC900590F1B /* DAVWorker.cpp in Sources */,
 				4368DCC11F43851A00F22FFD /* call_stack_windows.cpp in Sources */,
 				4378B8371F439FAD00C65630 /* GenericException.cpp in Sources */,
 				4364899B1EF335A9007816EC /* DeltaStream.cpp in Sources */,
@@ -853,10 +844,12 @@
 					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
 					/usr/include/libxml2,
+					"${PROJECT_DIR}/Vendor/built/include",
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Vendor/mailcore2/Externals/ctemplate-osx/lib",
+					"$(PROJECT_DIR)/Vendor/built/lib",
 				);
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
@@ -894,10 +887,12 @@
 					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
 					/usr/include/libxml2,
+					"${PROJECT_DIR}/Vendor/built/include",
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Vendor/mailcore2/Externals/ctemplate-osx/lib",
+					"$(PROJECT_DIR)/Vendor/built/lib",
 				);
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",

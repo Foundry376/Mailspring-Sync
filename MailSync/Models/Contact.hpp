@@ -38,6 +38,7 @@ public:
     Contact(string accountId, string canonicalizedEmail, json json, string source);
     Contact(SQLite::Statement & query);
   
+    string name();
     string email();
     bool hidden();
     void setHidden(bool b);

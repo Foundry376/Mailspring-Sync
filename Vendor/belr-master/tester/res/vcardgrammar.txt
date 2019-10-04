@@ -1,0 +1,135 @@
+vcard-entity = 1*vcard
+
+vcard = "BEGIN:VCARD" CRLF
+        "VERSION:4.0" CRLF
+        1*contentline
+        "END:VCARD" CRLF
+; A vCard object MUST include the VERSION and FN properties.
+; VERSION MUST come immediately after BEGIN:VCARD.
+
+contentline = [group "."] name *(";" param) ":" value CRLF
+; When parsing a content line, folded lines must first
+; be unfolded according to the unfolding procedure
+; described in Section 3.2.
+; When generating a content line, lines longer than 75
+; characters SHOULD be folded according to the folding
+; procedure described in Section 3.2.
+
+group = 1*(ALPHA / DIGIT / "-")
+name  = "SOURCE" / "KIND" / "FN" / "N" / "NICKNAME"
+         / "PHOTO" / "BDAY" / "ANNIVERSARY" / "GENDER" / "ADR" / "TEL"
+         / "EMAIL" / "IMPP" / "LANG" / "TZ" / "GEO" / "TITLE" / "ROLE"
+         / "LOGO" / "ORG" / "MEMBER" / "RELATED" / "CATEGORIES"
+         / "NOTE" / "PRODID" / "REV" / "SOUND" / "UID" / "CLIENTPIDMAP"
+         / "URL" / "KEY" / "FBURL" / "CALADRURI" / "CALURI" / "XML"
+         / iana-token / x-name
+; Parsing of the param and value is based on the "name" as
+; defined in ABNF sections below.
+; Group and name are case-insensitive.
+         
+iana-token = 1*(ALPHA / DIGIT / "-")
+; identifier registered with IANA
+
+x-name = "x-" 1*(ALPHA / DIGIT / "-")
+; Names that begin with "x-" or "X-" are
+; reserved for experimental use, not intended for released
+; products, or for use in bilateral agreements.
+
+param = any-param
+; Allowed parameters depend on property name.
+
+param-value = *SAFE-CHAR / DQUOTE *QSAFE-CHAR DQUOTE
+
+any-param  = (iana-token / x-name) "=" param-value *("," param-value)
+         
+value = text 
+        / text-list
+        / date-list
+        / time-list
+        / date-time-list
+        / date-and-or-time-list
+        / timestamp-list
+        / boolean
+        / integer-list
+        / float-list
+        ;/ URI               ; from Section 3 of [RFC3986]
+        / utc-offset
+        ;/ Language-Tag
+        ;/ iana-valuespec
+
+text = *TEXT-CHAR
+
+TEXT-CHAR = "\\" / "\," / "\n" / WSP / NON-ASCII / %x21-2B / %x2D-5B / %x5D-7E
+; Backslashes, commas, and newlines must be encoded.
+
+text-list             = text             *("," text)
+date-list             = date             *("," date)
+time-list             = time             *("," time)
+date-time-list        = date-time        *("," date-time)
+date-and-or-time-list = date-and-or-time *("," date-and-or-time)
+timestamp-list        = timestamp        *("," timestamp)
+integer-list          = integer          *("," integer)
+float-list            = float            *("," float)
+
+boolean = "TRUE" / "FALSE"
+integer = [sign] 1*DIGIT
+float   = [sign] 1*DIGIT ["." 1*DIGIT]
+
+sign = "+" / "-"
+
+year   = 4DIGIT  ; 0000-9999
+month  = 2DIGIT  ; 01-12
+day    = 2DIGIT  ; 01-28/29/30/31 depending on month and leap year
+hour   = 2DIGIT  ; 00-23
+minute = 2DIGIT  ; 00-59
+second = 2DIGIT  ; 00-58/59/60 depending on leap second
+zone   = utc-designator / utc-offset
+utc-designator = %x5A  ; uppercase "Z"
+
+date          = year    [month  day]
+              / year "-" month
+              / "--"     month [day]
+              / "--"      "-"   day
+date-noreduc  = year     month  day
+              / "--"     month  day
+              / "--"      "-"   day
+date-complete = year     month  day
+
+time          = hour [minute [second]] [zone]
+              / "-"  minute [second]   [zone]
+              / "-"   "-"    second    [zone]
+time-notrunc  = hour [minute [second]] [zone]
+time-complete = hour  minute  second   [zone]
+
+time-designator = %x54  ; uppercase "T"
+date-time = date-noreduc  time-designator time-notrunc
+timestamp = date-complete time-designator time-complete
+
+date-and-or-time = date-time / date / time-designator time
+
+utc-offset = sign hour [minute]
+
+NON-ASCII = UTF8-2 / UTF8-3 / UTF8-4
+; UTF8-{2,3,4} are defined in [RFC3629]
+
+QSAFE-CHAR = WSP / "!" / %x23-7E / NON-ASCII
+; Any character except CTLs, DQUOTE
+
+SAFE-CHAR = WSP / "!" / %x23-39 / %x3C-7E / NON-ASCII
+; Any character except CTLs, DQUOTE, ";", ":"
+
+VALUE-CHAR = WSP / VCHAR / NON-ASCII
+; Any textual character
+
+UTF8-1      = %x00-7F
+UTF8-2      = %xC2-DF UTF8-tail
+UTF8-3      = %xE0 %xA0-BF UTF8-tail / %xE1-EC 2( UTF8-tail ) / %xED %x80-9F UTF8-tail / %xEE-EF 2( UTF8-tail )
+UTF8-4      = %xF0 %x90-BF 2( UTF8-tail ) / %xF1-F3 3( UTF8-tail ) / %xF4 %x80-8F 2( UTF8-tail )
+UTF8-tail   = %x80-BF
+
+;Language-Tag = <Language-Tag, defined in [RFC5646], Section 2.1>
+
+;iana-valuespec = <value-spec, see Section 12>
+; a publicly defined valuetype format, registered
+; with IANA, as defined in Section 12 of this
+; document.

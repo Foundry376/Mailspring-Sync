@@ -1,0 +1,22 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/tools/belcard-unfolder.cpp
+belcard/belcard_utils.hpp
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/tools/belcard/belcard_utils.hpp
+iostream
+-
+fstream
+-
+sstream
+-
+
+include/belcard/belcard_utils.hpp
+string
+-
+

@@ -1,0 +1,9 @@
+# This is a comment
+prefix=@CMAKE_INSTALL_PREFIX@
+
+Name:  @PROJECT_NAME@
+Description: Belr is Belledonne Communications' language recognition library
+Version: @PROJECT_VERSION@
+Libs: -L@CMAKE_INSTALL_FULL_LIBDIR@ -lbelr
+Libs.private: @LIBS_PRIVATE@
+Cflags: -I@CMAKE_INSTALL_FULL_INCLUDEDIR@

@@ -1,0 +1,9 @@
+# This is a comment
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=@CMAKE_INSTALL_PREFIX@
+Name:  bctoolbox-tester
+Description: A common set of tester wrappers used by Belledonne Communications's softwares
+Requires.private: @TESTER_REQUIRES_PRIVATE@
+Version: @PROJECT_VERSION@
+Libs: -L@CMAKE_INSTALL_FULL_LIBDIR@ -lbctoolbox-tester
+Cflags: -I@CMAKE_INSTALL_FULL_INCLUDEDIR@

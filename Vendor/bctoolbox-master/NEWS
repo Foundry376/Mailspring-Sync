@@ -1,0 +1,16 @@
+bctoolbox-0.6.0 -- July 20th, 2017
+	* Add API to escape/unescape strings (SIP, VCARD).
+	* Bug fixes.
+
+bctoolbox-0.5.1 -- February 22nd, 2017
+	* security bugfix: TLS session could be successfully established whereas the common
+	  name did not match the server name.
+	* "const char * to void *" map feature
+
+bctoolbox-0.2.0 -- August 8th, 2016
+	* Creating a Virtual File System bctbx_vfs allowing direct file access and I/Os.
+	* integrate OS abstraction layer, list API, logging API from oRTP
+	* integrate getaddrinfo() abstraction api, in order to provide consistent getaddrinfo() support on all platforms.
+
+January 2016:
+	* Initial commit

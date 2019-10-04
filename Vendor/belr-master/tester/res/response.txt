@@ -1,0 +1,10 @@
+SIP/2.0 403 Forbidden
+Via: SIP/2.0/TLS 192.168.0.25:41076;alias;branch=z9hG4bK.m-SPAXXd3;rport=41076;received=78.220.48.77
+From: <sip:smorlat2@siptest.linphone.org>;tag=HW3X1aviU
+To: <sip:smorlat2@siptest.linphone.org>;tag=yDXec8ej8Hrea
+Call-ID: s69J2OQ4h4
+CSeq: 21 REGISTER
+Server: Flexisip/0.8.0 (sofia-sip-nta/2.0)
+Custom-header: some-value
+Content-Length: 0
+
