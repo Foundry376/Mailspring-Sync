@@ -301,7 +301,7 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
     group->setName(contact->name());
     store->save(group.get());
     
-    SQLite::Statement removeMembers(store->db(), "DELETE FROM ContactContactGroup WHERE id = ?");
+    SQLite::Statement removeMembers(store->db(), "DELETE FROM ContactContactGroup WHERE value = ?");
     removeMembers.bind(1, group->id());
     removeMembers.exec();
 

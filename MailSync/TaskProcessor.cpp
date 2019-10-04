@@ -24,6 +24,9 @@
 #include "SyncException.hpp"
 #include "NetworkRequestUtils.hpp"
 
+#include <belr/belr.h>
+#include <belcard/belcard.hpp>
+
 #if defined(_MSC_VER)
 #include <direct.h>
 #include <codecvt>
@@ -871,10 +874,54 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
     if (account->provider() == "gmail") {
         
     } else {
-        auto contactForGroup = store->find<Contact>(Query().equal("id", groupId).equal("accountId", account->id()));
 
+        auto contactForGroup = store->find<Contact>(Query().equal("id", groupId).equal("accountId", account->id()));
+        auto vcard = contactForGroup->info()["vcf"].get<string>();
+        auto belCard = belcard::BelCardParser::getInstance()->parseOne(vcard);
+        if (belCard == NULL) {
+            return;
+        }
+
+        logger->info("Before: {}", vcard);
+
+        for (auto contact : contacts) {
+            if (direction == "remove") {
+                for (auto prop : belCard->getExtendedProperties()) {
+                    logger->info("prop: {}", prop->toString());
+
+                    if (prop->getName() == "X-ADDRESSBOOKSERVER-MEMBER" && prop->getValue() == "urn:uuid:" + contact->id()) {
+                        belCard->removeExtendedProperty(prop);
+                        break;
+                    }
+                }
+            }
+            if (direction == "add") {
+                bool found = false;
+                for (auto prop : belCard->getExtendedProperties()) {
+                    if (prop->getName() == "X-ADDRESSBOOKSERVER-MEMBER" && prop->getValue() == "urn:uuid:" + contact->id()) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    auto prop = make_shared<belcard::BelCardProperty>();
+                    prop->setName("X-ADDRESSBOOKSERVER-MEMBER");
+                    prop->setValue("urn:uuid:" + contact->id());
+                    belCard->addExtendedProperty(prop);
+                }
+            }
+        }
+        
+        std::ostringstream stream;
+        belCard->serialize(stream);
+        vcard = stream.str();
+        logger->info("After: {}", vcard);
+        contactForGroup->setInfo({{"vcf", vcard}});
+        
         auto dav = make_shared<DAVWorker>(account);
         dav->rebuildContactGroup(contactForGroup);
+        
+        store->save(contactForGroup.get());
     }
 }
 
