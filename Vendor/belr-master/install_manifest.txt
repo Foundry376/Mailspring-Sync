@@ -1,0 +1,10 @@
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/share/belr/cmake/belrTargets.cmake
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/share/belr/cmake/belrTargets-noconfig.cmake
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/share/belr/cmake/belrConfig.cmake
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/abnf.h
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/belr.h
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/grammarbuilder.h
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/parser.h
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/lib/libbelr.a
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/bin/belr-parse
+/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/bin/belr-compiler

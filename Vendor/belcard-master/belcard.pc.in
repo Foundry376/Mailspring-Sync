@@ -1,0 +1,9 @@
+# This is a comment
+prefix=@CMAKE_INSTALL_PREFIX@
+
+Name:  @PROJECT_NAME@
+Description: Belcard is Belledonne Communications' vCard 4 parsing library
+Version: @PROJECT_VERSION@
+Libs: -L@CMAKE_INSTALL_FULL_LIBDIR@ -lbelcard
+Libs.private: @LIBS_PRIVATE@
+Cflags: -I@CMAKE_INSTALL_FULL_INCLUDEDIR@

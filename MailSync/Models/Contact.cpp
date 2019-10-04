@@ -47,6 +47,10 @@ string Contact::tableName() {
     return Contact::TABLE_NAME;
 }
 
+string Contact::name() {
+    return _data["name"].get<string>();
+}
+
 string Contact::email() {
     return _data["email"].get<string>();
 }

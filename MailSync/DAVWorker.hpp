@@ -44,6 +44,7 @@ public:
     
     void runContacts();
     void runForAddressBook(string abID, string abURL);
+    void rebuildContactGroup(shared_ptr<Contact> contact);
 
     void runCalendars();
     void runForCalendar(string id, string name, string path);

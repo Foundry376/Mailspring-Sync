@@ -16,7 +16,9 @@
 #include "Thread.hpp"
 #include "Message.hpp"
 #include "MailUtils.hpp"
+#include "DAVWorker.hpp"
 #include "File.hpp"
+#include "ContactGroup.hpp"
 #include "constants.h"
 #include "ProgressCollectors.hpp"
 #include "SyncException.hpp"
@@ -424,6 +426,12 @@ void TaskProcessor::performLocal(Task * task) {
         } else if (cname == "EventRSVPTask") {
             // nothing
 
+        } else if (cname == "DestroyContactTask") {
+            performLocalDestroyContact(task);
+            
+        } else if (cname == "ChangeContactGroupMembershipTask") {
+            performLocalChangeContactGroupMembership(task);
+            
         } else {
             logger->error("Unsure of how to process this task type {}", cname);
         }
@@ -499,6 +507,12 @@ void TaskProcessor::performRemote(Task * task) {
 
             } else if (cname == "EventRSVPTask") {
                 performRemoteSendRSVP(task);
+                
+            } else if (cname == "DestroyContactTask") {
+                performRemoteDestroyContact(task);
+
+            } else if (cname == "ChangeContactGroupMembershipTask") {
+                
                 
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
@@ -826,6 +840,41 @@ void TaskProcessor::performRemoteDestroyDraft(Task * task) {
         // remove the stub from our local cache - would eventually get removed
         // during sync, but we don't want to fetch it's body or anything
         store->remove(stub.get());
+    }
+}
+
+void TaskProcessor::performLocalDestroyContact(Task * task) {
+    vector<string> contactIds {};
+    for (json & c : task->data()["contacts"]) {
+        contactIds.push_back(c["id"].get<string>());
+    }
+    auto deleted = store->findAll<Contact>(Query().equal("id", contactIds));
+    for (auto & c : deleted) {
+        c->setHidden(true);
+        store->save(c.get());
+    }
+}
+
+void TaskProcessor::performRemoteDestroyContact(Task * task) {
+    // currently the contacts sync worker uses the hidden flag to push changes
+}
+
+void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
+    vector<string> contactIds {};
+    for (json & c : task->data()["contacts"]) {
+        contactIds.push_back(c["id"].get<string>());
+    }
+    auto contacts = store->findAll<Contact>(Query().equal("id", contactIds));
+    auto direction = task->data()["direction"].get<string>();
+    auto groupId = task->data()["group"]["id"].get<string>();
+    
+    if (account->provider() == "gmail") {
+        
+    } else {
+        auto contactForGroup = store->find<Contact>(Query().equal("id", groupId).equal("accountId", account->id()));
+
+        auto dav = make_shared<DAVWorker>(account);
+        dav->rebuildContactGroup(contactForGroup);
     }
 }
 

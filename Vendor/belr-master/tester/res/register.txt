@@ -1,0 +1,14 @@
+REGISTER sip:siptest.linphone.org SIP/2.0
+Via: SIP/2.0/TLS 192.168.0.25:41076;alias;branch=z9hG4bK.m-SPAXXd3;rport
+From: "François" <sip:smorlat2@78.220.48.77>;tag=HW3X1aviU
+To:  marie <sip:smorlat2@siptest.linphone.org>
+CSeq: 21 REGISTER
+Call-ID: s69J2OQ4h4
+Max-Forwards: 70
+Supported: outbound
+Contact: <sip:smorlat2@78.220.48.77:41076;transport=tls>;+sip.instance="<urn:uuid:2d839989-0bf2-49ba-80b7-2146037f729a>"
+Expires: 3600
+User-Agent: Linphone/3.7.0 (belle-sip/1.3.3)
+Content-Length: 0
+Authorization:  Digest realm="siptest.linphone.org", nonce="f5Zb2AAAAABXkU1AAAD253sZEAsAAAAA", algorithm=MD5, opaque="+GNywA==", username="smorlat2",  uri="sip:siptest.linphone.org", response="f86327204e4c826f47d761c9ad3afdb3", cnonce="faaa9595", nc=00000001, qop=auth
+

@@ -1,0 +1,37 @@
+BEGIN:VCARD
+VERSION:4.0
+KIND:individual
+FN:Sylvain Berfini
+N:Berfini;Sylvain;Pascal;;
+GENDER:M
+ADR;TYPE=work:;;34 avenue de l'Europe,le Trident bat D;GRENOBLE;;38100;FRA
+ NCE
+TEL;VALUE=uri;TYPE=work:tel:+33-9-52-63-65-05
+EMAIL;TYPE=work:sylvain.berfini@belledonne-communications.com
+IMPP;TYPE=work:sip:sylvain@sip.linphone.org
+TZ:Paris/Europe
+GEO:geo:45.159612\,5.732511
+TITLE:Software Engineer
+ROLE:Developper
+LOGO:http://www.belledonne-communications.com/uploads/images/belledonne-co
+ mmunications.png
+ORG:Belledonne Communications
+REV:20151202T145423Z
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+KIND:individual
+FN:François Grisez
+N:Grisez;François;;;
+GENDER:M
+EMAIL;TYPE=work:francois.grisez@belledonne-communications.com
+IMPP;TYPE=work:sip:francois.grisez@sip.linphone.org
+TZ:Paris/Europe
+GEO:geo:45.159612\,5.732511
+TITLE:Software Engineer
+ROLE:Developper
+LOGO:http://www.belledonne-communications.com/uploads/images/belledonne-co
+ mmunications.png
+ORG:Belledonne Communications
+REV:20151210T104312Z
+END:VCARD

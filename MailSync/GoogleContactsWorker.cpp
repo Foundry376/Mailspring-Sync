@@ -32,7 +32,7 @@ GoogleContactsWorker::GoogleContactsWorker(shared_ptr<Account> account) :
     logger(spdlog::get("logger"))
 {
     if (account->provider() != "gmail") {
-        throw "what";
+        throw "GoogleContactsWorker created with non-gmail account";
     }
 }
 
@@ -41,7 +41,7 @@ void GoogleContactsWorker::run() {
     string authorization = "Bearer " + parts.accessToken;
     
     // Fetch all connections
-    string peopleUrl = "https://people.googleapis.com/v1/people/me/connections?personFields=" + PERSON_FIELDS + "&pageSize=5";
+    string peopleUrl = "https://people.googleapis.com/v1/people/me/connections?personFields=" + PERSON_FIELDS + "&pageSize=400";
     paginateGoogleCollection(peopleUrl, authorization, "gsynctoken-contacts-" + account->id(), ([&](json page) {
         for (const auto & conn : page["connections"]) {
             auto primaryName = conn.count("names") ? conn["names"][0]["displayName"].get<string>() : "";
@@ -71,7 +71,7 @@ void GoogleContactsWorker::run() {
     }));
     
     // Fetch all groups
-    string groupsUrl = "https://people.googleapis.com/v1/contactGroups?pageSize=5";
+    string groupsUrl = "https://people.googleapis.com/v1/contactGroups?pageSize=400";
     paginateGoogleCollection(groupsUrl, authorization, "gsynctoken-groups-" + account->id(), ([&](json page) {
         for (const auto & group : page["contactGroups"]) {
             auto name = group["name"].get<string>();

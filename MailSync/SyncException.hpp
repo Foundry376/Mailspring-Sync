@@ -25,13 +25,13 @@ using namespace mailcore;
 
 class SyncException : public GenericException {
     string debuginfo;
-    string key;
     bool retryable = false;
     
 public:
     SyncException(string key, string di, bool retryable);
     SyncException(CURLcode c, string di);
     SyncException(mailcore::ErrorCode c, string di);
+    string key;
     bool isRetryable();
     json toJSON();
 };

@@ -21,10 +21,11 @@
 #include "Event.hpp"
 #include "Calendar.hpp"
 #include "NetworkRequestUtils.hpp"
-#include "../Vendor/ccard/wrap.hpp"
 
 #include <string>
 #include <curl/curl.h>
+#include <belr/belr.h>
+#include <belcard/belcard.hpp>
 
 #define CARDDAV_SYNC_SOURCE "carddav"
 #define XKIND "X-ADDRESSBOOKSERVER-KIND"
@@ -36,6 +37,9 @@ struct EventResult {
 };
 
 typedef string ETAG;
+
+using namespace::belr;
+using namespace::belcard;
 
 string firstPropVal(json attrs, string key, string fallback = "") {
     if (!attrs.count(key)) return fallback;
@@ -194,12 +198,13 @@ void DAVWorker::runForAddressBook(string abID, string abURL) {
     // request the last (newest) events first. Technically this should be unordered
     // by now, but it appears to work for me.
     std::reverse(needed.begin(), needed.end());
-    
-    logger->info("{}", abURL);
-    logger->info("  remote: {} etags", remote.size());
-    logger->info("   local: {} etags", local.size());
-    logger->info(" deleted: {}", deleted.size());
-    logger->info("  needed: {}", needed.size());
+    if (deleted.size() || needed.size()) {
+        logger->info("{}", abURL);
+        logger->info("  remote: {} etags", remote.size());
+        logger->info("   local: {} etags", local.size());
+        logger->info(" deleted: {}", deleted.size());
+        logger->info("  needed: {}", needed.size());
+    }
     
     auto deletionChunks = MailUtils::chunksOfVector(deleted, 100);
     
@@ -244,47 +249,35 @@ void DAVWorker::runForAddressBook(string abID, string abURL) {
                     auto vcard = abDoc->nodeContentAtXPath(".//carddav:address-data/text()", node);
                     if (vcard != "") {
                         local[etag] = true;
-
-                        auto jcard = vcsToJSON(vcard);
-                        string id = firstPropVal(jcard->attrs, "UID", MailUtils::idForCalendar(account->id(), href));
-                        string email = firstPropVal(jcard->attrs, "EMAIL", "");
-                        string name = firstPropVal(jcard->attrs, "FN", firstPropVal(jcard->attrs, "N", ""));
+                        
+                        auto belCard = BelCardParser::getInstance()->parseOne(vcard);
+                        if (belCard == NULL) {
+                            return;
+                        }
+                        string id = belCard->getUniqueId()->getValue();
+                        if (id == "") id = MailUtils::idForCalendar(account->id(), href);
+                        auto emailEntry = belCard->getEmails().front();
+                        string email = emailEntry == NULL ? "" : emailEntry->getValue();
+                        string name = belCard->getFullName()->getValue();
+                        if (name == "") name = belCard->getName()->getValue();
                         
                         json basicJSON = {{"id", id}, {"name", name}, {"email", email}, {"etag", etag}, {"rci", abID}, {"info", {{"vcf", vcard}}}, {"refs", CONTACT_MAX_REFS}};
-                        auto contact = Contact(account->id(), email, basicJSON, CARDDAV_SYNC_SOURCE);
+                        auto contact = make_shared<Contact>(account->id(), email, basicJSON, CARDDAV_SYNC_SOURCE);
                         
-                        if (firstPropVal(jcard->attrs, XKIND) == "group") {
-                            contact.setHidden(true);
-                            
-                            // Support iCloud's "Contact Groups are just Contacts with a member list field" idea
-                            // by hiding the contact (so it's still synced via etag) and creating a group for it.
-                            // Note that we have to tear this down when we unsync the contact.
-                            auto group = store->find<ContactGroup>(Query().equal("id", id));
-                            if (!group) {
-                                group = make_shared<ContactGroup>(id, account->id());
-                            }
-                            group->setName(name);
-                            store->save(group.get());
-                            
-                            SQLite::Statement removeMembers(store->db(), "DELETE FROM ContactContactGroup WHERE id = ?");
-                            removeMembers.bind(1, group->id());
-                            removeMembers.exec();
-
-                            SQLite::Statement insertMembers(store->db(), "INSERT OR IGNORE INTO ContactContactGroup (id, value) VALUES (?,?)");
-                            jcard = vcsToJSON(vcard);
-                            for (const auto & memberId : jcard->attrs[XMEMBERS]) {
-                                string mid = memberId.get<string>();
-                                if (mid.find("urn:uuid:") == 0) {
-                                    mid = mid.substr(9);
-                                }
-                                insertMembers.bind(1, mid);
-                                insertMembers.bind(2, group->id());
-                                insertMembers.exec();
-                                insertMembers.reset();
+                        bool isGroup = false;
+                        for (auto prop : belCard->getExtendedProperties()) {
+                            if (prop->getName() == "X-ADDRESSBOOKSERVER-KIND" && prop->getValue() == "group") {
+                                isGroup = true;
+                                break;
                             }
                         }
+                        
+                        if (isGroup) {
+                            contact->setHidden(true);
+                            rebuildContactGroup(contact);
+                        }
 
-                        store->save(&contact);
+                        store->save(contact.get());
                     
                     } else {
                         logger->info("Received addressbook entry {} with an empty body", etag);
@@ -294,6 +287,42 @@ void DAVWorker::runForAddressBook(string abID, string abURL) {
             
             transaction.commit();
         }
+    }
+}
+
+void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
+    // Support iCloud's "Contact Groups are just Contacts with a member list field" idea
+    // by hiding the contact (so it's still synced via etag) and creating a group for it.
+    // Note that we have to tear this down when we unsync the contact.
+    auto group = store->find<ContactGroup>(Query().equal("id", contact->id()));
+    if (!group) {
+        group = make_shared<ContactGroup>(contact->id(), account->id());
+    }
+    group->setName(contact->name());
+    store->save(group.get());
+    
+    SQLite::Statement removeMembers(store->db(), "DELETE FROM ContactContactGroup WHERE id = ?");
+    removeMembers.bind(1, group->id());
+    removeMembers.exec();
+
+    SQLite::Statement insertMembers(store->db(), "INSERT OR IGNORE INTO ContactContactGroup (id, value) VALUES (?,?)");
+    
+    string vcard = contact->info()["vcf"].get<string>();
+    shared_ptr<BelCard> belCard = BelCardParser::getInstance()->parseOne(vcard);
+    if (belCard == NULL) {
+        return;
+    }
+    
+    for (const auto & prop : belCard->getExtendedProperties()) {
+        if (prop->getName()!= "X-ADDRESSBOOKSERVER-MEMBER") continue;
+        string mid = prop->getValue();
+        if (mid.find("urn:uuid:") == 0) {
+            mid = mid.substr(9);
+        }
+        insertMembers.bind(1, mid);
+        insertMembers.bind(2, group->id());
+        insertMembers.exec();
+        insertMembers.reset();
     }
 }
 
@@ -377,12 +406,13 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     // request the last (newest) events first. Technically this should be unordered
     // by now, but it appears to work for me.
     std::reverse(needed.begin(), needed.end());
-    
-    logger->info("{}", url);
-    logger->info("  remote: {} etags", remote.size());
-    logger->info("   local: {} etags", local.size());
-    logger->info(" deleted: {}", deleted.size());
-    logger->info("  needed: {}", needed.size());
+    if (deleted.size() || needed.size()) {
+        logger->info("{}", url);
+        logger->info("  remote: {} etags", remote.size());
+        logger->info("   local: {} etags", local.size());
+        logger->info(" deleted: {}", deleted.size());
+        logger->info("  needed: {}", needed.size());
+    }
     
     auto deletionChunks = MailUtils::chunksOfVector(deleted, 100);
     

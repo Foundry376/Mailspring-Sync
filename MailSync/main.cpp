@@ -187,7 +187,14 @@ void runCalContactsSyncWorker() {
                 contactsWorker->run();
             }
         } catch (SyncException & ex) {
-            spdlog::get("logger")->info("Encountered cal / contacts exception: {}", ex.toJSON().dump());
+            spdlog::get("logger")->info("Encountered exception: {}", ex.toJSON().dump());
+            
+            if (ex.key.find("Code: 403") != string::npos || ex.key.find("Code: 401") != string::npos) {
+                spdlog::get("logger")->info("Stopping sync - unable to authenticate:");
+                spdlog::get("logger")->info("{}", ex.toJSON().dump());
+                return;
+            }
+            
             if (!ex.isRetryable()) {
                 throw;
             }
