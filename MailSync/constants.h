@@ -202,6 +202,7 @@ static vector<string> V7_SETUP_QUERIES = {
 };
 
 static vector<string> V8_SETUP_QUERIES = {
+    "DELETE FROM Contact WHERE refs = 0;",
     "ALTER TABLE `Contact` ADD COLUMN hidden TINYINT(1) DEFAULT 0",
     "ALTER TABLE `Contact` ADD COLUMN source VARCHAR(10) DEFAULT 'mail'",
     "CREATE INDEX IF NOT EXISTS ContactBrowseIndex ON Contact(hidden,refs,accountId)",

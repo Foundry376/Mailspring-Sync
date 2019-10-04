@@ -498,6 +498,12 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
 }
 
 void MailProcessor::upsertContacts(Message * message) {
+    // As of Mailspring 1.7, we no longer keep around Contacts that you've never
+    // sent email to. We actually never really did anything with these.
+    if (!message->isSentByUser()) {
+        return;
+    }
+
     map<string, json> byEmail{};
     for (auto & c : message->to()) {
         if (c.count("email")) {
@@ -532,11 +538,10 @@ void MailProcessor::upsertContacts(Message * message) {
 
     Query query = Query().equal("email", emails).equal("source", CONTACT_SOURCE_MAIL);
     auto results = store->findAll<Contact>(query);
-    bool incrementCounters = message->isSentByUser();
     
+    // update refcounts of existing items if this is a sent message
     for (auto & result : results) {
-        // update refcounts of existing items if this is a sent message
-        if (incrementCounters && result->refs() < CONTACT_MAX_REFS) {
+        if (result->refs() < CONTACT_MAX_REFS) {
             result->incrementRefs();
             store->save(result.get());
         }
@@ -547,12 +552,10 @@ void MailProcessor::upsertContacts(Message * message) {
         return;
     }
 
+    // insert remaining items
     for (auto & result : byEmail) {
-        // insert remaining items
         Contact c{message->accountId(), result.first, result.second, CONTACT_SOURCE_MAIL};
-        if (incrementCounters) {
-            c.incrementRefs();
-        }
+        c.incrementRefs();
         store->save(&c);
     }
 }
