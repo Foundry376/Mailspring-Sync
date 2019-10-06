@@ -36,6 +36,8 @@ struct EventResult {
     std::string etag;
 };
 
+
+
 typedef string ETAG;
 
 using namespace::belr;
@@ -132,8 +134,15 @@ void DAVWorker::run() {
 }
 
 void DAVWorker::runContacts() {
+    auto ab = resolveAddressBook();
+    if (ab.id != "") {
+        runForAddressBook(ab);
+    }
+}
+
+AddressBookResult DAVWorker::resolveAddressBook() {
     if (cardHost == "") {
-        return;
+        return AddressBookResult();
     }
     if (cardPrincipal == "discover") {
         // Fetch the list of calendars from the principal URL
@@ -152,17 +161,44 @@ void DAVWorker::runContacts() {
     auto abSetContentsDoc = performXMLRequest(abSetURL, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\"><d:prop><d:resourcetype /></d:prop></d:propfind>");
                                               
     // Iterate over the address books and run a sync on each one
+    // TODO: Pick the primary one somehow!
+    AddressBookResult result { "", "" };
+    
     abSetContentsDoc->evaluateXPath("//D:response[.//carddav:addressbook]", ([&](xmlNodePtr node) {
         string abHREF = abSetContentsDoc->nodeContentAtXPath(".//D:href/text()", node);
         string abURL = (abHREF.find("http") == string::npos) ? replacePath(abSetURL, abHREF) : abHREF;
-        runForAddressBook(MailUtils::idForCalendar(account->id(), abHREF), abURL);
+        result.id = MailUtils::idForCalendar(account->id(), abHREF);
+        result.url = abURL;
     }));
+    
+    return result;
 }
 
-void DAVWorker::runForAddressBook(string abID, string abURL) {
+void DAVWorker::writeContact(shared_ptr<Contact> contact) {
+    auto ab = resolveAddressBook();
+    string vcf = contact->info()["vcf"].get<string>();
+    
+    if (ab.id == "") {
+        logger->warn("No address book found.");
+        return;
+    }
+
+    if (contact->info().count("href") > 0) {
+        string href = contact->info()["href"].get<string>();
+        performVCardRequest(replacePath(ab.url, href), "PUT", vcf, contact->etag());
+        contact->info()["vcf"] = performVCardRequest(replacePath(ab.url, href), "GET");
+    } else {
+        logger->warn("No href in info.");
+
+    }
+
+    store->save(contact.get());
+}
+
+void DAVWorker::runForAddressBook(AddressBookResult ab) {
     map<ETAG, string> remote {};
     {
-        auto etagsDoc = performXMLRequest(abURL, "REPORT", "<c:addressbook-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /></d:prop></c:addressbook-query>");
+        auto etagsDoc = performXMLRequest(ab.url, "REPORT", "<c:addressbook-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /></d:prop></c:addressbook-query>");
 
         etagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             auto etag = etagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
@@ -177,7 +213,7 @@ void DAVWorker::runForAddressBook(string abID, string abURL) {
     map<ETAG, bool> local {};
     {
         SQLite::Statement findEtags(store->db(), "SELECT etag FROM Contact WHERE remoteCollectionId = ?");
-        findEtags.bind(1, abID);
+        findEtags.bind(1, ab.id);
         while (findEtags.executeStep()) {
             local[findEtags.getColumn("etag")] = true;
         }
@@ -199,7 +235,7 @@ void DAVWorker::runForAddressBook(string abID, string abURL) {
     // by now, but it appears to work for me.
     std::reverse(needed.begin(), needed.end());
     if (deleted.size() || needed.size()) {
-        logger->info("{}", abURL);
+        logger->info("{}", ab.url);
         logger->info("  remote: {} etags", remote.size());
         logger->info("   local: {} etags", local.size());
         logger->info(" deleted: {}", deleted.size());
@@ -207,15 +243,16 @@ void DAVWorker::runForAddressBook(string abID, string abURL) {
     }
     
     auto deletionChunks = MailUtils::chunksOfVector(deleted, 100);
+    vector<shared_ptr<Contact>> updatedGroups;
     
-    for (auto chunk : MailUtils::chunksOfVector(needed, 100)) {
+    for (auto chunk : MailUtils::chunksOfVector(needed, 50)) {
         string payload = "";
         for (auto & href : chunk) {
             payload += "<d:href>" + href + "</d:href>";
         }
         
         // Fetch the data
-        auto abDoc = performXMLRequest(abURL, "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop>" + payload + "</c:addressbook-multiget>");
+        auto abDoc = performXMLRequest(ab.url, "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop>" + payload + "</c:addressbook-multiget>");
         
         // Insert the event objects and remove deleted events within the same transaction.
         // Most of the time, this results in an event being replaced within a single transaction.
@@ -226,7 +263,7 @@ void DAVWorker::runForAddressBook(string abID, string abURL) {
                 for (auto & deletionChunk : deletionChunks) {
                     // Delete the contacts
                     vector<string> possibleGroupIds {};
-                    auto deletedItem = store->findAll<Contact>(Query().equal("remoteCollectionId", abID).equal("etag", deletionChunk));
+                    auto deletedItem = store->findAll<Contact>(Query().equal("remoteCollectionId", ab.id).equal("etag", deletionChunk));
                     for (auto & e : deletedItem) {
                         possibleGroupIds.push_back(e->id());
                         store->remove(e.get());
@@ -261,8 +298,15 @@ void DAVWorker::runForAddressBook(string abID, string abURL) {
                         string name = belCard->getFullName()->getValue();
                         if (name == "") name = belCard->getName()->getValue();
                         
-                        json basicJSON = {{"id", id}, {"name", name}, {"email", email}, {"etag", etag}, {"rci", abID}, {"info", {{"vcf", vcard}}}, {"refs", CONTACT_MAX_REFS}};
-                        auto contact = make_shared<Contact>(account->id(), email, basicJSON, CARDDAV_SYNC_SOURCE);
+                        auto contact = store->find<Contact>(Query().equal("id", id));
+                        if (!contact) {
+                            contact = make_shared<Contact>(id, account->id(), email, CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
+                        }
+                        contact->setInfo(json::object({{"vcf", vcard}, {"href", href}}));
+                        contact->setName(name);
+                        contact->setEmail(email);
+                        contact->setEtag(etag);
+                        contact->setRemoteCollectionId(ab.id);
                         
                         bool isGroup = false;
                         for (auto prop : belCard->getExtendedProperties()) {
@@ -271,14 +315,13 @@ void DAVWorker::runForAddressBook(string abID, string abURL) {
                                 break;
                             }
                         }
-                        
                         if (isGroup) {
                             contact->setHidden(true);
-                            rebuildContactGroup(contact);
+                            updatedGroups.push_back(contact);
+                        } else {
+                            store->save(contact.get());
                         }
 
-                        store->save(contact.get());
-                    
                     } else {
                         logger->info("Received addressbook entry {} with an empty body", etag);
                     }
@@ -287,6 +330,14 @@ void DAVWorker::runForAddressBook(string abID, string abURL) {
             
             transaction.commit();
         }
+    }
+    
+    // We need to write updated groups last so that they can update the contacts that they reference
+    // Note: We save them down here so that if the sync proceess crashes or exits early we either
+    // have full groups or we have nothing.
+    for (auto contact : updatedGroups) {
+        rebuildContactGroup(contact);
+        store->save(contact.get());
     }
 }
 
@@ -301,29 +352,23 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
     group->setName(contact->name());
     store->save(group.get());
     
-    SQLite::Statement removeMembers(store->db(), "DELETE FROM ContactContactGroup WHERE value = ?");
-    removeMembers.bind(1, group->id());
-    removeMembers.exec();
-
-    SQLite::Statement insertMembers(store->db(), "INSERT OR IGNORE INTO ContactContactGroup (id, value) VALUES (?,?)");
-    
     string vcard = contact->info()["vcf"].get<string>();
     shared_ptr<BelCard> belCard = BelCardParser::getInstance()->parseOne(vcard);
     if (belCard == NULL) {
         return;
     }
     
+    vector<string> members;
     for (const auto & prop : belCard->getExtendedProperties()) {
         if (prop->getName()!= "X-ADDRESSBOOKSERVER-MEMBER") continue;
         string mid = prop->getValue();
         if (mid.find("urn:uuid:") == 0) {
             mid = mid.substr(9);
         }
-        insertMembers.bind(1, mid);
-        insertMembers.bind(2, group->id());
-        insertMembers.exec();
-        insertMembers.reset();
+        members.push_back(mid);
     }
+    
+    group->syncMembers(store, members);
 }
 
 void DAVWorker::runCalendars() {
@@ -477,13 +522,9 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     }
 }
 
-shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, string payload) {
-    string url = _url.find("http") != 0 ? "https://" + _url : _url;
-    
+
+struct curl_slist * DAVWorker::baseHeaders() {
     struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, "Prefer: return-minimal");
-    headers = curl_slist_append(headers, "Content-Type: application/xml; charset=utf-8");
-    headers = curl_slist_append(headers, "Depth: 1");
 
     if (account->refreshToken() != "") {
         auto parts = SharedXOAuth2TokenManager()->partsForAccount(account);
@@ -495,16 +536,51 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
         string authorization = "Authorization: Basic " + encoded;
         headers = curl_slist_append(headers, authorization.c_str());
     }
+    return headers;
+}
+
+shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, string payload) {
+    string url = _url.find("http") != 0 ? "https://" + _url : _url;
+    
+    struct curl_slist *headers = baseHeaders();
+    headers = curl_slist_append(headers, "Prefer: return-minimal");
+    headers = curl_slist_append(headers, "Content-Type: application/xml; charset=utf-8");
+    headers = curl_slist_append(headers, "Depth: 1");
     
     CURL * curl_handle = curl_easy_init();
     const char * payloadChars = payload.c_str();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
+    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 40);
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
     
+    logger->info("{}: {} {}", _url, method, payload);
     string result = PerformRequest(curl_handle);
     return make_shared<DavXML>(result, url);
+}
+
+string DAVWorker::performVCardRequest(string _url, string method, string vcard, string existingEtag) {
+    string url = _url.find("http") != 0 ? "https://" + _url : _url;
+    
+    struct curl_slist *headers = baseHeaders();
+    headers = curl_slist_append(headers, "Content-Type: text/vcard; charset=utf-8");
+    if (existingEtag != "") {
+        string etagHeader = "If-Match: " + existingEtag;
+        headers = curl_slist_append(headers, etagHeader.c_str());
+    }
+
+    CURL * curl_handle = curl_easy_init();
+    const char * payloadChars = vcard.c_str();
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 40);
+    curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
+    
+    logger->info("{}: {}", _url, existingEtag);
+    string result = PerformRequest(curl_handle);
+    logger->info("{}: {}", _url, result);
+    return result;
 }
 

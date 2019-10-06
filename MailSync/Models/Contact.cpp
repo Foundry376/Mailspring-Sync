@@ -19,19 +19,15 @@ using namespace mailcore;
 
 string Contact::TABLE_NAME = "Contact";
 
-Contact::Contact(string accountId, string canonicalizedEmail, json json, string source) : MailModel(json) {
-    _data["aid"] = accountId;
-    _data["email"] = canonicalizedEmail;
+Contact::Contact(string id, string accountId, string email, int refs, string source) : MailModel(id, accountId) {
+    _data["email"] = email;
     _data["s"] = source;
-    if (!_data.count("refs")) {
-        _data["refs"] = 0;
-    }
-    if (!_data.count("v")) {
-        _data["v"] = 0;
-    }
-    if (!_data.count("id")) {
-        _data["id"] = _data["email"];
-    }
+    _data["refs"] = refs;
+}
+
+Contact::Contact(json json) :
+    MailModel(json)
+{
 }
 
 Contact::Contact(SQLite::Statement & query) :
@@ -51,8 +47,16 @@ string Contact::name() {
     return _data["name"].get<string>();
 }
 
+void Contact::setName(string name) {
+    _data["name"] = name;
+}
+
 string Contact::email() {
     return _data["email"].get<string>();
+}
+
+void Contact::setEmail(string email) {
+    _data["email"] = email;
 }
 
 string Contact::source() {
@@ -63,8 +67,33 @@ string Contact::etag() {
     return _data.count("etag") ? _data["etag"].get<string>() : "";
 }
 
+unordered_set<string> Contact::groupIds() {
+    unordered_set<string> set {};
+    if (!_data.count("gis")) return set;
+    for (auto item : _data["gis"]) {
+        set.insert(item.get<string>());
+    }
+    return set;
+}
+
+void Contact::setGroupIds(unordered_set<string> set) {
+    vector<string> arr;
+    for (auto item : set) {
+        arr.push_back(item);
+    }
+    _data["gis"] = arr;
+}
+
+void Contact::setEtag(string etag) {
+    _data["etag"] = etag;
+}
+
 string Contact::remoteCollectionId() {
     return _data.count("rci") ? _data["rci"].get<string>() : "";
+}
+
+void Contact::setRemoteCollectionId(string rci) {
+    _data["rci"] = rci;
 }
 
 json Contact::info() {

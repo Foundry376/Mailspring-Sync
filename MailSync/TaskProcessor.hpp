@@ -64,7 +64,11 @@ private:
     void performLocalDestroyContact(Task * task);
     void performRemoteDestroyContact(Task * task);
     
+    void performLocalSyncbackContact(Task * task);
+    void performRemoteSyncbackContact(Task * task);
+    
     void performLocalChangeContactGroupMembership(Task * task);
+    void performRemoteChangeContactGroupMembership(Task * task);
 
     void performLocalSyncbackCategory(Task * task);
     void performRemoteSyncbackCategory(Task * task);

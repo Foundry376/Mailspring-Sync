@@ -44,6 +44,9 @@ public:
     void bindToQuery(SQLite::Statement * query);
     
     void afterRemove(MailStore * store);
+    
+    void syncMembers(MailStore * store, vector<string> newContactIds);
+
 };
 
 #endif /* ContactGroup_hpp */

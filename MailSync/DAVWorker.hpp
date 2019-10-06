@@ -27,6 +27,11 @@
 
 using namespace std;
 
+struct AddressBookResult {
+    std::string id;
+    std::string url;
+};
+
 class DAVWorker {
     MailStore * store;
     shared_ptr<spdlog::logger> logger;
@@ -42,16 +47,21 @@ public:
     
     void run();
     
+    AddressBookResult resolveAddressBook();
+    
+    void writeContact(shared_ptr<Contact> contact);
+    
     void runContacts();
-    void runForAddressBook(string abID, string abURL);
+    void runForAddressBook(AddressBookResult ab);
     void rebuildContactGroup(shared_ptr<Contact> contact);
 
     void runCalendars();
     void runForCalendar(string id, string name, string path);
 
+    struct curl_slist * baseHeaders();
     shared_ptr<DavXML> performXMLRequest(string path, string method, string payload = "");
-
-    void print_xpath_nodes(xmlNodeSetPtr nodes, FILE* output);
+    string performVCardRequest(string _url, string method, string vcard = "", string existingEtag = "");
+    
 };
 
 #endif /* DAVWorker_hpp */
