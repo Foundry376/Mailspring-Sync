@@ -63,3 +63,55 @@ void ContactGroup::afterRemove(MailStore * store) {
     update.bind(1, id());
     update.exec();
 }
+
+void ContactGroup::syncMembers(MailStore * store, vector<string> newContactIds) {
+    store->beginTransaction();
+    
+    SQLite::Statement find(store->db(), "SELECT id FROM ContactContactGroup WHERE value = ?");
+    find.bind(1, id());
+    vector<string> oldContactIds;
+    while (find.executeStep()) {
+        oldContactIds.push_back(find.getColumn("id").getString());
+    }
+    
+    // remove all the join table entries
+    SQLite::Statement removeMembers(store->db(), "DELETE FROM ContactContactGroup WHERE value = ?");
+    removeMembers.bind(1, id());
+    removeMembers.exec();
+
+    // craete new join table entries
+    SQLite::Statement insertMembers(store->db(), "INSERT OR IGNORE INTO ContactContactGroup (id, value) VALUES (?,?)");
+    for (auto contactId : newContactIds) {
+        insertMembers.bind(1, contactId);
+        insertMembers.bind(2, id());
+        insertMembers.exec();
+        insertMembers.reset();
+    }
+    
+    // update the actual contacts. This is unfortunately necessary because Mailspring
+    // will not update live queries unless the membershsip data is on the actual models
+    vector<string> all {};
+    all.insert(all.end(), oldContactIds.begin(), oldContactIds.end());
+    all.insert(all.end(), newContactIds.begin(), newContactIds.end());
+
+
+    auto contacts = store->findAll<Contact>(Query().equal("id", all));
+    for (auto contact : contacts) {
+        auto groupIds = contact->groupIds();
+        bool inGroup = std::find(newContactIds.begin(), newContactIds.end(), contact->id()) != newContactIds.end();
+        if (inGroup && groupIds.count(id()) == 0) {
+            // they are in new contacts
+            groupIds.insert(id());
+            contact->setGroupIds(groupIds);
+            store->save(contact.get());
+            
+        } else if (!inGroup && groupIds.count(id()) > 0) {
+            // they are not in new contacts
+            groupIds.erase(id());
+            contact->setGroupIds(groupIds);
+            store->save(contact.get());
+        }
+    }
+    
+    store->commitTransaction();
+}

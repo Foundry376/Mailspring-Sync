@@ -58,11 +58,12 @@ void GoogleContactsWorker::run() {
             
             // handle new contact
             if (!local) {
-                json basicJSON = {{"id", resourceName}, {"name", primaryName}, {"email", primaryEmail}, {"refs", CONTACT_MAX_REFS}};
-                local = make_shared<Contact>(account->id(), primaryEmail, basicJSON, GOOGLE_SYNC_SOURCE);
+                local = make_shared<Contact>(resourceName, account->id(), primaryEmail, CONTACT_MAX_REFS, GOOGLE_SYNC_SOURCE);
             }
             
             // process changes
+            local->setEmail(primaryEmail);
+            local->setName(primaryName);
             local->setInfo(conn);
             store->save(local.get());
             
@@ -90,22 +91,15 @@ void GoogleContactsWorker::run() {
             local->setName(name);
             store->save(local.get());
 
-            SQLite::Statement removeFolders(store->db(), "DELETE FROM ContactContactGroup WHERE id = ?");
-            removeFolders.bind(1, local->id());
-            removeFolders.exec();
+            vector<string> members;
 
             if (memberCount > 0) {
                 auto json = PerformJSONRequest(CreateJSONRequest("https://people.googleapis.com/v1/" + resourceName + "?maxMembers=" + to_string(memberCount), "GET", authorization));
-                
-                SQLite::Statement insertFolders(store->db(), "INSERT OR IGNORE INTO ContactContactGroup (id, value) VALUES (?,?)");
-
                 for (const auto & memberId : json["memberResourceNames"]) {
-                    insertFolders.bind(1, memberId.get<string>());
-                    insertFolders.bind(2, local->id());
-                    insertFolders.exec();
-                    insertFolders.reset();
+                    members.push_back(memberId.get<string>());
                 }
             }
+            local->syncMembers(store, members);
         }
     }));
 }

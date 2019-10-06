@@ -14,6 +14,7 @@
 
 #include <stdio.h>
 #include <string>
+#include <unordered_set>
 #include "json.hpp"
 #include "spdlog/spdlog.h"
 
@@ -35,11 +36,14 @@ class Contact : public MailModel {
 public:
     static string TABLE_NAME;
 
-    Contact(string accountId, string canonicalizedEmail, json json, string source);
+    Contact(string id, string accountId, string email, int refs, string source);
+    Contact(json json);
     Contact(SQLite::Statement & query);
   
     string name();
+    void setName(string name);
     string email();
+    void setEmail(string email);
     bool hidden();
     void setHidden(bool b);
     string source();
@@ -47,8 +51,13 @@ public:
     json info();
     void setInfo(json info);
     string etag();
+    void setEtag(string etag);
     string remoteCollectionId();
+    void setRemoteCollectionId(string remoteCollectionId);
 
+    unordered_set<string> groupIds();
+    void setGroupIds(unordered_set<string> set);
+    
     int refs();
     void incrementRefs();
                           

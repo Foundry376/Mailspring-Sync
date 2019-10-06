@@ -431,7 +431,10 @@ void TaskProcessor::performLocal(Task * task) {
 
         } else if (cname == "DestroyContactTask") {
             performLocalDestroyContact(task);
-            
+
+        } else if (cname == "SyncbackContactTask") {
+            performLocalSyncbackContact(task);
+
         } else if (cname == "ChangeContactGroupMembershipTask") {
             performLocalChangeContactGroupMembership(task);
             
@@ -514,9 +517,12 @@ void TaskProcessor::performRemote(Task * task) {
             } else if (cname == "DestroyContactTask") {
                 performRemoteDestroyContact(task);
 
+            } else if (cname == "SyncbackContactTask") {
+                performRemoteSyncbackContact(task);
+
             } else if (cname == "ChangeContactGroupMembershipTask") {
-                
-                
+                performRemoteChangeContactGroupMembership(task);
+
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
             }
@@ -862,6 +868,7 @@ void TaskProcessor::performRemoteDestroyContact(Task * task) {
     // currently the contacts sync worker uses the hidden flag to push changes
 }
 
+
 void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
     vector<string> contactIds {};
     for (json & c : task->data()["contacts"]) {
@@ -916,7 +923,7 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
         belCard->serialize(stream);
         vcard = stream.str();
         logger->info("After: {}", vcard);
-        contactForGroup->setInfo({{"vcf", vcard}});
+        contactForGroup->info()["vcf"] = vcard;
         
         auto dav = make_shared<DAVWorker>(account);
         dav->rebuildContactGroup(contactForGroup);
@@ -924,6 +931,53 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
         store->save(contactForGroup.get());
     }
 }
+
+
+void TaskProcessor::performRemoteChangeContactGroupMembership(Task * task) {
+    auto groupId = task->data()["group"]["id"].get<string>();
+    if (account->provider() == "gmail") {
+        
+    } else {
+        auto contactForGroup = store->find<Contact>(Query().equal("id", groupId).equal("accountId", account->id()));
+        auto dav = make_shared<DAVWorker>(account);
+        dav->writeContact(contactForGroup);
+        store->save(contactForGroup.get());
+    }
+}
+
+
+void TaskProcessor::performLocalSyncbackContact(Task * task) {
+    auto contact = make_shared<Contact>(task->data()["contact"]);
+    auto local = store->find<Contact>(Query().equal("id", contact->id()));
+
+    // The client may not be aware of all of the key/value pairs we store in contact JSON,
+    // so it's JSON in the task may omit some properties. To make sure we don't damage the
+    // contact, find and update only the allowed attributes.
+    if (!local) {
+        // how do we make new contacts?
+        // local = make_shared<Contact>()
+        logger->info("Unsupported!!");
+    } else {
+        local->setInfo(contact->info());
+        local->setName(contact->name());
+        local->setEmail(contact->email());
+        store->save(contact.get());
+    }
+}
+
+void TaskProcessor::performRemoteSyncbackContact(Task * task) {
+    string id = task->data()["contact"]["id"].get<string>();
+    
+    if (account->provider() == "gmail") {
+        
+    } else {
+        auto contact = store->find<Contact>(Query().equal("id", id).equal("accountId", account->id()));
+        auto dav = make_shared<DAVWorker>(account);
+        dav->writeContact(contact);
+        store->save(contact.get());
+    }
+}
+
 
 void TaskProcessor::performLocalSyncbackCategory(Task * task) {
     
