@@ -9,8 +9,8 @@
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
 
-#ifndef ContactGroup_hpp
-#define ContactGroup_hpp
+#ifndef ContactBook_hpp
+#define ContactBook_hpp
 
 #include <stdio.h>
 #include <string>
@@ -26,29 +26,24 @@ using namespace std;
 using namespace mailcore;
 
 
-class ContactGroup : public MailModel {
+class ContactBook : public MailModel {
     
 public:
     static string TABLE_NAME;
 
-    ContactGroup(string id, string accountId);
-    ContactGroup(SQLite::Statement & query);
+    ContactBook(string id, string accountId);
+    ContactBook(SQLite::Statement & query);
   
-    string name();
-    void setName(string name);
-    string bookId();
-    void setBookId(string bookId);
+    string url();
+    void setURL(string url);
+    string source();
+    void setSource(string source);
                           
     string tableName();
     string constructorName();
 
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
-    
-    void afterRemove(MailStore * store);
-    
-    void syncMembers(MailStore * store, vector<string> newContactIds);
-
 };
 
-#endif /* ContactGroup_hpp */
+#endif /* ContactBook_hpp */

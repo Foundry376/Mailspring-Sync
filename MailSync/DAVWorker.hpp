@@ -14,6 +14,7 @@
 
 #include "Account.hpp"
 #include "Identity.hpp"
+#include "ContactBook.hpp"
 #include "MailStore.hpp"
 #include "DavXML.hpp"
 
@@ -27,11 +28,6 @@
 
 using namespace std;
 
-struct AddressBookResult {
-    std::string id;
-    std::string url;
-};
-
 class DAVWorker {
     MailStore * store;
     shared_ptr<spdlog::logger> logger;
@@ -40,20 +36,19 @@ class DAVWorker {
     string calHost;
     string calPrincipal;
     string cardHost;
-    string cardPrincipal;
     
 public:
     DAVWorker(shared_ptr<Account> account);
     
     void run();
     
-    AddressBookResult resolveAddressBook();
+    shared_ptr<ContactBook> resolveAddressBook();
     
     void writeAndResyncContact(shared_ptr<Contact> contact);
     void deleteContact(shared_ptr<Contact> contact);
     
     void runContacts();
-    void runForAddressBook(AddressBookResult ab);
+    void runForAddressBook(shared_ptr<ContactBook> ab);
 
     shared_ptr<Contact> ingestAddressDataNode(shared_ptr<DavXML> doc, xmlNodePtr node, bool & isGroup);
     void rebuildContactGroup(shared_ptr<Contact> contact);

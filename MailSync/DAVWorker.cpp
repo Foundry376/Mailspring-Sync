@@ -71,7 +71,6 @@ DAVWorker::DAVWorker(shared_ptr<Account> account) :
     calHost = "";
     calPrincipal = "discover";
     cardHost = "";
-    cardPrincipal = "discover";
 
     // Shortcuts for a few providers that implement CardDav / CalDav but do NOT
     // expose SRV records telling us where they are.
@@ -79,31 +78,26 @@ DAVWorker::DAVWorker(shared_ptr<Account> account) :
         calHost = "apidata.googleusercontent.com";
         calPrincipal = "/caldav/v2/" + account->emailAddress();
         cardHost = "";
-        cardPrincipal = "";
     }
     if (account->IMAPHost().find("imap.mail.ru") != string::npos) {
         calHost = "calendar.mail.ru";
         calPrincipal = "discover";
         cardHost = "";
-        cardPrincipal = "";
     }
     if (account->IMAPHost().find("imap.yandex.com") != string::npos) {
         calHost = "yandex.ru";
         calPrincipal = "discover";
         cardHost = "yandex.ru";
-        cardPrincipal = "discover";
     }
     if (account->IMAPHost().find("securemail.a1.net") != string::npos) {
         calHost = "caldav.a1.net";
         calPrincipal = "discover";
         cardHost = "carddav.a1.net";
-        cardPrincipal = "discover";
     }
     if (account->IMAPHost().find("imap.zoho.com") != string::npos) {
         calHost = "calendar.zoho.com";
         calPrincipal = "discover";
         cardHost = "contacts.zoho.com";
-        cardPrincipal = "discover";
     }
     
     // Initialize libxml
@@ -117,12 +111,21 @@ void DAVWorker::run() {
 
 void DAVWorker::runContacts() {
     auto ab = resolveAddressBook();
-    if (ab.id != "") {
+    if (ab != nullptr) {
         runForAddressBook(ab);
     }
 }
 
-AddressBookResult DAVWorker::resolveAddressBook() {
+/*
+ Currently we load whatever contact book we have saved locally, but still re-run the DNS + well-known
+ search to see if we need to update it's URL, just since users have no way to do this manually.
+*/
+shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
+    shared_ptr<ContactBook> existing = store->find<ContactBook>(Query().equal("accountId", account->id()));
+    if (existing && existing->source() != CARDDAV_SYNC_SOURCE) {
+        return nullptr;
+    }
+    
     if (cardHost == "") {
         // Try to use DNS SRV records to find the principal URL
         string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
@@ -138,22 +141,23 @@ AddressBookResult DAVWorker::resolveAddressBook() {
     }
     if (cardHost == "") {
         // No luck.
-        return AddressBookResult();
+        return existing;
     }
     
-    if (cardPrincipal == "discover") {
-        string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
-        if (cardRoot == "") {
-            cardRoot = PerformExpectedRedirect("http://" + cardHost + "/.well-known/carddav");
-            if (cardRoot == "") {
-                cardRoot = cardHost + "/";
-            }
+    string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
+    if (cardRoot == "") {
+        cardRoot = PerformExpectedRedirect("http://" + cardHost + "/.well-known/carddav");
+        if (cardRoot == "" || cardRoot.find("/.well-known") != string::npos) {
+            // if we couldn't find the root or the redirect looks like it was sending us in a circle,
+            // (or redirecting us to https://) fall back to the root.
+            cardRoot = cardHost + "/";
         }
-        
-        // Fetch the current user principal URL from the CardDav root
-        auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>");
-        cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
     }
+    
+    // Fetch the current user principal URL from the CardDav root
+    auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>");
+    string cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
+
     
     // Fetch the address book home set URL from the user principal URL
     auto abSetDoc = performXMLRequest(cardHost + cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>");
@@ -167,22 +171,25 @@ AddressBookResult DAVWorker::resolveAddressBook() {
                                               
     // Iterate over the address books and run a sync on each one
     // TODO: Pick the primary one somehow!
-    AddressBookResult result { "", "" };
     
     abSetContentsDoc->evaluateXPath("//D:response[.//carddav:addressbook]", ([&](xmlNodePtr node) {
         string abHREF = abSetContentsDoc->nodeContentAtXPath(".//D:href/text()", node);
         string abURL = (abHREF.find("http") == string::npos) ? replacePath(abSetURL, abHREF) : abHREF;
-        result.id = MailUtils::idForCalendar(account->id(), abHREF);
-        result.url = abURL;
+        if (!existing) {
+            existing = make_shared<ContactBook>(account->id() + "-default", account->id());
+        }
+        existing->setSource("carddav");
+        existing->setURL(abURL);
+        store->save(existing.get());
     }));
     
-    return result;
+    return existing;
 }
 
 void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
-    auto ab = resolveAddressBook();
-    
-    if (ab.id == "") {
+    shared_ptr<ContactBook> ab = store->find<ContactBook>(Query().equal("accountId", account->id()));
+
+    if (ab == nullptr) {
         logger->warn("No address book found.");
         return;
     }
@@ -192,13 +199,13 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
     
     // write the card
     if (href == "") {
-        string result = performVCardRequest(ab.url, "POST", vcf);
-        auto postDoc = make_shared<DavXML>(result, ab.url);
+        string result = performVCardRequest(ab->url(), "POST", vcf);
+        auto postDoc = make_shared<DavXML>(result, ab->url());
         href = postDoc->nodeContentAtXPath("//D:href/text()");
 
     } else {
         try {
-        performVCardRequest(replacePath(ab.url, href), "PUT", vcf, contact->etag());
+        performVCardRequest(replacePath(ab->url(), href), "PUT", vcf, contact->etag());
         } catch (SyncException & e) {
             if (e.key.find("403") != string::npos) {
                 // silently continue so our "Bad" vcard is immediately reverted below.
@@ -212,12 +219,12 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
         // read the card back to ingest server-side changes and the new etag
         // IMPORTANT: We receive a new copy of this contact with possibly new data.
         // DO NOT SAVE the one in the outer scope!
-        auto abDoc = performXMLRequest(ab.url, "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop><d:href>"+href+"</d:href></c:addressbook-multiget>");
+        auto abDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop><d:href>"+href+"</d:href></c:addressbook-multiget>");
         abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             bool isGroup = false;
             auto serverside = ingestAddressDataNode(abDoc, node, isGroup);
             if (!serverside) return;
-            serverside->setRemoteCollectionId(ab.id);
+            serverside->setBookId(ab->id());
             if (isGroup) {
                 rebuildContactGroup(serverside);
             }
@@ -235,10 +242,10 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
 }
 
 void DAVWorker::deleteContact(shared_ptr<Contact> contact) {
-    auto ab = resolveAddressBook();
+    shared_ptr<ContactBook> ab = store->find<ContactBook>(Query().equal("accountId", account->id()));
     string vcf = contact->info()["vcf"].get<string>();
     
-    if (ab.id == "") {
+    if (ab == nullptr) {
         logger->warn("No address book found.");
         return;
     }
@@ -250,15 +257,15 @@ void DAVWorker::deleteContact(shared_ptr<Contact> contact) {
 
     string href = contact->info()["href"].get<string>();
     
-    performVCardRequest(replacePath(ab.url, href), "DELETE", "", contact->etag());
+    performVCardRequest(replacePath(ab->url(), href), "DELETE", "", contact->etag());
     store->remove(contact.get());
 }
 
-void DAVWorker::runForAddressBook(AddressBookResult ab) {
+void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
     map<ETAG, string> remote {};
 
     {
-        auto etagsDoc = performXMLRequest(ab.url, "REPORT", "<c:addressbook-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /></d:prop></c:addressbook-query>");
+        auto etagsDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /></d:prop></c:addressbook-query>");
 
         etagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             auto etag = etagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
@@ -272,8 +279,8 @@ void DAVWorker::runForAddressBook(AddressBookResult ab) {
     // and DELETE missing events. To do this we query just the index for IDs and go from there.
     map<ETAG, bool> local {};
     {
-        SQLite::Statement findEtags(store->db(), "SELECT etag FROM Contact WHERE remoteCollectionId = ?");
-        findEtags.bind(1, ab.id);
+        SQLite::Statement findEtags(store->db(), "SELECT etag FROM Contact WHERE bookId = ?");
+        findEtags.bind(1, ab->id());
         while (findEtags.executeStep()) {
             local[findEtags.getColumn("etag")] = true;
         }
@@ -295,7 +302,7 @@ void DAVWorker::runForAddressBook(AddressBookResult ab) {
     // by now, but it appears to work for me.
     std::reverse(needed.begin(), needed.end());
     if (deleted.size() || needed.size()) {
-        logger->info("{}", ab.url);
+        logger->info("{}", ab->url());
         logger->info("  remote: {} etags", remote.size());
         logger->info("   local: {} etags", local.size());
         logger->info(" deleted: {}", deleted.size());
@@ -312,7 +319,7 @@ void DAVWorker::runForAddressBook(AddressBookResult ab) {
         }
         
         // Fetch the data
-        auto abDoc = performXMLRequest(ab.url, "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop>" + payload + "</c:addressbook-multiget>");
+        auto abDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop>" + payload + "</c:addressbook-multiget>");
         
         // Insert the event objects and remove deleted events within the same transaction.
         // Most of the time, this results in an event being replaced within a single transaction.
@@ -323,7 +330,7 @@ void DAVWorker::runForAddressBook(AddressBookResult ab) {
                 for (auto & deletionChunk : deletionChunks) {
                     // Delete the contacts
                     vector<string> possibleGroupIds {};
-                    auto deletedItem = store->findAll<Contact>(Query().equal("remoteCollectionId", ab.id).equal("etag", deletionChunk));
+                    auto deletedItem = store->findAll<Contact>(Query().equal("bookId", ab->id()).equal("etag", deletionChunk));
                     for (auto & e : deletedItem) {
                         possibleGroupIds.push_back(e->id());
                         store->remove(e.get());
@@ -343,7 +350,7 @@ void DAVWorker::runForAddressBook(AddressBookResult ab) {
                 bool isGroup = false;
                 auto contact = ingestAddressDataNode(abDoc, node, isGroup);
                 if (!contact) return;
-                contact->setRemoteCollectionId(ab.id);
+                contact->setBookId(ab->id());
                 if (isGroup) {
                     updatedGroups.push_back(contact);
                 } else {
@@ -410,6 +417,7 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
         group = make_shared<ContactGroup>(contact->id(), account->id());
     }
     group->setName(contact->name());
+    group->setBookId(contact->bookId());
     store->save(group.get());
     
     string vcard = contact->info()["vcf"].get<string>();

@@ -63,7 +63,7 @@ void Contact::setEmail(string email) {
 }
 
 string Contact::source() {
-    return _data.count("s") ? _data["s"].get<string>() : "";
+    return _data.count("s") ? _data["s"].get<string>() : CONTACT_SOURCE_MAIL;
 }
 
 string Contact::etag() {
@@ -91,12 +91,12 @@ void Contact::setEtag(string etag) {
     _data["etag"] = etag;
 }
 
-string Contact::remoteCollectionId() {
-    return _data.count("rci") ? _data["rci"].get<string>() : "";
+string Contact::bookId() {
+    return _data.count("bid") ? _data["bid"].get<string>() : "";
 }
 
-void Contact::setRemoteCollectionId(string rci) {
-    _data["rci"] = rci;
+void Contact::setBookId(string rci) {
+    _data["bid"] = rci;
 }
 
 json Contact::info() {
@@ -152,7 +152,7 @@ void Contact::mutateCardInInfo(function<void(shared_ptr<belcard::BelCard>)> yiel
 }
 
 vector<string> Contact::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "refs", "email", "hidden", "source", "etag", "remoteCollectionId" };
+    return vector<string>{"id", "data", "accountId", "version", "refs", "email", "hidden", "source", "etag", "bookId" };
 }
 
 void Contact::bindToQuery(SQLite::Statement * query) {
@@ -162,7 +162,7 @@ void Contact::bindToQuery(SQLite::Statement * query) {
     query->bind(":hidden", hidden() ? 1 : 0);
     query->bind(":source", source());
     query->bind(":etag", etag());
-    query->bind(":remoteCollectionId", remoteCollectionId());
+    query->bind(":bookId", bookId());
 }
 
 
