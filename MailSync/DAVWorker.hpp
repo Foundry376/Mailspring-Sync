@@ -62,6 +62,7 @@ public:
     void runForCalendar(string id, string name, string path);
 
     struct curl_slist * baseHeaders();
+    
     shared_ptr<DavXML> performXMLRequest(string path, string method, string payload = "");
     string performVCardRequest(string _url, string method, string vcard = "", string existingEtag = "");
     

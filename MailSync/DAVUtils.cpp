@@ -8,6 +8,9 @@
 
 #include "DAVUtils.hpp"
 
+#include <arpa/inet.h>
+#include <resolv.h>
+
 using namespace std;
 
 
@@ -93,4 +96,36 @@ bool DAVUtils::isGroupCard(shared_ptr<BelCard> card) {
         }
     }
     return false;
+}
+
+vector<string> DAVUtils::srvRecordsForDomain(string domain) {
+    unsigned char response[NS_PACKETSZ];
+    ns_msg handle;
+    ns_rr rr;
+    int len;
+    char dispbuf[4096];
+    vector<string> results;
+    
+    if (((len = res_search(domain.c_str(), ns_c_in, ns_t_srv, response, sizeof(response))) >= 0) and
+        (ns_initparse(response, len, &handle) >= 0) and
+        (ns_msg_count(handle, ns_s_an) >= 0)) {
+    
+        for (int ns_index = 0; ns_index < len; ns_index++) {
+            if (ns_parserr(&handle, ns_s_an, ns_index, &rr)) {
+                /* WARN: ns_parserr failed */
+                continue;
+            }
+            ns_sprintrr (&handle, &rr, NULL, NULL, dispbuf, sizeof (dispbuf));
+            if (ns_rr_class(rr) == ns_c_in and ns_rr_type(rr) == ns_t_srv) {
+                const u_char * rdata = ns_rr_rdata(rr);
+                
+                std::vector<char> dname(NS_MAXDNAME + 1);
+                ns_name_uncompress(
+                    ns_msg_base(handle), ns_msg_end(handle),
+                    rdata + 6, &dname[0], NS_MAXDNAME);
+                results.push_back(string(dname.data()));
+            }
+        }
+    }
+    return results;
 }

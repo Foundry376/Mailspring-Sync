@@ -31,7 +31,7 @@ static void addMembersToGroupCard(shared_ptr<BelCard> card, vector<shared_ptr<Co
 static void removeMembersFromGroupCard(shared_ptr<BelCard> card, vector<shared_ptr<Contact>> contacts);
 
 static bool isGroupCard(shared_ptr<BelCard> card);
-
+static vector<string> srvRecordsForDomain(string domain);
 };
 
 #endif /* DAVUtils_hpp */
