@@ -1033,21 +1033,20 @@ void TaskProcessor::performRemoteChangeContactGroupMembership(Task * task) {
 
 void TaskProcessor::performLocalSyncbackContact(Task * task) {
     auto clientside = make_shared<Contact>(task->data()["contact"]);
-    auto local = store->find<Contact>(Query().equal("id", clientside->id()));
+    auto local = task->data()["contact"].count("id")
+        ? store->find<Contact>(Query().equal("id", clientside->id()))
+        : make_shared<Contact>(MailUtils::idRandomlyGenerated(), account->id(), "", CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
 
-    // The client may not be aware of all of the key/value pairs we store in contact JSON,
+    // Note: The client may not be aware of all of the key/value pairs we store in contact JSON,
     // so it's JSON in the task may omit some properties. To make sure we don't damage the
     // contact, find and update only the allowed attributes.
-    if (!local) {
-        // how do we make new contacts?
-        // local = make_shared<Contact>()
-        logger->info("Unsupported!!");
-    } else {
-        local->setInfo(clientside->info());
-        local->setName(clientside->name());
-        local->setEmail(clientside->email());
-        store->save(local.get());
-    }
+    local->setInfo(clientside->info());
+    local->setName(clientside->name());
+    local->setEmail(clientside->email());
+    store->save(local.get());
+    
+    task->data()["contact"]["id"] = local->id();
+    store->save(task);
 }
 
 void TaskProcessor::performRemoteSyncbackContact(Task * task) {

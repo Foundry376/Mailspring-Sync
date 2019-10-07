@@ -40,8 +40,11 @@ SyncException::SyncException(CURLcode c, string di) :
 }
 
 SyncException::SyncException(mailcore::ErrorCode c, string di) :
-    key(ErrorCodeToTypeMap[c]), debuginfo(di), GenericException()
+    key(""), debuginfo(di.c_str()), GenericException()
 {
+    if (ErrorCodeToTypeMap.count(c)) {
+        key = ErrorCodeToTypeMap[c];
+    }
     if (c == mailcore::ErrorConnection) {
         retryable = true;
     }
