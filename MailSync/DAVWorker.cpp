@@ -187,12 +187,8 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
         return;
     }
 
-    if (contact->info().count("href") == 0) {
-        logger->warn("No href in info.");
-        return;
-    }
     string vcf = contact->info()["vcf"].get<string>();
-    string href = contact->info()["href"].get<string>();
+    string href = contact->info().count("href") ? contact->info()["href"].get<string>() : "";
     
     // write the card
     if (href == "") {
@@ -212,20 +208,30 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
         }
     }
     
-    // read the card back to ingest server-side changes and the new etag
-    // IMPORTANT: We receive a new copy of this contact with possibly new data.
-    // DO NOT SAVE the one in the outer scope!
-    auto abDoc = performXMLRequest(ab.url, "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop><d:href>"+href+"</d:href></c:addressbook-multiget>");
-    abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
-        bool isGroup = false;
-        auto contact = ingestAddressDataNode(abDoc, node, isGroup);
-        if (!contact) return;
-        contact->setRemoteCollectionId(ab.id);
-        if (isGroup) {
-            rebuildContactGroup(contact);
-        }
-        store->save(contact.get());
-    }));
+    if (href != "") {
+        // read the card back to ingest server-side changes and the new etag
+        // IMPORTANT: We receive a new copy of this contact with possibly new data.
+        // DO NOT SAVE the one in the outer scope!
+        auto abDoc = performXMLRequest(ab.url, "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop><d:href>"+href+"</d:href></c:addressbook-multiget>");
+        abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+            bool isGroup = false;
+            auto serverside = ingestAddressDataNode(abDoc, node, isGroup);
+            if (!serverside) return;
+            serverside->setRemoteCollectionId(ab.id);
+            if (isGroup) {
+                rebuildContactGroup(serverside);
+            }
+            store->save(contact.get());
+            
+            // If the server re-assigned the contact a new ID / UID (FastMail),
+            // blow away our old contact model because the save above didn't update it.
+            if (contact->id() != serverside->id()) {
+                store->remove(contact.get());
+            }
+        }));
+    } else {
+        // sync probably failed
+    }
 }
 
 void DAVWorker::deleteContact(shared_ptr<Contact> contact) {
