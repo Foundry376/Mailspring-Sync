@@ -24,6 +24,8 @@ Contact::Contact(string id, string accountId, string email, int refs, string sou
     _data["s"] = source;
     _data["refs"] = refs;
     _data["gis"] = json::array();
+    _data["info"] = json::object();
+    _data["name"] = "";
 }
 
 Contact::Contact(json json) :
