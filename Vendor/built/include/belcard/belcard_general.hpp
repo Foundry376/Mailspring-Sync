@@ -36,6 +36,14 @@ namespace belcard {
 		BELCARD_PUBLIC BelCardKind();
 	};
 	
+	class BelCardVersion : public BelCardProperty {
+	public:
+		BELCARD_PUBLIC static std::shared_ptr<BelCardVersion> parse(const std::string& input);
+		BELCARD_PUBLIC static void setHandlerAndCollectors(belr::Parser<std::shared_ptr<BelCardGeneric>> *parser);
+		
+		BELCARD_PUBLIC BelCardVersion();
+	};
+	
 	class BelCardSource : public BelCardProperty {
 	public:
 		BELCARD_PUBLIC static std::shared_ptr<BelCardSource> parse(const std::string& input);

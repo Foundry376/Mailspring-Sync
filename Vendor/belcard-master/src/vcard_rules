@@ -1,11 +1,9 @@
 vcard-list = vcard *vcard
 
 vcard = "BEGIN:VCARD" [CR] LF
-		1*vversion
 		1*property
 		"END:VCARD" *([CR] LF)
-vversion = ("VERSION:4.0" / "VERSION:3.0") [CR] LF
-property = (SOURCE / KIND / XML
+property = (VERSION / SOURCE / KIND / XML
 			/ FN / N / NICKNAME / PHOTO / BDAY / ANNIVERSARY / GENDER
 			/ ADR
 			/ TEL / EMAIL / IMPP / LANG
@@ -16,6 +14,9 @@ property = (SOURCE / KIND / XML
 			/ FBURL / CALADRURI / CALURI
 			/ BIRTHPLACE / DEATHPLACE / DEATHDATE
 			/ X-PROPERTY) [CR] LF
+
+VERSION = "VERSION:" VERSION-value
+VERSION-value = ("4.0" / "3.0")
 
 X-PROPERTY = [group "."] X-PROPERTY-name *(";" X-PROPERTY-param) ":" X-PROPERTY-value
 X-PROPERTY-name = x-name
