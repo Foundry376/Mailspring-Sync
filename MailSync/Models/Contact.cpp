@@ -23,6 +23,7 @@ Contact::Contact(string id, string accountId, string email, int refs, string sou
     _data["email"] = email;
     _data["s"] = source;
     _data["refs"] = refs;
+    _data["gis"] = json::array();
 }
 
 Contact::Contact(json json) :
@@ -131,6 +132,21 @@ int Contact::refs() {
 
 void Contact::incrementRefs() {
     _data["refs"] = refs() + 1;
+}
+
+void Contact::mutateCardInInfo(function<void(shared_ptr<belcard::BelCard>)> yieldBlock) {
+    auto nextInfo = info();
+    auto belCard = belcard::BelCardParser::getInstance()->parseOne(nextInfo["vcf"].get<string>());
+    if (belCard == NULL) {
+        return;
+    }
+    
+    yieldBlock(belCard);
+    
+    std::ostringstream stream;
+    belCard->serialize(stream);
+    nextInfo["vcf"] = stream.str();
+    setInfo(nextInfo);
 }
 
 vector<string> Contact::columnsForQuery() {

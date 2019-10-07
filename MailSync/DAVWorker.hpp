@@ -49,10 +49,13 @@ public:
     
     AddressBookResult resolveAddressBook();
     
-    void writeContact(shared_ptr<Contact> contact);
+    void writeAndResyncContact(shared_ptr<Contact> contact);
+    void deleteContact(shared_ptr<Contact> contact);
     
     void runContacts();
     void runForAddressBook(AddressBookResult ab);
+
+    shared_ptr<Contact> ingestAddressDataNode(shared_ptr<DavXML> doc, xmlNodePtr node, bool & isGroup);
     void rebuildContactGroup(shared_ptr<Contact> contact);
 
     void runCalendars();

@@ -21,6 +21,7 @@
 #include "MailModel.hpp"
 #include "MailStore.hpp"
 #include <MailCore/MailCore.h>
+#include <belcard/belcard.hpp>
 
 using namespace nlohmann;
 using namespace std;
@@ -60,7 +61,9 @@ public:
     
     int refs();
     void incrementRefs();
-                          
+
+    void mutateCardInInfo(function<void(shared_ptr<belcard::BelCard>)> yieldBlock);
+
     string tableName();
     string constructorName();
 

@@ -10,6 +10,7 @@
 //
 
 #include "DAVWorker.hpp"
+#include "DAVUtils.hpp"
 #include "ContactGroup.hpp"
 #include "MailStore.hpp"
 #include "MailStoreTransaction.hpp"
@@ -28,8 +29,6 @@
 #include <belcard/belcard.hpp>
 
 #define CARDDAV_SYNC_SOURCE "carddav"
-#define XKIND "X-ADDRESSBOOKSERVER-KIND"
-#define XMEMBERS "X-ADDRESSBOOKSERVER-MEMBER"
 
 struct EventResult {
     std::string icsHref;
@@ -174,7 +173,41 @@ AddressBookResult DAVWorker::resolveAddressBook() {
     return result;
 }
 
-void DAVWorker::writeContact(shared_ptr<Contact> contact) {
+void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
+    auto ab = resolveAddressBook();
+    
+    if (ab.id == "") {
+        logger->warn("No address book found.");
+        return;
+    }
+
+    if (contact->info().count("href") == 0) {
+        logger->warn("No href in info.");
+        return;
+    }
+    string vcf = contact->info()["vcf"].get<string>();
+    string href = contact->info()["href"].get<string>();
+    
+    // write the card
+    performVCardRequest(replacePath(ab.url, href), "PUT", vcf, contact->etag());
+    
+    // read the card back to ingest server-side changes and the new etag
+    // IMPORTANT: We receive a new copy of this contact with possibly new data.
+    // DO NOT SAVE the one in the outer scope!
+    auto abDoc = performXMLRequest(ab.url, "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop><d:href>"+href+"</d:href></c:addressbook-multiget>");
+    abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+        bool isGroup = false;
+        auto contact = ingestAddressDataNode(abDoc, node, isGroup);
+        if (!contact) return;
+        contact->setRemoteCollectionId(ab.id);
+        if (isGroup) {
+            rebuildContactGroup(contact);
+        }
+        store->save(contact.get());
+    }));
+}
+
+void DAVWorker::deleteContact(shared_ptr<Contact> contact) {
     auto ab = resolveAddressBook();
     string vcf = contact->info()["vcf"].get<string>();
     
@@ -183,16 +216,15 @@ void DAVWorker::writeContact(shared_ptr<Contact> contact) {
         return;
     }
 
-    if (contact->info().count("href") > 0) {
-        string href = contact->info()["href"].get<string>();
-        performVCardRequest(replacePath(ab.url, href), "PUT", vcf, contact->etag());
-        contact->info()["vcf"] = performVCardRequest(replacePath(ab.url, href), "GET");
-    } else {
+    if (contact->info().count("href") == 0) {
         logger->warn("No href in info.");
-
+        return;
     }
 
-    store->save(contact.get());
+    string href = contact->info()["href"].get<string>();
+    
+    performVCardRequest(replacePath(ab.url, href), "DELETE", "", contact->etag());
+    store->remove(contact.get());
 }
 
 void DAVWorker::runForAddressBook(AddressBookResult ab) {
@@ -280,51 +312,14 @@ void DAVWorker::runForAddressBook(AddressBookResult ab) {
             }
             
             abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
-                auto etag = abDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-                if (local.count(etag) == 0) {
-                    auto href = abDoc->nodeContentAtXPath(".//D:href/text()", node);
-                    auto vcard = abDoc->nodeContentAtXPath(".//carddav:address-data/text()", node);
-                    if (vcard != "") {
-                        local[etag] = true;
-                        
-                        auto belCard = BelCardParser::getInstance()->parseOne(vcard);
-                        if (belCard == NULL) {
-                            return;
-                        }
-                        string id = belCard->getUniqueId()->getValue();
-                        if (id == "") id = MailUtils::idForCalendar(account->id(), href);
-                        auto emailEntry = belCard->getEmails().front();
-                        string email = emailEntry == NULL ? "" : emailEntry->getValue();
-                        string name = belCard->getFullName()->getValue();
-                        if (name == "") name = belCard->getName()->getValue();
-                        
-                        auto contact = store->find<Contact>(Query().equal("id", id));
-                        if (!contact) {
-                            contact = make_shared<Contact>(id, account->id(), email, CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
-                        }
-                        contact->setInfo(json::object({{"vcf", vcard}, {"href", href}}));
-                        contact->setName(name);
-                        contact->setEmail(email);
-                        contact->setEtag(etag);
-                        contact->setRemoteCollectionId(ab.id);
-                        
-                        bool isGroup = false;
-                        for (auto prop : belCard->getExtendedProperties()) {
-                            if (prop->getName() == "X-ADDRESSBOOKSERVER-KIND" && prop->getValue() == "group") {
-                                isGroup = true;
-                                break;
-                            }
-                        }
-                        if (isGroup) {
-                            contact->setHidden(true);
-                            updatedGroups.push_back(contact);
-                        } else {
-                            store->save(contact.get());
-                        }
-
-                    } else {
-                        logger->info("Received addressbook entry {} with an empty body", etag);
-                    }
+                bool isGroup = false;
+                auto contact = ingestAddressDataNode(abDoc, node, isGroup);
+                if (!contact) return;
+                contact->setRemoteCollectionId(ab.id);
+                if (isGroup) {
+                    updatedGroups.push_back(contact);
+                } else {
+                    store->save(contact.get());
                 }
             }));
             
@@ -339,6 +334,43 @@ void DAVWorker::runForAddressBook(AddressBookResult ab) {
         rebuildContactGroup(contact);
         store->save(contact.get());
     }
+}
+
+shared_ptr<Contact> DAVWorker::ingestAddressDataNode(shared_ptr<DavXML> doc, xmlNodePtr node, bool & isGroup) {
+    auto etag = doc->nodeContentAtXPath(".//D:getetag/text()", node);
+    auto href = doc->nodeContentAtXPath(".//D:href/text()", node);
+    auto vcard = doc->nodeContentAtXPath(".//carddav:address-data/text()", node);
+    if (vcard == "") {
+        logger->info("Received addressbook entry {} with an empty body", etag);
+        return nullptr;
+    }
+    
+    auto belCard = BelCardParser::getInstance()->parseOne(vcard);
+    if (belCard == NULL) {
+        logger->info("Unable to decode vcard: {}", vcard);
+        return nullptr;
+    }
+    string id = belCard->getUniqueId()->getValue();
+    if (id == "") id = MailUtils::idForCalendar(account->id(), href);
+    auto emailEntry = belCard->getEmails().front();
+    string email = emailEntry == NULL ? "" : emailEntry->getValue();
+    string name = belCard->getFullName()->getValue();
+    if (name == "") name = belCard->getName()->getValue();
+    
+    auto contact = store->find<Contact>(Query().equal("id", id));
+    if (!contact) {
+        contact = make_shared<Contact>(id, account->id(), email, CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
+    }
+    contact->setInfo(json::object({{"vcf", vcard}, {"href", href}}));
+    contact->setName(name);
+    contact->setEmail(email);
+    contact->setEtag(etag);
+    
+    isGroup = DAVUtils::isGroupCard(belCard);
+    if (isGroup) {
+        contact->setHidden(true);
+    }
+    return contact;
 }
 
 void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
@@ -359,8 +391,18 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
     }
     
     vector<string> members;
+    
+    // vcard4 members
+    for (const auto & prop : belCard->getMembers()) {
+        string mid = prop->getValue();
+        if (mid.find("urn:uuid:") == 0) {
+            mid = mid.substr(9);
+        }
+        members.push_back(mid);
+    }
+    // vcard3 members / icloud
     for (const auto & prop : belCard->getExtendedProperties()) {
-        if (prop->getName()!= "X-ADDRESSBOOKSERVER-MEMBER") continue;
+        if (prop->getName()!= X_VCARD3_MEMBER) continue;
         string mid = prop->getValue();
         if (mid.find("urn:uuid:") == 0) {
             mid = mid.substr(9);
@@ -557,6 +599,7 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     
     logger->info("{}: {} {}", _url, method, payload);
     string result = PerformRequest(curl_handle);
+    logger->info("{}: {} {}\n{}", _url, method, payload, result);
     return make_shared<DavXML>(result, url);
 }
 
@@ -578,7 +621,7 @@ string DAVWorker::performVCardRequest(string _url, string method, string vcard, 
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
     
-    logger->info("{}: {}", _url, existingEtag);
+    logger->info("{}: {} {}", _url, vcard, existingEtag);
     string result = PerformRequest(curl_handle);
     logger->info("{}: {}", _url, result);
     return result;

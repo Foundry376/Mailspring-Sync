@@ -70,6 +70,12 @@ private:
     void performLocalChangeContactGroupMembership(Task * task);
     void performRemoteChangeContactGroupMembership(Task * task);
 
+    void performLocalSyncbackContactGroup(Task * task);
+    void performRemoteSyncbackContactGroup(Task * task);
+
+    void performLocalDestroyContactGroup(Task * task);
+    void performRemoteDestroyContactGroup(Task * task);
+
     void performLocalSyncbackCategory(Task * task);
     void performRemoteSyncbackCategory(Task * task);
 
