@@ -201,7 +201,15 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
         href = postDoc->nodeContentAtXPath("//D:href/text()");
 
     } else {
+        try {
         performVCardRequest(replacePath(ab.url, href), "PUT", vcf, contact->etag());
+        } catch (SyncException & e) {
+            if (e.key.find("403") != string::npos) {
+                // silently continue so our "Bad" vcard is immediately reverted below.
+            } else {
+                throw e;
+            }
+        }
     }
     
     // read the card back to ingest server-side changes and the new etag
