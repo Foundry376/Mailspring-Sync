@@ -70,30 +70,18 @@ DAVWorker::DAVWorker(shared_ptr<Account> account) :
     account(account),
     logger(spdlog::get("logger"))
 {
-    // For now, we assume Gmail
+    calHost = "";
+    calPrincipal = "discover";
+    cardHost = "";
+    cardPrincipal = "discover";
+
+    // Shortcuts for a few providers that implement CardDav / CalDav but do NOT
+    // expose SRV records telling us where they are.
     if (account->provider() == "gmail") {
         calHost = "apidata.googleusercontent.com";
         calPrincipal = "/caldav/v2/" + account->emailAddress();
         cardHost = "";
         cardPrincipal = "";
-    }
-    if (account->IMAPHost().find("mail.me.com") != string::npos) {
-        calHost = "";
-        calPrincipal = "";
-        cardHost = "contacts.icloud.com";
-        cardPrincipal = "discover";
-    }
-    if (account->IMAPHost().find("imap.aol.com") != string::npos) {
-        calHost = "caldav.aol.com";
-        calPrincipal = "discover";
-        cardHost = "carddav.aol.com";
-        cardPrincipal = "discover";
-    }
-    if (account->IMAPHost().find("imap.gmx.com") != string::npos || account->IMAPHost().find("imap.gmx.net") != string::npos) {
-        calHost = "caldav.gmx.net";
-        calPrincipal = "discover";
-        cardHost = "carddav.gmx.net";
-        cardPrincipal = "discover";
     }
     if (account->IMAPHost().find("imap.mail.ru") != string::npos) {
         calHost = "calendar.mail.ru";
@@ -120,9 +108,6 @@ DAVWorker::DAVWorker(shared_ptr<Account> account) :
         cardPrincipal = "discover";
     }
     
-    logger->info("CalDav config: {} {}", calHost, calPrincipal);
-    logger->info("CardDav config: {} {}", cardHost, cardPrincipal);
-    
     // Initialize libxml
     xmlInitParser();
 }
@@ -141,15 +126,38 @@ void DAVWorker::runContacts() {
 
 AddressBookResult DAVWorker::resolveAddressBook() {
     if (cardHost == "") {
+        // Try to use DNS SRV records to find the principal URL
+        string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
+        auto records = DAVUtils::srvRecordsForDomain("_carddavs._tcp." + domain);
+        if (records.size()) {
+            cardHost = records.front();
+        } else {
+            auto records = DAVUtils::srvRecordsForDomain("_carddav._tcp." + domain);
+            if (records.size()) {
+                cardHost = records.front();
+            }
+        }
+    }
+    if (cardHost == "") {
+        // No luck.
         return AddressBookResult();
     }
+    
     if (cardPrincipal == "discover") {
-        // Fetch the list of calendars from the principal URL
-        auto principalDoc = performXMLRequest(cardHost + "/", "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>");
+        string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
+        if (cardRoot == "") {
+            cardRoot = PerformExpectedRedirect("http://" + cardHost + "/.well-known/carddav");
+            if (cardRoot == "") {
+                cardRoot = cardHost + "/";
+            }
+        }
+        
+        // Fetch the current user principal URL from the CardDav root
+        auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>");
         cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
     }
     
-    // Fetch the address book home set URL
+    // Fetch the address book home set URL from the user principal URL
     auto abSetDoc = performXMLRequest(cardHost + cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>");
     auto abSetURL = abSetDoc->nodeContentAtXPath("//carddav:addressbook-home-set/D:href/text()");
     if (abSetURL.find("http") == string::npos) {
@@ -229,6 +237,7 @@ void DAVWorker::deleteContact(shared_ptr<Contact> contact) {
 
 void DAVWorker::runForAddressBook(AddressBookResult ab) {
     map<ETAG, string> remote {};
+
     {
         auto etagsDoc = performXMLRequest(ab.url, "REPORT", "<c:addressbook-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /></d:prop></c:addressbook-query>");
 
@@ -587,6 +596,10 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     struct curl_slist *headers = baseHeaders();
     headers = curl_slist_append(headers, "Prefer: return-minimal");
     headers = curl_slist_append(headers, "Content-Type: application/xml; charset=utf-8");
+    
+    if (payload.find("xml:ns:carddav") != string::npos) {
+        headers = curl_slist_append(headers, "Accept: text/vcard; version=4.0");
+    }
     headers = curl_slist_append(headers, "Depth: 1");
     
     CURL * curl_handle = curl_easy_init();
@@ -599,7 +612,9 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     
     logger->info("{}: {} {}", _url, method, payload);
     string result = PerformRequest(curl_handle);
-    logger->info("{}: {} {}\n{}", _url, method, payload, result);
+    if (result.length() < 20000) {
+        logger->info("{}: {} {}\n{}", _url, method, payload, result);
+    }
     return make_shared<DavXML>(result, url);
 }
 
@@ -608,6 +623,7 @@ string DAVWorker::performVCardRequest(string _url, string method, string vcard, 
     
     struct curl_slist *headers = baseHeaders();
     headers = curl_slist_append(headers, "Content-Type: text/vcard; charset=utf-8");
+    headers = curl_slist_append(headers, "Accept: text/vcard; version=4.0");
     if (existingEtag != "") {
         string etagHeader = "If-Match: " + existingEtag;
         headers = curl_slist_append(headers, etagHeader.c_str());
@@ -623,7 +639,9 @@ string DAVWorker::performVCardRequest(string _url, string method, string vcard, 
     
     logger->info("{}: {} {}", _url, vcard, existingEtag);
     string result = PerformRequest(curl_handle);
-    logger->info("{}: {}", _url, result);
+    if (result.length() < 20000) {
+        logger->info("{}: {}", _url, result);
+    }
     return result;
 }
 

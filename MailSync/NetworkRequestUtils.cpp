@@ -121,6 +121,36 @@ const string PerformRequest(CURL * curl_handle) {
     return result;
 }
 
+
+const string PerformExpectedRedirect(string url) {
+    CURL * curl_handle = curl_easy_init();
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 10);
+
+    string explicitCertsBundlePath = FindLinuxCertsBundle();
+    if (explicitCertsBundlePath != "") {
+        curl_easy_setopt(curl_handle, CURLOPT_CAINFO, explicitCertsBundlePath.c_str());
+    }
+    
+    string result;
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
+    curl_easy_perform(curl_handle);
+
+    long http_code = 0;
+    curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &http_code);
+    if (http_code != 301 && http_code != 302) {
+        return "";
+    }
+    char * redirect;
+    if (curl_easy_getinfo(curl_handle, CURLINFO_REDIRECT_URL, &redirect) != CURLE_OK) {
+        return "";
+    }
+
+    return redirect;
+}
+
+
 const json PerformJSONRequest(CURL * curl_handle) {
     string result = PerformRequest(curl_handle);
     json resultJSON = nullptr;

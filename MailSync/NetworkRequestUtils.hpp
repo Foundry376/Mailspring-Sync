@@ -31,6 +31,8 @@ const json MakeGmailOAuthRequest(string clientId, string refreshToken);
 const string PerformRequest(CURL * curl_handle);
 const json PerformJSONRequest(CURL * curl_handle);
 
+const string PerformExpectedRedirect(string url);
+
 void ValidateRequestResp(CURLcode res, CURL * curl_handle);
 
 // Shorthand methods for Identity Server
