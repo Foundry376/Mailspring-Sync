@@ -47,6 +47,7 @@ namespace belcard {
 		bool _skipFieldValidation = false;
 
 		std::shared_ptr<BelCardKind> _kind;
+		std::shared_ptr<BelCardVersion> _version;
 		std::shared_ptr<BelCardFullName> _fn;
 		std::shared_ptr<BelCardName> _n;
 		std::shared_ptr<BelCardBirthday> _bday;
@@ -98,6 +99,7 @@ namespace belcard {
 
 		// The following are for belcard use only, they don't do any check on the value
 		void _setKind(const std::shared_ptr<BelCardKind> &kind);
+		void _setVersion(const std::shared_ptr<BelCardVersion> &version);
 		void _setFullName(const std::shared_ptr<BelCardFullName> &fn);
 		void _setName(const std::shared_ptr<BelCardName> &n);
 		void _setBirthday(const std::shared_ptr<BelCardBirthday> &bday);
@@ -143,6 +145,9 @@ namespace belcard {
 		BELCARD_PUBLIC BelCard();
 		BELCARD_PUBLIC void setSkipFieldValidation(bool skip);
 		BELCARD_PUBLIC bool getSkipFieldValidation();
+
+		BELCARD_PUBLIC bool setVersion(const std::shared_ptr<BelCardVersion> &version);
+		BELCARD_PUBLIC const std::shared_ptr<BelCardVersion> &getVersion() const;
 
 		BELCARD_PUBLIC bool setKind(const std::shared_ptr<BelCardKind> &kind);
 		BELCARD_PUBLIC const std::shared_ptr<BelCardKind> &getKind() const;

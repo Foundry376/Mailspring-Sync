@@ -43,6 +43,19 @@ BelCardSource::BelCardSource() : BelCardProperty() {
 	setName("SOURCE");
 }
 
+shared_ptr<BelCardVersion> BelCardVersion::parse(const string& input) {
+	return BelCardProperty::parseProperty<BelCardVersion>("VERSION", input);
+}
+
+void BelCardVersion::setHandlerAndCollectors(Parser<shared_ptr<BelCardGeneric>> *parser) {
+	parser->setHandler("VERSION", make_fn(BelCardGeneric::create<BelCardVersion>))
+			->setCollector("VERSION-value", make_sfn(&BelCardProperty::setValue));
+}
+
+BelCardVersion::BelCardVersion() : BelCardProperty() {
+	setName("VERSION");
+}
+
 shared_ptr<BelCardKind> BelCardKind::parse(const string& input) {
 	return BelCardProperty::parseProperty<BelCardKind>("KIND", input);
 }

@@ -45,6 +45,7 @@ BelCardParser::BelCardParser() {
 	BelCardProperty::setHandlerAndCollectors(_parser);
 
 	BelCardSource::setHandlerAndCollectors(_parser);
+	BelCardVersion::setHandlerAndCollectors(_parser);
 	BelCardKind::setHandlerAndCollectors(_parser);
 	BelCardXML::setHandlerAndCollectors(_parser);
 

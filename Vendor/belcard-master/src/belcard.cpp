@@ -27,6 +27,7 @@ using namespace::belcard;
 void BelCard::setHandlerAndCollectors(Parser<shared_ptr<BelCardGeneric>> *parser) {
 	parser->setHandler("vcard", make_fn(BelCardGeneric::create<BelCard>))
 			->setCollector("X-PROPERTY", make_sfn(&BelCard::_addExtendedProperty))
+			->setCollector("VERSION", make_sfn(&BelCard::_setVersion))
 			->setCollector("SOURCE", make_sfn(&BelCard::_addSource))
 			->setCollector("KIND", make_sfn(&BelCard::_setKind))
 			->setCollector("XML", make_sfn(&BelCard::_addXML))
@@ -112,6 +113,17 @@ template <typename T>
 void BelCard::remove(list<shared_ptr<T>> &property_list, shared_ptr<T> property) {
 	property_list.remove(property);
 	removeProperty(property);
+}
+
+void BelCard::_setVersion(const shared_ptr<BelCardVersion> &version) {
+	set(_version, version);
+}
+bool BelCard::setVersion(const shared_ptr<BelCardVersion> &version) {
+	_setVersion(version);
+	return true;
+}
+const shared_ptr<BelCardVersion> &BelCard::getVersion() const {
+	return _version;
 }
 
 void BelCard::_setKind(const shared_ptr<BelCardKind> &kind) {
@@ -752,7 +764,7 @@ const list<shared_ptr<BelCardProperty>> &BelCard::getProperties() const {
 }
 
 void BelCard::serialize(ostream& output) const {
-	output << "BEGIN:VCARD\r\nVERSION:4.0\r\n";
+	output << "BEGIN:VCARD\r\n";
 	for (auto it = getProperties().begin(); it != getProperties().end(); ++it) {
 		output << (**it);
 	}
