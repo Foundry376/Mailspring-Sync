@@ -926,6 +926,34 @@ void TaskProcessor::performLocalSyncbackContactGroup(Task * task) {
                 }
             });
             store->save(contact.get());
+        } else {
+            // Create vcf and autogen Contact and ContactGroup
+            auto uid = MailUtils::idRandomlyGenerated();
+            auto contact = make_shared<Contact>(uid, account->id(), "", CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
+            contact->setInfo(json::object({{"vcf", "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:"+uid+"\r\nEND:VCARD\r\n"}, {"href", ""}}));
+            contact->setHidden(true);
+            contact->setName(name);
+            contact->mutateCardInInfo([&](shared_ptr<BelCard> belCard) {
+                auto nameProp = make_shared<BelCardName>();
+                nameProp->setFreeformTextName(name);
+                belCard->setName(nameProp);
+                
+                auto fullNameProp = make_shared<BelCardFullName>();
+                fullNameProp->setValue(name);
+                belCard->setFullName(fullNameProp);
+
+                auto kindProp = make_shared<BelCardProperty>();
+                kindProp->setName(X_VCARD3_KIND);
+                kindProp->setValue("group");
+                belCard->addExtendedProperty(kindProp);
+            });
+
+            task->data()["group"]["id"] = uid;
+            store->save(task);
+
+            store->save(contact.get());
+            auto dav = make_shared<DAVWorker>(account);
+            dav->rebuildContactGroup(contact);
         }
     }
 }

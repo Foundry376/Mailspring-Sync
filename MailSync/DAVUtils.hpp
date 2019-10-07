@@ -19,6 +19,7 @@
 
 static string X_VCARD3_KIND = "X-ADDRESSBOOKSERVER-KIND";
 static string X_VCARD3_MEMBER = "X-ADDRESSBOOKSERVER-MEMBER";
+static string CARDDAV_SYNC_SOURCE = "carddav";
 
 using namespace belcard;
 

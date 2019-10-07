@@ -28,8 +28,6 @@
 #include <belr/belr.h>
 #include <belcard/belcard.hpp>
 
-#define CARDDAV_SYNC_SOURCE "carddav"
-
 struct EventResult {
     std::string icsHref;
     std::string etag;
@@ -197,7 +195,14 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
     string href = contact->info()["href"].get<string>();
     
     // write the card
-    performVCardRequest(replacePath(ab.url, href), "PUT", vcf, contact->etag());
+    if (href == "") {
+        string result = performVCardRequest(ab.url, "POST", vcf);
+        auto postDoc = make_shared<DavXML>(result, ab.url);
+        href = postDoc->nodeContentAtXPath("//D:href/text()");
+
+    } else {
+        performVCardRequest(replacePath(ab.url, href), "PUT", vcf, contact->etag());
+    }
     
     // read the card back to ingest server-side changes and the new etag
     // IMPORTANT: We receive a new copy of this contact with possibly new data.
