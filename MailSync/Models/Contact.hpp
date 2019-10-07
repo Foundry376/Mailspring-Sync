@@ -27,8 +27,8 @@ using namespace nlohmann;
 using namespace std;
 using namespace mailcore;
 
-#define CONTACT_SOURCE_MAIL "mail"
-#define CONTACT_MAX_REFS 100000
+static string CONTACT_SOURCE_MAIL = "mail";
+static int CONTACT_MAX_REFS = 100000;
 
 class Message;
 
@@ -53,8 +53,8 @@ public:
     void setInfo(json info);
     string etag();
     void setEtag(string etag);
-    string remoteCollectionId();
-    void setRemoteCollectionId(string remoteCollectionId);
+    string bookId();
+    void setBookId(string bookId);
 
     unordered_set<string> groupIds();
     void setGroupIds(unordered_set<string> set);

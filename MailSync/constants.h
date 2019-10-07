@@ -205,9 +205,12 @@ static vector<string> V8_SETUP_QUERIES = {
     "DELETE FROM Contact WHERE refs = 0;",
     "ALTER TABLE `Contact` ADD COLUMN hidden TINYINT(1) DEFAULT 0",
     "ALTER TABLE `Contact` ADD COLUMN source VARCHAR(10) DEFAULT 'mail'",
+    "ALTER TABLE `Contact` ADD COLUMN bookId VARCHAR(40)",
+    "ALTER TABLE `Contact` ADD COLUMN etag VARCHAR(40)",
     "CREATE INDEX IF NOT EXISTS ContactBrowseIndex ON Contact(hidden,refs,accountId)",
-    "CREATE TABLE `ContactGroup` (`id` varchar(40),`accountId` varchar(40), `data` BLOB, `version` INTEGER, `name` varchar(300), PRIMARY KEY (id))",
-    "CREATE TABLE `ContactContactGroup` (`id` varchar(40),`value` varchar(40), PRIMARY KEY (id, value));"
+    "CREATE TABLE `ContactGroup` (`id` varchar(40),`accountId` varchar(40),`bookId` varchar(40), `data` BLOB, `version` INTEGER, `name` varchar(300), PRIMARY KEY (id))",
+    "CREATE TABLE `ContactContactGroup` (`id` varchar(40),`value` varchar(40), PRIMARY KEY (id, value));",
+    "CREATE TABLE `ContactBook` (`id` varchar(40),`accountId` varchar(40), `data` BLOB, `version` INTEGER, PRIMARY KEY (id));",
 };
 
 

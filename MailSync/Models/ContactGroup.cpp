@@ -45,6 +45,14 @@ void ContactGroup::setName(string name) {
     _data["name"] = name;
 }
 
+string ContactGroup::bookId() {
+    return _data.count("bid") ? _data["bid"].get<string>() : "";
+}
+
+void ContactGroup::setBookId(string rci) {
+    _data["bid"] = rci;
+}
+
 vector<string> ContactGroup::columnsForQuery() {
     return vector<string>{"id", "accountId", "version", "data", "name"};
 }

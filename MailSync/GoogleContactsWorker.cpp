@@ -16,6 +16,7 @@
 #include "Message.hpp"
 #include "Thread.hpp"
 #include "Contact.hpp"
+#include "ContactBook.hpp"
 #include "ContactGroup.hpp"
 #include "SyncException.hpp"
 #include "NetworkRequestUtils.hpp"
@@ -39,6 +40,14 @@ GoogleContactsWorker::GoogleContactsWorker(shared_ptr<Account> account) :
 void GoogleContactsWorker::run() {
     auto parts = SharedXOAuth2TokenManager()->partsForAccount(account);
     string authorization = "Bearer " + parts.accessToken;
+    
+    // Create the contact book, which is how the client knows contact sync is enabled.
+    shared_ptr<ContactBook> book = store->find<ContactBook>(Query().equal("accountId", account->id()));
+    if (!book) {
+        book = make_shared<ContactBook>(account->id() + "-default", account->id());
+        book->setSource(GOOGLE_SYNC_SOURCE);
+        store->save(book.get());
+    }
     
     // Fetch all connections
     string peopleUrl = "https://people.googleapis.com/v1/people/me/connections?personFields=" + PERSON_FIELDS + "&pageSize=400";
@@ -64,6 +73,7 @@ void GoogleContactsWorker::run() {
             // process changes
             local->setEmail(primaryEmail);
             local->setName(primaryName);
+            local->setBookId(book->id());
             local->setInfo(conn);
             store->save(local.get());
             
@@ -89,6 +99,7 @@ void GoogleContactsWorker::run() {
                 local = make_shared<ContactGroup>(resourceName, account->id());
             }
             local->setName(name);
+            local->setBookId(book->id());
             store->save(local.get());
 
             vector<string> members;

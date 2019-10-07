@@ -554,10 +554,10 @@ void MailProcessor::upsertContacts(Message * message) {
 
     // insert remaining items
     for (auto & result : byEmail) {
-        Contact c{result.first, message->accountId(), result.first, 0, CONTACT_SOURCE_MAIL};
-        c.setName(result.second.count("name") ? result.second["name"].get<string>() : "");
-        c.incrementRefs();
-        store->save(&c);
+        auto c = make_shared<Contact>(result.first, message->accountId(), result.first, 0, CONTACT_SOURCE_MAIL);
+        c->setName(result.second.count("name") ? result.second["name"].get<string>() : "");
+        c->incrementRefs();
+        store->save(c.get());
     }
 }
 
