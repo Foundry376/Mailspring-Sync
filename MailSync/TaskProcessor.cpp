@@ -17,6 +17,7 @@
 #include "Message.hpp"
 #include "MailUtils.hpp"
 #include "DAVWorker.hpp"
+#include "DAVUtils.hpp"
 #include "File.hpp"
 #include "ContactGroup.hpp"
 #include "constants.h"
@@ -437,7 +438,13 @@ void TaskProcessor::performLocal(Task * task) {
 
         } else if (cname == "ChangeContactGroupMembershipTask") {
             performLocalChangeContactGroupMembership(task);
-            
+
+        } else if (cname == "SyncbackContactGroupTask") {
+            performLocalSyncbackContactGroup(task);
+
+        } else if (cname == "DestroyContactGroupTask") {
+            performLocalDestroyContactGroup(task);
+
         } else {
             logger->error("Unsure of how to process this task type {}", cname);
         }
@@ -522,6 +529,12 @@ void TaskProcessor::performRemote(Task * task) {
 
             } else if (cname == "ChangeContactGroupMembershipTask") {
                 performRemoteChangeContactGroupMembership(task);
+
+            } else if (cname == "SyncbackContactGroupTask") {
+                performRemoteSyncbackContactGroup(task);
+
+            } else if (cname == "DestroyContactGroupTask") {
+                performRemoteDestroyContactGroup(task);
 
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
@@ -857,15 +870,95 @@ void TaskProcessor::performLocalDestroyContact(Task * task) {
     for (json & c : task->data()["contacts"]) {
         contactIds.push_back(c["id"].get<string>());
     }
-    auto deleted = store->findAll<Contact>(Query().equal("id", contactIds));
-    for (auto & c : deleted) {
-        c->setHidden(true);
-        store->save(c.get());
+
+    {
+        store->beginTransaction();
+        auto deleted = store->findAll<Contact>(Query().equal("id", contactIds));
+        for (auto & c : deleted) {
+            c->setHidden(true);
+            store->save(c.get());
+        }
+        store->commitTransaction();
     }
 }
 
 void TaskProcessor::performRemoteDestroyContact(Task * task) {
-    // currently the contacts sync worker uses the hidden flag to push changes
+    if (account->provider() == "gmail") {
+        
+    } else {
+        vector<string> contactIds {};
+        for (json & c : task->data()["contacts"]) {
+            contactIds.push_back(c["id"].get<string>());
+        }
+
+        auto deleted = store->findAll<Contact>(Query().equal("id", contactIds));
+        auto dav = make_shared<DAVWorker>(account);
+        for (auto & contact : deleted) {
+            dav->deleteContact(contact);
+        }
+    }
+}
+
+void TaskProcessor::performLocalSyncbackContactGroup(Task * task) {
+    string id = task->data()["group"].count("id") ? task->data()["group"]["id"].get<string>() : "";
+    string name = task->data()["group"]["name"].get<string>();
+    
+    if (account->provider() == "gmail") {
+    } else {
+        if (id != "") {
+            // Update ContactGroup
+            auto existing = store->find<ContactGroup>(Query().equal("id", id));
+            if (!existing) {
+                return;
+            }
+            existing->setName(name);
+            store->save(existing.get());
+            
+            // Update underlying contact and VCF
+            auto contact = store->find<Contact>(Query().equal("id", id));
+            contact->setName(name);
+            contact->mutateCardInInfo([&](shared_ptr<BelCard> belCard) {
+                if (belCard->getName()) {
+                    belCard->getName()->setValue(name);
+                }
+                if (belCard->getFullName()) {
+                    belCard->getFullName()->setValue(name);
+                }
+            });
+            store->save(contact.get());
+        }
+    }
+}
+
+void TaskProcessor::performRemoteSyncbackContactGroup(Task * task) {
+    string id = task->data()["group"]["id"].get<string>();
+
+    if (account->provider() == "gmail") {
+        
+    } else {
+        auto contact = store->find<Contact>(Query().equal("id", id));
+        auto dav = make_shared<DAVWorker>(account);
+        dav->writeAndResyncContact(contact);
+    }
+}
+
+void TaskProcessor::performLocalDestroyContactGroup(Task * task) {
+    string id = task->data()["group"]["id"].get<string>();
+
+    auto deleted = store->find<ContactGroup>(Query().equal("id", id));
+    store->remove(deleted.get());
+}
+
+void TaskProcessor::performRemoteDestroyContactGroup(Task * task) {
+    string id = task->data()["group"]["id"].get<string>();
+
+    if (account->provider() == "gmail") {
+        
+    } else {
+        auto contact = store->find<Contact>(Query().equal("id", id));
+        auto dav = make_shared<DAVWorker>(account);
+        dav->deleteContact(contact);
+    }
 }
 
 
@@ -881,53 +974,18 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
     if (account->provider() == "gmail") {
         
     } else {
-
         auto contactForGroup = store->find<Contact>(Query().equal("id", groupId).equal("accountId", account->id()));
-        auto vcard = contactForGroup->info()["vcf"].get<string>();
-        auto belCard = belcard::BelCardParser::getInstance()->parseOne(vcard);
-        if (belCard == NULL) {
-            return;
-        }
-
-        logger->info("Before: {}", vcard);
-
-        for (auto contact : contacts) {
-            if (direction == "remove") {
-                for (auto prop : belCard->getExtendedProperties()) {
-                    logger->info("prop: {}", prop->toString());
-
-                    if (prop->getName() == "X-ADDRESSBOOKSERVER-MEMBER" && prop->getValue() == "urn:uuid:" + contact->id()) {
-                        belCard->removeExtendedProperty(prop);
-                        break;
-                    }
-                }
-            }
+       
+        contactForGroup->mutateCardInInfo([&](shared_ptr<BelCard> belCard) {
             if (direction == "add") {
-                bool found = false;
-                for (auto prop : belCard->getExtendedProperties()) {
-                    if (prop->getName() == "X-ADDRESSBOOKSERVER-MEMBER" && prop->getValue() == "urn:uuid:" + contact->id()) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    auto prop = make_shared<belcard::BelCardProperty>();
-                    prop->setName("X-ADDRESSBOOKSERVER-MEMBER");
-                    prop->setValue("urn:uuid:" + contact->id());
-                    belCard->addExtendedProperty(prop);
-                }
+                DAVUtils::addMembersToGroupCard(belCard, contacts);
+            } else {
+                DAVUtils::removeMembersFromGroupCard(belCard, contacts);
             }
-        }
-        
-        std::ostringstream stream;
-        belCard->serialize(stream);
-        vcard = stream.str();
-        logger->info("After: {}", vcard);
-        contactForGroup->info()["vcf"] = vcard;
+        });
         
         auto dav = make_shared<DAVWorker>(account);
         dav->rebuildContactGroup(contactForGroup);
-        
         store->save(contactForGroup.get());
     }
 }
@@ -940,15 +998,14 @@ void TaskProcessor::performRemoteChangeContactGroupMembership(Task * task) {
     } else {
         auto contactForGroup = store->find<Contact>(Query().equal("id", groupId).equal("accountId", account->id()));
         auto dav = make_shared<DAVWorker>(account);
-        dav->writeContact(contactForGroup);
-        store->save(contactForGroup.get());
+        dav->writeAndResyncContact(contactForGroup);
     }
 }
 
 
 void TaskProcessor::performLocalSyncbackContact(Task * task) {
-    auto contact = make_shared<Contact>(task->data()["contact"]);
-    auto local = store->find<Contact>(Query().equal("id", contact->id()));
+    auto clientside = make_shared<Contact>(task->data()["contact"]);
+    auto local = store->find<Contact>(Query().equal("id", clientside->id()));
 
     // The client may not be aware of all of the key/value pairs we store in contact JSON,
     // so it's JSON in the task may omit some properties. To make sure we don't damage the
@@ -958,10 +1015,10 @@ void TaskProcessor::performLocalSyncbackContact(Task * task) {
         // local = make_shared<Contact>()
         logger->info("Unsupported!!");
     } else {
-        local->setInfo(contact->info());
-        local->setName(contact->name());
-        local->setEmail(contact->email());
-        store->save(contact.get());
+        local->setInfo(clientside->info());
+        local->setName(clientside->name());
+        local->setEmail(clientside->email());
+        store->save(local.get());
     }
 }
 
@@ -973,8 +1030,7 @@ void TaskProcessor::performRemoteSyncbackContact(Task * task) {
     } else {
         auto contact = store->find<Contact>(Query().equal("id", id).equal("accountId", account->id()));
         auto dav = make_shared<DAVWorker>(account);
-        dav->writeContact(contact);
-        store->save(contact.get());
+        dav->writeAndResyncContact(contact);
     }
 }
 
