@@ -21,7 +21,7 @@ string MailModel::TABLE_NAME = "MailModel";
 
 /* Note: If creating a brand new object, pass version = 0. */
 MailModel::MailModel(string id, string accountId, int version) :
-    _data({{"id", id},{"aid", accountId}, {"v", version}})
+    _data({{"id", id}, {"aid", accountId}, {"v", version}})
 {
     captureInitialMetadataState();
 }

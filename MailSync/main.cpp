@@ -199,7 +199,7 @@ void runCalContactsSyncWorker() {
                 throw;
             }
         }
-        MailUtils::sleepWorkerUntilWakeOrSec(60 * 5);
+        MailUtils::sleepWorkerUntilWakeOrSec(60 * 10);
     }
 }
 

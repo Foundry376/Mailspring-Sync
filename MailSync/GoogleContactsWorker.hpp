@@ -15,6 +15,8 @@
 #include "Account.hpp"
 #include "Identity.hpp"
 #include "MailStore.hpp"
+#include "ContactGroup.hpp"
+#include "Contact.hpp"
 #include "DavXML.hpp"
 
 #include <stdio.h>
@@ -27,6 +29,8 @@
 
 using namespace std;
 
+static string GOOGLE_SYNC_SOURCE = "gpeople";
+
 class GoogleContactsWorker {
     MailStore * store;
     shared_ptr<spdlog::logger> logger;
@@ -37,6 +41,16 @@ public:
 
     void run();
     void paginateGoogleCollection(string urlRoot, string authorization, string syncTokenKey, std::function<void(json)> yieldBlock);
+    
+    void upsertContactGroup(shared_ptr<ContactGroup> group);
+    void deleteContactGroup(string groupResourceName);
+    void updateContactGroupMembership(shared_ptr<ContactGroup> group, vector<shared_ptr<Contact>> contacts, string direction);
+    void deleteContact(shared_ptr<Contact> contact);
+    void upsertContact(shared_ptr<Contact> contact);
+
+private:
+    void applyJSONToContact(shared_ptr<Contact> local, const json & conn);
+
 };
 
 #endif /* GoogleContactsWorker_hpp */

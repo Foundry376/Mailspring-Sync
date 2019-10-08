@@ -38,6 +38,8 @@ public:
     void setName(string name);
     string bookId();
     void setBookId(string bookId);
+    string googleResourceName();
+    void setGoogleResourceName(string rn);
                           
     string tableName();
     string constructorName();
@@ -47,8 +49,8 @@ public:
     
     void afterRemove(MailStore * store);
     
+    vector<string> getMembers(MailStore * store);
     void syncMembers(MailStore * store, vector<string> newContactIds);
-
 };
 
 #endif /* ContactGroup_hpp */
