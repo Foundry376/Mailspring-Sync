@@ -54,6 +54,14 @@ void Contact::setName(string name) {
     _data["name"] = name;
 }
 
+string Contact::googleResourceName() {
+    return _data.count("grn") ? _data["grn"].get<string>() : "";
+}
+
+void Contact::setGoogleResourceName(string rn) {
+    _data["grn"] = rn;
+}
+
 string Contact::email() {
     return _data["email"].get<string>();
 }

@@ -130,7 +130,7 @@ void MetadataWorker::fetchDeltasBlocking() {
         logger->info("Metadata delta stream closed.");
     }
 
-    ValidateRequestResp(res, curl_handle);
+    ValidateRequestResp(res, curl_handle, "");
     curl_easy_cleanup(curl_handle);
 }
 

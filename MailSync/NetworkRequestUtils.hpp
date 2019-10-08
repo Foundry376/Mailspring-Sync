@@ -33,7 +33,7 @@ const json PerformJSONRequest(CURL * curl_handle);
 
 const string PerformExpectedRedirect(string url);
 
-void ValidateRequestResp(CURLcode res, CURL * curl_handle);
+void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp);
 
 // Shorthand methods for Identity Server
 

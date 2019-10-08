@@ -54,6 +54,8 @@
 		43A687F0220EC054000D75CC /* Calendar.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A687EF220EC054000D75CC /* Calendar.cpp */; };
 		43B48E851F339B24002D202E /* Identity.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B48E841F339B24002D202E /* Identity.cpp */; };
 		43B48E8B1F37C7FF002D202E /* NetworkRequestUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B48E891F37C7FF002D202E /* NetworkRequestUtils.cpp */; };
+		43C127D5234AB218004DDDC4 /* DAVUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43C127D3234AB218004DDDC4 /* DAVUtils.cpp */; };
+		43C127E4234BA92A004DDDC4 /* ContactBook.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43C127E3234BA92A004DDDC4 /* ContactBook.cpp */; };
 		43C8149E1F08072D00D28F0B /* Account.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43C8149D1F08072D00D28F0B /* Account.cpp */; };
 		43CA94161EF9E610006685D0 /* MailProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA94141EF9E610006685D0 /* MailProcessor.cpp */; };
 		43CA941F1EFB9E88006685D0 /* Label.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA941E1EFB9E88006685D0 /* Label.cpp */; };
@@ -245,6 +247,10 @@
 		43B48E841F339B24002D202E /* Identity.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Identity.cpp; sourceTree = "<group>"; };
 		43B48E891F37C7FF002D202E /* NetworkRequestUtils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = NetworkRequestUtils.cpp; sourceTree = "<group>"; };
 		43B48E8A1F37C7FF002D202E /* NetworkRequestUtils.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = NetworkRequestUtils.hpp; sourceTree = "<group>"; };
+		43C127D3234AB218004DDDC4 /* DAVUtils.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = DAVUtils.cpp; sourceTree = "<group>"; };
+		43C127D4234AB218004DDDC4 /* DAVUtils.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = DAVUtils.hpp; sourceTree = "<group>"; };
+		43C127E2234BA910004DDDC4 /* ContactBook.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ContactBook.hpp; sourceTree = "<group>"; };
+		43C127E3234BA92A004DDDC4 /* ContactBook.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ContactBook.cpp; sourceTree = "<group>"; };
 		43C814951F0806FF00D28F0B /* Account.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Account.hpp; sourceTree = "<group>"; };
 		43C8149D1F08072D00D28F0B /* Account.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Account.cpp; sourceTree = "<group>"; };
 		43CA94141EF9E610006685D0 /* MailProcessor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MailProcessor.cpp; sourceTree = "<group>"; };
@@ -306,6 +312,8 @@
 				43EAFEDB1F001F100046589B /* Contact.cpp */,
 				4385C990233AC65900E5A357 /* ContactGroup.hpp */,
 				4385C98E233AC65200E5A357 /* ContactGroup.cpp */,
+				43C127E2234BA910004DDDC4 /* ContactBook.hpp */,
+				43C127E3234BA92A004DDDC4 /* ContactBook.cpp */,
 				43EAFED21EFCEB550046589B /* Task.hpp */,
 				43EAFED31EFCEB6F0046589B /* Task.cpp */,
 				43C814951F0806FF00D28F0B /* Account.hpp */,
@@ -376,6 +384,8 @@
 				43256B0A21E802DD00590F1B /* DavXML.cpp */,
 				43256AF821E7EE9E00590F1B /* DAVWorker.hpp */,
 				43256B0521E7EEC900590F1B /* DAVWorker.cpp */,
+				43C127D4234AB218004DDDC4 /* DAVUtils.hpp */,
+				43C127D3234AB218004DDDC4 /* DAVUtils.cpp */,
 				4385C98B233AA6FD00E5A357 /* GoogleContactsWorker.hpp */,
 				4385C98C233AA6FE00E5A357 /* GoogleContactsWorker.cpp */,
 				4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */,
@@ -676,6 +686,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				43167EFF1EF5F57C00D8E282 /* MailModel.cpp in Sources */,
+				43C127D5234AB218004DDDC4 /* DAVUtils.cpp in Sources */,
 				4368DCBC1F43851A00F22FFD /* exceptions.cpp in Sources */,
 				43C8149E1F08072D00D28F0B /* Account.cpp in Sources */,
 				43256B0B21E802DD00590F1B /* DavXML.cpp in Sources */,
@@ -725,6 +736,7 @@
 				4368DCC01F43851A00F22FFD /* call_stack_gcc.cpp in Sources */,
 				436489881EF2F905007816EC /* Backup.cpp in Sources */,
 				436489981EF32A81007816EC /* MailStore.cpp in Sources */,
+				43C127E4234BA92A004DDDC4 /* ContactBook.cpp in Sources */,
 				436489901EF2F94F007816EC /* sqlite3.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

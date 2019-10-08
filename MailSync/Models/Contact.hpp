@@ -43,6 +43,8 @@ public:
   
     string name();
     void setName(string name);
+    string googleResourceName();
+    void setGoogleResourceName(string rn);
     string email();
     void setEmail(string email);
     bool hidden();

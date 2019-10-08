@@ -86,16 +86,17 @@ CURL * CreateJSONRequest(string url, string method, string authorization, const 
 
     struct curl_slist *headers = NULL;
 
+    headers = curl_slist_append(headers, "Accept: application/json");
+
     if (authorization != "") {
         headers = curl_slist_append(headers, ("Authorization: " + authorization).c_str());
     }
-    if (method == "POST") {
-        headers = curl_slist_append(headers, "Accept: application/json");
+    if (payloadChars != nullptr && strlen(payloadChars) > 0) {
         headers = curl_slist_append(headers, "Content-Type: application/json");
-        curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, "POST");
         curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
     }
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
 
 
     // Ensure /all/ curl code paths run this code for RHEL 7.6 and other linux distros
@@ -117,7 +118,7 @@ const string PerformRequest(CURL * curl_handle) {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
     CURLcode res = curl_easy_perform(curl_handle);
-    ValidateRequestResp(res, curl_handle);
+    ValidateRequestResp(res, curl_handle, result);
     return result;
 }
 
@@ -163,8 +164,8 @@ const json PerformJSONRequest(CURL * curl_handle) {
     return resultJSON;
 }
 
-void ValidateRequestResp(CURLcode res, CURL * curl_handle) {
-    char * url;
+void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
+    char * url = nullptr;
     if (curl_easy_getinfo(curl_handle, CURLINFO_EFFECTIVE_URL, &url) != CURLE_OK) {
         throw SyncException(res, "Unable to get URL");
     }
@@ -180,7 +181,8 @@ void ValidateRequestResp(CURLcode res, CURL * curl_handle) {
     if (http_code < 200 || http_code > 209) {
         curl_easy_cleanup(curl_handle);
         bool retryable = ((http_code != 403) && (http_code != 401));
-        throw SyncException("Invalid Response Code: " + to_string(http_code), string(url), retryable);
+        string debuginfo = (url != nullptr ? string(url) : "") + " RETURNED " + resp;
+        throw SyncException("Invalid Response Code: " + to_string(http_code), debuginfo, retryable);
     }
 }
 

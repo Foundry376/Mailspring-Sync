@@ -118,7 +118,7 @@ void DAVWorker::runContacts() {
 
 /*
  Currently we load whatever contact book we have saved locally, but still re-run the DNS + well-known
- search to see if we need to update it's URL, just since users have no way to do this manually.
+ search to see if we need to update it's URL since users have no way to do this manually.
 */
 shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     shared_ptr<ContactBook> existing = store->find<ContactBook>(Query().equal("accountId", account->id()));

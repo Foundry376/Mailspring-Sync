@@ -53,13 +53,22 @@ void ContactGroup::setBookId(string rci) {
     _data["bid"] = rci;
 }
 
+string ContactGroup::googleResourceName() {
+    return _data.count("grn") ? _data["grn"].get<string>() : "";
+}
+
+void ContactGroup::setGoogleResourceName(string rn) {
+    _data["grn"] = rn;
+}
+
 vector<string> ContactGroup::columnsForQuery() {
-    return vector<string>{"id", "accountId", "version", "data", "name"};
+    return vector<string>{"id", "accountId", "version", "data", "name", "bookId"};
 }
 
 void ContactGroup::bindToQuery(SQLite::Statement * query) {
     MailModel::bindToQuery(query);
     query->bind(":name", name());
+    query->bind(":bookId", bookId());
 }
 
 
@@ -72,15 +81,20 @@ void ContactGroup::afterRemove(MailStore * store) {
     update.exec();
 }
 
+vector<string> ContactGroup::getMembers(MailStore * store) {
+    SQLite::Statement find(store->db(), "SELECT id FROM ContactContactGroup WHERE value = ?");
+    find.bind(1, id());
+    vector<string> contactIds;
+    while (find.executeStep()) {
+        contactIds.push_back(find.getColumn("id").getString());
+    }
+    return contactIds;
+}
+
 void ContactGroup::syncMembers(MailStore * store, vector<string> newContactIds) {
     store->beginTransaction();
     
-    SQLite::Statement find(store->db(), "SELECT id FROM ContactContactGroup WHERE value = ?");
-    find.bind(1, id());
-    vector<string> oldContactIds;
-    while (find.executeStep()) {
-        oldContactIds.push_back(find.getColumn("id").getString());
-    }
+    vector<string> oldContactIds = getMembers(store);
     
     // remove all the join table entries
     SQLite::Statement removeMembers(store->db(), "DELETE FROM ContactContactGroup WHERE value = ?");

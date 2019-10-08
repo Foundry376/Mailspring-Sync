@@ -18,6 +18,7 @@
 #include "MailUtils.hpp"
 #include "DAVWorker.hpp"
 #include "DAVUtils.hpp"
+#include "GoogleContactsWorker.hpp"
 #include "File.hpp"
 #include "ContactGroup.hpp"
 #include "constants.h"
@@ -883,13 +884,18 @@ void TaskProcessor::performLocalDestroyContact(Task * task) {
 }
 
 void TaskProcessor::performRemoteDestroyContact(Task * task) {
+    vector<string> contactIds {};
+    for (json & c : task->data()["contacts"]) {
+        contactIds.push_back(c["id"].get<string>());
+    }
+
     if (account->provider() == "gmail") {
-        
-    } else {
-        vector<string> contactIds {};
-        for (json & c : task->data()["contacts"]) {
-            contactIds.push_back(c["id"].get<string>());
+        auto deleted = store->findAll<Contact>(Query().equal("id", contactIds));
+        auto gpeople = make_shared<GoogleContactsWorker>(account);
+        for (auto & contact : deleted) {
+            gpeople->deleteContact(contact);
         }
+    } else {
 
         auto deleted = store->findAll<Contact>(Query().equal("id", contactIds));
         auto dav = make_shared<DAVWorker>(account);
@@ -902,8 +908,23 @@ void TaskProcessor::performRemoteDestroyContact(Task * task) {
 void TaskProcessor::performLocalSyncbackContactGroup(Task * task) {
     string id = task->data()["group"].count("id") ? task->data()["group"]["id"].get<string>() : "";
     string name = task->data()["group"]["name"].get<string>();
-    
+    shared_ptr<ContactBook> book = store->find<ContactBook>(Query().equal("accountId", account->id()));
+
     if (account->provider() == "gmail") {
+        // Create or update ContactGroup
+        if (id == "") {
+            id = MailUtils::idRandomlyGenerated();
+            task->data()["group"]["id"] = id;
+            store->save(task);
+        }
+        auto local = store->find<ContactGroup>(Query().equal("id", id));
+        if (!local) {
+            local = make_shared<ContactGroup>(id, account->id());
+        }
+        local->setBookId(book->id());
+        local->setName(name);
+        store->save(local.get());
+        
     } else {
         if (id != "") {
             // Update ContactGroup
@@ -959,10 +980,16 @@ void TaskProcessor::performLocalSyncbackContactGroup(Task * task) {
 }
 
 void TaskProcessor::performRemoteSyncbackContactGroup(Task * task) {
-    string id = task->data()["group"]["id"].get<string>();
+    string id = task->data()["group"].count("id") ? task->data()["group"]["id"].get<string>() : "";
+    if (id == "") {
+        logger->error("performRemoteSyncbackContactGroup: Group did not get assigned an ID.");
+        return;
+    }
 
     if (account->provider() == "gmail") {
-        
+        auto group = store->find<ContactGroup>(Query().equal("id", id));
+        auto gpeople = make_shared<GoogleContactsWorker>(account);
+        gpeople->upsertContactGroup(group);
     } else {
         auto contact = store->find<Contact>(Query().equal("id", id));
         auto dav = make_shared<DAVWorker>(account);
@@ -972,8 +999,13 @@ void TaskProcessor::performRemoteSyncbackContactGroup(Task * task) {
 
 void TaskProcessor::performLocalDestroyContactGroup(Task * task) {
     string id = task->data()["group"]["id"].get<string>();
-
     auto deleted = store->find<ContactGroup>(Query().equal("id", id));
+    if (!deleted) return;
+    
+    if (account->provider() == "gmail") {
+        task->data()["googleResourceName"] = deleted->googleResourceName();
+        store->save(task);
+    }
     store->remove(deleted.get());
 }
 
@@ -981,9 +1013,16 @@ void TaskProcessor::performRemoteDestroyContactGroup(Task * task) {
     string id = task->data()["group"]["id"].get<string>();
 
     if (account->provider() == "gmail") {
-        
+        if (!task->data().count("googleResourceName")) {
+            logger->error("performRemoteDestroyContactGroup: Group did not have a googleResourceName.");
+            return;
+        }
+        auto resourceName = task->data()["googleResourceName"].get<string>();
+        auto gpeople = make_shared<GoogleContactsWorker>(account);
+        gpeople->deleteContactGroup(resourceName);
     } else {
         auto contact = store->find<Contact>(Query().equal("id", id));
+        if (!contact) return;
         auto dav = make_shared<DAVWorker>(account);
         dav->deleteContact(contact);
     }
@@ -1000,7 +1039,18 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
     auto groupId = task->data()["group"]["id"].get<string>();
     
     if (account->provider() == "gmail") {
-        
+        auto group = store->find<ContactGroup>(Query().equal("id", groupId));
+        auto groupMemberIds = group->getMembers(store);
+        if (direction == "add") {
+            groupMemberIds.insert(groupMemberIds.end(), contactIds.begin(), contactIds.end());
+        } else {
+            for (auto id : contactIds) {
+                auto pos = std::find(groupMemberIds.begin(), groupMemberIds.end(), id);
+                if (pos != groupMemberIds.end()) groupMemberIds.erase(pos);
+            }
+        }
+        group->syncMembers(store, groupMemberIds);
+
     } else {
         auto contactForGroup = store->find<Contact>(Query().equal("id", groupId).equal("accountId", account->id()));
        
@@ -1021,8 +1071,18 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
 
 void TaskProcessor::performRemoteChangeContactGroupMembership(Task * task) {
     auto groupId = task->data()["group"]["id"].get<string>();
+    
     if (account->provider() == "gmail") {
-        
+        auto direction = task->data()["direction"].get<string>();
+        vector<string> contactIds {};
+        for (json & c : task->data()["contacts"]) {
+            contactIds.push_back(c["id"].get<string>());
+        }
+        auto contacts = store->findAll<Contact>(Query().equal("id", contactIds));
+        auto group = store->find<ContactGroup>(Query().equal("id", groupId));
+        auto gpeople = make_shared<GoogleContactsWorker>(account);
+        gpeople->updateContactGroupMembership(group, contacts, direction);
+
     } else {
         auto contactForGroup = store->find<Contact>(Query().equal("id", groupId).equal("accountId", account->id()));
         auto dav = make_shared<DAVWorker>(account);
@@ -1033,9 +1093,15 @@ void TaskProcessor::performRemoteChangeContactGroupMembership(Task * task) {
 
 void TaskProcessor::performLocalSyncbackContact(Task * task) {
     auto clientside = make_shared<Contact>(task->data()["contact"]);
+    auto source = account->provider() == "gmail" ? GOOGLE_SYNC_SOURCE : CARDDAV_SYNC_SOURCE;
+    if (clientside->source() != "" && clientside->source() != source) {
+        logger->error("performLocalSyncbackContact: Client picked incorrect source for new contact: {} != {}", source, clientside->source());
+        return;
+    }
+
     auto local = task->data()["contact"].count("id")
         ? store->find<Contact>(Query().equal("id", clientside->id()))
-        : make_shared<Contact>(MailUtils::idRandomlyGenerated(), account->id(), "", CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
+        : make_shared<Contact>(MailUtils::idRandomlyGenerated(), account->id(), "", CONTACT_MAX_REFS, source);
 
     // Note: The client may not be aware of all of the key/value pairs we store in contact JSON,
     // so it's JSON in the task may omit some properties. To make sure we don't damage the
@@ -1051,11 +1117,12 @@ void TaskProcessor::performLocalSyncbackContact(Task * task) {
 
 void TaskProcessor::performRemoteSyncbackContact(Task * task) {
     string id = task->data()["contact"]["id"].get<string>();
-    
+    auto contact = store->find<Contact>(Query().equal("id", id).equal("accountId", account->id()));
+
     if (account->provider() == "gmail") {
-        
+        auto gpeople = make_shared<GoogleContactsWorker>(account);
+        gpeople->upsertContact(contact);
     } else {
-        auto contact = store->find<Contact>(Query().equal("id", id).equal("accountId", account->id()));
         auto dav = make_shared<DAVWorker>(account);
         dav->writeAndResyncContact(contact);
     }
