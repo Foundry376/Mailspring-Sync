@@ -4,27 +4,27 @@ set(CMAKE_DEPENDS_LANGUAGES
   )
 # The set of files for implicit dependencies of each language:
 set(CMAKE_DEPENDS_CHECK_CXX
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_addressing.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_addressing.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_calendar.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_calendar.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_communication.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_communication.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_explanatory.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_explanatory.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_general.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_general.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_geographical.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_geographical.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_identification.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_identification.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_organizational.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_organizational.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_params.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_params.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_parser.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_parser.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_property.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_property.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_rfc6474.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_rfc6474.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_security.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_security.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_utils.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_utils.cpp.o"
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/vcard_grammar.cpp" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/vcard_grammar.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_addressing.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_addressing.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_calendar.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_calendar.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_communication.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_communication.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_explanatory.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_explanatory.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_general.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_general.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_geographical.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_geographical.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_identification.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_identification.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_organizational.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_organizational.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_params.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_params.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_parser.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_parser.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_property.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_property.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_rfc6474.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_rfc6474.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_security.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_security.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_utils.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/belcard_utils.cpp.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/vcard_grammar.cpp" "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir/vcard_grammar.cpp.o"
   )
-set(CMAKE_CXX_COMPILER_ID "AppleClang")
+set(CMAKE_CXX_COMPILER_ID "GNU")
 
 # Preprocessor definitions for this target.
-set(CMAKE_TARGET_DEFINITIONS_CXX
+set(CMAKE_TARGET_DEFINITIONS
   "BCTBX_STATIC"
   "BELCARD_EXPORTS"
   "BELCARD_STATIC"
@@ -32,17 +32,17 @@ set(CMAKE_TARGET_DEFINITIONS_CXX
   "HAVE_CONFIG_H"
   )
 
-# The include file search paths:
-set(CMAKE_CXX_TARGET_INCLUDE_PATH
-  "include"
-  "src"
-  "."
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include"
-  )
-
 # Targets to which this target links.
 set(CMAKE_TARGET_LINKED_INFO_FILES
   )
 
-# Fortran module output directory.
-set(CMAKE_Fortran_TARGET_MODULE_DIR "")
+# The include file search paths:
+set(CMAKE_C_TARGET_INCLUDE_PATH
+  "include"
+  "src"
+  "."
+  "/tmp/mailsync-build-deps/belcard/include"
+  )
+set(CMAKE_CXX_TARGET_INCLUDE_PATH ${CMAKE_C_TARGET_INCLUDE_PATH})
+set(CMAKE_Fortran_TARGET_INCLUDE_PATH ${CMAKE_C_TARGET_INCLUDE_PATH})
+set(CMAKE_ASM_TARGET_INCLUDE_PATH ${CMAKE_C_TARGET_INCLUDE_PATH})

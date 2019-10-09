@@ -1,8 +1,8 @@
-# Install script for directory: /Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/tools
+# Install script for directory: /home/bengotow/Mailspring/mailsync/Vendor/belcard-master/tools
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built")
+  set(CMAKE_INSTALL_PREFIX "/tmp/mailsync-build-deps/belcard")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 
@@ -27,42 +27,20 @@ if(NOT CMAKE_INSTALL_COMPONENT)
   endif()
 endif()
 
-if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/bin" TYPE EXECUTABLE FILES "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/tools/belcard-folder")
-  if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-folder" AND
-     NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-folder")
-    execute_process(COMMAND /usr/bin/install_name_tool
-      -delete_rpath "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/Frameworks"
-      "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-folder")
-    if(CMAKE_INSTALL_DO_STRIP)
-      execute_process(COMMAND "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-folder")
-    endif()
-  endif()
+# Install shared libraries without execute permission?
+if(NOT DEFINED CMAKE_INSTALL_SO_NO_EXE)
+  set(CMAKE_INSTALL_SO_NO_EXE "1")
 endif()
 
-if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/bin" TYPE EXECUTABLE FILES "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/tools/belcard-unfolder")
-  if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-unfolder" AND
-     NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-unfolder")
-    execute_process(COMMAND /usr/bin/install_name_tool
-      -delete_rpath "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/Frameworks"
-      "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-unfolder")
-    if(CMAKE_INSTALL_DO_STRIP)
-      execute_process(COMMAND "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-unfolder")
-    endif()
-  endif()
+if(NOT CMAKE_INSTALL_COMPONENT OR "${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/bin" TYPE EXECUTABLE FILES "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/tools/CMakeFiles/CMakeRelink.dir/belcard-folder")
 endif()
 
-if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/bin" TYPE EXECUTABLE FILES "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/tools/belcard-parser")
-  if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-parser" AND
-     NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-parser")
-    execute_process(COMMAND /usr/bin/install_name_tool
-      -delete_rpath "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/Frameworks"
-      "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-parser")
-    if(CMAKE_INSTALL_DO_STRIP)
-      execute_process(COMMAND "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip" "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/belcard-parser")
-    endif()
-  endif()
+if(NOT CMAKE_INSTALL_COMPONENT OR "${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/bin" TYPE EXECUTABLE FILES "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/tools/CMakeFiles/CMakeRelink.dir/belcard-unfolder")
+endif()
+
+if(NOT CMAKE_INSTALL_COMPONENT OR "${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/bin" TYPE EXECUTABLE FILES "/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/tools/CMakeFiles/CMakeRelink.dir/belcard-parser")
 endif()
 

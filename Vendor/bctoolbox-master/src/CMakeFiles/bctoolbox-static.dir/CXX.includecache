@@ -1,4 +1,4 @@
-#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
 
 #IncludeRegexScan: ^.*$
 
@@ -6,21 +6,21 @@
 
 #IncludeRegexTransform: 
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/containers/map.cc
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/containers/map.cc
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/containers/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/containers/config.h
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/containers/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/containers/bctoolbox/logging.h
 bctoolbox/map.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/containers/bctoolbox/map.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/containers/bctoolbox/map.h
 map
 -
 typeinfo
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/charconv.cc
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/charconv.cc
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/config.h
 errno.h
 -
 iconv.h
@@ -32,27 +32,27 @@ locale.h
 string.h
 -
 bctoolbox/charconv.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/charconv.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/charconv.h
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/logging.h
 bctoolbox/port.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/port.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/port.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/charconv_encoding.cc
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/charconv_encoding.cc
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/config.h
 TargetConditionals.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/TargetConditionals.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/TargetConditionals.h
 bctoolbox/charconv.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/charconv.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/charconv.h
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/logging.h
 bctoolbox/port.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/port.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/conversion/bctoolbox/port.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/exception.cc
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/exception.cc
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/config.h
 execinfo.h
 -
 dlfcn.h
@@ -64,19 +64,19 @@ libgen.h
 iomanip
 -
 bctoolbox/exception.hh
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/exception.hh
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/exception.hh
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/logging.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/regex.cc
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/regex.cc
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/config.h
 regex
 -
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/logging.h
 bctoolbox/regex.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/regex.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/regex.h
 regex.h
 -
 

@@ -1,8 +1,8 @@
-# Install script for directory: /Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master
+# Install script for directory: /home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built")
+  set(CMAKE_INSTALL_PREFIX "/tmp/mailsync-build-deps/belcard")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 
@@ -27,15 +27,20 @@ if(NOT CMAKE_INSTALL_COMPONENT)
   endif()
 endif()
 
-if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/pkgconfig" TYPE FILE FILES "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/bctoolbox.pc")
+# Install shared libraries without execute permission?
+if(NOT DEFINED CMAKE_INSTALL_SO_NO_EXE)
+  set(CMAKE_INSTALL_SO_NO_EXE "1")
 endif()
 
-if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+if(NOT CMAKE_INSTALL_COMPONENT OR "${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/pkgconfig" TYPE FILE FILES "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/bctoolbox.pc")
+endif()
+
+if(NOT CMAKE_INSTALL_COMPONENT OR "${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified")
   if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/share/bctoolbox/cmake/bctoolboxTargets.cmake")
     file(DIFFERENT EXPORT_FILE_CHANGED FILES
          "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/share/bctoolbox/cmake/bctoolboxTargets.cmake"
-         "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/CMakeFiles/Export/share/bctoolbox/cmake/bctoolboxTargets.cmake")
+         "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/CMakeFiles/Export/share/bctoolbox/cmake/bctoolboxTargets.cmake")
     if(EXPORT_FILE_CHANGED)
       file(GLOB OLD_CONFIG_FILES "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/share/bctoolbox/cmake/bctoolboxTargets-*.cmake")
       if(OLD_CONFIG_FILES)
@@ -44,27 +49,27 @@ if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMP
       endif()
     endif()
   endif()
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/bctoolbox/cmake" TYPE FILE FILES "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/CMakeFiles/Export/share/bctoolbox/cmake/bctoolboxTargets.cmake")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/bctoolbox/cmake" TYPE FILE FILES "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/CMakeFiles/Export/share/bctoolbox/cmake/bctoolboxTargets.cmake")
   if("${CMAKE_INSTALL_CONFIG_NAME}" MATCHES "^()$")
-    file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/bctoolbox/cmake" TYPE FILE FILES "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/CMakeFiles/Export/share/bctoolbox/cmake/bctoolboxTargets-noconfig.cmake")
+    file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/bctoolbox/cmake" TYPE FILE FILES "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/CMakeFiles/Export/share/bctoolbox/cmake/bctoolboxTargets-noconfig.cmake")
   endif()
 endif()
 
-if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+if(NOT CMAKE_INSTALL_COMPONENT OR "${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified")
   file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/bctoolbox/cmake" TYPE FILE FILES
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/bctoolboxConfig.cmake"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/bctoolboxConfigVersion.cmake"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/bctoolboxCMakeUtils.cmake"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/BcGitVersion.cmake"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/gitversion.h.in"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/bctoolboxConfig.cmake"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/bctoolboxConfigVersion.cmake"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/bctoolboxCMakeUtils.cmake"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/BcGitVersion.cmake"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/gitversion.h.in"
     )
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/cmake_install.cmake")
-  include("/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/cmake_install.cmake")
-  include("/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/build/cmake_install.cmake")
+  include("/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/cmake_install.cmake")
+  include("/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/cmake_install.cmake")
+  include("/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/build/cmake_install.cmake")
 
 endif()
 
@@ -76,5 +81,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")

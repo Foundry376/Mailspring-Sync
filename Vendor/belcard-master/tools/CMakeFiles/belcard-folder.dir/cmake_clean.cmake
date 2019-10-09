@@ -2,6 +2,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/belcard-folder.dir/belcard-folder.cpp.o"
   "belcard-folder.pdb"
   "belcard-folder"
+  "belcard-folder.pdb"
+  "CMakeFiles/CMakeRelink.dir/belcard-folder"
 )
 
 # Per-language clean rules from dependency scanning.

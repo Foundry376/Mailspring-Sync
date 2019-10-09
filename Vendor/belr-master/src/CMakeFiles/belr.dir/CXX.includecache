@@ -1,4 +1,4 @@
-#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
 
 #IncludeRegexScan: ^.*$
 
@@ -6,69 +6,69 @@
 
 #IncludeRegexTransform: 
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/abnf.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/abnf.cpp
 belr/abnf.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/belr/abnf.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/belr/abnf.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/belr.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/belr.cpp
 common.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/common.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/common.h
 binarystream.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/binarystream.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/binarystream.h
 belr/parser.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/belr/parser.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/belr/parser.h
 belr/belr.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/belr/belr.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/belr/belr.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/binarystream.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/binarystream.cpp
 winsock2.h
 -
 netinet/in.h
 -
 belr/belr.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/belr/belr.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/belr/belr.h
 binarystream.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/binarystream.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/binarystream.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/binarystream.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/binarystream.h
 fstream
 -
 memory
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/common.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/common.h
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/bctoolbox/logging.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/grammarbuilder.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/grammarbuilder.cpp
 fstream
 -
 bctoolbox/logging.h
 -
 belr/abnf.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/belr/abnf.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/belr/abnf.h
 belr/parser.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/belr/parser.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/belr/parser.h
 belr/grammarbuilder.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/belr/grammarbuilder.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/belr/grammarbuilder.h
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/config.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/parser.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/parser.cpp
 common.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/common.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/common.h
 belr/parser.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/belr/parser.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/belr/parser.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/list.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/list.h
 bctoolbox/port.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/bctoolbox/port.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/bctoolbox/port.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/logging.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/logging.h
 bctoolbox/port.h
 -
 bctoolbox/list.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/bctoolbox/list.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/bctoolbox/list.h
 string
 -
 iostream
@@ -80,7 +80,7 @@ syslog.h
 ostream
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/port.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/port.h
 errno.h
 -
 sys/types.h

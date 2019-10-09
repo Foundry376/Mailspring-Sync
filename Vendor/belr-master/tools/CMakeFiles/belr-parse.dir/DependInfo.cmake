@@ -4,29 +4,29 @@ set(CMAKE_DEPENDS_LANGUAGES
   )
 # The set of files for implicit dependencies of each language:
 set(CMAKE_DEPENDS_CHECK_CXX
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/tools/belr-parse.cc" "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/tools/CMakeFiles/belr-parse.dir/belr-parse.cc.o"
+  "/home/bengotow/Mailspring/mailsync/Vendor/belr-master/tools/belr-parse.cc" "/home/bengotow/Mailspring/mailsync/Vendor/belr-master/tools/CMakeFiles/belr-parse.dir/belr-parse.cc.o"
   )
-set(CMAKE_CXX_COMPILER_ID "AppleClang")
+set(CMAKE_CXX_COMPILER_ID "GNU")
 
 # Preprocessor definitions for this target.
-set(CMAKE_TARGET_DEFINITIONS_CXX
+set(CMAKE_TARGET_DEFINITIONS
   "BCTBX_STATIC"
   "BELR_EXPORTS"
   "BELR_STATIC"
   )
 
+# Targets to which this target links.
+set(CMAKE_TARGET_LINKED_INFO_FILES
+  "/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/CMakeFiles/belr.dir/DependInfo.cmake"
+  )
+
 # The include file search paths:
-set(CMAKE_CXX_TARGET_INCLUDE_PATH
+set(CMAKE_C_TARGET_INCLUDE_PATH
   "include"
   "src"
   "."
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include"
+  "/tmp/mailsync-build-deps/belcard/include"
   )
-
-# Targets to which this target links.
-set(CMAKE_TARGET_LINKED_INFO_FILES
-  "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/src/CMakeFiles/belr.dir/DependInfo.cmake"
-  )
-
-# Fortran module output directory.
-set(CMAKE_Fortran_TARGET_MODULE_DIR "")
+set(CMAKE_CXX_TARGET_INCLUDE_PATH ${CMAKE_C_TARGET_INCLUDE_PATH})
+set(CMAKE_Fortran_TARGET_INCLUDE_PATH ${CMAKE_C_TARGET_INCLUDE_PATH})
+set(CMAKE_ASM_TARGET_INCLUDE_PATH ${CMAKE_C_TARGET_INCLUDE_PATH})

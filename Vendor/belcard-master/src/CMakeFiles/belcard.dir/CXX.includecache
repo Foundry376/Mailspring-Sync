@@ -1,4 +1,4 @@
-#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
 
 #IncludeRegexScan: ^.*$
 
@@ -6,61 +6,61 @@
 
 #IncludeRegexTransform: 
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard.cpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 belcard/belcard_utils.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard_utils.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard_utils.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_addressing.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_addressing.cpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_calendar.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_calendar.cpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_communication.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_communication.cpp
 bctoolbox/parser.h
 -
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_explanatory.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_explanatory.cpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_general.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_general.cpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_geographical.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_geographical.cpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_identification.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_identification.cpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_organizational.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_organizational.cpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_params.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_params.cpp
 belcard/belcard_params.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard_params.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard_params.hpp
 belcard/vcard_grammar.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/vcard_grammar.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/vcard_grammar.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_parser.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_parser.cpp
 belcard/belcard_parser.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard_parser.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard_parser.hpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 belcard/belcard_utils.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard_utils.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard_utils.hpp
 belcard/vcard_grammar.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/vcard_grammar.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/vcard_grammar.hpp
 iostream
 -
 fstream
@@ -68,23 +68,23 @@ fstream
 sstream
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_property.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_property.cpp
 belcard/belcard_property.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard_property.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard_property.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_rfc6474.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_rfc6474.cpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_security.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_security.cpp
 belcard/belcard.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard.hpp
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard_utils.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard_utils.cpp
 belcard/belcard_utils.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/belcard_utils.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/belcard_utils.hpp
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/bctoolbox/logging.h
 string.h
 -
 iostream
@@ -94,21 +94,21 @@ fstream
 sstream
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/vcard_grammar.cpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/vcard_grammar.cpp
 belcard/vcard_grammar.hpp
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/belcard/vcard_grammar.hpp
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/belcard/vcard_grammar.hpp
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/bctoolbox/logging.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/list.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/list.h
 bctoolbox/port.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/bctoolbox/port.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/bctoolbox/port.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/logging.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/logging.h
 bctoolbox/port.h
 -
 bctoolbox/list.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/bctoolbox/list.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/bctoolbox/list.h
 string
 -
 iostream
@@ -120,11 +120,11 @@ syslog.h
 ostream
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/parser.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/parser.h
 bctoolbox/port.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/bctoolbox/port.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/bctoolbox/port.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/bctoolbox/port.h
+/tmp/mailsync-build-deps/belcard/include/bctoolbox/port.h
 errno.h
 -
 sys/types.h
@@ -176,11 +176,11 @@ stdint.h
 io.h
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/abnf.h
+/tmp/mailsync-build-deps/belcard/include/belr/abnf.h
 belr.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/belr.h
+/tmp/mailsync-build-deps/belcard/include/belr/belr.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/belr.h
+/tmp/mailsync-build-deps/belcard/include/belr/belr.h
 list
 -
 map
@@ -190,11 +190,11 @@ memory
 string
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/grammarbuilder.h
+/tmp/mailsync-build-deps/belcard/include/belr/grammarbuilder.h
 parser.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/parser.h
+/tmp/mailsync-build-deps/belcard/include/belr/parser.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/parser.h
+/tmp/mailsync-build-deps/belcard/include/belr/parser.h
 algorithm
 -
 functional
@@ -206,7 +206,7 @@ vector
 sstream
 -
 belr.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/include/belr/belr.h
+/tmp/mailsync-build-deps/belcard/include/belr/belr.h
 
 include/belcard/belcard.hpp
 belcard_utils.hpp
