@@ -8,8 +8,12 @@
 
 #include "DAVUtils.hpp"
 
+#ifndef WIN32
 #include <arpa/inet.h>
 #include <resolv.h>
+#else
+#include <windns.h>   //DNS api's
+#endif
 
 using namespace std;
 
@@ -99,6 +103,7 @@ bool DAVUtils::isGroupCard(shared_ptr<BelCard> card) {
 }
 
 vector<string> DAVUtils::srvRecordsForDomain(string domain) {
+#ifndef WIN32
     unsigned char response[NS_PACKETSZ];
     ns_msg handle;
     ns_rr rr;
@@ -128,4 +133,21 @@ vector<string> DAVUtils::srvRecordsForDomain(string domain) {
         }
     }
     return results;
+#else
+	vector<string> results;
+	PDNS_RECORD pDnsRecord; //pointer to DNS_RECORD structure
+	DNS_STATUS status = DnsQuery_A(domain.c_str(), //pointer to OwnerName 
+		DNS_TYPE_SRV,
+		DNS_QUERY_BYPASS_CACHE,
+		NULL, //contains DNS server IP address
+		&pDnsRecord, //Resource record comprising the response
+		NULL); //reserved for future use
+
+	if (!status) {
+		stringstream ss;
+		ss << pDnsRecord->Data.SRV.pNameTarget;
+		results.push_back(ss.str());
+	}
+	return results;
+#endif
 }
