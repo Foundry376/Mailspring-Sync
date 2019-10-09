@@ -29,7 +29,7 @@
 /* #undef HAVE_CU_CURSES */
 /* #undef HAVE_CU_SET_TRACE_HANDLER */
 
-/* #undef HAVE_LIBRT */
+#define HAVE_LIBRT 1
 
 #define BCTBX_STATIC
 #define HAVE_EXECINFO 

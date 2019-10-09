@@ -1,4 +1,4 @@
-#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
 
 #IncludeRegexScan: ^.*$
 
@@ -6,9 +6,9 @@
 
 #IncludeRegexTransform: 
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/containers/list.c
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/containers/list.c
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/containers/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/containers/config.h
 stddef.h
 -
 stdlib.h
@@ -24,17 +24,17 @@ dirent.h
 direct.h
 -
 bctoolbox/port.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/containers/bctoolbox/port.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/containers/bctoolbox/port.h
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/containers/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/containers/bctoolbox/logging.h
 bctoolbox/list.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/containers/bctoolbox/list.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/containers/bctoolbox/list.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/logging/logging.c
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/logging/logging.c
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/logging/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/logging/config.h
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/logging/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/logging/bctoolbox/logging.h
 time.h
 -
 stdio.h
@@ -48,29 +48,29 @@ android/log.h
 slog2.h
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/parser.c
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/parser.c
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/config.h
 bctoolbox/port.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/bctoolbox/port.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/bctoolbox/port.h
 bctoolbox/parser.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/bctoolbox/parser.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/bctoolbox/parser.h
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/bctoolbox/logging.h
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/port.c
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/port.c
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/config.h
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/logging.h
 bctoolbox/port.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/port.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/port.h
 bctoolbox/vconnect.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/vconnect.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/vconnect.h
 bctoolbox/list.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/list.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/bctoolbox/list.h
 utils.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/utils/utils.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/utils/utils.h
 process.h
 -
 sys/shm.h
@@ -92,15 +92,15 @@ sys/timeb.h
 wincrypt.h
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/vconnect.c
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/vconnect.c
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/config.h
 bctoolbox/vconnect.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/bctoolbox/vconnect.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/bctoolbox/vconnect.h
 bctoolbox/port.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/bctoolbox/port.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/bctoolbox/port.h
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/bctoolbox/logging.h
 sys/types.h
 -
 stdarg.h
@@ -108,15 +108,15 @@ stdarg.h
 errno.h
 -
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/vfs.c
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/vfs.c
 config.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/config.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/config.h
 bctoolbox/vfs.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/bctoolbox/vfs.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/bctoolbox/vfs.h
 bctoolbox/port.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/bctoolbox/port.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/bctoolbox/port.h
 bctoolbox/logging.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/src/bctoolbox/logging.h
+/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/bctoolbox/logging.h
 sys/types.h
 -
 stdarg.h

@@ -1,8 +1,8 @@
-# Install script for directory: /Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include
+# Install script for directory: /home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built")
+  set(CMAKE_INSTALL_PREFIX "/tmp/mailsync-build-deps/belcard")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 
@@ -27,20 +27,25 @@ if(NOT CMAKE_INSTALL_COMPONENT)
   endif()
 endif()
 
-if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+# Install shared libraries without execute permission?
+if(NOT DEFINED CMAKE_INSTALL_SO_NO_EXE)
+  set(CMAKE_INSTALL_SO_NO_EXE "1")
+endif()
+
+if(NOT CMAKE_INSTALL_COMPONENT OR "${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified")
   file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/include/bctoolbox" TYPE FILE PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ FILES
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/charconv.h"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/compiler.h"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/defs.h"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/exception.hh"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/list.h"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/logging.h"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/map.h"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/parser.h"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/port.h"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/regex.h"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/vconnect.h"
-    "/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/bctoolbox-master/include/bctoolbox/vfs.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/charconv.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/compiler.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/defs.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/exception.hh"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/list.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/logging.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/map.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/parser.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/port.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/regex.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/vconnect.h"
+    "/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/include/bctoolbox/vfs.h"
     )
 endif()
 

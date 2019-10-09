@@ -1,4 +1,4 @@
-#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
 
 #IncludeRegexScan: ^.*$
 
@@ -6,7 +6,7 @@
 
 #IncludeRegexTransform: 
 
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/tools/belr-demo.cc
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/tools/belr-demo.cc
 iostream
 -
 fstream
@@ -20,9 +20,9 @@ ctime
 cstring
 -
 belr/grammarbuilder.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/tools/belr/grammarbuilder.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/tools/belr/grammarbuilder.h
 belr/abnf.h
-/Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belr-master/tools/belr/abnf.h
+/home/bengotow/Mailspring/mailsync/Vendor/belr-master/tools/belr/abnf.h
 
 include/belr/abnf.h
 belr.h

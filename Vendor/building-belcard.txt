@@ -9,7 +9,7 @@ make
 make install
 
 cd belcard-master
-cmake -DCMAKE_INSTALL_PREFIX=../built -DCMAKE_PREFIX_PATH="../built/include" -DENABLE_STATIC=YES -DENABLE_SHARED=NO -DENABLE_TESTS=NO
+cmake -DCMAKE_INSTALL_PREFIX=../built -DCMAKE_PREFIX_PATH="../built/include" -DENABLE_STATIC=YES -DENABLE_SHARED=NO -DENABLE_UNIT_TESTS=NO
 make
 make install
 

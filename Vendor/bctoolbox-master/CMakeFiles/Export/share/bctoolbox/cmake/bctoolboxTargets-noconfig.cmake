@@ -18,12 +18,12 @@ list(APPEND _IMPORT_CHECK_FILES_FOR_bctoolbox-static "${_IMPORT_PREFIX}/lib/libb
 # Import target "bctoolbox" for configuration ""
 set_property(TARGET bctoolbox APPEND PROPERTY IMPORTED_CONFIGURATIONS NOCONFIG)
 set_target_properties(bctoolbox PROPERTIES
-  IMPORTED_LOCATION_NOCONFIG "${_IMPORT_PREFIX}/Frameworks/bctoolbox.framework/Versions/A/bctoolbox"
-  IMPORTED_SONAME_NOCONFIG "@rpath/bctoolbox.framework/Versions/A/bctoolbox"
+  IMPORTED_LOCATION_NOCONFIG "${_IMPORT_PREFIX}/lib/libbctoolbox.so.1"
+  IMPORTED_SONAME_NOCONFIG "libbctoolbox.so.1"
   )
 
 list(APPEND _IMPORT_CHECK_TARGETS bctoolbox )
-list(APPEND _IMPORT_CHECK_FILES_FOR_bctoolbox "${_IMPORT_PREFIX}/Frameworks/bctoolbox.framework/Versions/A/bctoolbox" )
+list(APPEND _IMPORT_CHECK_FILES_FOR_bctoolbox "${_IMPORT_PREFIX}/lib/libbctoolbox.so.1" )
 
 # Commands beyond this point should not need to know the version.
 set(CMAKE_IMPORT_FILE_VERSION)

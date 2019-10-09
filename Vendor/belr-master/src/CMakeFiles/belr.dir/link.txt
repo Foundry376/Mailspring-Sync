@@ -1,2 +1,2 @@
-/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ar qc libbelr.a  CMakeFiles/belr.dir/abnf.cpp.o CMakeFiles/belr.dir/belr.cpp.o CMakeFiles/belr.dir/grammarbuilder.cpp.o CMakeFiles/belr.dir/parser.cpp.o CMakeFiles/belr.dir/binarystream.cpp.o
-/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ranlib libbelr.a
+/usr/bin/ar cq libbelr.a  CMakeFiles/belr.dir/abnf.cpp.o CMakeFiles/belr.dir/belr.cpp.o CMakeFiles/belr.dir/grammarbuilder.cpp.o CMakeFiles/belr.dir/parser.cpp.o CMakeFiles/belr.dir/binarystream.cpp.o
+/usr/bin/ranlib libbelr.a
