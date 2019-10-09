@@ -143,12 +143,12 @@ const string PerformExpectedRedirect(string url) {
     if (http_code != 301 && http_code != 302) {
         return "";
     }
-    char * redirect;
+    char * redirect = nullptr;
     if (curl_easy_getinfo(curl_handle, CURLINFO_REDIRECT_URL, &redirect) != CURLE_OK) {
         return "";
     }
 
-    return redirect;
+    return redirect != nullptr ? redirect : "";
 }
 
 
