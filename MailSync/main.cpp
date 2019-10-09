@@ -423,10 +423,11 @@ int main(int argc, const char * argv[]) {
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);
     
+string exectuablePath = argv[0];
+
 #ifndef DEBUG
     // check path to executable in an obtuse way, prevent re-use of
     // Mailspring-Sync in products / forks not called Mailspring.
-    string exectuablePath = argv[0];
     transform(exectuablePath.begin(), exectuablePath.end(), exectuablePath.begin(), ::tolower);
     string headerMessageId = string(USAGE_STRING).substr(59, 4) + string(USAGE_IDENTITY).substr(33, 6);
     if (exectuablePath.find(headerMessageId) == string::npos) {
@@ -435,7 +436,7 @@ int main(int argc, const char * argv[]) {
 #endif
 
     // initialize the stanford exception handler
-    exceptions::setProgramNameForStackTrace(argv[0]);
+    exceptions::setProgramNameForStackTrace(exectuablePath);
     exceptions::setTopLevelExceptionHandlerEnabled(true);
 
     // parse launch arguments, skip program name argv[0] if present
@@ -466,6 +467,17 @@ int main(int argc, const char * argv[]) {
     // /everything/ in the place the user has specified in case it's symlinked, on
     // another volume, etc.
     sqlite3_temp_directory = sqlite3_mprintf("%s", eConfigDirPath.c_str());
+    
+    // initalize belr search path so it can find the VCard grammar. By default it
+    // looks where it was located on disk when cmake was run...
+    auto last = exectuablePath.find_last_of("\\");
+    if (last == string::npos) {
+        last = exectuablePath.find_last_of("/");
+    }
+    string executableDir = exectuablePath.substr(0, last);
+    string appStaticDir = executableDir + exectuablePath.substr(last, 1) + "static";
+    belr::GrammarLoader::get().addPath(appStaticDir);
+    belr::GrammarLoader::get().addPath(executableDir);
 
     // handle --mode migrate early for speed
     string mode(options[MODE].arg);
