@@ -62,19 +62,16 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   else
     echo "Building belcard..."
     cd "$MAILSYNC_DIR/Vendor/bctoolbox-master"
-    rm CMakeCache.txt
     cmake . -DCMAKE_INSTALL_PREFIX="$DEP_BUILDS_DIR/belcard" -DCMAKE_PREFIX_PATH="$DEP_BUILDS_DIR/belcard" -DENABLE_STATIC=YES -DENABLE_POLARSSL=NO -DENABLE_DECAF=NO -DENABLE_TESTS_COMPONENT=NO
     make
     make install
 
     cd ../belr-master
-    rm CMakeCache.txt
     cmake -DCMAKE_INSTALL_PREFIX="$DEP_BUILDS_DIR/belcard" -DCMAKE_PREFIX_PATH="$DEP_BUILDS_DIR/belcard/include" -DENABLE_STATIC=YES -DENABLE_SHARED=NO -DENABLE_TESTS=NO
     make
     make install
 
     cd ../belcard-master
-    rm CMakeCache.txt
     cmake -DCMAKE_INSTALL_PREFIX="$DEP_BUILDS_DIR/belcard" -DCMAKE_PREFIX_PATH="$DEP_BUILDS_DIR/belcard/include" -DENABLE_STATIC=YES -DENABLE_SHARED=NO -DENABLE_UNIT_TESTS=NO
     make
     make install
@@ -82,7 +79,6 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
 
   echo "Copying belcard from cache dir into built..."
   cp -r "$DEP_BUILDS_DIR/belcard" "$MAILSYNC_DIR/Vendor/belcard-built"
-
 
   # build mailcore2
   echo "Building mailcore2..."

@@ -1,4 +1,0 @@
-/home/bengotow/Mailspring/mailsync/Vendor/belr-master/tools/CMakeFiles/belr-compiler.dir
-/home/bengotow/Mailspring/mailsync/Vendor/belr-master/tools/CMakeFiles/belr-demo.dir
-/home/bengotow/Mailspring/mailsync/Vendor/belr-master/tools/CMakeFiles/belr-parse.dir
-/home/bengotow/Mailspring/mailsync/Vendor/belr-master/src/CMakeFiles/belr.dir

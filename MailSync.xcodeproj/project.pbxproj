@@ -11,12 +11,12 @@
 		43167F091EF5F59E00D8E282 /* Message.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F071EF5F59E00D8E282 /* Message.cpp */; };
 		43167F0C1EF5F5C100D8E282 /* Thread.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0A1EF5F5C100D8E282 /* Thread.cpp */; };
 		43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0E1EF5F6C700D8E282 /* Folder.cpp */; };
+		431E85B8234D9C0200237E70 /* libbelcard.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 431E85B5234D9C0200237E70 /* libbelcard.a */; };
+		431E85B9234D9C0200237E70 /* libbctoolbox.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 431E85B6234D9C0200237E70 /* libbctoolbox.a */; };
+		431E85BA234D9C0200237E70 /* libbelr.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 431E85B7234D9C0200237E70 /* libbelr.a */; };
 		43256B0621E7EEC900590F1B /* DAVWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43256B0521E7EEC900590F1B /* DAVWorker.cpp */; };
 		43256B0B21E802DD00590F1B /* DavXML.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43256B0A21E802DD00590F1B /* DavXML.cpp */; };
 		432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */; };
-		4330C0012346F4330004E1D9 /* libbelcard.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4330BFFE2346F4330004E1D9 /* libbelcard.a */; };
-		4330C0022346F4330004E1D9 /* libbelr.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4330BFFF2346F4330004E1D9 /* libbelr.a */; };
-		4330C0032346F4330004E1D9 /* libbctoolbox.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4330C0002346F4330004E1D9 /* libbctoolbox.a */; };
 		43462D632175C6FC002BCBF5 /* libetpan.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43462D572175C5C8002BCBF5 /* libetpan.a */; };
 		43462D652175C75E002BCBF5 /* libctemplate.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43462D642175C75E002BCBF5 /* libctemplate.a */; };
 		4346BCE51EF91305009477FE /* Query.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4346BCE31EF91305009477FE /* Query.cpp */; };
@@ -167,6 +167,9 @@
 		43167F0B1EF5F5C100D8E282 /* Thread.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Thread.hpp; sourceTree = "<group>"; };
 		43167F0E1EF5F6C700D8E282 /* Folder.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Folder.cpp; sourceTree = "<group>"; };
 		43167F0F1EF5F6C700D8E282 /* Folder.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Folder.hpp; sourceTree = "<group>"; };
+		431E85B5234D9C0200237E70 /* libbelcard.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbelcard.a; path = "Vendor/belcard-built-macos/lib/libbelcard.a"; sourceTree = "<group>"; };
+		431E85B6234D9C0200237E70 /* libbctoolbox.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbctoolbox.a; path = "Vendor/belcard-built-macos/lib/libbctoolbox.a"; sourceTree = "<group>"; };
+		431E85B7234D9C0200237E70 /* libbelr.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbelr.a; path = "Vendor/belcard-built-macos/lib/libbelr.a"; sourceTree = "<group>"; };
 		43256AF821E7EE9E00590F1B /* DAVWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = DAVWorker.hpp; sourceTree = "<group>"; };
 		43256B0521E7EEC900590F1B /* DAVWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DAVWorker.cpp; sourceTree = "<group>"; };
 		43256B0721E7FFF800590F1B /* libxml2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libxml2.tbd; path = usr/lib/libxml2.tbd; sourceTree = SDKROOT; };
@@ -175,9 +178,6 @@
 		43256B0C21E802E700590F1B /* DavXML.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = DavXML.hpp; sourceTree = "<group>"; };
 		432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MetadataWorker.cpp; sourceTree = "<group>"; };
 		432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetadataWorker.hpp; sourceTree = "<group>"; };
-		4330BFFE2346F4330004E1D9 /* libbelcard.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbelcard.a; path = Vendor/built/lib/libbelcard.a; sourceTree = "<group>"; };
-		4330BFFF2346F4330004E1D9 /* libbelr.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbelr.a; path = Vendor/built/lib/libbelr.a; sourceTree = "<group>"; };
-		4330C0002346F4330004E1D9 /* libbctoolbox.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbctoolbox.a; path = Vendor/built/lib/libbctoolbox.a; sourceTree = "<group>"; };
 		43462D4C2175C5C8002BCBF5 /* libetpan.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = libetpan.xcodeproj; path = "Vendor/libetpan/build-mac/libetpan.xcodeproj"; sourceTree = "<group>"; };
 		43462D642175C75E002BCBF5 /* libctemplate.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libctemplate.a; path = "Vendor/mailcore2/Externals/ctemplate-osx/lib/libctemplate.a"; sourceTree = "<group>"; };
 		4346BCE31EF91305009477FE /* Query.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Query.cpp; sourceTree = "<group>"; };
@@ -282,15 +282,15 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				431E85B9234D9C0200237E70 /* libbctoolbox.a in Frameworks */,
 				43462D632175C6FC002BCBF5 /* libetpan.a in Frameworks */,
+				431E85BA234D9C0200237E70 /* libbelr.a in Frameworks */,
 				43617D841F3D4DDA00DB566D /* libMailCore.a in Frameworks */,
 				43462D652175C75E002BCBF5 /* libctemplate.a in Frameworks */,
-				4330C0032346F4330004E1D9 /* libbctoolbox.a in Frameworks */,
 				43CA9A071F0836C1001A24A0 /* Cocoa.framework in Frameworks */,
-				4330C0022346F4330004E1D9 /* libbelr.a in Frameworks */,
 				43CA9A051F0836A2001A24A0 /* CoreFoundation.framework in Frameworks */,
 				436489581EF2E94B007816EC /* Security.framework in Frameworks */,
-				4330C0012346F4330004E1D9 /* libbelcard.a in Frameworks */,
+				431E85B8234D9C0200237E70 /* libbelcard.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -438,9 +438,9 @@
 			children = (
 				43256B0721E7FFF800590F1B /* libxml2.tbd */,
 				43462D642175C75E002BCBF5 /* libctemplate.a */,
-				4330C0002346F4330004E1D9 /* libbctoolbox.a */,
-				4330BFFE2346F4330004E1D9 /* libbelcard.a */,
-				4330BFFF2346F4330004E1D9 /* libbelr.a */,
+				431E85B6234D9C0200237E70 /* libbctoolbox.a */,
+				431E85B5234D9C0200237E70 /* libbelcard.a */,
+				431E85B7234D9C0200237E70 /* libbelr.a */,
 				43CA9A061F0836C1001A24A0 /* Cocoa.framework */,
 				43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */,
 				436489571EF2E94B007816EC /* Security.framework */,
@@ -856,12 +856,12 @@
 					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
 					/usr/include/libxml2,
-					"${PROJECT_DIR}/Vendor/built/include",
+					"${PROJECT_DIR}/Vendor/belcard-built-macos/include",
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Vendor/mailcore2/Externals/ctemplate-osx/lib",
-					"$(PROJECT_DIR)/Vendor/built/lib",
+					"$(PROJECT_DIR)/Vendor/belcard-built-macos/lib",
 				);
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
@@ -899,12 +899,12 @@
 					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
 					/usr/include/libxml2,
-					"${PROJECT_DIR}/Vendor/built/include",
+					"${PROJECT_DIR}/Vendor/belcard-built-macos/include",
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Vendor/mailcore2/Externals/ctemplate-osx/lib",
-					"$(PROJECT_DIR)/Vendor/built/lib",
+					"$(PROJECT_DIR)/Vendor/belcard-built-macos/lib",
 				);
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
