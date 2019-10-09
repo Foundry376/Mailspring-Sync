@@ -45,9 +45,6 @@
     <ClCompile Include="..\MailSync\MetadataExpirationWorker.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\MailSync\CalendarWorker.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\MailSync\MetadataWorker.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -151,6 +148,33 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\Vendor\StanfordCPPLib\stacktrace\call_stack_windows.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\MailSync\DavXML.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Vendor\icalendarlib\date.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Vendor\icalendarlib\icalendar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Vendor\icalendarlib\types.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\MailSync\DAVUtils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\MailSync\DAVWorker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\MailSync\GoogleContactsWorker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\MailSync\Models\ContactBook.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\MailSync\Models\ContactGroup.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
