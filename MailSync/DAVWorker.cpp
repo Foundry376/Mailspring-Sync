@@ -637,11 +637,7 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
     
-    logger->info("{}: {} {}", _url, method, payload);
     string result = PerformRequest(curl_handle);
-    if (result.length() < 20000) {
-        logger->info("{}: {} {}\n{}", _url, method, payload, result);
-    }
     return make_shared<DavXML>(result, url);
 }
 
@@ -666,9 +662,6 @@ string DAVWorker::performVCardRequest(string _url, string method, string vcard, 
     
     logger->info("{}: {} {}", _url, vcard, existingEtag);
     string result = PerformRequest(curl_handle);
-    if (result.length() < 20000) {
-        logger->info("{}: {}", _url, result);
-    }
     return result;
 }
 
