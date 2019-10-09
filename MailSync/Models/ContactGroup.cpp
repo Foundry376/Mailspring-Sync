@@ -101,7 +101,7 @@ void ContactGroup::syncMembers(MailStore * store, vector<string> newContactIds) 
     removeMembers.bind(1, id());
     removeMembers.exec();
 
-    // craete new join table entries
+    // create new join table entries
     SQLite::Statement insertMembers(store->db(), "INSERT OR IGNORE INTO ContactContactGroup (id, value) VALUES (?,?)");
     for (auto contactId : newContactIds) {
         insertMembers.bind(1, contactId);
