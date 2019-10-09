@@ -70,6 +70,12 @@ void GoogleContactsWorker::run() {
                 continue;
             }
             
+            // handle photo of contact, with no other data. Unclear why these are sent and it seems to send
+            // them for a contact AFTER you delete a contact. Maybe telling you to unsync the photo?
+            if (conn.count("photos") && conn.count("etag") && conn.count("resourceName") && conn.size() == 3) {
+                continue;
+            }
+            
             // handle new contact
             if (!local) {
                 local = make_shared<Contact>(MailUtils::idRandomlyGenerated(), account->id(), "", CONTACT_MAX_REFS, GOOGLE_SYNC_SOURCE);
