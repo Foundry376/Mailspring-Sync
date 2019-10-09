@@ -1,4 +1,0 @@
-/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/tools/CMakeFiles/belcard-unfolder.dir
-/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/src/CMakeFiles/belcard.dir
-/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/tools/CMakeFiles/belcard-parser.dir
-/home/bengotow/Mailspring/mailsync/Vendor/belcard-master/tools/CMakeFiles/belcard-folder.dir

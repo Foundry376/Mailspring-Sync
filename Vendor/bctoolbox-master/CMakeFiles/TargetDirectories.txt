@@ -1,2 +1,0 @@
-/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/CMakeFiles/bctoolbox-static.dir
-/home/bengotow/Mailspring/mailsync/Vendor/bctoolbox-master/src/CMakeFiles/bctoolbox.dir
