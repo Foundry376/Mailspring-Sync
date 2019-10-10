@@ -75,6 +75,7 @@ if(ENABLE_SHARED)
 	)
 	target_link_libraries(belr PUBLIC ${LIBS})
 	if(MSVC)
+   	    target_link_libraries(belr PUBLIC winmm)
 		if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
 			install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_BUILD_TYPE}/belr.pdb
 				DESTINATION ${CMAKE_INSTALL_BINDIR}
