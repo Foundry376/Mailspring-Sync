@@ -20,10 +20,16 @@ To test parsing a VCard:
 To rebuild the grammar used to parse VCards:
  ./belr-compiler /Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/belcard-master/src/vcard_rules /Users/bengotow/Work/F376/Projects/Mailspring/client/mailsync/Vendor/built/share/belr/grammars/vcard_grammar
 
-NOTE: I have modified the vcard_rules file to support VCard Version 3 as well as Version 4! This mostly just involved adding a few old attributes back in and loosening the parsing of names and dates. 
 
+NOTE!: I have modified the vcard_rules file to support VCard
+Version 3 as well as Version 4! This mostly just involved adding
+a few old attributes back in and loosening the parsing of names
+and dates. 
+
+
+NOTE!: Only Linux is building belcard in CI. The others are using binaries.
 
 ON WIN32:
 make + make install
 REPLACED WITH:
-cmake --build . --targ  et INSTALL --config Release
+cmake --build . --target INSTALL --config Release
