@@ -17,3 +17,5 @@ MailSync.xcodeproj/xcuserdata
 /Vendor/belcard-built-macos/share/belr/grammars/vcard_grammar
 /Vendor/belcard-built-macos/share/belr/grammars/vcard_grammar.original
 /Vendor/belcard-built-win/share/belr/grammars/vcard_grammar
+/Vendor/bctoolbox-master/CMakeFiles
+/Vendor/bctoolbox-master/CMakeCache.txt

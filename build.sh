@@ -62,7 +62,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   else
     echo "Building belcard..."
     cd "$MAILSYNC_DIR/Vendor/bctoolbox-master"
-    cmake . -DCMAKE_INSTALL_PREFIX="$DEP_BUILDS_DIR/belcard" -DCMAKE_PREFIX_PATH="$DEP_BUILDS_DIR/belcard" -DENABLE_STATIC=YES -DENABLE_POLARSSL=NO -DENABLE_DECAF=NO -DENABLE_TESTS_COMPONENT=NO
+    cmake . -DCMAKE_INSTALL_PREFIX="$DEP_BUILDS_DIR/belcard" -DCMAKE_PREFIX_PATH="$DEP_BUILDS_DIR/belcard" -DENABLE_STATIC=YES -DENABLE_POLARSSL=NO -DENABLE_MBEDTLS=NO -DENABLE_DECAF=NO -DENABLE_TESTS_COMPONENT=NO -DENABLE_TESTS=NO
     make
     make install
 
@@ -72,7 +72,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     make install
 
     cd ../belcard-master
-    cmake -DCMAKE_INSTALL_PREFIX="$DEP_BUILDS_DIR/belcard" -DCMAKE_PREFIX_PATH="$DEP_BUILDS_DIR/belcard/include" -DENABLE_STATIC=YES -DENABLE_SHARED=NO -DENABLE_UNIT_TESTS=NO
+    cmake -DCMAKE_INSTALL_PREFIX="$DEP_BUILDS_DIR/belcard" -DCMAKE_PREFIX_PATH="$DEP_BUILDS_DIR/belcard/include" -DENABLE_STATIC=YES -DENABLE_SHARED=NO -DENABLE_UNIT_TESTS=NO -DENABLE_TOOLS=NO
     make
     make install
   fi
