@@ -144,9 +144,10 @@ vector<string> DAVUtils::srvRecordsForDomain(string domain) {
 		NULL); //reserved for future use
 
 	if (!status) {
-		stringstream ss;
-		ss << pDnsRecord->Data.SRV.pNameTarget;
-		results.push_back(ss.str());
+		char buffer[512];
+		sprintf_s(buffer, "%Ls", (pDnsRecord->Data.SRV.pNameTarget));
+		string str{ buffer };		
+		results.push_back(str);
 	}
 	return results;
 #endif
