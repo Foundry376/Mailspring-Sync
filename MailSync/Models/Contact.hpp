@@ -20,8 +20,8 @@
 
 #include "MailModel.hpp"
 #include "MailStore.hpp"
+#include "VCard.hpp"
 #include <MailCore/MailCore.h>
-#include <belcard/belcard.hpp>
 
 using namespace nlohmann;
 using namespace std;
@@ -64,7 +64,7 @@ public:
     int refs();
     void incrementRefs();
 
-    void mutateCardInInfo(function<void(shared_ptr<belcard::BelCard>)> yieldBlock);
+    void mutateCardInInfo(function<void(shared_ptr<VCard>)> yieldBlock);
 
     string tableName();
     string constructorName();

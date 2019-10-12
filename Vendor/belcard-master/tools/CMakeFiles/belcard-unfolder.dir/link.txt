@@ -1,1 +1,0 @@
-/usr/bin/c++      CMakeFiles/belcard-unfolder.dir/belcard-unfolder.cpp.o  -o belcard-unfolder -rdynamic ../src/libbelcard.a /tmp/mailsync-build-deps/belcard/lib/libbelr.a /tmp/mailsync-build-deps/belcard/lib/libbctoolbox.so.1 -Wl,-rpath,/tmp/mailsync-build-deps/belcard/lib 

@@ -28,16 +28,19 @@
 
 using namespace std;
 
+typedef string ETAG;
+
 class DAVWorker {
     MailStore * store;
     shared_ptr<spdlog::logger> logger;
-    shared_ptr<Account> account;
 
     string calHost;
     string calPrincipal;
     string cardHost;
     
 public:
+    shared_ptr<Account> account;
+
     DAVWorker(shared_ptr<Account> account);
     
     void run();
@@ -50,6 +53,7 @@ public:
     void runContacts();
     void runForAddressBook(shared_ptr<ContactBook> ab);
 
+    void ingestContactDeletions(shared_ptr<ContactBook> ab, vector<ETAG> deleted);
     shared_ptr<Contact> ingestAddressDataNode(shared_ptr<DavXML> doc, xmlNodePtr node, bool & isGroup);
     void rebuildContactGroup(shared_ptr<Contact> contact);
 
@@ -59,7 +63,7 @@ public:
     struct curl_slist * baseHeaders();
     
     shared_ptr<DavXML> performXMLRequest(string path, string method, string payload = "");
-    string performVCardRequest(string _url, string method, string vcard = "", string existingEtag = "");
+    string performVCardRequest(string _url, string method, string vcard = "", ETAG existingEtag = "");
     
 };
 

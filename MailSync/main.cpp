@@ -132,6 +132,10 @@ void runForegroundSyncWorker() {
 
 void runBackgroundSyncWorker() {
     bool started = false;
+    
+    // wait a few seconds before launching. This avoids database locking caused by many
+    // sync workers all trying to open several sqlite references at once.
+    MailUtils::sleepWorkerUntilWakeOrSec(bgWorker->account->startDelay());
 
     while(true) {
         try {
@@ -180,6 +184,11 @@ void runBackgroundSyncWorker() {
 }
 
 void runCalContactsSyncWorker() {
+    // wait a few seconds before launching calendar / contact sync. This gives
+    // mailsync a minute to kick off and avoids database locking caused by many
+    // sync workers all trying to open several sqlite references at once.
+    MailUtils::sleepWorkerUntilWakeOrSec(15 + davWorker->account->startDelay());
+
     while(true) {
         try {
             davWorker->run();
@@ -467,17 +476,6 @@ string exectuablePath = argv[0];
     // /everything/ in the place the user has specified in case it's symlinked, on
     // another volume, etc.
     sqlite3_temp_directory = sqlite3_mprintf("%s", eConfigDirPath.c_str());
-    
-    // initalize belr search path so it can find the VCard grammar. By default it
-    // looks where it was located on disk when cmake was run...
-    auto last = exectuablePath.find_last_of("\\");
-    if (last == string::npos) {
-        last = exectuablePath.find_last_of("/");
-    }
-    string executableDir = exectuablePath.substr(0, last);
-    string appStaticDir = executableDir + exectuablePath.substr(last, 1) + "static";
-    belr::GrammarLoader::get().addPath(appStaticDir);
-    belr::GrammarLoader::get().addPath(executableDir);
 
     // handle --mode migrate early for speed
     string mode(options[MODE].arg);

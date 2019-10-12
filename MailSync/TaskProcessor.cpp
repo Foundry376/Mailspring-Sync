@@ -26,9 +26,6 @@
 #include "SyncException.hpp"
 #include "NetworkRequestUtils.hpp"
 
-#include <belr/belr.h>
-#include <belcard/belcard.hpp>
-
 #if defined(_MSC_VER)
 #include <direct.h>
 #include <codecvt>
@@ -349,7 +346,7 @@ void TaskProcessor::cleanupOldTasksAtRuntime() {
     count.reset();
 
     if (countToRemove > 10) { // slop
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "cleanupOldTasksAtRuntime"};
 
         SQLite::Statement unneeded(store->db(), "SELECT data FROM Task WHERE accountId = ? AND (status = \"complete\" OR status = \"cancelled\") ORDER BY rowid ASC LIMIT ?");
         unneeded.bind(1, account->id());
@@ -554,7 +551,7 @@ void TaskProcessor::performRemote(Task * task) {
 }
 
 void TaskProcessor::cancel(string taskId) {
-    MailStoreTransaction transaction{store};
+    MailStoreTransaction transaction{store, "cancel"};
     auto task = store->find<Task>(Query().equal("id", taskId).equal("accountId", account->id()));
     if (task != nullptr) {
         task->setShouldCancel();
@@ -650,7 +647,7 @@ ChangeMailModels TaskProcessor::inflateMessages(json & data) {
 }
 
 void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocalMessage)(Message *, json &)) {
-    MailStoreTransaction transaction{store};
+    MailStoreTransaction transaction{store, "performLocalChangeOnMessages"};
     
     json & data = task->data();
     ChangeMailModels models = inflateMessages(data);
@@ -737,7 +734,7 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool updatesFolde
     // Reload the messages inside a transaction, save any changes made to "remote" attributes
     // by applyInFolder and decrement locks.
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "performRemoteChangeOnMessages"};
         vector<shared_ptr<Message>> safeMessages = inflateMessages(data).messages;
         
         for (auto safe : safeMessages) {
@@ -773,7 +770,7 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
     json & draftJSON = task->data()["draft"];
     
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "performLocalSaveDraft"};
 
         // If the draft already exists, we need to visibly change it's attributes
         // to trigger the correct didSave hooks, etc. Find and update it.
@@ -826,7 +823,7 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
     // Destroy drafts locally and create stubs that prevent the sync
     // worker from replacing them while we delete them via IMAP.
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "performLocalDestroyDraft"};
 
         auto drafts = store->findAll<Message>(Query().equal("id", messageIds));
         for (auto & draft : drafts) {
@@ -938,12 +935,12 @@ void TaskProcessor::performLocalSyncbackContactGroup(Task * task) {
             // Update underlying contact and VCF
             auto contact = store->find<Contact>(Query().equal("id", id));
             contact->setName(name);
-            contact->mutateCardInInfo([&](shared_ptr<BelCard> belCard) {
-                if (belCard->getName()) {
-                    belCard->getName()->setValue(name);
+            contact->mutateCardInInfo([&](shared_ptr<VCard> card) {
+                if (card->getName()) {
+                    card->getName()->setValue(name);
                 }
-                if (belCard->getFullName()) {
-                    belCard->getFullName()->setValue(name);
+                if (card->getFormattedName()) {
+                    card->getFormattedName()->setValue(name);
                 }
             });
             store->save(contact.get());
@@ -954,19 +951,10 @@ void TaskProcessor::performLocalSyncbackContactGroup(Task * task) {
             contact->setInfo(json::object({{"vcf", "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:"+uid+"\r\nEND:VCARD\r\n"}, {"href", ""}}));
             contact->setHidden(true);
             contact->setName(name);
-            contact->mutateCardInInfo([&](shared_ptr<BelCard> belCard) {
-                auto nameProp = make_shared<BelCardName>();
-                nameProp->setFreeformTextName(name);
-                belCard->setName(nameProp);
-                
-                auto fullNameProp = make_shared<BelCardFullName>();
-                fullNameProp->setValue(name);
-                belCard->setFullName(fullNameProp);
-
-                auto kindProp = make_shared<BelCardProperty>();
-                kindProp->setName(X_VCARD3_KIND);
-                kindProp->setValue("group");
-                belCard->addExtendedProperty(kindProp);
+            contact->mutateCardInInfo([&](shared_ptr<VCard> vcard) {
+                vcard->setName(name);
+                vcard->addProperty(make_shared<VCardProperty>("FN", name));
+                vcard->addProperty(make_shared<VCardProperty>(X_VCARD3_KIND, "group"));
             });
 
             task->data()["group"]["id"] = uid;
@@ -1054,11 +1042,11 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
     } else {
         auto contactForGroup = store->find<Contact>(Query().equal("id", groupId).equal("accountId", account->id()));
        
-        contactForGroup->mutateCardInInfo([&](shared_ptr<BelCard> belCard) {
+        contactForGroup->mutateCardInInfo([&](shared_ptr<VCard> card) {
             if (direction == "add") {
-                DAVUtils::addMembersToGroupCard(belCard, contacts);
+                DAVUtils::addMembersToGroupCard(card, contacts);
             } else {
-                DAVUtils::removeMembersFromGroupCard(belCard, contacts);
+                DAVUtils::removeMembersFromGroupCard(card, contacts);
             }
         });
         
@@ -1205,7 +1193,7 @@ void TaskProcessor::performLocalSyncbackMetadata(Task * task) {
     json & value = data["value"];
     
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "performLocalSyncbackMetadata"};
         
         auto model = store->findGeneric(type, Query().equal("id", id).equal("accountId", aid));
         if (model) {
@@ -1607,7 +1595,7 @@ void TaskProcessor::performLocalChangeRoleMapping(Task * task) {
     const auto role = task->data()["role"].get<string>();
     
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "performLocalChangeRoleMapping"};
         auto query = Query().equal("accountId", task->accountId()).equal("path", path);
         shared_ptr<Folder> category = store->find<Folder>(query);
         if (category == nullptr) {

@@ -109,7 +109,7 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
     }
 
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "insertMessage"};
 
         // Find the correct thread
 
@@ -159,7 +159,7 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
     {
         // Index contacts for autocomplete. We do this separately in a transaction that does not
         // emit any deltas, since the client doesn't need to be bothered with contacts changes.
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "insertMessage:contacts"};
         upsertContacts(msg.get());
         store->unsafeEraseTransactionDeltas();
         transaction.commit();
@@ -215,7 +215,7 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     }
 
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "updateMessage"};
     
         local->setUnread(updated.unread);
         local->setStarred(updated.starred);
@@ -287,7 +287,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
     
     // enter transaction
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "retrievedMessageBody"};
         
         // write body to the MessageBodies table
         SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value, fetchedAt) VALUES (?, ?, datetime('now'))");
@@ -349,7 +349,7 @@ void MailProcessor::unlinkMessagesMatchingQuery(Query & query, int phase)
     logger->info("Unlinking messages {} no longer present in remote range.", query.getSQL());
     
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "unlinkMessagesMatchingQuery"};
 
         auto deletedMsgs = store->findAll<Message>(query);
         bool logSubjects = deletedMsgs.size() < 40;
@@ -393,7 +393,7 @@ void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
     //   down in chunks.
 
     while (more && iterations < 10) {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "deleteMessagesStillUnlinked"};
         iterations ++;
 
         auto q = Query().equal("accountId", account->id()).equal("remoteUID", UINT32_MAX - phase).limit(chunkSize);

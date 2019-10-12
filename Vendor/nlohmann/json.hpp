@@ -30,14 +30,6 @@ SOFTWARE.
 #ifndef INCLUDE_NLOHMANN_JSON_HPP_
 #define INCLUDE_NLOHMANN_JSON_HPP_
 
-// START BG PATCH TO MAKE WITH WITH BCTOOLBOX
-#ifdef WIN32
-#define just_basic_snprintf _snprintf
-#else
-#define just_basic_snprintf std::snprintf
-#endif
-// ENDBGPATCH
-
 #define NLOHMANN_JSON_VERSION_MAJOR 3
 #define NLOHMANN_JSON_VERSION_MINOR 7
 #define NLOHMANN_JSON_VERSION_PATCH 0
@@ -5306,7 +5298,7 @@ class binary_reader
             default: // anything else not supported (yet)
             {
                 std::array<char, 3> cr{{}};
-                (just_basic_snprintf)(cr.data(), cr.size(), "%.2hhX", static_cast<unsigned char>(element_type));
+                (snprintf)(cr.data(), cr.size(), "%.2hhX", static_cast<unsigned char>(element_type));
                 return sax->parse_error(element_type_parse_position, std::string(cr.data()), parse_error::create(114, element_type_parse_position, "Unsupported BSON record type 0x" + std::string(cr.data())));
             }
         }
@@ -6958,7 +6950,7 @@ class binary_reader
     std::string get_token_string() const
     {
         std::array<char, 3> cr{{}};
-        (just_basic_snprintf)(cr.data(), cr.size(), "%.2hhX", static_cast<unsigned char>(current));
+        (snprintf)(cr.data(), cr.size(), "%.2hhX", static_cast<unsigned char>(current));
         return std::string{cr.data()};
     }
 
@@ -8391,7 +8383,7 @@ scan_number_done:
             {
                 // escape control characters
                 std::array<char, 9> cs{{}};
-                (just_basic_snprintf)(cs.data(), cs.size(), "<U+%.4X>", static_cast<unsigned char>(c));
+                (snprintf)(cs.data(), cs.size(), "<U+%.4X>", static_cast<unsigned char>(c));
                 result += cs.data();
             }
             else
@@ -14018,13 +14010,13 @@ class serializer
                             {
                                 if (codepoint <= 0xFFFF)
                                 {
-                                    (just_basic_snprintf)(string_buffer.data() + bytes, 7, "\\u%04x",
+                                    (snprintf)(string_buffer.data() + bytes, 7, "\\u%04x",
                                                     static_cast<std::uint16_t>(codepoint));
                                     bytes += 6;
                                 }
                                 else
                                 {
-                                    (just_basic_snprintf)(string_buffer.data() + bytes, 13, "\\u%04x\\u%04x",
+                                    (snprintf)(string_buffer.data() + bytes, 13, "\\u%04x\\u%04x",
                                                     static_cast<std::uint16_t>(0xD7C0u + (codepoint >> 10u)),
                                                     static_cast<std::uint16_t>(0xDC00u + (codepoint & 0x3FFu)));
                                     bytes += 12;
@@ -14062,7 +14054,7 @@ class serializer
                         case error_handler_t::strict:
                         {
                             std::string sn(3, '\0');
-                            (just_basic_snprintf)(&sn[0], sn.size(), "%.2X", byte);
+                            (snprintf)(&sn[0], sn.size(), "%.2X", byte);
                             JSON_THROW(type_error::create(316, "invalid UTF-8 byte at index " + std::to_string(i) + ": 0x" + sn));
                         }
 
@@ -14156,7 +14148,7 @@ class serializer
                 case error_handler_t::strict:
                 {
                     std::string sn(3, '\0');
-                    (just_basic_snprintf)(&sn[0], sn.size(), "%.2X", static_cast<std::uint8_t>(s.back()));
+                    (snprintf)(&sn[0], sn.size(), "%.2X", static_cast<std::uint8_t>(s.back()));
                     JSON_THROW(type_error::create(316, "incomplete UTF-8 string; last byte: 0x" + sn));
                 }
 
@@ -14357,7 +14349,7 @@ class serializer
         static constexpr auto d = std::numeric_limits<number_float_t>::max_digits10;
 
         // the actual conversion
-        std::ptrdiff_t len = (just_basic_snprintf)(number_buffer.data(), number_buffer.size(), "%.*g", d, x);
+        std::ptrdiff_t len = (snprintf)(number_buffer.data(), number_buffer.size(), "%.*g", d, x);
 
         // negative value indicates an error
         assert(len > 0);

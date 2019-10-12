@@ -11,9 +11,6 @@
 		43167F091EF5F59E00D8E282 /* Message.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F071EF5F59E00D8E282 /* Message.cpp */; };
 		43167F0C1EF5F5C100D8E282 /* Thread.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0A1EF5F5C100D8E282 /* Thread.cpp */; };
 		43167F101EF5F6C700D8E282 /* Folder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43167F0E1EF5F6C700D8E282 /* Folder.cpp */; };
-		431E85B8234D9C0200237E70 /* libbelcard.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 431E85B5234D9C0200237E70 /* libbelcard.a */; };
-		431E85B9234D9C0200237E70 /* libbctoolbox.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 431E85B6234D9C0200237E70 /* libbctoolbox.a */; };
-		431E85BA234D9C0200237E70 /* libbelr.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 431E85B7234D9C0200237E70 /* libbelr.a */; };
 		43256B0621E7EEC900590F1B /* DAVWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43256B0521E7EEC900590F1B /* DAVWorker.cpp */; };
 		43256B0B21E802DD00590F1B /* DavXML.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43256B0A21E802DD00590F1B /* DavXML.cpp */; };
 		432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */; };
@@ -64,6 +61,7 @@
 		43CA9A0A1F0D4C1B001A24A0 /* ProgressCollectors.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA9A081F0D4C1B001A24A0 /* ProgressCollectors.cpp */; };
 		43CA9A0D1F0DA48D001A24A0 /* SyncException.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA9A0B1F0DA48D001A24A0 /* SyncException.cpp */; };
 		43CA9A121F1174FD001A24A0 /* ThreadUtils.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CA9A111F1174FD001A24A0 /* ThreadUtils.cpp */; };
+		43CD2FC523514E050013513A /* VCard.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43CD2FC323514E050013513A /* VCard.cpp */; };
 		43DC3C531F666E1B0060A9B8 /* MetadataExpirationWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43DC3C511F666E1B0060A9B8 /* MetadataExpirationWorker.cpp */; };
 		43EAFED41EFCEB6F0046589B /* Task.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED31EFCEB6F0046589B /* Task.cpp */; };
 		43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */; };
@@ -167,9 +165,6 @@
 		43167F0B1EF5F5C100D8E282 /* Thread.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Thread.hpp; sourceTree = "<group>"; };
 		43167F0E1EF5F6C700D8E282 /* Folder.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Folder.cpp; sourceTree = "<group>"; };
 		43167F0F1EF5F6C700D8E282 /* Folder.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Folder.hpp; sourceTree = "<group>"; };
-		431E85B5234D9C0200237E70 /* libbelcard.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbelcard.a; path = "Vendor/belcard-built-macos/lib/libbelcard.a"; sourceTree = "<group>"; };
-		431E85B6234D9C0200237E70 /* libbctoolbox.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbctoolbox.a; path = "Vendor/belcard-built-macos/lib/libbctoolbox.a"; sourceTree = "<group>"; };
-		431E85B7234D9C0200237E70 /* libbelr.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libbelr.a; path = "Vendor/belcard-built-macos/lib/libbelr.a"; sourceTree = "<group>"; };
 		43256AF821E7EE9E00590F1B /* DAVWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = DAVWorker.hpp; sourceTree = "<group>"; };
 		43256B0521E7EEC900590F1B /* DAVWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = DAVWorker.cpp; sourceTree = "<group>"; };
 		43256B0721E7FFF800590F1B /* libxml2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libxml2.tbd; path = usr/lib/libxml2.tbd; sourceTree = SDKROOT; };
@@ -265,6 +260,8 @@
 		43CA9A0C1F0DA48D001A24A0 /* SyncException.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = SyncException.hpp; sourceTree = "<group>"; };
 		43CA9A0F1F1172C7001A24A0 /* ThreadUtils.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ThreadUtils.h; sourceTree = "<group>"; };
 		43CA9A111F1174FD001A24A0 /* ThreadUtils.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ThreadUtils.cpp; sourceTree = "<group>"; };
+		43CD2FC323514E050013513A /* VCard.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = VCard.cpp; sourceTree = "<group>"; };
+		43CD2FC423514E050013513A /* VCard.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = VCard.hpp; sourceTree = "<group>"; };
 		43DC3C511F666E1B0060A9B8 /* MetadataExpirationWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MetadataExpirationWorker.cpp; sourceTree = "<group>"; };
 		43DC3C521F666E1B0060A9B8 /* MetadataExpirationWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetadataExpirationWorker.hpp; sourceTree = "<group>"; };
 		43EAFED21EFCEB550046589B /* Task.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Task.hpp; sourceTree = "<group>"; };
@@ -282,15 +279,12 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				431E85B9234D9C0200237E70 /* libbctoolbox.a in Frameworks */,
 				43462D632175C6FC002BCBF5 /* libetpan.a in Frameworks */,
-				431E85BA234D9C0200237E70 /* libbelr.a in Frameworks */,
 				43617D841F3D4DDA00DB566D /* libMailCore.a in Frameworks */,
 				43462D652175C75E002BCBF5 /* libctemplate.a in Frameworks */,
 				43CA9A071F0836C1001A24A0 /* Cocoa.framework in Frameworks */,
 				43CA9A051F0836A2001A24A0 /* CoreFoundation.framework in Frameworks */,
 				436489581EF2E94B007816EC /* Security.framework in Frameworks */,
-				431E85B8234D9C0200237E70 /* libbelcard.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -382,6 +376,8 @@
 				436489331EF2E905007816EC /* main.cpp */,
 				43256B0C21E802E700590F1B /* DavXML.hpp */,
 				43256B0A21E802DD00590F1B /* DavXML.cpp */,
+				43CD2FC423514E050013513A /* VCard.hpp */,
+				43CD2FC323514E050013513A /* VCard.cpp */,
 				43256AF821E7EE9E00590F1B /* DAVWorker.hpp */,
 				43256B0521E7EEC900590F1B /* DAVWorker.cpp */,
 				43C127D4234AB218004DDDC4 /* DAVUtils.hpp */,
@@ -438,9 +434,6 @@
 			children = (
 				43256B0721E7FFF800590F1B /* libxml2.tbd */,
 				43462D642175C75E002BCBF5 /* libctemplate.a */,
-				431E85B6234D9C0200237E70 /* libbctoolbox.a */,
-				431E85B5234D9C0200237E70 /* libbelcard.a */,
-				431E85B7234D9C0200237E70 /* libbelr.a */,
 				43CA9A061F0836C1001A24A0 /* Cocoa.framework */,
 				43CA9A041F0836A2001A24A0 /* CoreFoundation.framework */,
 				436489571EF2E94B007816EC /* Security.framework */,
@@ -685,6 +678,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				43CD2FC523514E050013513A /* VCard.cpp in Sources */,
 				43167EFF1EF5F57C00D8E282 /* MailModel.cpp in Sources */,
 				43C127D5234AB218004DDDC4 /* DAVUtils.cpp in Sources */,
 				4368DCBC1F43851A00F22FFD /* exceptions.cpp in Sources */,
@@ -856,12 +850,10 @@
 					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
 					/usr/include/libxml2,
-					"${PROJECT_DIR}/Vendor/belcard-built-macos/include",
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Vendor/mailcore2/Externals/ctemplate-osx/lib",
-					"$(PROJECT_DIR)/Vendor/belcard-built-macos/lib",
 				);
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
@@ -899,12 +891,10 @@
 					"${PROJECT_DIR}/Vendor",
 					"${PROJECT_DIR}/Vendor/SQLiteCpp/sqlite3",
 					/usr/include/libxml2,
-					"${PROJECT_DIR}/Vendor/belcard-built-macos/include",
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/Vendor/mailcore2/Externals/ctemplate-osx/lib",
-					"$(PROJECT_DIR)/Vendor/belcard-built-macos/lib",
 				);
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",

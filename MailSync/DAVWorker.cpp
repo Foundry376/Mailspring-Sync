@@ -25,20 +25,13 @@
 
 #include <string>
 #include <curl/curl.h>
-#include <belr/belr.h>
-#include <belcard/belcard.hpp>
 
 struct EventResult {
     std::string icsHref;
-    std::string etag;
+    ETAG etag;
 };
 
 
-
-typedef string ETAG;
-
-using namespace::belr;
-using namespace::belcard;
 
 string firstPropVal(json attrs, string key, string fallback = "") {
     if (!attrs.count(key)) return fallback;
@@ -154,6 +147,11 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
         }
     }
     
+    if (cardRoot == "https://mail.yahoo.com/") {
+        // workaound yahoo second recirect above sending us to mail.yahoo.com...
+        return existing;
+    }
+    
     // Fetch the current user principal URL from the CardDav root
     auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>");
     string cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
@@ -223,12 +221,15 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
         abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             bool isGroup = false;
             auto serverside = ingestAddressDataNode(abDoc, node, isGroup);
-            if (!serverside) return;
+            if (!serverside) {
+                logger->warn("Not able to inflate contact from REPORT response after sending.");
+            }
             serverside->setBookId(ab->id());
             if (isGroup) {
                 rebuildContactGroup(serverside);
             }
-            store->save(contact.get());
+            logger->info("Contact ETAG is now {}", serverside->etag());
+            store->save(serverside.get());
             
             // If the server re-assigned the contact a new ID / UID (FastMail),
             // blow away our old contact model because the save above didn't update it.
@@ -238,6 +239,8 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
         }));
     } else {
         // sync probably failed
+        logger->warn("Not able to retrieve contact after sending, no href");
+
     }
 }
 
@@ -256,6 +259,10 @@ void DAVWorker::deleteContact(shared_ptr<Contact> contact) {
     }
 
     string href = contact->info()["href"].get<string>();
+    if (href == "") {
+       logger->warn("Blank href in info.");
+       return;
+    }
     
     performVCardRequest(replacePath(ab->url(), href), "DELETE", "", contact->etag());
     store->remove(contact.get());
@@ -288,7 +295,7 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
 
     // identify new and deleted events
     vector<ETAG> deleted {};
-    vector<string> needed {};
+    vector<ETAG> needed {};
     for (auto & pair : remote) {
         if (local.count(pair.first)) continue;
         needed.push_back(pair.second);
@@ -309,7 +316,6 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
         logger->info("  needed: {}", needed.size());
     }
     
-    auto deletionChunks = MailUtils::chunksOfVector(deleted, 100);
     vector<shared_ptr<Contact>> updatedGroups;
     
     for (auto chunk : MailUtils::chunksOfVector(needed, 50)) {
@@ -324,26 +330,11 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
         // Insert the event objects and remove deleted events within the same transaction.
         // Most of the time, this results in an event being replaced within a single transaction.
         {
-            MailStoreTransaction transaction {store};
+            MailStoreTransaction transaction {store, "runForAddressBook"};
             
-            if (!deletionChunks.empty()) {
-                for (auto & deletionChunk : deletionChunks) {
-                    // Delete the contacts
-                    vector<string> possibleGroupIds {};
-                    auto deletedItem = store->findAll<Contact>(Query().equal("bookId", ab->id()).equal("etag", deletionChunk));
-                    for (auto & e : deletedItem) {
-                        possibleGroupIds.push_back(e->id());
-                        store->remove(e.get());
-                    }
-                    
-                    // Because contact groups are built from contacts, we might have a group matching the contact's ID.
-                    // In that case, retrieve and delete the groups too. (The relations are deleted in afterRemove).
-                    auto deletedGroups = store->findAll<ContactGroup>(Query().equal("id", possibleGroupIds));
-                    for (auto & g : deletedGroups) {
-                        store->remove(g.get());
-                    }
-                }
-                deletionChunks.clear();
+            if (deleted.size()) {
+                ingestContactDeletions(ab, deleted);
+                deleted.clear();
             }
             
             abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
@@ -361,6 +352,13 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
             transaction.commit();
         }
     }
+
+    // The code above only procsses deletions if it's also processing upserts, so we need to do
+    // a final check for deletions here.
+    if (deleted.size()) {
+        ingestContactDeletions(ab, deleted);
+        deleted.clear();
+    }
     
     // We need to write updated groups last so that they can update the contacts that they reference
     // Note: We save them down here so that if the sync proceess crashes or exits early we either
@@ -371,37 +369,61 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
     }
 }
 
+void DAVWorker::ingestContactDeletions(shared_ptr<ContactBook> ab, vector<string> deleted) {
+    if (deleted.size() == 0) {
+        return;
+    }
+    auto deletionChunks = MailUtils::chunksOfVector(deleted, 100);
+
+    for (auto & deletionChunk : deletionChunks) {
+        // Delete the contacts
+        vector<string> possibleGroupIds {};
+        auto deletedItem = store->findAll<Contact>(Query().equal("bookId", ab->id()).equal("etag", deletionChunk));
+        for (auto & e : deletedItem) {
+            possibleGroupIds.push_back(e->id());
+            store->remove(e.get());
+        }
+        
+        // Because contact groups are built from contacts, we might have a group matching the contact's ID.
+        // In that case, retrieve and delete the groups too. (The relations are deleted in afterRemove).
+        auto deletedGroups = store->findAll<ContactGroup>(Query().equal("id", possibleGroupIds));
+        for (auto & g : deletedGroups) {
+            store->remove(g.get());
+        }
+    }
+    deletionChunks.clear();
+}
+
 shared_ptr<Contact> DAVWorker::ingestAddressDataNode(shared_ptr<DavXML> doc, xmlNodePtr node, bool & isGroup) {
     auto etag = doc->nodeContentAtXPath(".//D:getetag/text()", node);
     auto href = doc->nodeContentAtXPath(".//D:href/text()", node);
-    auto vcard = doc->nodeContentAtXPath(".//carddav:address-data/text()", node);
-    if (vcard == "") {
+    auto vcardString = doc->nodeContentAtXPath(".//carddav:address-data/text()", node);
+    if (vcardString == "") {
         logger->info("Received addressbook entry {} with an empty body", etag);
         return nullptr;
     }
     
-    auto belCard = BelCardParser::getInstance()->parseOne(vcard);
-    if (belCard == NULL) {
-        logger->info("Unable to decode vcard: {}", vcard);
+    auto vcard = make_shared<VCard>(vcardString);
+    if (vcard->incomplete()) {
+        logger->info("Unable to decode vcard: {}", vcardString);
         return nullptr;
     }
-    string id = belCard->getUniqueId()->getValue();
+    string id = vcard->getUniqueId()->getValue();
     if (id == "") id = MailUtils::idForCalendar(account->id(), href);
-    auto emailEntry = belCard->getEmails().front();
-    string email = emailEntry == NULL ? "" : emailEntry->getValue();
-    string name = belCard->getFullName()->getValue();
-    if (name == "") name = belCard->getName()->getValue();
+    string email = vcard->getEmails().front()->getValue();
+    string name = vcard->getFormattedName()->getValue();
+    if (name == "") name = vcard->getName()->getValue();
     
     auto contact = store->find<Contact>(Query().equal("id", id));
     if (!contact) {
         contact = make_shared<Contact>(id, account->id(), email, CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
     }
-    contact->setInfo(json::object({{"vcf", vcard}, {"href", href}}));
+    contact->setInfo(json::object({{"vcf", vcardString}, {"href", href}}));
     contact->setName(name);
     contact->setEmail(email);
     contact->setEtag(etag);
     
-    isGroup = DAVUtils::isGroupCard(belCard);
+    isGroup = DAVUtils::isGroupCard(vcard);
     if (isGroup) {
         contact->setHidden(true);
     }
@@ -420,16 +442,15 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
     group->setBookId(contact->bookId());
     store->save(group.get());
     
-    string vcard = contact->info()["vcf"].get<string>();
-    shared_ptr<BelCard> belCard = BelCardParser::getInstance()->parseOne(vcard);
-    if (belCard == NULL) {
+    shared_ptr<VCard> vcard = make_shared<VCard>(contact->info()["vcf"].get<string>());
+    if (vcard->incomplete()) {
         return;
     }
     
     vector<string> members;
     
     // vcard4 members
-    for (const auto & prop : belCard->getMembers()) {
+    for (const auto & prop : vcard->getMembers()) {
         string mid = prop->getValue();
         if (mid.find("urn:uuid:") == 0) {
             mid = mid.substr(9);
@@ -437,7 +458,7 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
         members.push_back(mid);
     }
     // vcard3 members / icloud
-    for (const auto & prop : belCard->getExtendedProperties()) {
+    for (const auto & prop : vcard->getExtendedProperties()) {
         if (prop->getName()!= X_VCARD3_MEMBER) continue;
         string mid = prop->getValue();
         if (mid.find("urn:uuid:") == 0) {
@@ -551,7 +572,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
         // Insert the event objects and remove deleted events within the same transaction.
         // Most of the time, this results in an event being replaced within a single transaction.
         {
-            MailStoreTransaction transaction {store};
+            MailStoreTransaction transaction {store, "runForCalendar:insertions"};
             
             icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
                 auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
@@ -589,7 +610,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
 
     // Delete any remaining events
     {
-        MailStoreTransaction transaction {store};
+        MailStoreTransaction transaction {store, "runForCalendar:deletions"};
         for (auto & deletionChunk : deletionChunks) {
             auto deletionEvents = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("etag", deletionChunk));
             for (auto & e : deletionEvents) {
@@ -641,7 +662,7 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     return make_shared<DavXML>(result, url);
 }
 
-string DAVWorker::performVCardRequest(string _url, string method, string vcard, string existingEtag) {
+string DAVWorker::performVCardRequest(string _url, string method, string vcard, ETAG existingEtag) {
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
     
     struct curl_slist *headers = baseHeaders();

@@ -28,6 +28,15 @@ Account::Account(SQLite::Statement & query) :
 {
 }
 
+int Account::startDelay() {
+    string s = id().substr(0, 1);
+    if (s == "0" || s == "1" || s == "2") return 1;
+    if (s == "3" || s == "4" || s == "5") return 2;
+    if (s == "6" || s == "7" || s == "8") return 3;
+    if (s == "9" || s == "a" || s == "b") return 4;
+    return 0;
+}
+
 string Account::valid() {
     if (!_data.count("id") || !_data.count("settings")) {
         return "id or settings";
