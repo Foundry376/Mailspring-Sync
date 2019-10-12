@@ -12,11 +12,13 @@
 #include "MailStoreTransaction.hpp"
 
 using namespace std;
+using namespace std::chrono;
 
-MailStoreTransaction::MailStoreTransaction(MailStore * store) :
-    mStore(store), mCommited(false)
+MailStoreTransaction::MailStoreTransaction(MailStore * store, string nameHint) :
+    mStore(store), mCommited(false), mStart(system_clock::now()), mBegan(system_clock::now()), mNameHint(nameHint)
 {
     mStore->beginTransaction();
+    mBegan = system_clock::now();
 }
 
 MailStoreTransaction::~MailStoreTransaction() noexcept // nothrow
@@ -36,6 +38,15 @@ void MailStoreTransaction::commit()
     if (false == mCommited) {
         mStore->commitTransaction();
         mCommited = true;
+
+        auto now = system_clock::now();
+        auto elapsed = now - mStart;
+        long long microseconds = duration_cast<std::chrono::microseconds>(elapsed).count();
+        if (microseconds > 60 * 1000) { // 60ms
+            long long waiting = duration_cast<std::chrono::microseconds>(mBegan - mStart).count();
+            spdlog::get("logger")->warn("[SLOW] Transaction={} > 60ms ({} microseconds, {} waiting to aquire)", mNameHint, microseconds, waiting);
+        }
+        
     } else {
         throw SQLite::Exception("Transaction already commited.");
     }

@@ -144,18 +144,15 @@ void Contact::incrementRefs() {
     _data["refs"] = refs() + 1;
 }
 
-void Contact::mutateCardInInfo(function<void(shared_ptr<belcard::BelCard>)> yieldBlock) {
+void Contact::mutateCardInInfo(function<void(shared_ptr<VCard>)> yieldBlock) {
     auto nextInfo = info();
-    auto belCard = belcard::BelCardParser::getInstance()->parseOne(nextInfo["vcf"].get<string>());
-    if (belCard == NULL) {
+    auto card = make_shared<VCard>(nextInfo["vcf"].get<string>());
+    if (card->incomplete()) {
         return;
     }
     
-    yieldBlock(belCard);
-    
-    std::ostringstream stream;
-    belCard->serialize(stream);
-    nextInfo["vcf"] = stream.str();
+    yieldBlock(card);
+    nextInfo["vcf"] = card->serialize();
     setInfo(nextInfo);
 }
 

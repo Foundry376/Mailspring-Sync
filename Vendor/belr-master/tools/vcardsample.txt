@@ -1,4 +1,0 @@
-BEGIN:VCARD
-VERSION:4.0
-FN:Sylvain Berfini
-END:VCARD

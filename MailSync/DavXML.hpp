@@ -12,8 +12,7 @@
 #ifndef DavXML_hpp
 #define DavXML_hpp
 
-#include "MailStore.hpp"
-
+#include <string>
 #include <libxml/parser.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>

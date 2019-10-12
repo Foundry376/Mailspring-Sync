@@ -180,7 +180,7 @@ void MetadataWorker::applyMetadataJSON(const json & metadataJSON) {
     // find the associated object
     auto m = MetadataFromJSON(metadataJSON);
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "applyMetadataJSON"};
 
         auto model = store->findGeneric(m.objectType, Query().equal("id", m.objectId).equal("accountId", m.accountId));
 

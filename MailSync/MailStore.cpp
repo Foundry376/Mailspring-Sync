@@ -400,7 +400,7 @@ void MailStore::saveFolderStatus(Folder * folder, json & initialStatus) {
     }
 
     {
-        MailStoreTransaction transaction(this);
+        MailStoreTransaction transaction(this, "saveFolderStatus");
         auto current = find<Folder>(Query().equal("accountId", folder->accountId()).equal("id", folder->id()));
         if (current == nullptr) {
             return;

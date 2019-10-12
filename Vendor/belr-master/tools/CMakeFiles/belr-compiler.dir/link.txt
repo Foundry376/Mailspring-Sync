@@ -1,1 +1,0 @@
-/usr/bin/c++      CMakeFiles/belr-compiler.dir/belr-compiler.cc.o  -o belr-compiler -rdynamic ../src/libbelr.a /tmp/mailsync-build-deps/belcard/lib/libbctoolbox.so.1 -Wl,-rpath,/tmp/mailsync-build-deps/belcard/lib 

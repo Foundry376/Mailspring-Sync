@@ -26,7 +26,7 @@ public:
      *
      * Exception is thrown in case of error, then the Transaction is NOT initiated.
      */
-    explicit MailStoreTransaction(MailStore * store);
+    explicit MailStoreTransaction(MailStore * store, string nameHint = "");
     
     /**
      * @brief Safely rollback the transaction if it has not been committed.
@@ -46,6 +46,9 @@ private:
 private:
     MailStore*  mStore;     // < Reference to the SQLite Database Connection
     bool        mCommited;  // < True when commit has been called
+    std::chrono::system_clock::time_point mStart;
+    std::chrono::system_clock::time_point mBegan;
+    string      mNameHint;
 };
 
 #endif

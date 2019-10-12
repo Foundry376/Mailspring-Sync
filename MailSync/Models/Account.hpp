@@ -31,6 +31,8 @@ public:
     Account(json json);
     Account(SQLite::Statement & query);
 
+    int startDelay();
+    
     string valid();
 
     string refreshToken();

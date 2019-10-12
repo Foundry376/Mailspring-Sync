@@ -230,13 +230,15 @@ void SyncWorker::idleCycleIteration()
 
 void SyncWorker::markAllFoldersBusy() {
     logger->info("Marking all folders as `busy`");
-    MailStoreTransaction transaction(store);
-    auto allLocalFolders = store->findAll<Folder>(Query().equal("accountId", account->id()));
-    for (auto f : allLocalFolders) {
-        f->localStatus()[LS_BUSY] = true;
-        store->save(f.get());
+    {
+        MailStoreTransaction transaction(store, "markAllFoldersBusy");
+        auto allLocalFolders = store->findAll<Folder>(Query().equal("accountId", account->id()));
+        for (auto f : allLocalFolders) {
+            f->localStatus()[LS_BUSY] = true;
+            store->save(f.get());
+        }
+        transaction.commit();
     }
-    transaction.commit();
 }
 
 
@@ -531,7 +533,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     vector<shared_ptr<Folder>> foldersToSync{};
 
     {
-        MailStoreTransaction transaction{store};
+        MailStoreTransaction transaction{store, "syncFoldersAndLabels"};
         
         Query q = Query().equal("accountId", account->id());
         bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
@@ -934,13 +936,15 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         ids.push_back(missing.getColumn(0).getString());
     }
     
+    SQLite::Statement stillMissing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.id IN (" + MailUtils::qmarks(ids.size()) + ") AND MessageBody.id IS NULL");
+    SQLite::Statement insertPlaceholder(store->db(), "INSERT OR IGNORE INTO MessageBody (id, value) VALUES (?, ?)");
+
     {
-        MailStoreTransaction transaction { store };
+        MailStoreTransaction transaction { store, "syncMessageBodies" };
 
         // very fast query for the messages found during very slow query that still have no message body.
         // Inserting empty message body reserves them for processing here. We do this within a transaction
         // to ensure we don't process the same message twice.
-        SQLite::Statement stillMissing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.id IN (" + MailUtils::qmarks(ids.size()) + ") AND MessageBody.id IS NULL");
         int ii = 1;
         for (auto id : ids) {
             stillMissing.bind(ii++, id);
@@ -952,7 +956,6 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
             logger->info("Body for {} messages already being fetched.", ids.size() - results.size());
         }
 
-        SQLite::Statement insertPlaceholder(store->db(), "INSERT OR IGNORE INTO MessageBody (id, value) VALUES (?, ?)");
         for (auto result : results) {
             // write a blank entry into the MessageBody table so we'll only try to fetch each
             // message once. Otherwise a persistent ErrorFetch or crash for a single message
