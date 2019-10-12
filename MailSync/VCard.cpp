@@ -9,6 +9,7 @@
 #include "VCard.hpp"
 #include "strlib.h"
 
+#include <algorithm>
 #include <sstream>
 
 /**
