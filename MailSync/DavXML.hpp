@@ -13,6 +13,7 @@
 #define DavXML_hpp
 
 #include <string>
+#include <functional>
 #include <libxml/parser.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
