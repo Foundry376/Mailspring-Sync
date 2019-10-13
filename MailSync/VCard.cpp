@@ -73,7 +73,7 @@ string VCardProperty::serialize() {
 VCard::VCard(string vcf) {
     vcf = vcf + "\r\n";
     
-    auto split = vcf.find("\r\n");
+    auto split = vcf.find("\n");
     string unparsed = "";
     
     // A Vcard is mostly one-property per line but lines can be "run-on", in which case
@@ -93,21 +93,28 @@ VCard::VCard(string vcf) {
     while (split != string::npos) {
         string line = vcf.substr(0, split);
         if (line.size()) {
-            if (line.substr(0, 1) == " ") {
-                unparsed += line.substr(1);
-            } else {
-                if (unparsed != "") {
-                    auto prop = make_shared<VCardProperty>(unparsed);
-                    if (prop->getName() != "BEGIN" && prop->getName() != "END") {
-                        _properties.push_back(prop);
+            // Note: We split based on "\n" but the official format calls for "\r\n", so we check
+            // and optionally remove the \r if it's present on eacch line.
+            if (line.substr(split - 1) == "\r") {
+                line = line.substr(0, split - 1);
+            }
+            if (line.size()) {
+                if (line.substr(0, 1) == " ") {
+                    unparsed += line.substr(1);
+                } else {
+                    if (unparsed != "") {
+                        auto prop = make_shared<VCardProperty>(unparsed);
+                        if (prop->getName() != "BEGIN" && prop->getName() != "END") {
+                            _properties.push_back(prop);
+                        }
                     }
+                    unparsed = line;
                 }
-                unparsed = line;
             }
         }
 
-        vcf = vcf.substr(split + 2); // because the divider is \r\n
-        split = vcf.find("\r\n");
+        vcf = vcf.substr(split + 1);
+        split = vcf.find("\n");
     }
     
     if (unparsed != "") {
