@@ -26,9 +26,8 @@ public:
 
 static void addMembersToGroupCard(shared_ptr<VCard> card, vector<shared_ptr<Contact>> contacts);
 static void removeMembersFromGroupCard(shared_ptr<VCard> card, vector<shared_ptr<Contact>> contacts);
-
 static bool isGroupCard(shared_ptr<VCard> card);
-static vector<string> srvRecordsForDomain(string domain);
+    
 };
 
 #endif /* DAVUtils_hpp */
