@@ -63,36 +63,31 @@ DAVWorker::DAVWorker(shared_ptr<Account> account) :
 {
     calHost = "";
     calPrincipal = "discover";
-    cardHost = "";
 
     // Shortcuts for a few providers that implement CardDav / CalDav but do NOT
     // expose SRV records telling us where they are.
     if (account->provider() == "gmail") {
         calHost = "apidata.googleusercontent.com";
         calPrincipal = "/caldav/v2/" + account->emailAddress();
-        cardHost = "";
     }
+    
     if (account->IMAPHost().find("imap.mail.ru") != string::npos) {
         calHost = "calendar.mail.ru";
         calPrincipal = "discover";
-        cardHost = "";
     }
     if (account->IMAPHost().find("imap.yandex.com") != string::npos) {
         calHost = "yandex.ru";
         calPrincipal = "discover";
-        cardHost = "yandex.ru";
     }
     if (account->IMAPHost().find("securemail.a1.net") != string::npos) {
         calHost = "caldav.a1.net";
         calPrincipal = "discover";
-        cardHost = "carddav.a1.net";
     }
     if (account->IMAPHost().find("imap.zoho.com") != string::npos) {
         calHost = "calendar.zoho.com";
         calPrincipal = "discover";
-        cardHost = "contacts.zoho.com";
     }
-    
+
     // Initialize libxml
     xmlInitParser();
 }
@@ -119,24 +114,29 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
         return nullptr;
     }
     
-    if (cardHost == "") {
-        // Try to use DNS SRV records to find the principal URL
-        string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
-        auto records = DAVUtils::srvRecordsForDomain("_carddavs._tcp." + domain);
-        if (records.size()) {
-            cardHost = records.front();
-        } else {
-            auto records = DAVUtils::srvRecordsForDomain("_carddav._tcp." + domain);
-            if (records.size()) {
-                cardHost = records.front();
-            }
-        }
+    string cardHost = "";
+    
+    // Try to use DNS SRV records to find the principal URL. We do this through a server API so that
+    // we don't have to compile C++ that does DNS lookups. On Win it;s a pain and on Linux it generates
+    // a binary that is bound to a specific version of glibc which generates relocation errors when
+    // run on Ubuntu 18.
+    string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
+    string imapHost = account->IMAPHost();
+    json payload = {{"domain", domain}, {"imapHost", imapHost}};
+    json result = PerformJSONRequest(CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str()));
+    
+    if (result.count("carddavHost")) {
+        cardHost = result["carddavHost"].get<string>();
     }
+    
     if (cardHost == "") {
         // No luck.
         return existing;
     }
     
+    // Note: iCloud and possibly others have the .well-known redirects behind auth. We try first without authorization,
+    // and then send it if required but only over HTTPS. (Since this is a shot in the dark and not a specific user
+    // setting we don't want to send auth to a random URL.)
     string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
     if (cardRoot == "") {
         cardRoot = PerformExpectedRedirect("http://" + cardHost + "/.well-known/carddav");
@@ -155,13 +155,15 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     // Fetch the current user principal URL from the CardDav root
     auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>");
     string cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
-
+    if (cardPrincipal.find("://") == string::npos) {
+        cardPrincipal = replacePath(cardRoot, cardPrincipal);
+    }
     
     // Fetch the address book home set URL from the user principal URL
-    auto abSetDoc = performXMLRequest(cardHost + cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>");
+    auto abSetDoc = performXMLRequest(cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>");
     auto abSetURL = abSetDoc->nodeContentAtXPath("//carddav:addressbook-home-set/D:href/text()");
-    if (abSetURL.find("http") == string::npos) {
-        abSetURL = cardHost + abSetURL;
+    if (abSetURL.find("://") == string::npos) {
+        abSetURL = replacePath(cardRoot, abSetURL);
     }
     
     // Hit the home address book set to retrieve the individual address books
@@ -172,7 +174,7 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     
     abSetContentsDoc->evaluateXPath("//D:response[.//carddav:addressbook]", ([&](xmlNodePtr node) {
         string abHREF = abSetContentsDoc->nodeContentAtXPath(".//D:href/text()", node);
-        string abURL = (abHREF.find("http") == string::npos) ? replacePath(abSetURL, abHREF) : abHREF;
+        string abURL = (abHREF.find("://") == string::npos) ? replacePath(abSetURL, abHREF) : abHREF;
         if (!existing) {
             existing = make_shared<ContactBook>(account->id() + "-default", account->id());
         }
@@ -622,26 +624,22 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
 }
 
 
-struct curl_slist * DAVWorker::baseHeaders() {
-    struct curl_slist *headers = NULL;
-
+const string DAVWorker::getAuthorizationHeader() {
     if (account->refreshToken() != "") {
         auto parts = SharedXOAuth2TokenManager()->partsForAccount(account);
-        string authorization = "Authorization: Bearer " + parts.accessToken;
-        headers = curl_slist_append(headers, authorization.c_str());
-    } else {
-        string plain = account->IMAPUsername() + ":" + account->IMAPPassword();
-        string encoded = MailUtils::toBase64(plain.c_str(), strlen(plain.c_str()));
-        string authorization = "Authorization: Basic " + encoded;
-        headers = curl_slist_append(headers, authorization.c_str());
+        return "Authorization: Bearer " + parts.accessToken;
     }
-    return headers;
+    
+    string plain = account->IMAPUsername() + ":" + account->IMAPPassword();
+    string encoded = MailUtils::toBase64(plain.c_str(), strlen(plain.c_str()));
+    return "Authorization: Basic " + encoded;
 }
 
 shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, string payload) {
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
     
-    struct curl_slist *headers = baseHeaders();
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
     headers = curl_slist_append(headers, "Prefer: return-minimal");
     headers = curl_slist_append(headers, "Content-Type: application/xml; charset=utf-8");
     
@@ -665,7 +663,8 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
 string DAVWorker::performVCardRequest(string _url, string method, string vcard, ETAG existingEtag) {
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
     
-    struct curl_slist *headers = baseHeaders();
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
     headers = curl_slist_append(headers, "Content-Type: text/vcard; charset=utf-8");
     headers = curl_slist_append(headers, "Accept: text/vcard; version=4.0");
     if (existingEtag != "") {

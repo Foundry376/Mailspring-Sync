@@ -36,7 +36,6 @@ class DAVWorker {
 
     string calHost;
     string calPrincipal;
-    string cardHost;
     
 public:
     shared_ptr<Account> account;
@@ -60,7 +59,7 @@ public:
     void runCalendars();
     void runForCalendar(string id, string name, string path);
 
-    struct curl_slist * baseHeaders();
+    const string getAuthorizationHeader();
     
     shared_ptr<DavXML> performXMLRequest(string path, string method, string payload = "");
     string performVCardRequest(string _url, string method, string vcard = "", ETAG existingEtag = "");
