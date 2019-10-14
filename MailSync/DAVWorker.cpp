@@ -117,7 +117,7 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     string cardHost = "";
     
     // Try to use DNS SRV records to find the principal URL. We do this through a server API so that
-    // we don't have to compile C++ that does DNS lookups. On Win it;s a pain and on Linux it generates
+    // we don't have to compile C++ that does DNS lookups. On Win it's a pain and on Linux it generates
     // a binary that is bound to a specific version of glibc which generates relocation errors when
     // run on Ubuntu 18.
     string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
@@ -133,10 +133,9 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
         // No luck.
         return existing;
     }
-    
-    // Note: iCloud and possibly others have the .well-known redirects behind auth. We try first without authorization,
-    // and then send it if required but only over HTTPS. (Since this is a shot in the dark and not a specific user
-    // setting we don't want to send auth to a random URL.)
+
+    // Use the .well-known convention to try to look up the root path of the carddav service at the host. If this doesn't
+    // work, that's fine with us, we just try the root.
     string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
     if (cardRoot == "") {
         cardRoot = PerformExpectedRedirect("http://" + cardHost + "/.well-known/carddav");

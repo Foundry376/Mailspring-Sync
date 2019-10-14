@@ -90,7 +90,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--orphan"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--mode sync"

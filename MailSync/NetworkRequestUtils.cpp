@@ -139,16 +139,16 @@ const string PerformExpectedRedirect(string url) {
     curl_easy_perform(curl_handle);
 
     long http_code = 0;
+    string redirect = "";
     curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &http_code);
-    if (http_code != 301 && http_code != 302) {
-        return "";
+    if (http_code == 301 || http_code == 302) {
+        char * _redirect = nullptr;
+        if (curl_easy_getinfo(curl_handle, CURLINFO_REDIRECT_URL, &_redirect) == CURLE_OK && _redirect != nullptr) {
+            redirect = string(_redirect);
+        }
     }
-    char * redirect = nullptr;
-    if (curl_easy_getinfo(curl_handle, CURLINFO_REDIRECT_URL, &redirect) != CURLE_OK) {
-        return "";
-    }
-
-    return redirect != nullptr ? redirect : "";
+    curl_easy_cleanup(curl_handle);
+    return redirect;
 }
 
 
@@ -165,23 +165,25 @@ const json PerformJSONRequest(CURL * curl_handle) {
 }
 
 void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
-    char * url = nullptr;
-    if (curl_easy_getinfo(curl_handle, CURLINFO_EFFECTIVE_URL, &url) != CURLE_OK) {
+    char * _url = nullptr;
+    if (curl_easy_getinfo(curl_handle, CURLINFO_EFFECTIVE_URL, &_url) != CURLE_OK || _url == nullptr) {
         throw SyncException(res, "Unable to get URL");
     }
+    string url { _url };
 
     if (res != CURLE_OK) {
         curl_easy_cleanup(curl_handle);
-        throw SyncException(res, string(url));
+        throw SyncException(res, url);
     }
     
     long http_code = 0;
     curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &http_code);
 
     if (http_code < 200 || http_code > 209) {
-        curl_easy_cleanup(curl_handle);
+        curl_easy_cleanup(curl_handle); // note: cleans up _url;
+        
         bool retryable = ((http_code != 403) && (http_code != 401));
-        string debuginfo = (url != nullptr ? string(url) : "") + " RETURNED " + resp;
+        string debuginfo = url + " RETURNED " + resp;
         throw SyncException("Invalid Response Code: " + to_string(http_code), debuginfo, retryable);
     }
 }
