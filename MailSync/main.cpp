@@ -199,13 +199,19 @@ void runCalContactsSyncWorker() {
             spdlog::get("logger")->info("Encountered exception: {}", ex.toJSON().dump());
             
             if (ex.key.find("Code: 403") != string::npos || ex.key.find("Code: 401") != string::npos) {
-                spdlog::get("logger")->info("Stopping sync - unable to authenticate:");
-                spdlog::get("logger")->info("{}", ex.toJSON().dump());
+                spdlog::get("logger")->info("Stopping sync - unable to authenticate.");
                 return;
             }
             
+            // Currently we do not allow calendar and contact sync to terminate mailsync (sending the
+            // account into an error state.) If we hit something unrecoverable (like a CardDAV server
+            // with an invalid SSL cert, we back off aggressively for 50min + 10min and then try again
+            // indefinitely. It may never succeed, but if we don't kill the sync worker we must retry
+            // eventually (in case the SSL cert error is caused by a boingo hotspot or something.)
+            // or when a "wake" is triggered by the user!
             if (!ex.isRetryable()) {
-                throw;
+                spdlog::get("logger")->error("Suspending sync for 60min - unlikely a retry would resolve this error.");
+                MailUtils::sleepWorkerUntilWakeOrSec(60 * 50);
             }
         }
         MailUtils::sleepWorkerUntilWakeOrSec(60 * 10);
