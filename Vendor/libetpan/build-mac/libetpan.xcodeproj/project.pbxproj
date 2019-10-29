@@ -2522,6 +2522,7 @@
 					"$(SRCROOT)/..",
 					"$(SRCROOT)/include",
 				);
+				LIBRARY_SEARCH_PATHS = /usr/local/opt/openssl/lib/;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = (
 					"-DHAVE_CFNETWORK=1",
@@ -2542,6 +2543,7 @@
 					"$(SRCROOT)/..",
 					"$(SRCROOT)/include",
 				);
+				LIBRARY_SEARCH_PATHS = /usr/local/opt/openssl/lib/;
 				OTHER_CFLAGS = (
 					"-DHAVE_CFNETWORK=1",
 					"-DHAVE_CONFIG_H=1",
