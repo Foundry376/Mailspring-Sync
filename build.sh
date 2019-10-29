@@ -14,7 +14,7 @@ mkdir -p "$APP_DIST_DIR"
 if [[ "$OSTYPE" == "darwin"* ]]; then
   cd "$MAILSYNC_DIR"
   gem install xcpretty;
-  set -o pipefail && xcodebuild -scheme mailsync -configuration Release | xcpretty;
+  set -o pipefail && xcodebuild -scheme mailsync -configuration Release;
 
   # the xcodebuild copies the build products to the APP_ROOT_DIR and codesigns
   # them for us. We just need to tar them up and move them to the artifacts folder
