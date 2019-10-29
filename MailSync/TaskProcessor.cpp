@@ -1392,7 +1392,9 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     }
     
     if (err != ErrorNone) {
-        logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], to_string(smtp.lastLibetpanError()));
+        int e = smtp.lastLibetpanError();
+        string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : to_string(e);
+        logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], es);
         if (succeeded.size() > 0) {
             throw SyncException("send-partially-failed", ErrorCodeToTypeMap[err] + ":::" + succeeded, false);
         } else {
@@ -1744,7 +1746,9 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     smtp.sendMessage(messageDataForSent, &sprogress, &err);
 
     if (err != ErrorNone) {
-        logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], to_string(smtp.lastLibetpanError()));
+        int e = smtp.lastLibetpanError();
+        string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : to_string(e);
+        logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], es);
         throw SyncException("send-failed", ErrorCodeToTypeMap[err], false);
     }
 }
