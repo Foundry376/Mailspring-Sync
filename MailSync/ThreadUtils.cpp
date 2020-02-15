@@ -57,10 +57,13 @@ void SetThreadName(const char* threadName)
 #include <pthread.h>
 
 static std::map<size_t, std::string> names{};
+static std::mutex namesMtx;
 
 void SetThreadName(const char* threadName)
 {
+    namesMtx.lock();
     names[spdlog::details::os::thread_id()] = threadName;
+    namesMtx.unlock();
 #ifdef __APPLE__
     pthread_setname_np(threadName);
 #else
@@ -73,10 +76,13 @@ void SetThreadName(const char* threadName)
 #include <sys/prctl.h>
 
 static std::map<size_t, std::string> names{};
+static std::mutex namesMtx;
 
 void SetThreadName( const char* threadName)
 {
+    namesMtx.lock();
     names[spdlog::details::os::thread_id()] = threadName;
+    namesMtx.unlock();
     prctl(PR_SET_NAME, threadName, 0, 0, 0);
 }
 
