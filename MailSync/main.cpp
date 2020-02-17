@@ -219,6 +219,9 @@ void runCalContactsSyncWorker() {
 }
 
 int runTestAuth(shared_ptr<Account> account) {
+    // NOTE: This method returns the account upon success but the client is not
+    // reading the result. This function cannot mutate the account object.
+    
     IMAPSession session;
     SMTPSession smtp;
     AccumulatorLogger logger;
