@@ -53,11 +53,12 @@ void SetThreadName(const char* threadName)
 #else
 
 #include <unistd.h>
-#ifdef _POSIX_THREADS
-#include <pthread.h>
-
+#include <mutex>
 static std::map<size_t, std::string> names{};
 static std::mutex namesMtx;
+
+#ifdef _POSIX_THREADS
+#include <pthread.h>
 
 void SetThreadName(const char* threadName)
 {
@@ -74,9 +75,6 @@ void SetThreadName(const char* threadName)
 #else
 
 #include <sys/prctl.h>
-
-static std::map<size_t, std::string> names{};
-static std::mutex namesMtx;
 
 void SetThreadName( const char* threadName)
 {
