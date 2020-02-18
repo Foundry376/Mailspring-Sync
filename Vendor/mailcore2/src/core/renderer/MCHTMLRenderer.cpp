@@ -16,6 +16,16 @@
 
 using namespace mailcore;
 
+/**
+ 
+ IMPORTANT: BG - I have modified this file considerably for Mailspring's purposes. Changes include:
+ 
+ - Rendering an email that only has a plaintext part returns PLAINTEXT:<text> and NOT HTML.
+ 
+ - Rendering doesn't provide the {{HEADER}} variable to delegate callbacks since it's expensive and we don't use it.
+ 
+ - Rendering doesn't pass through delegate "template" rendering callbacks. We're not combining headers, message, attachments etc into a string.
+ */
 class HTMLRendererIMAPDummyCallback : public HTMLRendererIMAPCallback, public HTMLRendererRFC822Callback {
 private:
     Array *mRequiredParts;
@@ -84,15 +94,6 @@ static bool multipartContainsMimeType(AbstractMultipart * part, String * mimeTyp
 static bool messagePartContainsMimeType(AbstractMessagePart * part, String * mimeType);
 
 static String * htmlForAbstractPart(AbstractPart * part, htmlRendererContext * context);
-
-static String * renderTemplate(String * templateContent, HashMap * values);
-
-static String * htmlForAbstractMessage(String * folder, AbstractMessage * message,
-                                       HTMLRendererIMAPCallback * dataCallback,
-                                       HTMLRendererRFC822Callback * rfc822DataCallback,
-                                       HTMLRendererTemplateCallback * htmlCallback,
-                                       Array * attachments,
-                                       Array * relatedAttachments);
 
 static bool isTextPart(AbstractPart * part, htmlRendererContext * context)
 {
@@ -241,17 +242,7 @@ static String * htmlForAbstractMessage(String * folder, AbstractMessage * messag
         return NULL;
     
     content = htmlCallback->filterHTMLForMessage(content);
-    
-    HashMap * values = htmlCallback->templateValuesForHeader(message->header());
-    String * headerString = renderTemplate(htmlCallback->templateForMainHeader(message->header()), values);
-    
-    HashMap * msgValues = new HashMap();
-    msgValues->setObjectForKey(MCSTR("HEADER"), headerString);
-    msgValues->setObjectForKey(MCSTR("BODY"), content);
-    String * result = renderTemplate(htmlCallback->templateForMessage(message), msgValues);
-    msgValues->release();
-    
-    return result;
+    return content;
 }
 
 static String * htmlForAbstractSinglePart(AbstractPart * part, htmlRendererContext * context);
@@ -339,11 +330,10 @@ static String * htmlForAbstractSinglePart(AbstractPart * part, htmlRendererConte
             if (data == NULL)
                 return NULL;
             
-            String * str = data->stringWithDetectedCharset(charset, false);
-            str = str->htmlMessageContent();
-            str = context->htmlCallback->filterHTMLForPart(str);
             context->firstRendered = true;
-            return str;
+
+            String * str = data->stringWithDetectedCharset(charset, false);
+            return MCSTR("PLAINTEXT:")->stringByAppendingString(str);
         }
         else if (mimeType->isEqual(MCSTR("text/html"))) {
             String * charset = part->charset();
@@ -390,38 +380,6 @@ static String * htmlForAbstractSinglePart(AbstractPart * part, htmlRendererConte
         }
         
         String * result = String::string();
-        String * separatorString;
-        String * content;
-        
-        if (!context->firstAttachment && context->hasTextPart) {
-            separatorString = context->htmlCallback->templateForAttachmentSeparator();
-        }
-        else {
-            separatorString = MCSTR("");
-        }
-        
-        context->firstAttachment = true;
-        
-        if (context->htmlCallback->canPreviewPart(part)) {
-            if (part->className()->isEqual(MCSTR("mailcore::IMAPPart"))) {
-                context->imapDataCallback->prefetchImageIMAPPart(context->folder, (IMAPPart *) part);
-            }
-            String * url = String::stringWithUTF8Format("x-mailcore-image:%s",
-                                                                            part->uniqueID()->UTF8Characters());
-            HashMap * values = context->htmlCallback->templateValuesForPart(part);
-            values->setObjectForKey(MCSTR("URL"), url);
-            content = renderTemplate(context->htmlCallback->templateForImage(part), values);
-        }
-        else {
-            if (part->className()->isEqual(MCSTR("mailcore::IMAPPart"))) {
-                context->imapDataCallback->prefetchAttachmentIMAPPart(context->folder, (IMAPPart *) part);
-            }
-            HashMap * values = context->htmlCallback->templateValuesForPart(part);
-            content = renderTemplate(context->htmlCallback->templateForAttachment(part), values);
-        }
-        
-        result->appendString(separatorString);
-        result->appendString(content);
         
         if (context->attachments != NULL) {
             context->attachments->addObject(part);
@@ -440,16 +398,7 @@ static String * htmlForAbstractMessagePart(AbstractMessagePart * part, htmlRende
     if (substring == NULL)
         return NULL;
     
-    HashMap * values = context->htmlCallback->templateValuesForHeader(part->header());
-    String * headerString = renderTemplate(context->htmlCallback->templateForEmbeddedMessageHeader(part->header()), values);
-	
-	HashMap * msgValues = new HashMap();
-    msgValues->setObjectForKey(MCSTR("HEADER"), headerString);
-    msgValues->setObjectForKey(MCSTR("BODY"), substring);
-    String * result = renderTemplate(context->htmlCallback->templateForEmbeddedMessage(part), msgValues);
-    msgValues->release();
-
-    return result;
+    return substring;
 }
 
 String * htmlForAbstractMultipartAlternative(AbstractMultipart * part, htmlRendererContext * context)
@@ -520,60 +469,6 @@ static String * htmlForAbstractMultipartRelated(AbstractMultipart * part, htmlRe
     return htmlForAbstractPart(subpart, context);
 }
 
-static void fillTemplateDictionaryFromMCHashMap(ctemplate::TemplateDictionary * dict, HashMap * mcHashMap)
-{
-    Array * keys = mcHashMap->allKeys();
-    
-    for(unsigned int i = 0 ; i < keys->count() ; i ++) {
-        String * key = (String *) keys->objectAtIndex(i);
-        Object * value;
-        
-        value = mcHashMap->objectForKey(key);
-        if (value->className()->isEqual(MCSTR("mailcore::String"))) {
-            String * str;
-            
-            str = (String *) value;
-            dict->SetValue(key->UTF8Characters(), str->UTF8Characters());
-        }
-        else if (value->className()->isEqual(MCSTR("mailcore::Array"))) {
-            Array * array;
-            
-            array = (Array *) value;
-            for(unsigned int k = 0 ; k < array->count() ; k ++) {
-                HashMap * item = (HashMap *) array->objectAtIndex(k);
-                ctemplate::TemplateDictionary * subDict = dict->AddSectionDictionary(key->UTF8Characters());
-                fillTemplateDictionaryFromMCHashMap(subDict, item);
-            }
-        }
-        else if (value->className()->isEqual(MCSTR("mailcore::HashMap"))) {
-            ctemplate::TemplateDictionary * subDict;
-            HashMap * item;
-            
-            item = (HashMap *) value;
-            subDict = dict->AddSectionDictionary(key->UTF8Characters());
-            fillTemplateDictionaryFromMCHashMap(subDict, item);
-        }
-    }
-}
-
-static String * renderTemplate(String * templateContent, HashMap * values)
-{
-    ctemplate::TemplateDictionary dict("template dict");
-    std::string output;
-    Data * data;
-    
-    fillTemplateDictionaryFromMCHashMap(&dict, values);
-    data = templateContent->dataUsingEncoding("utf-8");
-    ctemplate::Template * tpl = ctemplate::Template::StringToTemplate(data->bytes(), data->length(), ctemplate::DO_NOT_STRIP);
-    if (tpl == NULL)
-        return NULL;
-    if (!tpl->Expand(&output, &dict))
-        return NULL;
-    delete tpl;
-    
-    return String::stringWithUTF8Characters(output.c_str());
-}
-
 String * HTMLRenderer::htmlForRFC822Message(MessageParser * message,
                                             HTMLRendererRFC822Callback * dataCallback,
                                             HTMLRendererTemplateCallback * htmlCallback)
@@ -588,6 +483,17 @@ String * HTMLRenderer::htmlForIMAPMessage(String * folder,
 {
     return htmlForAbstractMessage(folder, message, dataCallback, NULL, htmlCallback, NULL, NULL);
 }
+
+String * HTMLRenderer::htmlForRFC822MessageAndAttachments(MessageParser * message,
+                                              HTMLRendererIMAPCallback * imapDataCallback,
+                                              HTMLRendererRFC822Callback * rfc822DataCallback,
+                                              HTMLRendererTemplateCallback * htmlCallback,
+                                              Array * attachments,
+                                              Array * relatedAttachments)
+{
+    return htmlForAbstractMessage(NULL, message, imapDataCallback, rfc822DataCallback, htmlCallback, attachments, relatedAttachments);
+}
+
 
 Array * HTMLRenderer::attachmentsForMessage(AbstractMessage * message)
 {

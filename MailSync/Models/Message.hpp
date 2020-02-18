@@ -81,6 +81,9 @@ public:
 
     string snippet();
     void setSnippet(string s);
+    
+    bool plaintext();
+    void setPlaintext(bool p);
 
     string replyToHeaderMessageId();
     void setReplyToHeaderMessageId(string s);
