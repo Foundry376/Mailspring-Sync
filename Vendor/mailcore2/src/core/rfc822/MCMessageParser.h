@@ -34,6 +34,13 @@ namespace mailcore {
         virtual String * htmlRendering(HTMLRendererTemplateCallback * htmlCallback = NULL);
         virtual String * htmlRenderingWithDataCallback(HTMLRendererTemplateCallback * htmlCallback,
                                                        HTMLRendererRFC822Callback * dataCallback);
+
+        // BG NOTE: I exposed this API so that we can retrieve HTML + attachments at the same time,
+        // without three passes through the rendering code, which seems to build + discard things
+        // you don't ask for.
+        virtual String * htmlRenderingAndAttachments(HTMLRendererTemplateCallback * htmlCallback,
+                                                     Array * partAttachments,
+                                                     Array * htmlInlineAttachments);
         virtual String * htmlBodyRendering();
         
         virtual String * plainTextRendering();

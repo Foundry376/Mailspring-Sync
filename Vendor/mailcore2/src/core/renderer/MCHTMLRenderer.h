@@ -34,6 +34,15 @@ namespace mailcore {
                                            HTMLRendererIMAPCallback * dataCallback,
                                            HTMLRendererTemplateCallback * htmlCallback);
         
+        // BG: Expose this so that we can avoid running this renderer three times to retrieve
+        // attachments, relatedAttachments, message HTML separately.
+        static String * htmlForRFC822MessageAndAttachments(MessageParser * message,
+                                               HTMLRendererIMAPCallback * imapDataCallback,
+                                               HTMLRendererRFC822Callback * rfc822DataCallback,
+                                               HTMLRendererTemplateCallback * htmlCallback,
+                                               Array * attachments,
+                                               Array * relatedAttachments);
+
         static Array * /* AbstractPart */ attachmentsForMessage(AbstractMessage * message);
         static Array * /* AbstractPart */ htmlInlineAttachmentsForMessage(AbstractMessage * message);
         static Array * /* AbstractPart */ requiredPartsForRendering(AbstractMessage * message);

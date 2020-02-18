@@ -183,6 +183,13 @@ String * MessageParser::htmlRendering(HTMLRendererTemplateCallback * htmlCallbac
     return HTMLRenderer::htmlForRFC822Message(this, NULL, htmlCallback);
 }
 
+String * MessageParser::htmlRenderingAndAttachments(HTMLRendererTemplateCallback * htmlCallback,
+                                                    Array * partAttachments,
+                                                    Array * htmlInlineAttachments) {
+    return HTMLRenderer::htmlForRFC822MessageAndAttachments(this, NULL, NULL, htmlCallback, partAttachments, htmlInlineAttachments);
+}
+
+
 String * MessageParser::htmlRenderingWithDataCallback(HTMLRendererTemplateCallback * htmlCallback,
                                                       HTMLRendererRFC822Callback * dataCallback)
 {

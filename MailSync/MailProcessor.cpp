@@ -36,7 +36,7 @@ class CleanHTMLBodyRendererTemplateCallback : public Object, public HTMLRenderer
     mailcore::String * templateForAttachmentSeparator() {
         return MCSTR("");
     }
-
+    
     // Normally this calls through to XMLTidy but we have our own sanitizer at the Javascript
     // level and Tidy has led to some bugs due to its very strict parsing:
     // https://github.com/Foundry376/Mailspring/issues/301#issuecomment-342265351
@@ -235,17 +235,34 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
 }
 
 void MailProcessor::retrievedMessageBody(Message * message, MessageParser * parser) {
-    CleanHTMLBodyRendererTemplateCallback * callback = new CleanHTMLBodyRendererTemplateCallback();
-    String * html = parser->htmlRendering(callback);
-    String * text = html->flattenHTML()->stripWhitespace();
-    MC_SAFE_RELEASE(callback);
+    CleanHTMLBodyRendererTemplateCallback * htmlCallback = new CleanHTMLBodyRendererTemplateCallback();
+    const char * bodyRepresentation;
+    bool bodyIsPlaintext;
+    
+    Array * partAttachments = Array::array();
+    Array * htmlInlineAttachments = Array::array();
 
-    const char * chars = html->UTF8Characters();
+    // Note - exposed this lower level API manually so that we can avoid running this renderer three
+    // times to retrieve attachments, relatedAttachments, message HTML separately. The code seems to build
+    // and discard things you don't ask for.
+    String * html = parser->htmlRenderingAndAttachments(htmlCallback, partAttachments, htmlInlineAttachments);
+    String * text = html;
+    
+    if (html->hasPrefix(MCSTR("PLAINTEXT:"))) {
+        text = html->substringFromIndex(10);
+        bodyRepresentation = text->UTF8Characters();
+        bodyIsPlaintext = true;
+    } else {
+        text = html->flattenHTML()->stripWhitespace();
+        bodyRepresentation = html->UTF8Characters();
+        bodyIsPlaintext = false;
+    }
+    MC_SAFE_RELEASE(htmlCallback);
 
     // build file containers for the attachments and write them to disk
     Array attachments = Array();
-    attachments.addObjectsFromArray(parser->attachments());
-    attachments.addObjectsFromArray(parser->htmlInlineAttachments());
+    attachments.addObjectsFromArray(partAttachments);
+    attachments.addObjectsFromArray(htmlInlineAttachments);
     
     vector<File> files;
     for (int ii = 0; ii < attachments.count(); ii ++) {
@@ -273,7 +290,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         // Sometimes the HTML will reference "cid:filename.png@123123garbage" and the file will
         // not have a contentId. The client does not support this, so if cid:filename.png appears
         // in the body we manually make it the contentId
-        if (f.contentId().is_null() && strstr(chars, ("cid:" + f.filename()).c_str()) != nullptr) {
+        if (f.contentId().is_null() && strstr(bodyRepresentation, ("cid:" + f.filename()).c_str()) != nullptr) {
             f.setContentId(f.filename());
         }
 
@@ -292,7 +309,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         // write body to the MessageBodies table
         SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value, fetchedAt) VALUES (?, ?, datetime('now'))");
         insert.bind(1, message->id());
-        insert.bind(2, chars);
+        insert.bind(2, bodyRepresentation);
         insert.exec();
         
         // write files to the files table
@@ -316,7 +333,8 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
 
         // write the message snippet. This also gives us the database trigger!
         message->setSnippet(text->substringToIndex(400)->UTF8Characters());
-        message->setBodyForDispatch(chars);
+        message->setPlaintext(bodyIsPlaintext);
+        message->setBodyForDispatch(bodyRepresentation);
         message->setFiles(files);
         
         store->save(message);

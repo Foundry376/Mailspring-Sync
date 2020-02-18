@@ -226,6 +226,14 @@ void Message::setSnippet(string s) {
     _data["snippet"] = s;
 }
 
+bool Message::plaintext() {
+    return _data["plaintext"].get<bool>();
+}
+
+void Message::setPlaintext(bool p) {
+    _data["plaintext"] = p;
+}
+
 string Message::replyToHeaderMessageId() {
     if (_data["rthMsgId"].is_null()) {
         return "";
