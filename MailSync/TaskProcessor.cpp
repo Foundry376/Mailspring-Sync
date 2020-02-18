@@ -1259,6 +1259,8 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     json & draftJSON = task->data()["draft"];
     json & perRecipientBodies = task->data()["perRecipientBodies"];
     string body = draftJSON["body"].get<string>();
+    
+    bool plaintext = draftJSON["plaintext"].get<bool>();
     bool multisend = perRecipientBodies.is_object();
 
     shared_ptr<Message> existing = nullptr;
@@ -1286,10 +1288,19 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         if (!perRecipientBodies.count("self")) {
             throw SyncException("no-self-body", "If `perRecipientBodies` is populated, you must provide a `self` entry.", false);
         }
-        builder.setHTMLBody(AS_MCSTR(perRecipientBodies["self"].get<string>()));
+        if (plaintext) {
+            builder.setTextBody(AS_MCSTR(perRecipientBodies["self"].get<string>()));
+        } else {
+            builder.setHTMLBody(AS_MCSTR(perRecipientBodies["self"].get<string>()));
+        }
     } else {
-        builder.setHTMLBody(AS_MCSTR(body));
+        if (plaintext) {
+            builder.setTextBody(AS_MCSTR(body));
+        } else {
+            builder.setHTMLBody(AS_MCSTR(body));
+        }
     }
+
     builder.header()->setSubject(AS_MCSTR(draft.subject()));
     builder.header()->setMessageID(AS_MCSTR(draft.headerMessageId()));
     builder.header()->setUserAgent(MCSTR("Mailspring"));
@@ -1376,7 +1387,11 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             }
             
             logger->info("--- Sending to {}", it.key());
-            builder.setHTMLBody(AS_MCSTR(it.value().get<string>()));
+            if (plaintext) {
+                builder.setTextBody(AS_MCSTR(it.value().get<string>()));
+            } else {
+                builder.setHTMLBody(AS_MCSTR(it.value().get<string>()));
+            }
             Address * to = Address::addressWithMailbox(AS_MCSTR(it.key()));
             Data * messageData = builder.data();
             smtp.sendMessage(builder.header()->from(), Array::arrayWithObject(to), messageData, &sprogress, &err);
