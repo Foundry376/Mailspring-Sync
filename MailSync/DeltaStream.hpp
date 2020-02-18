@@ -53,6 +53,7 @@ class DeltaStream  {
     map<string, vector<DeltaStreamItem>> buffer;
 
     bool scheduled;
+    bool connectionError;
     std::chrono::system_clock::time_point scheduledTime;
     std::mutex bufferFlushMtx;
     std::condition_variable bufferFlushCv;
@@ -70,6 +71,9 @@ public:
 
     void emit(DeltaStreamItem item, int maxDeliveryDelay);
     void emit(vector<DeltaStreamItem> items, int maxDeliveryDelay);
+    
+    void beginConnectionError(string accountId);
+    void endConnectionError(string accountId);
 };
 
 
