@@ -36,6 +36,7 @@ SyncException::SyncException(CURLcode c, string di) :
         (c == CURLE_RECV_ERROR) ||
         (c == CURLE_AGAIN)) {
         retryable = true;
+        offline = true;
     }
 }
 
@@ -47,6 +48,7 @@ SyncException::SyncException(mailcore::ErrorCode c, string di) :
     }
     if (c == mailcore::ErrorConnection) {
         retryable = true;
+        offline = true;
     }
     if (c == mailcore::ErrorParse) {
         // It seems that parsing errors are caused by abrupt connection termination?
@@ -60,6 +62,10 @@ SyncException::SyncException(mailcore::ErrorCode c, string di) :
 
 bool SyncException::isRetryable() {
     return retryable;
+}
+
+bool SyncException::isOffline() {
+    return offline;
 }
 
 json SyncException::toJSON() {

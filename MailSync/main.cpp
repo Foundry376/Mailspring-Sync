@@ -119,10 +119,14 @@ void runForegroundSyncWorker() {
         try {
             fgWorker->configure();
             fgWorker->idleCycleIteration();
+            SharedDeltaStream()->endConnectionError(fgWorker->account->id());
         } catch (SyncException & ex) {
             spdlog::get("logger")->info("Encountered exception: {}", ex.toJSON().dump());
             if (!ex.isRetryable()) {
                 throw;
+            }
+            if (ex.isOffline()) {
+                SharedDeltaStream()->beginConnectionError(fgWorker->account->id());
             }
             spdlog::get("logger")->info("--sleeping");
             MailUtils::sleepWorkerUntilWakeOrSec(120);
@@ -150,6 +154,7 @@ void runBackgroundSyncWorker() {
 
             if (!started) {
                 bgWorker->syncFoldersAndLabels();
+                SharedDeltaStream()->endConnectionError(bgWorker->account->id());
 
                 // start the "foreground" idle worker after we've completed a single
                 // pass through all the folders. This ensures we have the folder list
@@ -171,10 +176,14 @@ void runBackgroundSyncWorker() {
             while(moreToSync) {
                 moreToSync = bgWorker->syncNow();
             }
+            SharedDeltaStream()->endConnectionError(bgWorker->account->id());
 
         } catch (SyncException & ex) {
             if (!ex.isRetryable()) {
                 throw;
+            }
+            if (ex.isOffline()) {
+                SharedDeltaStream()->beginConnectionError(bgWorker->account->id());
             }
             spdlog::get("logger")->info("Sleeping after exception: {}", ex.toJSON().dump());
         }

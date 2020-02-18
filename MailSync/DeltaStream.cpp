@@ -189,5 +189,18 @@ void DeltaStream::emit(vector<DeltaStreamItem> items, int maxDeliveryDelay) {
     flushWithin(maxDeliveryDelay);
 }
 
+void DeltaStream::beginConnectionError(string accountId) {
+    connectionError = true;
+    vector<json> items {};
+    items.push_back({{"accountId", accountId}, {"id", accountId}, {"connectionError", connectionError}});
+    emit(DeltaStreamItem("persist", "ProcessState", items), 0);
+}
 
-
+void DeltaStream::endConnectionError(string accountId) {
+    if (connectionError) {
+        connectionError = false;
+        vector<json> items {};
+        items.push_back({{"accountId", accountId}, {"id", accountId}, {"connectionError", connectionError}});
+        emit(DeltaStreamItem("persist", "ProcessState", items), 0);
+    }
+}
