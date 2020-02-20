@@ -81,6 +81,7 @@ struct htmlRendererContext {
     bool hasMixedTextAndAttachments;
     bool firstAttachment;
     bool hasTextPart;
+    bool hasTextHTMLPart;
     Array * relatedAttachments;
     Array * attachments;
 };
@@ -225,6 +226,7 @@ static String * htmlForAbstractMessage(String * folder, AbstractMessage * messag
     context.pass = 0;
     context.firstAttachment = false;
     context.hasTextPart = false;
+    context.hasTextHTMLPart = false;
 
     htmlForAbstractPart(mainPart, &context);
     
@@ -333,9 +335,18 @@ static String * htmlForAbstractSinglePart(AbstractPart * part, htmlRendererConte
             context->firstRendered = true;
 
             String * str = data->stringWithDetectedCharset(charset, false);
-            return MCSTR("PLAINTEXT:")->stringByAppendingString(str);
+            if (context->hasTextHTMLPart) {
+                str = str->htmlMessageContent();
+                str = context->htmlCallback->filterHTMLForPart(str);
+            } else {
+                str = MCSTR("PLAINTEXT:")->stringByAppendingString(str);
+            }
+
+            return str;
         }
         else if (mimeType->isEqual(MCSTR("text/html"))) {
+            context->hasTextHTMLPart = true;
+
             String * charset = part->charset();
             Data * data = NULL;
             if (part->className()->isEqual(MCSTR("mailcore::IMAPPart"))) {
@@ -429,9 +440,25 @@ String * htmlForAbstractMultipartAlternative(AbstractMultipart * part, htmlRende
     return result;
 }
 
+// BG EDITS: In a multipart mixed message multiple parts are NOT alternatives, they are meant to be
+// concatenated together.
+// - If ONE part is HTML, we force everything to be rendered to HTML by setting context->hasTextHTMLPart
+// - When we concatenate parts, we strip the PLAINTEXT: prefix so PLAINTEXT:A + PLAINTEXT:B = PLAINTEXT:AB
+//
 static String * htmlForAbstractMultipartMixed(AbstractMultipart * part, htmlRendererContext * context)
 {
     String * result = String::string();
+
+    for(unsigned int i = 0 ; i < part->parts()->count() ; i ++) {
+        AbstractPart * subpart = (AbstractPart *) part->parts()->objectAtIndex(i);
+        if (!subpart->mimeType()) {
+            continue;
+        }
+        if (subpart->mimeType()->lowercaseString()->isEqual(MCSTR("text/html"))) {
+            context->hasTextHTMLPart = true;
+        }
+    }
+    
     for(unsigned int i = 0 ; i < part->parts()->count() ; i ++) {
         AbstractPart * subpart = (AbstractPart *) part->parts()->objectAtIndex(i);
         String * substring = htmlForAbstractPart(subpart, context);
@@ -439,6 +466,9 @@ static String * htmlForAbstractMultipartMixed(AbstractMultipart * part, htmlRend
             if (substring == NULL)
                 return NULL;
             
+            if (substring->hasPrefix(MCSTR("PLAINTEXT:"))) {
+                substring = substring->substringFromIndex(10);
+            }
             result->appendString(substring);
         }
     }
