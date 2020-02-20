@@ -319,7 +319,7 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
     
     vector<shared_ptr<Contact>> updatedGroups;
     
-    for (auto chunk : MailUtils::chunksOfVector(needed, 50)) {
+    for (auto chunk : MailUtils::chunksOfVector(needed, 90)) {
         string payload = "";
         for (auto & href : chunk) {
             payload += "<d:href>" + href + "</d:href>";
@@ -561,12 +561,17 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     
     auto deletionChunks = MailUtils::chunksOfVector(deleted, 100);
     
-    for (auto chunk : MailUtils::chunksOfVector(needed, 50)) {
+    for (auto chunk : MailUtils::chunksOfVector(needed, 90)) {
         string payload = "";
         for (auto & icsHref : chunk) {
             payload += "<D:href>" + icsHref + "</D:href>";
         }
-        
+
+        // Debounce 0.5sec on each request because Google has a cap on total queries
+        // per day and we want to avoid somehow allowing one client to make low-latency
+        // requests so fast that it blows through the limit in a short time.
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
         // Fetch the data
         auto icsDoc = performXMLRequest(url, "REPORT", "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
         
