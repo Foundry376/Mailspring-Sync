@@ -220,10 +220,10 @@ void runCalContactsSyncWorker() {
             // or when a "wake" is triggered by the user!
             if (!ex.isRetryable()) {
                 spdlog::get("logger")->error("Suspending sync for 60min - unlikely a retry would resolve this error.");
-                MailUtils::sleepWorkerUntilWakeOrSec(60 * 50);
+                MailUtils::sleepWorkerUntilWakeOrSec(60 * 60);
             }
         }
-        MailUtils::sleepWorkerUntilWakeOrSec(60 * 10);
+        MailUtils::sleepWorkerUntilWakeOrSec(60 * 15);
     }
 }
 
