@@ -156,9 +156,9 @@ void GoogleContactsWorker::paginateGoogleCollection(string urlRoot, string autho
     string nextSyncToken = "";
     
     while (nextPageToken != "END") {
-        // Debounce 1sec on each request because Google has a 90 req. per second
+        // Debounce 2sec on each request because Google has a 90 req. per second
         // limit per user on the contacts API and is fast enough we blow through it.
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
         auto url = urlRoot;
         if (nextPageToken != "") {

@@ -196,7 +196,12 @@ void runCalContactsSyncWorker() {
     // wait a few seconds before launching calendar / contact sync. This gives
     // mailsync a minute to kick off and avoids database locking caused by many
     // sync workers all trying to open several sqlite references at once.
-    MailUtils::sleepWorkerUntilWakeOrSec(15 + davWorker->account->startDelay());
+    std::this_thread::sleep_for(std::chrono::seconds(15 + davWorker->account->startDelay()));
+
+    // BG Note: This process does not use MailUtils::sleepWorkerUntilWakeOrSec(), which means
+    // cal + contact sync runs every 15 minutes regardless of how often you slam on the Sync Mail
+    // icon. I am trying to narrow down why we are hitting the Google Calendar + People API limits
+    // so quickly (in almost exactly 8 hours after the 2AM reset each day).
 
     while(true) {
         try {
@@ -220,10 +225,10 @@ void runCalContactsSyncWorker() {
             // or when a "wake" is triggered by the user!
             if (!ex.isRetryable()) {
                 spdlog::get("logger")->error("Suspending sync for 60min - unlikely a retry would resolve this error.");
-                MailUtils::sleepWorkerUntilWakeOrSec(60 * 60);
+                std::this_thread::sleep_for(std::chrono::seconds(60 * 60));
             }
         }
-        MailUtils::sleepWorkerUntilWakeOrSec(60 * 15);
+        std::this_thread::sleep_for(std::chrono::seconds(15 * 60));
     }
 }
 

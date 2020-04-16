@@ -572,10 +572,10 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
             payload += "<D:href>" + icsHref + "</D:href>";
         }
 
-        // Debounce 0.5sec on each request because Google has a cap on total queries
+        // Debounce 1sec on each request because Google has a cap on total queries
         // per day and we want to avoid somehow allowing one client to make low-latency
         // requests so fast that it blows through the limit in a short time.
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
         // Fetch the data
         auto icsDoc = performXMLRequest(url, "REPORT", "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
