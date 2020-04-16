@@ -246,6 +246,11 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
 }
 
 void DAVWorker::deleteContact(shared_ptr<Contact> contact) {
+    if (contact->source() != CARDDAV_SYNC_SOURCE) {
+        logger->info("Deleted contact not synced via CardDAV");
+        return;
+    }
+
     shared_ptr<ContactBook> ab = store->find<ContactBook>(Query().equal("accountId", account->id()));
     string vcf = contact->info()["vcf"].get<string>();
     
