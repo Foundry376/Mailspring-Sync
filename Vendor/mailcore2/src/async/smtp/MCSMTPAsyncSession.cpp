@@ -174,16 +174,6 @@ bool SMTPAsyncSession::isCheckCertificateEnabled()
     return mSession->isCheckCertificateEnabled();
 }
 
-void SMTPAsyncSession::setUseHeloIPEnabled(bool enabled)
-{
-    mSession->setUseHeloIPEnabled(enabled);
-}
-
-bool SMTPAsyncSession::useHeloIPEnabled()
-{
-    return mSession->useHeloIPEnabled();
-}
-
 void SMTPAsyncSession::runOperation(SMTPOperation * operation)
 {
     cancelDelayedPerformMethod((Object::Method) &SMTPAsyncSession::tryAutomaticDisconnectAfterDelay, NULL);
