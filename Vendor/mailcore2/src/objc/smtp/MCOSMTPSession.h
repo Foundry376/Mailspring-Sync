@@ -62,12 +62,6 @@
 @property (nonatomic, assign, getter=isCheckCertificateEnabled) BOOL checkCertificateEnabled;
 
 /**
- If set to YES, when sending the EHLO or HELO command, use IP address instead of hostname.
- Default is NO.
-*/
-@property (nonatomic, assign, getter=isUseHeloIPEnabled) BOOL useHeloIPEnabled;
-
-/**
  Sets logger callback. The network traffic will be sent to this block.
  
  [session setConnectionLogger:^(void * connectionID, MCOConnectionLogType type, NSData * data) {

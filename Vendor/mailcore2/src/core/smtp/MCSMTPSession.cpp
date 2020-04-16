@@ -185,16 +185,6 @@ void SMTPSession::setSendingCancelled(bool isCancelled) {
     CANCEL_UNLOCK();
 }
 
-void SMTPSession::setUseHeloIPEnabled(bool enabled)
-{
-    mUseHeloIPEnabled = enabled;
-}
-
-bool SMTPSession::useHeloIPEnabled()
-{
-    return mUseHeloIPEnabled;
-}
-
 String * SMTPSession::lastSMTPResponse()
 {
     return mLastSMTPResponse;
@@ -320,11 +310,8 @@ void SMTPSession::connect(ErrorCode * pError)
             }
             
             MCLog("init");
-            if (useHeloIPEnabled()) {
-                r = mailsmtp_init_with_ip(mSmtp, 1);
-            } else {
-                r = mailsmtp_init(mSmtp);
-            }
+            r = mailsmtp_init(mSmtp);
+
             saveLastResponse();
             mLastLibetpanError = r;
             mLastErrorLocation = 2;
@@ -353,11 +340,8 @@ void SMTPSession::connect(ErrorCode * pError)
             }
             
             MCLog("init after starttls");
-            if (useHeloIPEnabled()) {
-                r = mailsmtp_init_with_ip(mSmtp, 1);
-            } else {
-                r = mailsmtp_init(mSmtp);
-            }
+            r = mailsmtp_init(mSmtp);
+
             saveLastResponse();
             mLastLibetpanError = r;
             mLastErrorLocation = 4;
@@ -387,11 +371,8 @@ void SMTPSession::connect(ErrorCode * pError)
             }
             
             MCLog("init");
-            if (useHeloIPEnabled()) {
-                r = mailsmtp_init_with_ip(mSmtp, 1);
-            } else {
-                r = mailsmtp_init(mSmtp);
-            }
+            r = mailsmtp_init(mSmtp);
+
             saveLastResponse();
             mLastLibetpanError = r;
             mLastErrorLocation = 6;
@@ -417,11 +398,8 @@ void SMTPSession::connect(ErrorCode * pError)
             }
             
             MCLog("init");
-            if (useHeloIPEnabled()) {
-                r = mailsmtp_init_with_ip(mSmtp, 1);
-            } else {
-                r = mailsmtp_init(mSmtp);
-            }
+            r = mailsmtp_init(mSmtp);
+
             saveLastResponse();
             mLastLibetpanError = r;
             mLastErrorLocation = 8;

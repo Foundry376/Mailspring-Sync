@@ -176,6 +176,7 @@ static int send_command_private(mailsmtp * f, char * command, int can_be_publish
 static int read_response(mailsmtp * session);
 
 static int get_hostname(mailsmtp * session, int useip, char * buf, int len);
+static int get_hostname_smart_bg(mailsmtp * session, char * buf, int len);
 
 /* smtp operations */
 
@@ -290,6 +291,32 @@ static int get_hostname(mailsmtp * session, int useip, char * buf, int len)
    return MAILSMTP_NO_ERROR;
 }
 
+static int get_hostname_smart_bg(mailsmtp * session, char * buf, int len)
+{
+  // Try to get fully qualified name first
+  int r = get_hostname(session, 0, buf, len);
+
+  // If that fails, try to get IP address
+  if (r != MAILSMTP_NO_ERROR) {
+    r = get_hostname(session, 1, buf, len);
+    
+    // If that fails, return the error
+    if (r != MAILSMTP_NO_ERROR) {
+      return r;
+    }
+  }
+  
+  // Ensure the hostname result contains no spaces
+  unsigned long usedlen = strlen(buf);
+  
+  for (int i = 0; i < usedlen; i++) {
+    if (buf[i] == ' ') {
+      buf[i] = '-';
+    }
+  }
+  
+  return buf;
+}
 
 int mailsmtp_helo(mailsmtp * session)
 {
@@ -302,10 +329,14 @@ int mailsmtp_helo_with_ip(mailsmtp * session, int useip)
   char hostname[HOSTNAME_SIZE];
   char command[SMTP_STRING_SIZE];
 
-  r = get_hostname(session, useip, hostname, HOSTNAME_SIZE);
-  if (r != MAILSMTP_NO_ERROR)
-    return r;
-
+  if (useip != 0) {
+    // BG EDIT: Thunderbird tries to get a FQDN and then falls back to an IP address
+    // rather than making it a user preference, and I want to do the same.
+    return MAILSMTP_ERROR_NOT_IMPLEMENTED;
+  }
+  
+  r = get_hostname_smart_bg(session, hostname, HOSTNAME_SIZE);
+  
   snprintf(command, SMTP_STRING_SIZE, "HELO %s\r\n", hostname);
   r = send_command(session, command);
   if (r == -1)
@@ -704,7 +735,13 @@ int mailesmtp_ehlo_with_ip(mailsmtp * session, int useip)
   char hostname[HOSTNAME_SIZE];
   char command[SMTP_STRING_SIZE];
 
-  r = get_hostname(session, useip, hostname, HOSTNAME_SIZE);
+  if (useip != 0) {
+    // BG EDIT: Thunderbird tries to get a FQDN and then falls back to an IP address
+    // rather than making it a user preference, and I want to do the same.
+    return MAILSMTP_ERROR_NOT_IMPLEMENTED;
+  }
+
+  r = get_hostname_smart_bg(session, hostname, HOSTNAME_SIZE);
   if (r != MAILSMTP_NO_ERROR)
     return r;
 
