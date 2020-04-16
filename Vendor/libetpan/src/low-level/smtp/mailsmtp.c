@@ -298,6 +298,7 @@ static int get_hostname_smart_bg(mailsmtp * session, char * buf, int len)
 
   // If that fails, try to get IP address
   if (r != MAILSMTP_NO_ERROR) {
+    memset(buf, 0, len);
     r = get_hostname(session, 1, buf, len);
     
     // If that fails, return the error
@@ -315,7 +316,7 @@ static int get_hostname_smart_bg(mailsmtp * session, char * buf, int len)
     }
   }
   
-  return buf;
+  return r;
 }
 
 int mailsmtp_helo(mailsmtp * session)
@@ -336,7 +337,9 @@ int mailsmtp_helo_with_ip(mailsmtp * session, int useip)
   }
   
   r = get_hostname_smart_bg(session, hostname, HOSTNAME_SIZE);
-  
+  if (r != MAILSMTP_NO_ERROR)
+    return r;
+
   snprintf(command, SMTP_STRING_SIZE, "HELO %s\r\n", hostname);
   r = send_command(session, command);
   if (r == -1)
