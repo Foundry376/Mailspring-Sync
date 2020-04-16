@@ -1107,6 +1107,10 @@ void TaskProcessor::performRemoteSyncbackContact(Task * task) {
     string id = task->data()["contact"]["id"].get<string>();
     auto contact = store->find<Contact>(Query().equal("id", id).equal("accountId", account->id()));
 
+    if (contact->source() == CONTACT_SOURCE_MAIL) {
+        return;
+    }
+
     if (account->provider() == "gmail") {
         auto gpeople = make_shared<GoogleContactsWorker>(account);
         gpeople->upsertContact(contact);

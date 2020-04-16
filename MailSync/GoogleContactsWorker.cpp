@@ -236,6 +236,10 @@ void GoogleContactsWorker::updateContactGroupMembership(shared_ptr<ContactGroup>
 }
 
 void GoogleContactsWorker::deleteContact(shared_ptr<Contact> contact) {
+    if (contact->source() != GOOGLE_SYNC_SOURCE) {
+        return;
+    }
+
     if (contact->googleResourceName() == "") {
         return;
     }
