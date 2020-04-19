@@ -24,7 +24,6 @@ using namespace std;
 using namespace mailcore;
 
 class SyncException : public GenericException {
-    string debuginfo;
     bool retryable = false;
     bool offline = false;
     
@@ -33,6 +32,7 @@ public:
     SyncException(CURLcode c, string di);
     SyncException(mailcore::ErrorCode c, string di);
     string key;
+    string debuginfo;
     bool isRetryable();
     bool isOffline();
     json toJSON();
