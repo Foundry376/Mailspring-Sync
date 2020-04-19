@@ -170,7 +170,15 @@ void GoogleContactsWorker::paginateGoogleCollection(string urlRoot, string autho
             url = url + "&requestSyncToken=true";
         }
         
-        auto json = PerformJSONRequest(CreateJSONRequest(url, "GET", authorization));
+        auto json = json::object();
+        try {
+            json = PerformJSONRequest(CreateJSONRequest(url, "GET", authorization));
+        } catch (SyncException & ex) {
+            if (ex.debuginfo.find("Sync token is expired") != string::npos) {
+                store->saveKeyValue(syncTokenKey, "");
+            }
+            throw ex;
+        }
         
         if (json.count("nextSyncToken")) {
             nextSyncToken = json["nextSyncToken"].get<string>();
