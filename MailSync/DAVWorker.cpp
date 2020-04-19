@@ -587,23 +587,28 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
             
             icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
                 auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-                if (local.count(etag) == 0) {
+                if (etag != "" && local.count(etag) == 0) {
                     auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
                     if (icsData != "") {
                         local[etag] = true;
                         ICalendar cal(icsData);
+                        
                         auto icsEvent = cal.Events.front();
-                        if (!icsEvent->DtStart.IsEmpty() && !icsEvent->DtEnd.IsEmpty()) {
+                        if (!icsEvent->DtStart.IsEmpty()) {
                             auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
                             store->save(&event);
                         } else {
-                            logger->info("Received calendar event but it has no start/end time?\n\n{}\n\n", icsData);
+                            logger->info("Received calendar event but it has no start time?\n\n{}\n\n", icsData);
                         }
                     } else {
                         logger->info("Received calendar event {} with an empty body", etag);
                     }
                 } else {
-                    // we didn't ask for this, or we already received it in this session
+                    // we didn't ask for this, or we already received it in this session.
+                    
+                    // Note: occasionally (with Google Cal at least), the initial "index" query returns etag+href pairs,
+                    // but then requesting them individually returns etag="", icsdata="". It seems like some data consistency
+                    // issue on their side and for now we just ignore them. There are two in bengotow@gmail.com.
                 }
             }));
             

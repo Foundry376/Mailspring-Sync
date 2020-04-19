@@ -24,7 +24,7 @@ static Date DISTANT_FUTURE;
 
 Date endOf(ICalendarEvent * event) {
     if (event->RRule.IsEmpty()) {
-        return event->DtEnd;
+        return !event->DtEnd.IsEmpty() ? event->DtEnd : event->DtStart;
     }
     if (!event->RRule.Until.IsEmpty()) {
         return event->RRule.Until;
