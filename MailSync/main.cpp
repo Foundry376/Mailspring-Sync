@@ -205,10 +205,10 @@ void runCalContactsSyncWorker() {
 
     while(true) {
         try {
-            davWorker->run();
             if (contactsWorker) {
                 contactsWorker->run();
             }
+            davWorker->run();
         } catch (SyncException & ex) {
             spdlog::get("logger")->info("Encountered exception: {}", ex.toJSON().dump());
             
