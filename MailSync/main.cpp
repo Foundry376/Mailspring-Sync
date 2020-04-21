@@ -212,23 +212,27 @@ void runCalContactsSyncWorker() {
         } catch (SyncException & ex) {
             spdlog::get("logger")->info("Encountered exception: {}", ex.toJSON().dump());
             
-            if (ex.key.find("Code: 403") != string::npos || ex.key.find("Code: 401") != string::npos) {
-                spdlog::get("logger")->info("Stopping sync - unable to authenticate.");
-                return;
-            }
-            
             // Currently we do not allow calendar and contact sync to terminate mailsync (sending the
             // account into an error state.) If we hit something unrecoverable (like a CardDAV server
             // with an invalid SSL cert, we back off aggressively for 50min + 10min and then try again
             // indefinitely. It may never succeed, but if we don't kill the sync worker we must retry
             // eventually (in case the SSL cert error is caused by a boingo hotspot or something.)
             // or when a "wake" is triggered by the user!
-            if (!ex.isRetryable()) {
-                spdlog::get("logger")->error("Suspending sync for 60min - unlikely a retry would resolve this error.");
-                std::this_thread::sleep_for(std::chrono::seconds(60 * 60));
+
+            if (ex.debuginfo.find("dailyLimitExceeded") != string::npos) {
+                spdlog::get("logger")->info("Suspending sync for 4 hours - Google app API request quota hit.");
+                std::this_thread::sleep_for(std::chrono::hours(4));
+
+            } else if (ex.key.find("Code: 403") != string::npos || ex.key.find("Code: 401") != string::npos) {
+                spdlog::get("logger")->info("Stopping sync - unable to authenticate.");
+                return;
+
+            } else if (!ex.isRetryable()) {
+                spdlog::get("logger")->error("Suspending sync for 90min - unlikely a retry would resolve this error.");
+                std::this_thread::sleep_for(std::chrono::minutes(90));
             }
         }
-        std::this_thread::sleep_for(std::chrono::seconds(15 * 60));
+        std::this_thread::sleep_for(std::chrono::minutes(45));
     }
 }
 
