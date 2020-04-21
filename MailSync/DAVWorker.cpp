@@ -98,6 +98,10 @@ void DAVWorker::run() {
 }
 
 void DAVWorker::runContacts() {
+    if (account->provider() == "gmail") {
+        // Gmail sync uses a separate GoogleContactsWorker
+        return;
+    }
     auto ab = resolveAddressBook();
     if (ab != nullptr) {
         runForAddressBook(ab);
