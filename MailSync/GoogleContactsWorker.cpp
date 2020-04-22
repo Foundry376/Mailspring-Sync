@@ -182,7 +182,6 @@ void GoogleContactsWorker::paginateGoogleCollection(string urlRoot, string autho
         
         if (json.count("nextSyncToken")) {
             nextSyncToken = json["nextSyncToken"].get<string>();
-            logger->info(nextSyncToken);
         }
         if (json.count("nextPageToken")) {
             nextPageToken = json["nextPageToken"].get<string>();
@@ -213,7 +212,7 @@ void GoogleContactsWorker::upsertContactGroup(shared_ptr<ContactGroup> group) {
         json payload = {{"contactGroup", {{"name", group->name() }} }};
         resp = PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + "contactGroups", "POST", authorization, payload.dump().c_str()));
     }
-    logger->info("Respons {}", resp.dump());
+    logger->info("Response {}", resp.dump());
 
     group->setGoogleResourceName(resp["resourceName"].get<string>());
     store->save(group.get());
