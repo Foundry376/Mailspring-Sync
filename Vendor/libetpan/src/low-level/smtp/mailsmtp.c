@@ -312,9 +312,9 @@ static int get_hostname_smart_bg(mailsmtp * session, char * buf, int len)
 
   if (r == MAILSMTP_NO_ERROR) {
     // Ensure the hostname result contains no spaces
-    unsigned long usedlen = MIN(strlen(buf), len);
+    unsigned long usedlen = strlen(buf) < len ? strlen(buf) : len;
     
-    for (int i = 0; i < usedlen; i++) {
+    for (unsigned long i = 0; i < usedlen; i++) {
       if (buf[i] == ' ') {
         buf[i] = '-';
       }
