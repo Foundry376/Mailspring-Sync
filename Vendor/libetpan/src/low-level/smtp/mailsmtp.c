@@ -268,6 +268,7 @@ static int get_hostname(mailsmtp * session, int useip, char * buf, int len)
 
     if (snprintf(buf, len, "%s", hostname) >= len)
       return MAILSMTP_ERROR_HOSTNAME;
+    
   } else {
     socket = mailstream_low_get_fd(mailstream_get_low(session->stream));
     if (socket < 0)
@@ -296,23 +297,27 @@ static int get_hostname_smart_bg(mailsmtp * session, char * buf, int len)
   // Try to get fully qualified name first
   int r = get_hostname(session, 0, buf, len);
 
-  // If that fails, try to get IP address
+  // If that fails, try to get IP address which is what Thunderbird uses
   if (r != MAILSMTP_NO_ERROR) {
-    memset(buf, 0, len);
+    buf[0] = 0;
     r = get_hostname(session, 1, buf, len);
-    
-    // If that fails, return the error
-    if (r != MAILSMTP_NO_ERROR) {
-      return r;
-    }
   }
-  
-  // Ensure the hostname result contains no spaces
-  unsigned long usedlen = strlen(buf);
-  
-  for (int i = 0; i < usedlen; i++) {
-    if (buf[i] == ' ') {
-      buf[i] = '-';
+
+  // If that fails, try to use something random. Otherwise they just can't
+  // use Mailspring at all, so we may as well try something.
+  if (r != MAILSMTP_NO_ERROR) {
+    snprintf(buf, len, "mailspring-smtp");
+    r = MAILSMTP_NO_ERROR;
+  }
+
+  if (r == MAILSMTP_NO_ERROR) {
+    // Ensure the hostname result contains no spaces
+    unsigned long usedlen = MIN(strlen(buf), len);
+    
+    for (int i = 0; i < usedlen; i++) {
+      if (buf[i] == ' ') {
+        buf[i] = '-';
+      }
     }
   }
   
@@ -330,11 +335,8 @@ int mailsmtp_helo_with_ip(mailsmtp * session, int useip)
   char hostname[HOSTNAME_SIZE];
   char command[SMTP_STRING_SIZE];
 
-  if (useip != 0) {
-    // BG EDIT: Thunderbird tries to get a FQDN and then falls back to an IP address
-    // rather than making it a user preference, and I want to do the same.
-    return MAILSMTP_ERROR_NOT_IMPLEMENTED;
-  }
+  // BG EDIT: Thunderbird tries to get a FQDN and then falls back to an IP address
+  // rather than making it a user preference, and I want to do the same.
   
   r = get_hostname_smart_bg(session, hostname, HOSTNAME_SIZE);
   if (r != MAILSMTP_NO_ERROR)
@@ -738,11 +740,8 @@ int mailesmtp_ehlo_with_ip(mailsmtp * session, int useip)
   char hostname[HOSTNAME_SIZE];
   char command[SMTP_STRING_SIZE];
 
-  if (useip != 0) {
-    // BG EDIT: Thunderbird tries to get a FQDN and then falls back to an IP address
-    // rather than making it a user preference, and I want to do the same.
-    return MAILSMTP_ERROR_NOT_IMPLEMENTED;
-  }
+  // BG EDIT: Thunderbird tries to get a FQDN and then falls back to an IP address
+  // rather than making it a user preference, and I want to do the same.
 
   r = get_hostname_smart_bg(session, hostname, HOSTNAME_SIZE);
   if (r != MAILSMTP_NO_ERROR)
