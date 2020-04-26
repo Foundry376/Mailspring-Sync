@@ -227,6 +227,7 @@
 		4385C98C233AA6FE00E5A357 /* GoogleContactsWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GoogleContactsWorker.cpp; sourceTree = "<group>"; };
 		4385C98E233AC65200E5A357 /* ContactGroup.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ContactGroup.cpp; sourceTree = "<group>"; };
 		4385C990233AC65900E5A357 /* ContactGroup.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ContactGroup.hpp; sourceTree = "<group>"; };
+		439F24392455FFA400104D7B /* static.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = static.h; sourceTree = "<group>"; };
 		43A687D1220EB146000D75CC /* Event.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Event.hpp; sourceTree = "<group>"; };
 		43A687DE220EB14C000D75CC /* Event.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Event.cpp; sourceTree = "<group>"; };
 		43A687E1220EB40F000D75CC /* types.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = types.cpp; sourceTree = "<group>"; };
@@ -472,6 +473,7 @@
 				4378B8321F439EE700C65630 /* error.cpp */,
 				4378B8331F439EE700C65630 /* error.h */,
 				4368DCAC1F43851A00F22FFD /* exceptions.cpp */,
+				439F24392455FFA400104D7B /* static.h */,
 				4368DCAD1F43851A00F22FFD /* exceptions.h */,
 				4368DCAE1F43851A00F22FFD /* filelib.cpp */,
 				4368DCAF1F43851A00F22FFD /* filelib.h */,
