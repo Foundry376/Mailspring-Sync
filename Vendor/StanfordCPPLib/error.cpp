@@ -28,11 +28,24 @@ std::string ErrorException::getMessage() const {
     return msg;
 }
 
+void ErrorException::setKind(const std::string& _kind) {
+    kind = _kind;
+}
+
+bool ErrorException::hasStackTrace() const {
+    return !stackTrace.empty();
+}
+
 std::string ErrorException::getStackTrace() const {
     return stackTrace;
 }
 
-const char* ErrorException::what() const throw () {
+
+const char* ErrorException::what() const noexcept {
+    // stepp : The original "Error: " prefix is commented out here,
+    // because in many error cases, the attempt to do the string concatenation
+    // ends up garbling the string and leading to garbage exception text
+    // return ("Error: " + msg).c_str();
     return msg.c_str();
 }
 

@@ -3,8 +3,35 @@
  * --------------------
  * This file contains a top-level exception handler to print exceptions thrown
  * by student code on the console.
- * 
+ *
  * @author Marty Stepp
+ * @version 2019/05/16
+ * - added more function names to filter from stack trace
+ * @version 2019/04/16
+ * - filter Qt/std thread methods from stack trace
+ * @version 2019/04/02
+ * - small fix for warning about -Wreturn-std-move on string exception
+ * @version 2018/10/18
+ * - added set_unexpected handler (used by autograders when errors are thrown)
+ * - added some new function names to filter from stack traces
+ * @version 2018/09/27
+ * - bug fixes to print better stack traces when used with threads
+ * @version 2018/09/25
+ * - modify setTopLevelExceptionHandlerEnabled to work better with threads
+ * @version 2016/12/23
+ * - added more function names for stack trace filtering (mainly thread stuff)
+ * @version 2016/12/09
+ * - added insertStarsBeforeEachLine
+ * @version 2016/11/07
+ * - added cleanupFunctionNameForStackTrace
+ * - slight refactor of shouldFilterOutFromStackTrace
+ * @version 2016/10/30
+ * - moved recursion functions to recursion.h/cpp
+ * @version 2016/10/04
+ * - removed all static variables (replaced with STATIC_VARIABLE macros)
+ * @version 2016/08/02
+ * - added some new cxx11 filters to stack traces
+ * - fixed spacing on *** messages from exception handlers
  * @version 2015/10/13
  * - bug fix in terminate handler to turn off signal handler at end
  * @version 2015/05/28
@@ -23,16 +50,16 @@
 
 #include "exceptions.h"
 #include <csignal>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
-#include <string>
 #include <vector>
+#include <string>
+#include "call_stack.h"
+#include "error.h"
 #include "filelib.h"
 #include "strlib.h"
-#include "error.h"
-
-#include "GenericException.hpp"
-
+#include "static.h"
 #ifdef _WIN32
 #include <windows.h>
 #  undef MOUSE_EVENT
@@ -40,57 +67,136 @@
 #  undef MOUSE_MOVED
 #  undef HELP_KEY
 #endif
-//#include "platform.h"
+#include "json.hpp"
+#include "spdlog/spdlog.h"
+#include "GenericException.hpp"
 
 // uncomment the definition below to use an alternative 'signal stack'
 // which helps in handling stack overflow errors
 // (disabled because it currently breaks stack traces for other errors)
-//#define SHOULD_USE_SIGNAL_STACK
+// #define SHOULD_USE_SIGNAL_STACK
 
 namespace exceptions {
 // just some value that is not any existing signal
-#define SIGSTACK ((int) 0xdeadbeef)
-#define SIGUNKNOWN ((int) 0xcafebabe)
-#define SIGTIMEOUT ((int) 0xf00df00d)
-static const bool STACK_TRACE_SHOULD_FILTER = true;
-static bool topLevelExceptionHandlerEnabled = false;
-static void (*old_terminate)() = NULL;
-static std::string PROGRAM_NAME = "";
-static std::vector<int> SIGNALS_HANDLED;
+#define SIGSTACK (static_cast<int>(0xdeadbeef))
+#define SIGUNKNOWN (static_cast<int>(0xcafebabe))
+#define SIGTIMEOUT (static_cast<int>(0xf00df00d))
+
+// static 'variables' (as functions to avoid initialization ordering bugs)
+STATIC_CONST_VARIABLE_DECLARE(bool, STACK_TRACE_SHOULD_FILTER, true)
+STATIC_CONST_VARIABLE_DECLARE(bool, STACK_TRACE_SHOW_TOP_BOTTOM_BARS, false)
+
+STATIC_VARIABLE_DECLARE(std::string, programNameForStackTrace, "")
+STATIC_VARIABLE_DECLARE(bool, topLevelExceptionHandlerEnabled, false)
+
+// handle SIGABRT in normal mode, but not autograder mode
+// (Google Test uses SIGABRT internally so we can't catch it)
+STATIC_CONST_VARIABLE_DECLARE_COLLECTION(std::vector<int>, SIGNALS_HANDLED, SIGSEGV, SIGILL, SIGFPE, SIGABRT)
 
 static void signalHandlerDisable();
 static void signalHandlerEnable();
 static void stanfordCppLibSignalHandler(int sig);
-static void stanfordCppLibTerminateHandler();
+[[noreturn]] static void stanfordCppLibTerminateHandler();
+static void stanfordCppLibUnexpectedHandler();
 
-std::string getProgramNameForStackTrace() {
-    return PROGRAM_NAME;
+std::string cleanupFunctionNameForStackTrace(std::string function) {
+    // remove references to std:: namespace
+    stringReplaceInPlace(function, "std::", "");
+    stringReplaceInPlace(function, "__cxx11::", "");
+    stringReplaceInPlace(function, "__cxxabi::", "");
+    stringReplaceInPlace(function, "__cxxabiv1::", "");
+    stringReplaceInPlace(function, "[abi:cxx11]", "");
+    stringReplaceInPlace(function, "__1::", "");   // on Mac
+
+    // a few substitutions related to predefined types for simplicity
+    stringReplaceInPlace(function, "basic_ostream", "ostream");
+    stringReplaceInPlace(function, "basic_istream", "istream");
+    stringReplaceInPlace(function, "basic_ofstream", "ofstream");
+    stringReplaceInPlace(function, "basic_ifstream", "ifstream");
+    stringReplaceInPlace(function, "basic_string", "string");
+    stringReplaceInPlace(function, "stanfordcpplib::collections::GenericSet", "Set");
+
+    // remove empty/unknown function names
+    stringReplaceInPlace(function, "?? ??:0", "");
+
+    // cleanup autograder test case names
+    stringReplaceInPlace(function, "_Test::TestRealBody", "");
+    stringReplaceInPlace(function, "_Test::TestBody", "");
+
+    // remove template arguments
+    // TODO: does not work well for nested templates
+    int lessThan = stringIndexOf(function, "<");
+    while (lessThan >= 0) {
+        // see if there is a matching > for this <
+        int greaterThan = lessThan + 1;
+        int count = 1;
+        while (greaterThan < (int) function.length()) {
+            if (function[greaterThan] == '<') {
+                count++;
+            } else if (function[greaterThan] == '>') {
+                count--;
+                if (count == 0) {
+                    break;
+                }
+            }
+            greaterThan++;
+        }
+        if (count == 0 && lessThan >= 0 && greaterThan > lessThan) {
+            function.erase(lessThan, greaterThan - lessThan + 1);
+        } else {
+            // look for the next < in the string, if any, to see if it has a matching >
+            lessThan = stringIndexOf(function, "<", lessThan + 1);
+        }
+    }
+
+    // addr2line oddly writes "const Foo&" as "Foo const&"
+    stringReplaceInPlace(function, "string const&", "const string&");
+
+    // small patch for renamed main function
+    if (function == "_main_") {
+        function = "main";
+    }
+
+    return function;
+}
+
+std::string& getProgramNameForStackTrace() {
+    return STATIC_VARIABLE(programNameForStackTrace);
 }
 
 bool getTopLevelExceptionHandlerEnabled() {
-    return topLevelExceptionHandlerEnabled;
+    return STATIC_VARIABLE(topLevelExceptionHandlerEnabled);
 }
 
-void setProgramNameForStackTrace(std::string programName) {
-    PROGRAM_NAME = programName;
+void setProgramNameForStackTrace(const char* programName) {
+    STATIC_VARIABLE(programNameForStackTrace) = programName;
 }
 
 #ifdef _WIN32
 void myInvalidParameterHandler(const wchar_t* expression,
-   const wchar_t* function,
-   const wchar_t* file,
-   unsigned int line,
-   uintptr_t /*pReserved*/) {
-   wprintf(L"Invalid parameter detected in function %s."
+        const wchar_t* function,
+        const wchar_t* file,
+        unsigned int line,
+        uintptr_t /*pReserved*/) {
+    wprintf(L"Invalid parameter detected in function %s."
             L" File: %s Line: %d\n", function, file, line);
-   wprintf(L"Expression: %s\n", expression);
+    wprintf(L"Expression: %s\n", expression);
 }
 
 LONG WINAPI UnhandledException(LPEXCEPTION_POINTERS exceptionInfo) {
-    if (exceptionInfo && exceptionInfo->ContextRecord && exceptionInfo->ContextRecord->Eip) {
-        // stacktrace::setFakeCallStackPointer((void*) exceptionInfo->ContextRecord->Eip);
-        stacktrace::setFakeCallStackPointer((void*) exceptionInfo);
+    // dear student: if you get a compiler error about 'Eip' not being found here,
+    // it means you're using a 64-bit compiler like the MS Visual C++ compiler,
+    // and not the 32-bit MinGW compiler we instructed you to install.
+    // Please re-install Qt Creator with the proper compiler (MinGW 32-bit) enabled.
+#if _WIN64
+    if (exceptionInfo && exceptionInfo->ContextRecord && exceptionInfo->ContextRecord->Rip) {
+        stacktrace::fakeCallStackPointer() = (void*) exceptionInfo;
     }
+#else
+    if (exceptionInfo && exceptionInfo->ContextRecord && exceptionInfo->ContextRecord->Eip) {
+        stacktrace::fakeCallStackPointer() = (void*) exceptionInfo;
+    }
+#endif // _WIN64
     DWORD code = exceptionInfo->ExceptionRecord->ExceptionCode;
     if (code == EXCEPTION_STACK_OVERFLOW || code == EXCEPTION_FLT_STACK_CHECK) {
         stanfordCppLibSignalHandler(SIGSTACK);
@@ -110,21 +216,29 @@ LONG WINAPI UnhandledException(LPEXCEPTION_POINTERS exceptionInfo) {
 }
 #endif // _WIN32
 
-void setTopLevelExceptionHandlerEnabled(bool enabled) {
-    if (!topLevelExceptionHandlerEnabled && enabled) {
-        old_terminate = std::set_terminate(stanfordCppLibTerminateHandler);
+void setTopLevelExceptionHandlerEnabled(bool enabled, bool force) {
+    static void (* old_terminate)() = nullptr;
+    static void (* old_unexpected)() = nullptr;
+
+    if ((!STATIC_VARIABLE(topLevelExceptionHandlerEnabled) || force) && enabled) {
+        if (!old_terminate) {
+            old_terminate = std::set_terminate(stanfordCppLibTerminateHandler);
+            old_unexpected = std::set_unexpected(stanfordCppLibUnexpectedHandler);
+        } else {
+            std::set_terminate(stanfordCppLibTerminateHandler);
+            std::set_unexpected(stanfordCppLibUnexpectedHandler);
+        }
 #ifdef _WIN32
-        // // disabling this code for now because it messes with the
-        // // newly added uncaught signal handler
-
-		// The system does not display the Windows Error Reporting dialog.
+        // disabling this code for now because it messes with the
+        // newly added uncaught signal handler
+        
+        // The system does not display the Windows Error Reporting dialog.
         SetErrorMode(SEM_NOGPFAULTERRORBOX);
-
-		// The system does not display the critical-error-handler message box. Instead, the system sends the error to the calling process.
+        
+        // The system does not display the critical-error-handler message box. Instead, the system sends the error to the calling process.
         SetErrorMode(SEM_FAILCRITICALERRORS);
-		SetThreadErrorMode(SEM_FAILCRITICALERRORS, NULL);
-
-		SetUnhandledExceptionFilter(UnhandledException);
+        SetThreadErrorMode(SEM_FAILCRITICALERRORS, nullptr);
+        SetUnhandledExceptionFilter(UnhandledException);
         _invalid_parameter_handler newHandler;
         newHandler = myInvalidParameterHandler;
         _set_invalid_parameter_handler(newHandler);
@@ -133,39 +247,136 @@ void setTopLevelExceptionHandlerEnabled(bool enabled) {
         
         // also set up a signal handler for things like segfaults / null-pointer-dereferences
         signalHandlerEnable();
-    } else if (topLevelExceptionHandlerEnabled && !enabled) {
+    } else if ((STATIC_VARIABLE(topLevelExceptionHandlerEnabled) || force) && !enabled) {
         std::set_terminate(old_terminate);
+        std::set_unexpected(old_unexpected);
     }
-    topLevelExceptionHandlerEnabled = enabled;
+    STATIC_VARIABLE(topLevelExceptionHandlerEnabled) = enabled;
 }
 
 /*
  * Some lines from the stack trace are filtered out because they come from
  * private library code or OS code and would confuse the student.
  */
-static bool shouldFilterOutFromStackTrace(const std::string& function) {
-    return startsWith(function, "__")
-            || function == "??"
-            || function == "error(string)"
-            || function == "error"
-            || function == "startupMain(int, char**)"
-            || function.find("stacktrace::") != std::string::npos
-            || function.find("GenericException::") != std::string::npos
-            || function.find("SyncException::") != std::string::npos
-            || function.find(" error(") != std::string::npos
-            || function.find("testing::") != std::string::npos
-            || function.find("printStackTrace") != std::string::npos
-            || function.find("stanfordCppLibSignalHandler") != std::string::npos
-            || function.find("stanfordCppLibPosixSignalHandler") != std::string::npos
-            || function.find("stanfordCppLibTerminateHandler") != std::string::npos
-            || function.find("InitializeExceptionChain") != std::string::npos
-            || function.find("BaseThreadInitThunk") != std::string::npos
-            || function.find("GetProfileString") != std::string::npos
-            || function.find("KnownExceptionFilter") != std::string::npos
-            || function.find("UnhandledException") != std::string::npos
-            || function.find("crtexe.c") != std::string::npos
-            || function.find("_sigtramp") != std::string::npos
-            || function.find("autograderMain") != std::string::npos;
+bool shouldFilterOutFromStackTrace(const std::string& function) {
+    // exact names that should be matched and filtered
+    static const std::vector<std::string> FORBIDDEN_NAMES {
+        "",
+        "??",
+        "call_stack",
+        "_clone",
+        "clone",
+        "error",
+        "error(const string&)",
+        "error(string)",
+        "ErrorException",
+        "__libc_start_main",
+        "_start",
+        "startupMain(int, char**)",
+        "(unknown)",
+        "_Unwind_Resume"
+    };
+
+    // substrings to filter (don't show any func whose name contains these)
+    static const std::vector<std::string> FORBIDDEN_SUBSTRINGS {
+        " error(",
+        "__cxa_rethrow",
+        "__cxa_call_terminate",
+        "__cxa_call_unexpected",
+        "__func::",
+        "__function::",
+        "_endthreadex",
+        "_Function_base::_Base_manager::",
+        "_Function_handler",
+        "_Internal_",
+        "__invoke_impl",
+        "__invoke_result::type",
+        "__invoke_void",
+        "__unexpected",
+        "thread::_Invoker",
+        "thread::_State_impl",
+        "_M_invoke",
+        "_sigtramp",
+        "autograderMain",
+        "BaseThreadInitThunk",
+        "call_stack_gcc.cpp",
+        "call_stack_windows.cpp",
+        "CFRunLoopDoSource",
+        "CFRunLoopRun",
+        "CFRUNLOOP_IS",
+        "crtexe.c",
+        "decltype(forward",
+        "ErrorException::ErrorException",
+        "exceptions.cpp",
+        "function::operator",
+        "GetModuleFileName",
+        "GetProfileString",
+        // "GStudentThread::run",
+        "GThreadQt::run",
+        "GThreadQt::start",
+        "GThreadStd::run",
+        "GThreadStd::start",
+        "InitializeExceptionChain",
+        "KnownExceptionFilter",
+        "M_invoke",
+        "multimain.cpp",
+        // "operator",
+        "pthread_body",
+        "pthread_start",
+        "printStackTrace",
+        // "QAbstractItemModel::",
+        // "QAbstractProxyModel::",
+        "QApplication::notify",
+        "QApplicationPrivate::",
+        "QCoreApplication::",
+        "QGuiApplicationPrivate::",
+        "QMetaMethod::",
+        "QMetaObject::",
+        "QObjectPrivate::",
+        "qt_plugin_instance",
+        "QtGui::startBackgroundEventLoop",
+        // "QWidget::",
+        "QWidgetBackingStore::",
+        "QWindowSystemInterface::",
+        "require::_errorMessage",
+        "RunCurrentEventLoopInMode",
+        "shouldFilterOutFromStackTrace",
+        "stacktrace::",
+        "GenericException::",
+        "SyncException::",
+        "stanfordCppLibPosixSignalHandler",
+        "stanfordCppLibSignalHandler",
+        "stanfordCppLibTerminateHandler",
+        "stanfordCppLibUnexpectedHandler",
+        "testing::",
+        "UnhandledException",
+        "WinMain@"
+    };
+
+    // prefixes to filter (don't show any func whose name starts with these)
+    static const std::vector<std::string> FORBIDDEN_PREFIXES {
+        // "__"
+    };
+
+    for (const std::string& name : FORBIDDEN_NAMES) {
+        if (function == name) {
+            return true;
+        }
+    }
+
+    for (const std::string& name : FORBIDDEN_SUBSTRINGS) {
+        if (function.find(name) != std::string::npos) {
+            return true;
+        }
+    }
+
+    for (const std::string& name : FORBIDDEN_PREFIXES) {
+        if (function.find(name) == 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void printStackTrace() {
@@ -174,53 +385,20 @@ void printStackTrace() {
     stacktrace::call_stack trace;
     printStackTrace(trace.stack);
 }
-    
-void printStackTrace(std::vector<stacktrace::entry> & entries) {
 
+void printStackTrace(std::vector<stacktrace::entry> entries) {
     // get longest line string length to line up stack traces
     std::ostringstream out;
-    void* fakeStackPtr = stacktrace::getFakeCallStackPointer();
+    void* fakeStackPtr = stacktrace::fakeCallStackPointer();
     int entriesToShowCount = 0;
     int funcNameLength = 0;
     int lineStrLength = 0;
-    for (size_t i = 0; i < entries.size(); ++i) {
-        // remove references to std:: namespace
-        stringReplaceInPlace(entries[i].function, "std::", "");
-        
-        // a few substitutions related to predefined types for simplicity
-        stringReplaceInPlace(entries[i].function, "basic_ostream", "ostream");
-        stringReplaceInPlace(entries[i].function, "basic_istream", "istream");
-        stringReplaceInPlace(entries[i].function, "basic_ofstream", "ofstream");
-        stringReplaceInPlace(entries[i].function, "basic_ifstream", "ifstream");
-        stringReplaceInPlace(entries[i].function, "basic_string", "string");
-        
-        // remove template arguments
-        // TODO: does not work well for nested templates
-        int lessThan = stringIndexOf(entries[i].function, "<");
-        while (lessThan >= 0) {
-            // see if there is a matching > for this <
-            int greaterThan = lessThan + 1;
-            int count = 1;
-            while (greaterThan < (int) entries[i].function.length()) {
-                if (entries[i].function[greaterThan] == '<') {
-                    count++;
-                } else if (entries[i].function[greaterThan] == '>') {
-                    count--;
-                    if (count == 0) {
-                        break;
-                    }
-                }
-                greaterThan++;
-            }
-            if (count == 0 && lessThan >= 0 && greaterThan > lessThan) {
-                entries[i].function.erase(lessThan, greaterThan - lessThan + 1);
-            } else {
-                // look for the next < in the string, if any, to see if it has a matching >
-                lessThan = stringIndexOf(entries[i].function, "<", lessThan + 1);
-            }
-        }
-        
-        if (!STACK_TRACE_SHOULD_FILTER || !shouldFilterOutFromStackTrace(entries[i].function)) {
+    for (int i = 0; i < entries.size(); ++i) {
+        entries[i].function = cleanupFunctionNameForStackTrace(entries[i].function);
+        if (!STATIC_VARIABLE(STACK_TRACE_SHOULD_FILTER)
+                || (!shouldFilterOutFromStackTrace(entries[i].function)
+                    && !shouldFilterOutFromStackTrace(entries[i].file)
+                    && !shouldFilterOutFromStackTrace(entries[i].lineStr))) {
             lineStrLength = std::max(lineStrLength, (int) entries[i].lineStr.length());
             funcNameLength = std::max(funcNameLength, (int) entries[i].function.length());
             entriesToShowCount++;
@@ -232,45 +410,103 @@ void printStackTrace(std::vector<stacktrace::entry> & entries) {
     }
     
     if (lineStrLength > 0) {
-        out << " *** Stack trace (line numbers are approximate):" << std::endl;
+        out << "*** Stack trace (line numbers are approximate):" << std::endl;
+        if (STATIC_VARIABLE(STACK_TRACE_SHOW_TOP_BOTTOM_BARS)) {
+            std::ostringstream lineout;
+            lineout << "*** " << std::setw(lineStrLength) << std::left
+                    << "file:line" << "  " << "function" << std::endl
+                    << "*** " << std::string(lineStrLength + 2 + funcNameLength, '=') << std::endl;
+            out << lineout.str() << std::endl;
+        }
     } else {
-        out << " *** Stack trace:" << std::endl;
+        out << "*** Stack trace:" << std::endl;
     }
     
-    for (size_t i = 0; i < entries.size(); ++i) {
+    for (int i = 0; i < entries.size(); ++i) {
         stacktrace::entry entry = entries[i];
         entry.file = getTail(entry.file);
         
         // skip certain entries for clarity
-        if (STACK_TRACE_SHOULD_FILTER && shouldFilterOutFromStackTrace(entry.function)) {
+        if (STATIC_VARIABLE(STACK_TRACE_SHOULD_FILTER)
+                && (shouldFilterOutFromStackTrace(entry.function)
+                    || shouldFilterOutFromStackTrace(entry.file)
+                    || shouldFilterOutFromStackTrace(entry.lineStr))) {
             continue;
         }
         
+        // show Main() as main() to hide hidden case-change by Stanford C++ lib internals
+        if (startsWith(entry.function, "Main(")) {
+            entry.function.replace(0, 5, "main(");
+        }
+
+        // for some reason, some functions don't show () parens after; add them
+        if (!entry.function.empty() && !stringContains(entry.function, "(")) {
+            entry.function += "()";
+        }
+
+        // fix main to hide int/char**
+        if (entry.function == "main(int, char**)") {
+            entry.function = "main()";
+        }
+
+        // fix qMain => main to hide Qt main renaming
+        if (entry.function == "qMain()") {
+            entry.function = "main()";
+        }
+
         std::string lineStr = "";
         if (!entry.lineStr.empty()) {
             lineStr = trimEnd(entry.lineStr);
             if (lineStr == "?? ??:0") {
                 lineStr = "(unknown)";
             }
-        } else if (entry.line > 0) {
-            lineStr = "line " + integerToString((int)entry.line);
+
+            if (entry.line == 0 && stringContains(lineStr, ":")) {
+                std::vector<std::string> tokens = stringSplit(lineStr, ":");
+                if (stringIsInteger(tokens[tokens.size() - 1])) {
+                    entry.line = stringToInteger(tokens[tokens.size() - 1]);
+                }
+            }
+        }
+        if (entry.lineStr.empty() && entry.line > 0) {
+            lineStr = "line " + std::to_string(entry.line);
         }
         
-        out << " *** " << std::left << std::setw(lineStrLength) << lineStr << "  " << entry.function << std::endl;
+        // we use a temporary 'lineout' because cerr aggressively flushes on <<,
+        // leading to awkward line breaks in the output pane
+        std::ostringstream lineout;
+        lineout << "*** " << std::left << std::setw(lineStrLength) << lineStr
+                  << "  " << entry.function;
+        out << lineout.str() << std::endl;
+        
+        // don't show entries beneath the student's main() function, for simplicity
+        if (entry.function == "main"
+                || entry.function == "main()"
+                || entry.function == "main(int, char**)"
+                || entry.function == "qMain"
+                || entry.function == "qMain()") {
+            break;
+        }
     }
-    if (entries.size() == 1 && entries[0].address == fakeStackPtr) {
-        out << " *** (partial stack due to crash)" << std::endl;
+    if (entries.size() == 1 && fakeStackPtr && entries[0].address == fakeStackPtr) {
+        out << "*** (partial stack due to crash)" << std::endl;
     }
 
-    out << " ***" << std::endl;
-
+    if (STATIC_VARIABLE(STACK_TRACE_SHOW_TOP_BOTTOM_BARS) && lineStrLength > 0) {
+        std::ostringstream lineout;
+        lineout << "*** " << std::string(lineStrLength + 2 + funcNameLength, '=');
+        out << lineout.str() << std::endl;
+    }
+    
+    out << "***" << std::endl;
+    
     auto logger = spdlog::get("logger");
     if (logger) {
         logger->critical(out.str());
         logger->flush();
     } else {
-        cerr << out.str();
-        cerr.flush();
+        std::cerr << out.str();
+        std::cerr.flush();
     }
 }
 
@@ -282,16 +518,18 @@ void printStackTrace(std::vector<stacktrace::entry> & entries) {
 #endif // _WIN32
 
 #define FILL_IN_EXCEPTION_TRACE(ex, kind, desc) \
-    if ((!std::string(kind).empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, (kind)); } \
-    if ((!std::string(desc).empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, (desc)); } \
+    {\
+    std::string __kind = (kind); \
+    std::string __desc = (desc); \
+    if ((!__kind.empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, __kind); } \
+    if ((!__desc.empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, __desc); } \
     auto logger = spdlog::get("logger"); \
-    if (logger) { logger->critical(msg); } else { cerr << msg; } \
-    if (logger) { logger->flush(); } else { cerr.flush(); } \
-    printStackTrace(); \
-    THROW_NOT_ON_WINDOWS(ex);
+    if (logger) { logger->critical(msg); } else { std::cerr << msg; } \
+    if (logger) { logger->flush(); } else { std::cerr.flush(); } \
+    }
 
 static void signalHandlerDisable() {
-    for (int sig : SIGNALS_HANDLED) {
+    for (int sig : STATIC_VARIABLE(SIGNALS_HANDLED)) {
         signal(sig, SIG_DFL);
     }
 }
@@ -312,7 +550,7 @@ static void signalHandlerEnable() {
     ss.ss_sp = (void*) alternate_stack;
     ss.ss_size = SIGSTKSZ;
     ss.ss_flags = 0;
-    sigaltstack(&ss, NULL);
+    sigaltstack(&ss, nullptr);
     
     struct sigaction sig_action = {};
     sig_action.sa_sigaction = stanfordCppLibPosixSignalHandler;
@@ -323,26 +561,18 @@ static void signalHandlerEnable() {
 #else
     sig_action.sa_flags = SA_SIGINFO | SA_ONSTACK;
 #endif // __APPLE__
-    sigaction(SIGSEGV, &sig_action, NULL);
-    sigaction(SIGFPE,  &sig_action, NULL);
-    sigaction(SIGILL,  &sig_action, NULL);
-    sigaction(SIGTERM, &sig_action, NULL);
-#ifdef SPL_AUTOGRADER_MODE
-    sigaction(SIGINT,  &sig_action, NULL);
-#else // not SPL_AUTOGRADER_MODE
-    sigaction(SIGABRT, &sig_action, NULL);
-#endif // SPL_AUTOGRADER_MODE
+    sigaction(SIGSEGV, &sig_action, nullptr);
+    sigaction(SIGFPE,  &sig_action, nullptr);
+    sigaction(SIGILL,  &sig_action, nullptr);
+    sigaction(SIGTERM, &sig_action, nullptr);
+    sigaction(SIGUSR1, &sig_action, nullptr);
+    sigaction(SIGABRT, &sig_action, nullptr);
     handled = true;
 #endif
 #endif // SHOULD_USE_SIGNAL_STACK
 
-    SIGNALS_HANDLED.clear();
-    SIGNALS_HANDLED.push_back(SIGSEGV);
-    SIGNALS_HANDLED.push_back(SIGILL);
-    SIGNALS_HANDLED.push_back(SIGFPE);
-    SIGNALS_HANDLED.push_back(SIGABRT);
     if (!handled) {
-        for (int sig : SIGNALS_HANDLED) {
+        for (int sig : STATIC_VARIABLE(SIGNALS_HANDLED)) {
             signal(sig, stanfordCppLibSignalHandler);
         }
     }
@@ -353,140 +583,211 @@ static void signalHandlerEnable() {
  * Prints details about the signal and then tries to print a stack trace.
  */
 static void stanfordCppLibSignalHandler(int sig) {
-    // immediately flush any pending spdlogs
+     // immediately flush any pending spdlogs
     auto logger = spdlog::get("logger");
     if (logger) logger->flush();
-    
-    // turn the signal handler off (should run only once; avoid infinite cycle)
-    signalHandlerDisable();
 
     // tailor the error message to the kind of signal that occurred
     std::string SIGNAL_KIND = "A fatal error";
     std::string SIGNAL_DETAILS = "No details were provided about the error.";
     if (sig == SIGSEGV) {
-        SIGNAL_KIND = "A segmentation fault";
-        SIGNAL_DETAILS = "This typically happens when you try to dereference a pointer\n *** that is NULL or invalid.";
+        SIGNAL_KIND = "A segmentation fault (SIGSEGV)";
+        SIGNAL_DETAILS = "This typically happens when you try to dereference a pointer\n*** that is null or invalid.";
     } else if (sig == SIGABRT) {
-        SIGNAL_KIND = "An abort error";
+        SIGNAL_KIND = "An abort error (SIGABRT)";
         SIGNAL_DETAILS = "This error is thrown by system functions that detect corrupt state.";
     } else if (sig == SIGILL) {
-        SIGNAL_KIND = "An illegal instruction error";
+        SIGNAL_KIND = "An illegal instruction error (SIGILL)";
         SIGNAL_DETAILS = "This typically happens when you have corrupted your program's memory.";
     } else if (sig == SIGFPE) {
-        SIGNAL_KIND = "An arithmetic error";
+        SIGNAL_KIND = "An arithmetic error (SIGFPE)";
         SIGNAL_DETAILS = "This typically happens when you divide by 0 or produce an overflow.";
     } else if (sig == SIGINT) {
-        SIGNAL_KIND = "An interrupt error";
+        SIGNAL_KIND = "An interrupt error (SIGINT)";
         SIGNAL_DETAILS = "This typically happens when your code timed out because it was stuck in an infinite loop.";
     } else if (sig == SIGSTACK) {
         SIGNAL_KIND = "A stack overflow";
         SIGNAL_DETAILS = "This can happen when you have a function that calls itself infinitely.";
+    } else if (sig == SIGUSR1) {
+        SIGNAL_KIND = "Custom signal 1";
+        SIGNAL_DETAILS = "This can happen when you produce infinite output in your code.";
     }
     
     std::cerr << std::endl;
-    std::cerr << " ***" << std::endl;
-    std::cerr << " *** " << SIGNAL_KIND << " occurred during program execution." << std::endl;
-    std::cerr << " *** " << SIGNAL_DETAILS << std::endl;;
-    std::cerr << " ***" << std::endl;;
+    std::cerr << "***" << std::endl;
+    std::cerr << "*** STANFORD C++ LIBRARY" << std::endl;
+    std::cerr << (std::string("*** ") + SIGNAL_KIND + " occurred during program execution.") << std::endl;
+    std::cerr << (std::string("*** ") + SIGNAL_DETAILS) << std::endl;
+    std::cerr << "***" << std::endl;
     
-    exceptions::printStackTrace();
+//    if (sig != SIGSTACK) {
+        exceptions::printStackTrace();
+//    } else {
+//        std::string line;
+//        stacktrace::addr2line(stacktrace::getFakeCallStackPointer(), line);
+//        std::cerr << "*** (unable to print stack trace because of stack memory corruption.)" << std::endl;
+//        std::cerr << "*** " << line << std::endl;
+//    }
     std::cerr.flush();
+
+    // if in autograder mode, swallow the signal;
+    // if in student code, let it bubble out to crash the app
     raise(sig == SIGSTACK ? SIGABRT : sig);
+}
+
+// puts "*** " before each line for multi-line error messages
+static std::string insertStarsBeforeEachLine(const std::string& s) {
+    std::string result;
+    for (std::string line : stringSplit(s, "\n")) {
+        if (!result.empty()) {
+            if (!startsWith(line, "***")) {
+                line = "*** " + line;
+            }
+            result += "\n";
+        }
+        result += line;
+    }
+    return result;
 }
 
 /*
  * A general handler for any uncaught exception.
  * Prints details about the exception and then tries to print a stack trace.
  */
-static void stanfordCppLibTerminateHandler() {
+[[noreturn]] static void stanfordCppLibTerminateHandler() {
     std::string DEFAULT_EXCEPTION_KIND = "An exception";
     std::string DEFAULT_EXCEPTION_DETAILS = "(unknown exception details)";
     
     std::string msg;
     msg += "\n";
-    msg += " ***\n";
-    msg += " *** " + DEFAULT_EXCEPTION_KIND + " occurred during program execution: \n";
-    msg += " *** " + DEFAULT_EXCEPTION_DETAILS + "\n";
-    msg += " ***\n";
+    msg += "***\n";
+    msg += "*** Mailspring Sync \n";
+    msg += "*** " + DEFAULT_EXCEPTION_KIND + " occurred during program execution: \n";
+    msg += "*** " + DEFAULT_EXCEPTION_DETAILS + "\n";
+    msg += "***\n";
     
     try {
         signalHandlerDisable();   // don't want both a signal AND a terminate() call
         throw;   // re-throws the exception that already occurred
-
-    } catch (GenericException& ex) {
-        stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, "Mailspring GenericException");
-        stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, (ex.toJSON().dump()));
-        auto logger = spdlog::get("logger");
-        if (logger) {
-            logger->critical(msg);
-            logger->flush();
-        } else {
-            cerr << msg;
-            cerr.flush();
-        }
-        ex.printStackTrace();
+   } catch (GenericException& ex) {
+       FILL_IN_EXCEPTION_TRACE(ex, "An exception", ex.toJSON().dump());
+       ex.printStackTrace();
+       THROW_NOT_ON_WINDOWS(ex);
+   } catch (const nlohmann::json::exception& ex) {
+        FILL_IN_EXCEPTION_TRACE(ex, "A JSON exception", insertStarsBeforeEachLine(ex.what()));
+        printStackTrace();
         THROW_NOT_ON_WINDOWS(ex);
-        
-    } catch (const ErrorException& ex) {
-        FILL_IN_EXCEPTION_TRACE(ex, "An ErrorException", ex.what());
-    } catch (const json::exception& ex) {
-        FILL_IN_EXCEPTION_TRACE(ex, "A JSON exception", ex.what());
+   } catch (const ErrorException& ex) {
+        FILL_IN_EXCEPTION_TRACE(ex, "An ErrorException", insertStarsBeforeEachLine(ex.what()));
+        if (ex.hasStackTrace()) {
+            auto logger = spdlog::get("logger");
+            if (logger) {
+                logger->critical(ex.getStackTrace());
+                logger->flush();
+            } else {
+                std::cerr << ex.getStackTrace();
+                std::cerr.flush();
+            }
+        }
+        THROW_NOT_ON_WINDOWS(ex);
     } catch (const std::exception& ex) {
-        FILL_IN_EXCEPTION_TRACE(ex, "A C++ exception", ex.what());
-    } catch (std::string str) {
-        FILL_IN_EXCEPTION_TRACE(str, "A string exception", str);
+        FILL_IN_EXCEPTION_TRACE(ex, "A C++ exception", insertStarsBeforeEachLine(ex.what()));
+        printStackTrace();
+        THROW_NOT_ON_WINDOWS(ex);
+    } catch (const std::string& str) {
+        FILL_IN_EXCEPTION_TRACE(str, "A string exception", insertStarsBeforeEachLine(str));
+        printStackTrace();
+        THROW_NOT_ON_WINDOWS(str);
     } catch (char const* str) {
-        FILL_IN_EXCEPTION_TRACE(str, "A string exception", str);
+        FILL_IN_EXCEPTION_TRACE(str, "A string exception", insertStarsBeforeEachLine(str));
+        printStackTrace();
+        THROW_NOT_ON_WINDOWS(str);
     } catch (int n) {
-        FILL_IN_EXCEPTION_TRACE(n, "An int exception", integerToString(n));
+        FILL_IN_EXCEPTION_TRACE(n, "An int exception", std::to_string(n));
+        printStackTrace();
+        THROW_NOT_ON_WINDOWS(n);
     } catch (long l) {
-        FILL_IN_EXCEPTION_TRACE(l, "A long exception", longToString(l));
+        FILL_IN_EXCEPTION_TRACE(l, "A long exception", std::to_string(l));
+        printStackTrace();
+        THROW_NOT_ON_WINDOWS(l);
     } catch (char c) {
         FILL_IN_EXCEPTION_TRACE(c, "A char exception", charToString(c));
+        printStackTrace();
+        THROW_NOT_ON_WINDOWS(c);
     } catch (bool b) {
         FILL_IN_EXCEPTION_TRACE(b, "A bool exception", boolToString(b));
+        printStackTrace();
+        THROW_NOT_ON_WINDOWS(b);
     } catch (double d) {
         FILL_IN_EXCEPTION_TRACE(d, "A double exception", realToString(d));
+        printStackTrace();
+        THROW_NOT_ON_WINDOWS(d);
     } catch (...) {
         std::string ex = "Unknown";
         FILL_IN_EXCEPTION_TRACE(ex, "An exception", std::string());
+        printStackTrace();
+        THROW_NOT_ON_WINDOWS(ex);
     }
-    signalHandlerDisable();   // don't want both a signal AND a terminate() call
+
+    abort();   // terminate the program with a SIGABRT signal
+}
+
+/*
+ * A general handler for any exception thrown that is missing from the throw()
+ * clause of a function header.
+ * Prints details about the exception and then tries to print a stack trace.
+ */
+static void stanfordCppLibUnexpectedHandler() {
+    std::string DEFAULT_EXCEPTION_KIND = "An exception";
+    std::string DEFAULT_EXCEPTION_DETAILS = "(unknown exception details)";
+
+    std::string msg;
+    msg += "\n";
+    msg += "***\n";
+    msg += "*** STANFORD C++ LIBRARY \n";
+    msg += "*** " + DEFAULT_EXCEPTION_KIND + " occurred during program execution: \n";
+    msg += "*** " + DEFAULT_EXCEPTION_DETAILS + "\n";
+    msg += "***\n";
+
+    std::string kind = "error";
+    std::string message = "";
+    try {
+        throw;   // re-throws the exception that already occurred
+    } catch (bool b) {
+        kind = "bool";
+        message = boolToString(b);
+    } catch (char c) {
+        kind = "char";
+        message = charToString(c);
+    } catch (char const* str) {
+        kind = "string";
+        message = str;
+    } catch (double d) {
+        kind = "double";
+        message = realToString(d);
+    } catch (const ErrorException& ex) {
+        kind = "error";
+        message = ex.what();
+    } catch (const std::exception& ex) {
+        kind = "exception";
+        message = ex.what();
+    } catch (int n) {
+        kind = "int";
+        message = std::to_string(n);
+    } catch (long l) {
+        kind = "long";
+        message = std::to_string(l);
+    } catch (std::string str) {
+        kind = "string";
+        message = str;
+    } catch (...) {
+        kind = "unknown";
+    }
+
+    ErrorException errorEx(message);
+    errorEx.setKind(kind);
+    throw errorEx;
 }
 
 } // namespace exceptions
 
-int getRecursionIndentLevel() {
-    // constructing the following object jumps into fancy code in call_stack_gcc/windows.cpp
-    // to rebuild the stack trace; implementation differs for each operating system
-    stacktrace::call_stack trace;
-    std::vector<stacktrace::entry> entries = trace.stack;
-    
-    std::string currentFunction = "";
-    int currentFunctionCount = 0;
-    for (size_t i = 0; i < entries.size(); ++i) {
-        // remove references to std:: namespace
-        if (exceptions::shouldFilterOutFromStackTrace(entries[i].function)
-                || entries[i].function.find("recursionIndent(") != std::string::npos
-                || entries[i].function.find("getRecursionIndentLevel(") != std::string::npos) {
-            continue;
-        } else if (currentFunction.empty()) {
-            currentFunction = entries[i].function;
-            currentFunctionCount = 1;
-        } else if (entries[i].function == currentFunction) {
-            currentFunctionCount++;
-        } else {
-            break;
-        }
-    }
-    return currentFunctionCount;
-}
-
-std::string recursionIndent(std::string indenter) {
-    int indent = getRecursionIndentLevel();
-    std::string result = "";
-    for (int i = 0; i < indent - 1; i++) {
-        result += indenter;
-    }
-    return result;
-}

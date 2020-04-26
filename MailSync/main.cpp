@@ -472,7 +472,7 @@ string exectuablePath = argv[0];
 #endif
 
     // initialize the stanford exception handler
-    exceptions::setProgramNameForStackTrace(exectuablePath);
+    exceptions::setProgramNameForStackTrace(exectuablePath.c_str());
     exceptions::setTopLevelExceptionHandlerEnabled(true);
 
     // parse launch arguments, skip program name argv[0] if present

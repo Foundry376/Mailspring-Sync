@@ -34,13 +34,44 @@ class ErrorException : public std::exception {
 public:
     ErrorException(std::string msg);
     virtual ~ErrorException() throw ();
+
+    /**
+     * Returns the exception's error message as passed to its constructor.
+     */
     virtual std::string getMessage() const;
+
+    /**
+     * Returns a stack trace for this exception as a multi-line string.
+     * See exceptions.h/cpp for descriptions of the format.
+     * Not every exception has a proper stack trace, based on when/why it was
+     * thrown, platform incompatibilities, and other issues; use hasStackTrace to
+     * check if a given exception's stack trace is populated.
+     */
     virtual std::string getStackTrace() const;
+
+    /**
+     * Returns whether this exception has a non-empty stack trace.
+     * Not every exception has a proper stack trace, based on when/why it was
+     * thrown, platform incompatibilities, and other issues; use hasStackTrace to
+     * check if a given exception's stack trace is populated.
+     */
+    virtual bool hasStackTrace() const;
+
+    /**
+     * Sets what kind of exception this is.
+     * Default is "error".
+     */
+    void setKind(const std::string& kind);
+    
+    /**
+     * Returns the exception's error message as a C string.
+     */
     virtual const char* what() const throw ();
 
 private:
     std::string msg;
     std::string stackTrace;
+    std::string kind;
 };
 
 /*
