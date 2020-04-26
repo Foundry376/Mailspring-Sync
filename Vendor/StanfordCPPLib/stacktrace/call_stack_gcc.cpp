@@ -194,7 +194,10 @@ int addr2line_all(void** addrs, int length, std::string& output) {
     out << "addr2line -f -i -C -s -p -e " << exceptions::getProgramNameForStackTrace() << addrsStr;
 #endif
     std::string command = out.str();
+    std::cout << "\addr2line.exe command:\n" << command;
     int result = execAndCapture(command, output);
+    std::cout << "\addr2line.exe result:\n" << result;
+    std::cout << "\addr2line.exe output:\n" << output;
     return result;
 }
 
