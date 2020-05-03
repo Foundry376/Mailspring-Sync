@@ -283,6 +283,9 @@ bool shouldFilterOutFromStackTrace(const std::string& function) {
         "__cxa_rethrow",
         "__cxa_call_terminate",
         "__cxa_call_unexpected",
+        "exception_cleanup_func",
+        "__cxa_get_exception_ptr",
+        "__terminate",
         "__func::",
         "__function::",
         "_endthreadex",
@@ -517,7 +520,7 @@ void printStackTrace(std::vector<stacktrace::entry> entries) {
 #define THROW_NOT_ON_WINDOWS(ex) throw(ex)
 #endif // _WIN32
 
-#define FILL_IN_EXCEPTION_TRACE(ex, kind, desc) \
+#define FILL_IN_AND_LOG_MSG(ex, kind, desc) \
     {\
     std::string __kind = (kind); \
     std::string __desc = (desc); \
@@ -615,7 +618,7 @@ static void stanfordCppLibSignalHandler(int sig) {
     
     std::cerr << std::endl;
     std::cerr << "***" << std::endl;
-    std::cerr << "*** STANFORD C++ LIBRARY" << std::endl;
+    std::cerr << "*** Mailspring Sync" << std::endl;
     std::cerr << (std::string("*** ") + SIGNAL_KIND + " occurred during program execution.") << std::endl;
     std::cerr << (std::string("*** ") + SIGNAL_DETAILS) << std::endl;
     std::cerr << "***" << std::endl;
@@ -650,85 +653,76 @@ static std::string insertStarsBeforeEachLine(const std::string& s) {
     return result;
 }
 
+void logCurrentExceptionWithStackTrace() {
+     std::string DEFAULT_EXCEPTION_KIND = "An exception";
+     std::string DEFAULT_EXCEPTION_DETAILS = "(unknown exception details)";
+     
+     std::string msg;
+     msg += "\n";
+     msg += "***\n";
+     msg += "*** Mailspring Sync \n";
+     msg += "*** " + DEFAULT_EXCEPTION_KIND + " occurred during program execution: \n";
+     msg += "*** " + DEFAULT_EXCEPTION_DETAILS + "\n";
+     msg += "***\n";
+     
+     try {
+         signalHandlerDisable();   // don't want both a signal AND a terminate() call
+         throw;   // re-throws the exception that already occurred
+    } catch (GenericException& ex) {
+        FILL_IN_AND_LOG_MSG(ex, "An exception", ex.toJSON().dump());
+        ex.printStackTrace();
+    } catch (const nlohmann::json::exception& ex) {
+         FILL_IN_AND_LOG_MSG(ex, "A JSON exception", insertStarsBeforeEachLine(ex.what()));
+         printStackTrace();
+    } catch (const ErrorException& ex) {
+         FILL_IN_AND_LOG_MSG(ex, "An ErrorException", insertStarsBeforeEachLine(ex.what()));
+         if (ex.hasStackTrace()) {
+             auto logger = spdlog::get("logger");
+             if (logger) {
+                 logger->critical(ex.getStackTrace());
+                 logger->flush();
+             } else {
+                 std::cerr << ex.getStackTrace();
+                 std::cerr.flush();
+             }
+         }
+     } catch (const std::exception& ex) {
+         FILL_IN_AND_LOG_MSG(ex, "A C++ exception", insertStarsBeforeEachLine(ex.what()));
+         printStackTrace();
+     } catch (const std::string& str) {
+         FILL_IN_AND_LOG_MSG(str, "A string exception", insertStarsBeforeEachLine(str));
+         printStackTrace();
+     } catch (char const* str) {
+         FILL_IN_AND_LOG_MSG(str, "A string exception", insertStarsBeforeEachLine(str));
+         printStackTrace();
+     } catch (int n) {
+         FILL_IN_AND_LOG_MSG(n, "An int exception", std::to_string(n));
+         printStackTrace();
+     } catch (long l) {
+         FILL_IN_AND_LOG_MSG(l, "A long exception", std::to_string(l));
+         printStackTrace();
+     } catch (char c) {
+         FILL_IN_AND_LOG_MSG(c, "A char exception", charToString(c));
+         printStackTrace();
+     } catch (bool b) {
+         FILL_IN_AND_LOG_MSG(b, "A bool exception", boolToString(b));
+         printStackTrace();
+     } catch (double d) {
+         FILL_IN_AND_LOG_MSG(d, "A double exception", realToString(d));
+         printStackTrace();
+     } catch (...) {
+         std::string ex = "Unknown";
+         FILL_IN_AND_LOG_MSG(ex, "An exception", std::string());
+         printStackTrace();
+     }
+}
+
 /*
  * A general handler for any uncaught exception.
  * Prints details about the exception and then tries to print a stack trace.
  */
 [[noreturn]] static void stanfordCppLibTerminateHandler() {
-    std::string DEFAULT_EXCEPTION_KIND = "An exception";
-    std::string DEFAULT_EXCEPTION_DETAILS = "(unknown exception details)";
-    
-    std::string msg;
-    msg += "\n";
-    msg += "***\n";
-    msg += "*** Mailspring Sync \n";
-    msg += "*** " + DEFAULT_EXCEPTION_KIND + " occurred during program execution: \n";
-    msg += "*** " + DEFAULT_EXCEPTION_DETAILS + "\n";
-    msg += "***\n";
-    
-    try {
-        signalHandlerDisable();   // don't want both a signal AND a terminate() call
-        throw;   // re-throws the exception that already occurred
-   } catch (GenericException& ex) {
-       FILL_IN_EXCEPTION_TRACE(ex, "An exception", ex.toJSON().dump());
-       ex.printStackTrace();
-       THROW_NOT_ON_WINDOWS(ex);
-   } catch (const nlohmann::json::exception& ex) {
-        FILL_IN_EXCEPTION_TRACE(ex, "A JSON exception", insertStarsBeforeEachLine(ex.what()));
-        printStackTrace();
-        THROW_NOT_ON_WINDOWS(ex);
-   } catch (const ErrorException& ex) {
-        FILL_IN_EXCEPTION_TRACE(ex, "An ErrorException", insertStarsBeforeEachLine(ex.what()));
-        if (ex.hasStackTrace()) {
-            auto logger = spdlog::get("logger");
-            if (logger) {
-                logger->critical(ex.getStackTrace());
-                logger->flush();
-            } else {
-                std::cerr << ex.getStackTrace();
-                std::cerr.flush();
-            }
-        }
-        THROW_NOT_ON_WINDOWS(ex);
-    } catch (const std::exception& ex) {
-        FILL_IN_EXCEPTION_TRACE(ex, "A C++ exception", insertStarsBeforeEachLine(ex.what()));
-        printStackTrace();
-        THROW_NOT_ON_WINDOWS(ex);
-    } catch (const std::string& str) {
-        FILL_IN_EXCEPTION_TRACE(str, "A string exception", insertStarsBeforeEachLine(str));
-        printStackTrace();
-        THROW_NOT_ON_WINDOWS(str);
-    } catch (char const* str) {
-        FILL_IN_EXCEPTION_TRACE(str, "A string exception", insertStarsBeforeEachLine(str));
-        printStackTrace();
-        THROW_NOT_ON_WINDOWS(str);
-    } catch (int n) {
-        FILL_IN_EXCEPTION_TRACE(n, "An int exception", std::to_string(n));
-        printStackTrace();
-        THROW_NOT_ON_WINDOWS(n);
-    } catch (long l) {
-        FILL_IN_EXCEPTION_TRACE(l, "A long exception", std::to_string(l));
-        printStackTrace();
-        THROW_NOT_ON_WINDOWS(l);
-    } catch (char c) {
-        FILL_IN_EXCEPTION_TRACE(c, "A char exception", charToString(c));
-        printStackTrace();
-        THROW_NOT_ON_WINDOWS(c);
-    } catch (bool b) {
-        FILL_IN_EXCEPTION_TRACE(b, "A bool exception", boolToString(b));
-        printStackTrace();
-        THROW_NOT_ON_WINDOWS(b);
-    } catch (double d) {
-        FILL_IN_EXCEPTION_TRACE(d, "A double exception", realToString(d));
-        printStackTrace();
-        THROW_NOT_ON_WINDOWS(d);
-    } catch (...) {
-        std::string ex = "Unknown";
-        FILL_IN_EXCEPTION_TRACE(ex, "An exception", std::string());
-        printStackTrace();
-        THROW_NOT_ON_WINDOWS(ex);
-    }
-
+    logCurrentExceptionWithStackTrace();
     abort();   // terminate the program with a SIGABRT signal
 }
 
@@ -744,7 +738,7 @@ static void stanfordCppLibUnexpectedHandler() {
     std::string msg;
     msg += "\n";
     msg += "***\n";
-    msg += "*** STANFORD C++ LIBRARY \n";
+    msg += "*** Mailspring Sync \n";
     msg += "*** " + DEFAULT_EXCEPTION_KIND + " occurred during program execution: \n";
     msg += "*** " + DEFAULT_EXCEPTION_DETAILS + "\n";
     msg += "***\n";

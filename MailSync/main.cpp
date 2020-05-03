@@ -24,6 +24,7 @@
 #include "json.hpp"
 #include "spdlog/spdlog.h"
 #include "optionparser.h"
+#include "exceptions.h"
 
 #include "Account.hpp"
 #include "Identity.hpp"
@@ -121,15 +122,18 @@ void runForegroundSyncWorker() {
             fgWorker->idleCycleIteration();
             SharedDeltaStream()->endConnectionError(fgWorker->account->id());
         } catch (SyncException & ex) {
-            spdlog::get("logger")->info("Encountered exception: {}", ex.toJSON().dump());
+            exceptions::logCurrentExceptionWithStackTrace();
             if (!ex.isRetryable()) {
-                throw;
+                abort();
             }
             if (ex.isOffline()) {
                 SharedDeltaStream()->beginConnectionError(fgWorker->account->id());
             }
             spdlog::get("logger")->info("--sleeping");
             MailUtils::sleepWorkerUntilWakeOrSec(120);
+        } catch (...) {
+            exceptions::logCurrentExceptionWithStackTrace();
+            abort();
         }
     }
 }
@@ -144,7 +148,7 @@ void runBackgroundSyncWorker() {
     while(true) {
         try {
             bgWorker->configure();
-
+            
             // mark any existing folders as busy so the UI shows us syncing mail until
             // the sync worker gets through its first iteration.
             if (!started || bgWorkerShouldMarkAll) {
@@ -179,15 +183,18 @@ void runBackgroundSyncWorker() {
             SharedDeltaStream()->endConnectionError(bgWorker->account->id());
 
         } catch (SyncException & ex) {
+            exceptions::logCurrentExceptionWithStackTrace();
             if (!ex.isRetryable()) {
-                throw;
+                abort();
             }
             if (ex.isOffline()) {
                 SharedDeltaStream()->beginConnectionError(bgWorker->account->id());
             }
-            spdlog::get("logger")->info("Sleeping after exception: {}", ex.toJSON().dump());
+            spdlog::get("logger")->info("--sleeping");
+        } catch (...) {
+            exceptions::logCurrentExceptionWithStackTrace();
+            abort();
         }
-
         MailUtils::sleepWorkerUntilWakeOrSec(120);
     }
 }
@@ -210,8 +217,8 @@ void runCalContactsSyncWorker() {
             }
             davWorker->run();
         } catch (SyncException & ex) {
-            spdlog::get("logger")->info("Encountered exception: {}", ex.toJSON().dump());
-            
+            exceptions::logCurrentExceptionWithStackTrace();
+
             // Currently we do not allow calendar and contact sync to terminate mailsync (sending the
             // account into an error state.) If we hit something unrecoverable (like a CardDAV server
             // with an invalid SSL cert, we back off aggressively for 50min + 10min and then try again
@@ -223,14 +230,22 @@ void runCalContactsSyncWorker() {
                 spdlog::get("logger")->info("Suspending sync for 4 hours - Google app API request quota hit.");
                 std::this_thread::sleep_for(std::chrono::hours(4));
 
-            } else if (ex.key.find("Code: 403") != string::npos || ex.key.find("Code: 401") != string::npos) {
+            } else if (ex.key.find("Code: 403") != string::npos ||
+                       ex.key.find("Code: 401") != string::npos ||
+                       ex.debuginfo.find("invalid_grant") != string::npos) {
                 spdlog::get("logger")->info("Stopping sync - unable to authenticate.");
                 return;
 
             } else if (!ex.isRetryable()) {
                 spdlog::get("logger")->error("Suspending sync for 90min - unlikely a retry would resolve this error.");
                 std::this_thread::sleep_for(std::chrono::minutes(90));
+                // abort();
             }
+        } catch (...) {
+            exceptions::logCurrentExceptionWithStackTrace();
+            spdlog::get("logger")->info("Stopping cal/contacts sync. In the future this will kill the mailsync process.");
+            return;
+            // abort();
         }
         std::this_thread::sleep_for(std::chrono::minutes(45));
     }
@@ -603,7 +618,7 @@ string exectuablePath = argv[0];
     }
 
     // Always log critical errors to the stderr as well as a log file / stdout.
-    // When attached to the client, these are saved and if we terminates, reported.
+    // When attached to the client, these are saved and if we terminate, reported.
     auto stderr_sink = make_shared<spdlog::sinks::stderr_sink_mt>();
     stderr_sink->set_level(spdlog::level::critical);
     sinks.push_back(stderr_sink);

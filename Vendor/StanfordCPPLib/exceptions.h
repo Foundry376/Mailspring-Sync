@@ -76,6 +76,8 @@ void setTopLevelExceptionHandlerEnabled(bool enabled, bool force = false);
  * Not meant to be called by clients.
  */
 bool shouldFilterOutFromStackTrace(const std::string& function);
+
+void logCurrentExceptionWithStackTrace();
 }
 
 #endif // _exceptions_h
