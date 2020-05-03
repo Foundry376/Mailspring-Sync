@@ -1,6 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="14.0" 
-  xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
       <Configuration>Debug</Configuration>
@@ -144,6 +143,7 @@ _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;SPDLOG_WCHAR_FILENAMES;%(Pre
     <ClCompile Include="..\Vendor\StanfordCPPLib\filelib.cpp" />
     <ClCompile Include="..\Vendor\StanfordCPPLib\platform.cpp" />
     <ClCompile Include="..\Vendor\StanfordCPPLib\simpio.cpp" />
+    <ClCompile Include="..\Vendor\StanfordCPPLib\stacktrace\call_stack_gcc.cpp" />
     <ClCompile Include="..\Vendor\StanfordCPPLib\stacktrace\call_stack_windows.cpp" />
     <ClCompile Include="..\Vendor\StanfordCPPLib\strlib.cpp" />
     <ClCompile Include="stdafx.cpp">
@@ -155,6 +155,9 @@ _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;SPDLOG_WCHAR_FILENAMES;%(Pre
     <ProjectReference Include="..\Vendor\mailcore2\build-windows\mailcore2\mailcore2\mailcore2.vcxproj">
       <Project>{aad35e01-77e4-43cb-bbb4-f7f6692ea829}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="dbg.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

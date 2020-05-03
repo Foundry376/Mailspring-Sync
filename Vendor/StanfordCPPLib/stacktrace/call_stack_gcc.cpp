@@ -46,6 +46,17 @@
 #include <cstring>
 #endif // _WIN32
 #endif // __GNUC__
+#ifdef WIN32
+#include <windows.h>
+#include <tchar.h>
+#include <stdio.h>
+#include <strsafe.h>
+#include <errhandlingapi.h>
+#undef MOUSE_EVENT
+#undef KEY_EVENT
+#undef MOUSE_MOVED
+#undef HELP_KEY
+#endif 
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>   // for _dyld_get_image_header
 #endif // __APPLE__
@@ -240,7 +251,7 @@ std::string addr2line_functionName(std::string line) {
 
 int addr2line_all(std::vector<void*> addrsVector, std::string& output) {
     int length = static_cast<int>(addrsVector.size());
-    void* addrs[length];
+    void* addrs[512];
     for (int i = 0; i < length; i++) {
         addrs[i] = addrsVector[i];
     }
