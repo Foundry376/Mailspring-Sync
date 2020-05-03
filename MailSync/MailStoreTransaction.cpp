@@ -41,10 +41,10 @@ void MailStoreTransaction::commit()
 
         auto now = system_clock::now();
         auto elapsed = now - mStart;
-        long long microseconds = duration_cast<std::chrono::microseconds>(elapsed).count();
-        if (microseconds > 60 * 1000) { // 60ms
-            long long waiting = duration_cast<std::chrono::microseconds>(mBegan - mStart).count();
-            spdlog::get("logger")->warn("[SLOW] Transaction={} > 60ms ({} microseconds, {} waiting to aquire)", mNameHint, microseconds, waiting);
+        long long milliseconds = duration_cast<std::chrono::milliseconds>(elapsed).count();
+        if (milliseconds > 80) { // 80ms
+            long long waiting = duration_cast<std::chrono::milliseconds>(mBegan - mStart).count();
+            spdlog::get("logger")->warn("[SLOW] Transaction={} > 80ms ({} microseconds, {} waiting to aquire)", mNameHint, milliseconds, waiting);
         }
         
     } else {
