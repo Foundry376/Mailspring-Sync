@@ -55,12 +55,13 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include "call_stack.h"
+#include "stacktrace/call_stack.h"
 #include "error.h"
 #include "filelib.h"
 #include "strlib.h"
 #include "static.h"
 #ifdef _WIN32
+#define NOMINMAX
 #include <windows.h>
 #  undef MOUSE_EVENT
 #  undef KEY_EVENT
@@ -608,9 +609,6 @@ static void stanfordCppLibSignalHandler(int sig) {
     } else if (sig == SIGSTACK) {
         SIGNAL_KIND = "A stack overflow";
         SIGNAL_DETAILS = "This can happen when you have a function that calls itself infinitely.";
-    } else if (sig == SIGUSR1) {
-        SIGNAL_KIND = "Custom signal 1";
-        SIGNAL_DETAILS = "This can happen when you produce infinite output in your code.";
     }
     
     std::cerr << std::endl;
