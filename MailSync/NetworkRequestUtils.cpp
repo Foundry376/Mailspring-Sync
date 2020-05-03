@@ -183,6 +183,10 @@ void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
         curl_easy_cleanup(curl_handle); // note: cleans up _url;
         
         bool retryable = ((http_code != 403) && (http_code != 401));
+        if (resp.find("invalid_grant") != string::npos) {
+            retryable = false;
+        }
+        
         string debuginfo = url + " RETURNED " + resp;
         throw SyncException("Invalid Response Code: " + to_string(http_code), debuginfo, retryable);
     }
