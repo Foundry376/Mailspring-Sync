@@ -131,6 +131,8 @@ namespace dbg
 
         DWORD Options = SymGetOptions();
         Options |= SYMOPT_LOAD_LINES;
+        Options |= SYMOPT_LOAD_ANYTHING;
+        Options |= SYMOPT_OMAP_FIND_NEAREST;
         Options |= SYMOPT_DEFERRED_LOADS;
         Options |= SYMOPT_DEBUG;
         SymSetOptions(Options);
