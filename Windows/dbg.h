@@ -108,7 +108,7 @@ namespace dbg
         std::string dirname{ cDirname };
         auto index = dirname.find("mailsync.exe", 0);
         if (index != std::string::npos) {
-            dirname = dirname.substr(0, index);
+            dirname = dirname.substr(0, index - 1); // remove dir sep
         }
 
         if (SymInitialize(process, NULL, TRUE) == FALSE)
@@ -131,6 +131,8 @@ namespace dbg
 
         DWORD Options = SymGetOptions();
         Options |= SYMOPT_LOAD_LINES;
+        Options |= SYMOPT_DEFERRED_LOADS;
+        Options |= SYMOPT_DEBUG;
         SymSetOptions(Options);
 
         CONTEXT    context = {};
