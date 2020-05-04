@@ -454,7 +454,7 @@ void SyncWorker::ensureRootMailspringFolder(Array * remoteFolders)
     String * desiredPath = session.defaultNamespace()->pathForComponents(components);
     
     bool exists = false;
-    for (unsigned int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+    for (int ii = ((int)remoteFolders->count()) - 1; ii >= 0; ii--) {
         IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
         if (remote->path()->isEqual(desiredPath)) {
             exists = true;
@@ -498,7 +498,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         transform(mailspringRole.begin(), mailspringRole.end(), mailspringRole.begin(), ::tolower);
 
         bool found = false;
-        for (unsigned int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+        for (int ii = ((int)remoteFolders->count()) - 1; ii >= 0; ii--) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
             string remoteRole = MailUtils::roleForFolder(mainPrefix, remote);
             if (remoteRole == mailspringRole) {
@@ -542,7 +542,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         map<string, shared_ptr<Folder>> allFoundCategories {};
         
         // Eliminate unselectable folders
-        for (unsigned int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+        for (int ii = ((int)remoteFolders->count()) - 1; ii >= 0; ii--) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
             if (remote->flags() & IMAPFolderFlagNoSelect) {
                 remoteFolders->removeObjectAtIndex(ii);
@@ -703,7 +703,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
 
     logger->info("- remote={}, local={}", remote->count(), local.size());
 
-    for (unsigned int ii = remote->count() - 1; ii >= 0; ii--) {
+    for (int ii = ((int)remote->count()) - 1; ii >= 0; ii--) {
         // Never sit in a hard loop inserting things into the database for more than 250ms.
         // This ensures we don't starve another thread waiting for a database connection
         if (((clock() - lastSleepClock) * 4) / CLOCKS_PER_SEC > 1) {
@@ -760,7 +760,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         if (err != ErrorNone) {
             throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID (heavy)");
         }
-        for (unsigned int ii = remote->count() - 1; ii >= 0; ii--) {
+        for (int ii = ((int)remote->count()) - 1; ii >= 0; ii--) {
             IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
             auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
             if (syncedMessages != nullptr) {
