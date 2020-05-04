@@ -17,6 +17,7 @@
 #include "Thread.hpp"
 #include "SyncException.hpp"
 #include "NetworkRequestUtils.hpp"
+#include "exceptions.h"
 
 #include <string>
 #include <curl/curl.h>
@@ -65,12 +66,16 @@ void MetadataWorker::run() {
 
         } catch (SyncException & ex) {
             if (!ex.isRetryable()) {
-                throw;
+                exceptions::logCurrentExceptionWithStackTrace();
+                abort();
             }
-            logger->info("Encountered error: {}. Will retry in {} sec.", ex.toJSON().dump(), backoffSeconds[backoffStep]);
+            logger->info("Will retry in {} sec.", backoffSeconds[backoffStep]);
             MailUtils::sleepWorkerUntilWakeOrSec(backoffSeconds[backoffStep]);
             if (backoffStep < 9)
                 backoffStep += 1;
+        } catch (...) {
+            exceptions::logCurrentExceptionWithStackTrace();
+            abort();
         }
     }
     

@@ -393,77 +393,82 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 			std::this_thread::sleep_for(std::chrono::microseconds(1000));
         }
 
-        string type = packet.count("type") ? packet["type"].get<string>() : "";
+        try {
+            string type = packet.count("type") ? packet["type"].get<string>() : "";
 
-        if (type == "queue-task") {
-            packet["task"]["v"] = 0;
-            Task task{packet["task"]};
-            processor.performLocal(&task);
-    
-            // interrupt the foreground sync worker to do the remote part of the task. We wait a short time
-            // because we want tasks queued back to back to run ASAP and not fight for locks with remote
-            // syncback. This also mitigates any potential remote loads+saves that aren't inside transactions
-            // and could overwrite local changes.
-            static atomic<bool> queuedForegroundWake { false };
-            if (!queuedForegroundWake) {
-                std::thread([]() {
-                    std::this_thread::sleep_for(chrono::milliseconds(300));
-                    if (fgWorker) {
-                        fgWorker->idleInterrupt();
-                    }
-                    queuedForegroundWake = false;
-                }).detach();
-                queuedForegroundWake = true;
-            }
-        }
+            if (type == "queue-task") {
+                packet["task"]["v"] = 0;
+                Task task{packet["task"]};
+                processor.performLocal(&task);
         
-        if (type == "cancel-task") {
-            // we can't always dequeue a task (if it's started already or potentially even finished).
-            // but if we're deleting a draft we want to dequeue saves, etc.
-            processor.cancel(packet["taskId"].get<string>());
-        }
-        
-        if (type == "wake-workers") {
-            spdlog::get("logger")->info("Waking all workers...");
-
-            // mark that the background worker should mark all the folders as busy
-            // (on it's thread!)
-            bgWorkerShouldMarkAll = true;
-            
-            // Wake the workers
-            MailUtils::wakeAllWorkers();
-            
-            // interrupt the foreground worker's IDLE call, because our network
-            // connection may have been reset and it'll sit for a while otherwise
-            // and wake-workers is called when waking from sleep
-            if (fgWorker) fgWorker->idleInterrupt();
-        }
-
-        if (type == "need-bodies") {
-            // interrupt the foreground sync worker to do the remote part of the task
-            vector<string> ids{};
-            for (auto id : packet["ids"]) {
-                ids.push_back(id.get<string>());
+                // interrupt the foreground sync worker to do the remote part of the task. We wait a short time
+                // because we want tasks queued back to back to run ASAP and not fight for locks with remote
+                // syncback. This also mitigates any potential remote loads+saves that aren't inside transactions
+                // and could overwrite local changes.
+                static atomic<bool> queuedForegroundWake { false };
+                if (!queuedForegroundWake) {
+                    std::thread([]() {
+                        std::this_thread::sleep_for(chrono::milliseconds(300));
+                        if (fgWorker) {
+                            fgWorker->idleInterrupt();
+                        }
+                        queuedForegroundWake = false;
+                    }).detach();
+                    queuedForegroundWake = true;
+                }
             }
-            if (fgWorker) fgWorker->idleQueueBodiesToSync(ids);
-            if (fgWorker) fgWorker->idleInterrupt();
-        }
-
-        if (type == "sync-calendar") {
-            static atomic<bool> runningCalendarSync { false };
-            if (!runningCalendarSync) {
-                std::thread([&]() {
-                    SetThreadName("calendar");
-                    auto worker = DAVWorker(account);
-                    worker.run();
-                    runningCalendarSync = false;
-                }).detach();
-                runningCalendarSync = true;
+            
+            if (type == "cancel-task") {
+                // we can't always dequeue a task (if it's started already or potentially even finished).
+                // but if we're deleting a draft we want to dequeue saves, etc.
+                processor.cancel(packet["taskId"].get<string>());
             }
-        }
+            
+            if (type == "wake-workers") {
+                spdlog::get("logger")->info("Waking all workers...");
 
-        if (type == "test-crash") {
-            throw SyncException("test", "triggered via cin", false);
+                // mark that the background worker should mark all the folders as busy
+                // (on it's thread!)
+                bgWorkerShouldMarkAll = true;
+                
+                // Wake the workers
+                MailUtils::wakeAllWorkers();
+                
+                // interrupt the foreground worker's IDLE call, because our network
+                // connection may have been reset and it'll sit for a while otherwise
+                // and wake-workers is called when waking from sleep
+                if (fgWorker) fgWorker->idleInterrupt();
+            }
+
+            if (type == "need-bodies") {
+                // interrupt the foreground sync worker to do the remote part of the task
+                vector<string> ids{};
+                for (auto id : packet["ids"]) {
+                    ids.push_back(id.get<string>());
+                }
+                if (fgWorker) fgWorker->idleQueueBodiesToSync(ids);
+                if (fgWorker) fgWorker->idleInterrupt();
+            }
+
+            if (type == "sync-calendar") {
+                static atomic<bool> runningCalendarSync { false };
+                if (!runningCalendarSync) {
+                    std::thread([&]() {
+                        SetThreadName("calendar");
+                        auto worker = DAVWorker(account);
+                        worker.run();
+                        runningCalendarSync = false;
+                    }).detach();
+                    runningCalendarSync = true;
+                }
+            }
+
+            if (type == "test-crash") {
+                throw SyncException("test", "triggered via cin", false);
+            }
+        } catch (...) {
+            exceptions::logCurrentExceptionWithStackTrace();
+            abort();
         }
     }
 }
