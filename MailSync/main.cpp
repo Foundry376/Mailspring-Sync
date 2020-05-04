@@ -12,6 +12,7 @@
 #include <iostream>
 #include <string>
 #include <time.h>
+#include <signal.h>
 #define SPDLOG_WCHAR_FILENAMES true
 #define _TIMESPEC_DEFINED true
 #include <pthread.h>
@@ -465,6 +466,9 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
             if (type == "test-crash") {
                 throw SyncException("test", "triggered via cin", false);
+            }
+            if (type == "test-segfault") {
+                raise(SIGSEGV);
             }
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();

@@ -288,6 +288,7 @@ bool shouldFilterOutFromStackTrace(const std::string& function) {
         "__cxa_get_exception_ptr",
         "__terminate",
         "__func::",
+        "_LaunchPad",
         "__function::",
         "_endthreadex",
         "_Function_base::_Base_manager::",
@@ -592,48 +593,38 @@ static void stanfordCppLibSignalHandler(int sig) {
     if (logger) logger->flush();
 
     // tailor the error message to the kind of signal that occurred
-    std::string SIGNAL_KIND = "A fatal error";
-    std::string SIGNAL_DETAILS = "No details were provided about the error.";
+    std::string msg;
+    std::string DEFAULT_EXCEPTION_KIND = "A fatal error";
+    std::string DEFAULT_EXCEPTION_DETAILS = "No details were provided about the error.";
+    msg += "\n";
+    msg += "***\n";
+    msg += "*** Mailspring Sync \n";
+    msg += "*** " + DEFAULT_EXCEPTION_KIND + " occurred during program execution: \n";
+    msg += "*** " + DEFAULT_EXCEPTION_DETAILS + "\n";
+    msg += "***\n";
+    std::string ex = "Unknown";
+
     if (sig == SIGSEGV) {
-        SIGNAL_KIND = "A segmentation fault (SIGSEGV)";
-        SIGNAL_DETAILS = "This typically happens when you try to dereference a pointer\n*** that is null or invalid.";
+        FILL_IN_AND_LOG_MSG(ex, "A segmentation fault (SIGSEGV)", "dereference a pointer\n*** that is null or invalid.");
     } else if (sig == SIGABRT) {
-        SIGNAL_KIND = "An abort error (SIGABRT)";
-        SIGNAL_DETAILS = "This error is thrown by system functions that detect corrupt state.";
+        FILL_IN_AND_LOG_MSG(ex, "An abort error (SIGABRT)", "system functions that detect corrupt state.");
     } else if (sig == SIGILL) {
-        SIGNAL_KIND = "An illegal instruction error (SIGILL)";
-        SIGNAL_DETAILS = "This typically happens when you have corrupted your program's memory.";
+        FILL_IN_AND_LOG_MSG(ex, "An illegal instruction error (SIGILL)", "corrupted program memory.");
     } else if (sig == SIGFPE) {
-        SIGNAL_KIND = "An arithmetic error (SIGFPE)";
-        SIGNAL_DETAILS = "This typically happens when you divide by 0 or produce an overflow.";
+        FILL_IN_AND_LOG_MSG(ex, "An arithmetic error (SIGFPE)", "divide by 0 or produce an overflow.");
     } else if (sig == SIGINT) {
-        SIGNAL_KIND = "An interrupt error (SIGINT)";
-        SIGNAL_DETAILS = "This typically happens when your code timed out because it was stuck in an infinite loop.";
+        FILL_IN_AND_LOG_MSG(ex, "An interrupt error (SIGINT)", "timed out because it was stuck in an infinite loop.");
     } else if (sig == SIGSTACK) {
-        SIGNAL_KIND = "A stack overflow";
-        SIGNAL_DETAILS = "This can happen when you have a function that calls itself infinitely.";
+        FILL_IN_AND_LOG_MSG(ex, "A stack overflow", "function calling itself infinitely.");
     }
     
-    std::cerr << std::endl;
-    std::cerr << "***" << std::endl;
-    std::cerr << "*** Mailspring Sync" << std::endl;
-    std::cerr << (std::string("*** ") + SIGNAL_KIND + " occurred during program execution.") << std::endl;
-    std::cerr << (std::string("*** ") + SIGNAL_DETAILS) << std::endl;
-    std::cerr << "***" << std::endl;
-    
-//    if (sig != SIGSTACK) {
+
+    if (sig != SIGSTACK) {
         exceptions::printStackTrace();
-//    } else {
-//        std::string line;
-//        stacktrace::addr2line(stacktrace::getFakeCallStackPointer(), line);
-//        std::cerr << "*** (unable to print stack trace because of stack memory corruption.)" << std::endl;
-//        std::cerr << "*** " << line << std::endl;
-//    }
+    }
     std::cerr.flush();
 
-    // if in autograder mode, swallow the signal;
-    // if in student code, let it bubble out to crash the app
-    raise(sig == SIGSTACK ? SIGABRT : sig);
+    raise(sig);
 }
 
 // puts "*** " before each line for multi-line error messages
