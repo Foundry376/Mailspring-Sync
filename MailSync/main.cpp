@@ -280,7 +280,7 @@ int runTestAuth(shared_ptr<Account> account) {
     mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
     
     err = ErrorInvalidAccount;
-    for (int i = 0; i < folders->count(); i ++) {
+    for (unsigned int i = 0; i < folders->count(); i ++) {
         // Gmail accounts must have "All Mail" enabled, IMAP accounts must have an Inbox.
         // Ensure we can find at least one folder matching the requirement.
         string role = MailUtils::roleForFolder(mainPrefix, (IMAPFolder *)folders->objectAtIndex(i));

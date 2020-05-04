@@ -90,7 +90,7 @@ void _moveMessagesResilient(IMAPSession * session, String * path, Folder * destF
             Array * movedMessages = session->fetchMessagesByUID(destPath, kind, set, nullptr, &err);
             for (auto msg : messages) {
                 bool found = false;
-                for (int ii = 0; ii < movedMessages->count(); ii ++) {
+                for (unsigned int ii = 0; ii < movedMessages->count(); ii ++) {
                     IMAPMessage * movedMessage = (IMAPMessage*)movedMessages->objectAtIndex(ii);
                     string movedId = MailUtils::idForMessage(msg->accountId(), destFolder->path(), movedMessage);
                     if (msg->id() == movedId) {
@@ -162,7 +162,7 @@ void _removeMessagesResilient(IMAPSession * session, MailStore * store, string a
             // We also re-flag them as deleted because Gmail removes the Deleted attribute when the items are moved.
             if (uidMapping) {
                 Array * uidsInNewFolder = uidMapping->allValues();
-                for (int ii = 0; ii < uidsInNewFolder->count(); ii ++) {
+                for (unsigned int ii = 0; ii < uidsInNewFolder->count(); ii ++) {
                     Value * val = (Value *)uidsInNewFolder->objectAtIndex(ii);
                     uids->addIndex(val->unsignedLongValue());
                 }
@@ -1481,7 +1481,6 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             logger->info("-- No messages matching the message-id were found in the Sent folder.", uids->count());
         }
         
-    endSentCleanup:
         if (err != ErrorNone) {
             logger->error("-X IMAP Error: {}. This may result in duplicate messages in the Sent folder.", ErrorCodeToTypeMap[err]);
             err = ErrorNone;

@@ -181,7 +181,7 @@ void SyncWorker::idleCycleIteration()
     }
     
     // Check for mail in the preferred idle folder (inbox / all)
-    bool hasStartedSyncingFolder = inbox->localStatus().count(LS_SYNCED_MIN_UID);
+    bool hasStartedSyncingFolder = inbox->localStatus().count(LS_SYNCED_MIN_UID) > 0;
 
     if (hasStartedSyncingFolder) {
         String path = AS_MCSTR(inbox->path());
@@ -454,7 +454,7 @@ void SyncWorker::ensureRootMailspringFolder(Array * remoteFolders)
     String * desiredPath = session.defaultNamespace()->pathForComponents(components);
     
     bool exists = false;
-    for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+    for (unsigned int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
         IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
         if (remote->path()->isEqual(desiredPath)) {
             exists = true;
@@ -498,7 +498,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         transform(mailspringRole.begin(), mailspringRole.end(), mailspringRole.begin(), ::tolower);
 
         bool found = false;
-        for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+        for (unsigned int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
             string remoteRole = MailUtils::roleForFolder(mainPrefix, remote);
             if (remoteRole == mailspringRole) {
@@ -542,7 +542,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         map<string, shared_ptr<Folder>> allFoundCategories {};
         
         // Eliminate unselectable folders
-        for (int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
+        for (unsigned int ii = remoteFolders->count() - 1; ii >= 0; ii--) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
             if (remote->flags() & IMAPFolderFlagNoSelect) {
                 remoteFolders->removeObjectAtIndex(ii);
@@ -552,7 +552,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 
         // Find / create local folders and labels to match the remote ones
         // Note: We don't assign roles, just create the objects here.
-        for (int ii = 0; ii < remoteFolders->count(); ii++) {
+        for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
             string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
             string remotePath = remote->path()->UTF8Characters();
@@ -607,7 +607,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             }
             
             // find a folder that matches the flags
-            for (int ii = 0; ii < remoteFolders->count(); ii++) {
+            for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
                 IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
                 string cr = MailUtils::roleForFolderViaFlags(mainPrefix, remote);
                 if (cr != role) {
@@ -629,7 +629,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             }
             
             // find a folder that matches the name
-            for (int ii = 0; ii < remoteFolders->count(); ii++) {
+            for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
                 IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
                 string cr = MailUtils::roleForFolderViaPath(mainPrefix, remote);
                 if (cr != role) {
@@ -703,7 +703,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
 
     logger->info("- remote={}, local={}", remote->count(), local.size());
 
-    for (int ii = remote->count() - 1; ii >= 0; ii--) {
+    for (unsigned int ii = remote->count() - 1; ii >= 0; ii--) {
         // Never sit in a hard loop inserting things into the database for more than 250ms.
         // This ensures we don't starve another thread waiting for a database connection
         if (((clock() - lastSleepClock) * 4) / CLOCKS_PER_SEC > 1) {
@@ -760,7 +760,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         if (err != ErrorNone) {
             throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID (heavy)");
         }
-        for (int ii = remote->count() - 1; ii >= 0; ii--) {
+        for (unsigned int ii = remote->count() - 1; ii >= 0; ii--) {
             IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
             auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
             if (syncedMessages != nullptr) {
@@ -832,7 +832,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     logger->info("syncFolderChangesViaCondstore - Changes since HMODSEQ {}: {} changed, {} vanished",
                  modseq, modifiedOrAdded->count(), (vanished != nullptr) ? vanished->count() : 0);
 
-    for (int ii = 0; ii < modifiedOrAdded->count(); ii ++) {
+    for (unsigned int ii = 0; ii < modifiedOrAdded->count(); ii ++) {
         IMAPMessage * msg = (IMAPMessage *)modifiedOrAdded->objectAtIndex(ii);
         string id = MailUtils::idForMessage(folder.accountId(), folder.path(), msg);
 

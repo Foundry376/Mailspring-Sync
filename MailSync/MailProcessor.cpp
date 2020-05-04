@@ -320,7 +320,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         for (auto & file : files) {
             try {
                 store->save(&file);
-            } catch (SQLite::Exception & ex) {
+            } catch (SQLite::Exception &) {
                 logger->warn("Unable to insert file ID {} - it must already exist.", file.id());
             }
         }

@@ -91,7 +91,7 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
 
     _data["extraHeaders"] = json::object();
     auto extra = msg->header()->allExtraHeadersNames();
-    for (int ii = 0; ii < extra->count(); ii ++) {
+    for (unsigned int ii = 0; ii < extra->count(); ii ++) {
         auto const key = (String *)extra->objectAtIndex(ii);
         if (key == nullptr) continue;
         auto const val = msg->header()->extraHeaderValueForName(key);
@@ -118,7 +118,7 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
         _data[field] = json::array();
 
         if (arr != nullptr) {
-            for (int ii = 0; ii < arr->count(); ii ++) {
+            for (unsigned int ii = 0; ii < arr->count(); ii ++) {
                 Address * addr = (Address *)arr->objectAtIndex(ii);
                 _data[field].push_back(MailUtils::contactJSONFromAddress(addr));
             }

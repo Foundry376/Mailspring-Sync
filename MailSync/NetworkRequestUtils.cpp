@@ -157,7 +157,7 @@ const json PerformJSONRequest(CURL * curl_handle) {
     json resultJSON = nullptr;
     try {
         resultJSON = json::parse(result);
-    } catch (json::exception & ex) {
+    } catch (json::exception &) {
         resultJSON = {{"text", result}};
     }
     curl_easy_cleanup(curl_handle);

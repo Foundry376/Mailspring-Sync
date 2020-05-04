@@ -50,7 +50,7 @@ MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
     bool draftLabelPresent = false;
     bool trashSpamLabelPresent = false;
     if (labels != nullptr) {
-        for (int ii = 0; ii < labels->count(); ii ++) {
+        for (unsigned int ii = 0; ii < labels->count(); ii ++) {
             string str = ((String *)labels->objectAtIndex(ii))->UTF8Characters();
             // Gmail exposes Trash and Spam as folders and labels. We want them
             // to be folders so we ignore their presence as labels.
