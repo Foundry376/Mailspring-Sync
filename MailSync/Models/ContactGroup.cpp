@@ -117,7 +117,7 @@ void ContactGroup::syncMembers(MailStore * store, vector<string> newContactIds) 
     all.insert(all.end(), newContactIds.begin(), newContactIds.end());
 
 
-    auto contacts = store->findAll<Contact>(Query().equal("id", all));
+    auto contacts = store->findLargeSet<Contact>("id", all);
     for (auto contact : contacts) {
         auto groupIds = contact->groupIds();
         bool inGroup = std::find(newContactIds.begin(), newContactIds.end(), contact->id()) != newContactIds.end();

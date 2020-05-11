@@ -44,7 +44,7 @@ void MailStoreTransaction::commit()
         long long milliseconds = duration_cast<std::chrono::milliseconds>(elapsed).count();
         if (milliseconds > 80) { // 80ms
             long long waiting = duration_cast<std::chrono::milliseconds>(mBegan - mStart).count();
-            spdlog::get("logger")->warn("[SLOW] Transaction={} > 80ms ({} microseconds, {} waiting to aquire)", mNameHint, milliseconds, waiting);
+            spdlog::get("logger")->warn("[SLOW] Transaction={} > 80ms ({}ms, {} waiting to aquire)", mNameHint, milliseconds, waiting);
         }
         
     } else {

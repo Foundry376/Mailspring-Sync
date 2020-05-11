@@ -177,7 +177,7 @@ void GoogleContactsWorker::paginateGoogleCollection(string urlRoot, string autho
             if (ex.debuginfo.find("Sync token is expired") != string::npos) {
                 store->saveKeyValue(syncTokenKey, "");
             }
-            throw ex;
+            throw;
         }
         
         if (json.count("nextSyncToken")) {

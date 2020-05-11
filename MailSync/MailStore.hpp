@@ -25,6 +25,7 @@
 #include "Contact.hpp"
 #include "Query.hpp"
 #include "DeltaStream.hpp"
+#include "MailUtils.hpp"
 
 using namespace nlohmann;
 using namespace std;
@@ -147,6 +148,27 @@ public:
         
         return results;
     }
+    
+    
+    /**
+     Handles dividing a large set into small chunks of <1000 and re-aggregating the results so SQLite can handle it.
+     */
+    template<typename ModelClass>
+    vector<shared_ptr<ModelClass>> findLargeSet(std::string colname, vector<std::string> & set) {
+        assertCorrectThread();
+        
+        vector<shared_ptr<ModelClass>> all;
+
+        auto chunks = MailUtils::chunksOfVector(set, 900);
+        for (auto chunk : chunks) {
+            auto results = this->findAll<ModelClass>(Query().equal(colname, chunk));
+            all.insert(all.end(), results.begin(), results.end());
+        }
+        
+        return all;
+    }
+    
+    
     
     template<typename ModelClass>
     map<string, shared_ptr<ModelClass>> findAllMap(Query & query, std::string keyField) {

@@ -33,6 +33,9 @@ Query & Query::equal(string col, double val) {
 }
 
 Query & Query::equal(string col, vector<string> & val) {
+    if (val.size() > 999) {
+        spdlog::get("logger")->warn("Attempting to construct WHERE {} IN () query with >999 values ({}), this will fail and should be reported.", col, val.size());
+    }
     _clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }

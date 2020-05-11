@@ -627,20 +627,20 @@ Message TaskProcessor::inflateClientDraftJSON(json & draftJSON, shared_ptr<Messa
 
 ChangeMailModels TaskProcessor::inflateMessages(json & data) {
     ChangeMailModels models;
-    
+
     if (data.count("threadIds")) {
         vector<string> threadIds{};
         for (auto & member : data["threadIds"]) {
             threadIds.push_back(member.get<string>());
         }
-        models.messages = store->findAll<Message>(Query().equal("threadId", threadIds));
+        models.messages = store->findLargeSet<Message>("threadId", threadIds);
 
     } else if (data.count("messageIds")) {
         vector<string> messageIds{};
         for (auto & member : data["messageIds"]) {
             messageIds.push_back(member.get<string>());
         }
-        models.messages = store->findAll<Message>(Query().equal("id", messageIds));
+        models.messages = store->findLargeSet<Message>("id", messageIds);
     }
     
     return models;
@@ -679,17 +679,23 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
         for (auto & member : data["threadIds"]) {
             threadIds.push_back(member.get<string>());
         }
-        auto threads = store->findAllMap<Thread>(Query().equal("id", threadIds), "id");
+        auto chunks = MailUtils::chunksOfVector(threadIds, 500);
         auto allLabels = store->allLabelsCache(task->accountId());
 
-        for (auto pair : threads) {
-            pair.second->resetCountedAttributes();
-        }
-        for (auto msg : models.messages) {
-            threads[msg->threadId()]->applyMessageAttributeChanges(MessageEmptySnapshot, msg.get(), allLabels);
-        }
-        for (auto pair : threads) {
-            store->save(pair.second.get());
+        for (auto chunk : chunks) {
+            auto threads = store->findAllMap<Thread>(Query().equal("id", chunk), "id");
+
+            for (auto pair : threads) {
+                pair.second->resetCountedAttributes();
+            }
+            for (auto msg : models.messages) {
+                if (threads.count(msg->threadId())) {
+                    threads[msg->threadId()]->applyMessageAttributeChanges(MessageEmptySnapshot, msg.get(), allLabels);
+                }
+            }
+            for (auto pair : threads) {
+                store->save(pair.second.get());
+            }
         }
     }
     // END TEMPORARY
@@ -825,7 +831,7 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
     {
         MailStoreTransaction transaction{store, "performLocalDestroyDraft"};
 
-        auto drafts = store->findAll<Message>(Query().equal("id", messageIds));
+        auto drafts = store->findLargeSet<Message>("id", messageIds);
         for (auto & draft : drafts) {
             store->remove(draft.get());
             
@@ -844,7 +850,7 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
 
 void TaskProcessor::performRemoteDestroyDraft(Task * task) {
     vector<string> stubIds = task->data()["stubIds"];
-    auto stubs = store->findAll<Message>(Query().equal("id", stubIds));
+    auto stubs = store->findLargeSet<Message>("id", stubIds);
 
 
     for (auto & stub : stubs) {
@@ -871,7 +877,7 @@ void TaskProcessor::performLocalDestroyContact(Task * task) {
 
     {
         store->beginTransaction();
-        auto deleted = store->findAll<Contact>(Query().equal("id", contactIds));
+        auto deleted = store->findLargeSet<Contact>("id", contactIds);
         for (auto & c : deleted) {
             c->setHidden(true);
             store->save(c.get());
@@ -887,14 +893,14 @@ void TaskProcessor::performRemoteDestroyContact(Task * task) {
     }
 
     if (account->provider() == "gmail") {
-        auto deleted = store->findAll<Contact>(Query().equal("id", contactIds));
+        auto deleted = store->findLargeSet<Contact>("id", contactIds);
         auto gpeople = make_shared<GoogleContactsWorker>(account);
         for (auto & contact : deleted) {
             gpeople->deleteContact(contact);
         }
     } else {
 
-        auto deleted = store->findAll<Contact>(Query().equal("id", contactIds));
+        auto deleted = store->findLargeSet<Contact>("id", contactIds);
         auto dav = make_shared<DAVWorker>(account);
         for (auto & contact : deleted) {
             dav->deleteContact(contact);
@@ -1022,7 +1028,7 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
     for (json & c : task->data()["contacts"]) {
         contactIds.push_back(c["id"].get<string>());
     }
-    auto contacts = store->findAll<Contact>(Query().equal("id", contactIds));
+    auto contacts = store->findLargeSet<Contact>("id", contactIds);
     auto direction = task->data()["direction"].get<string>();
     auto groupId = task->data()["group"]["id"].get<string>();
     
@@ -1066,7 +1072,7 @@ void TaskProcessor::performRemoteChangeContactGroupMembership(Task * task) {
         for (json & c : task->data()["contacts"]) {
             contactIds.push_back(c["id"].get<string>());
         }
-        auto contacts = store->findAll<Contact>(Query().equal("id", contactIds));
+        auto contacts = store->findLargeSet<Contact>("id", contactIds);
         auto group = store->find<ContactGroup>(Query().equal("id", groupId));
         auto gpeople = make_shared<GoogleContactsWorker>(account);
         gpeople->updateContactGroupMembership(group, contacts, direction);

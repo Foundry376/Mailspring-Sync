@@ -370,7 +370,7 @@ void MailProcessor::unlinkMessagesMatchingQuery(Query & query, int phase)
         MailStoreTransaction transaction{store, "unlinkMessagesMatchingQuery"};
 
         auto deletedMsgs = store->findAll<Message>(query);
-        bool logSubjects = deletedMsgs.size() < 40;
+        bool logSubjects = deletedMsgs.size() < 20;
 
         logger->info("-- {} matches.", deletedMsgs.size());
 

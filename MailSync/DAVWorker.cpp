@@ -213,7 +213,7 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
             if (e.key.find("403") != string::npos) {
                 // silently continue so our "Bad" vcard is immediately reverted below.
             } else {
-                throw e;
+                throw;
             }
         }
     }
