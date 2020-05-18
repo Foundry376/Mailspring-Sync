@@ -126,7 +126,7 @@
 /* Keep in sync with win32/common.mak */
 #define SASL_VERSION_MAJOR 2
 #define SASL_VERSION_MINOR 1
-#define SASL_VERSION_STEP 26
+#define SASL_VERSION_STEP 27
 
 /* A convenience macro: same as was defined in the OpenLDAP LDAPDB */
 #define SASL_VERSION_FULL ((SASL_VERSION_MAJOR << 16) |\
@@ -179,6 +179,7 @@
 				       because of some constrains/policy violation */
 
 #define SASL_BADBINDING -32  /* channel binding failure */
+#define SASL_CONFIGERR  -100 /* error when parsing configuration file */
 
 /* max size of a sasl mechanism name */
 #define SASL_MECHNAMEMAX 20
@@ -224,6 +225,8 @@ extern "C" {
 /* the following functions are used to adjust how allocation and mutexes work
  * they must be called before all other SASL functions:
  */
+
+#include <sys/types.h>
 
 /* memory allocation functions which may optionally be replaced:
  */
@@ -637,8 +640,7 @@ typedef int sasl_server_userdb_setpass_t(sasl_conn_t *conn,
 #define SASL_CU_AUTHZID 0x02
 
 /* Combine the following with SASL_CU_AUTHID, if you don't want
-   to fail if auxprop returned SASL_NOUSER/SASL_NOMECH.
-   This flag has no effect on SASL_CU_AUTHZID. */
+   to fail if auxprop returned SASL_NOUSER/SASL_NOMECH. */
 #define SASL_CU_EXTERNALLY_VERIFIED 0x04
 
 #define SASL_CU_OVERRIDE	    0x08    /* mapped to SASL_AUXPROP_OVERRIDE */

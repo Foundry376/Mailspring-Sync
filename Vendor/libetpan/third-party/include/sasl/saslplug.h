@@ -127,10 +127,10 @@ typedef struct sasl_utils {
      *
      * level is a SASL_LOG_* level (see sasl.h)
      */
-    void (*log)(sasl_conn_t *conn, int level, const char *fmt, ...);
+    void (*log)(sasl_conn_t *conn, int level, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
 
     /* callback to sasl_seterror() */
-    void (*seterror)(sasl_conn_t *conn, unsigned flags, const char *fmt, ...);
+    void (*seterror)(sasl_conn_t *conn, unsigned flags, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
 
     /* spare function pointer */
     int *(*spare_fptr)(void);
@@ -485,7 +485,7 @@ LIBSASL_API int sasl_client_plugin_info (const char *mech_list,
  ********************/
 
 /* log message formatting routine */
-typedef void sasl_logmsg_p(sasl_conn_t *conn, const char *fmt, ...);
+typedef void sasl_logmsg_p(sasl_conn_t *conn, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
 /*
  * input parameters to server SASL plugin
