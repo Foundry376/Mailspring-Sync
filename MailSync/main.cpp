@@ -83,6 +83,25 @@ public:
     }
 };
 
+AccumulatorLogger alogger {};
+
+void MCLogToAccumulatorLog(const char * user,
+    const char * filename,
+    unsigned int line,
+    int dumpStack,
+    const char * format, ...)
+{
+    va_list argp;
+    va_start(argp, format);
+    char buffer [5000];
+    if (vsnprintf(buffer, 4999, format, argp) > 0) {
+        alogger.log(buffer);
+        alogger.log("\r\n");
+    }
+
+    va_end(argp);
+}
+
 struct CArg: public option::Arg
 {
     static ArgStatus Required(const Option& option, bool)
@@ -252,13 +271,17 @@ void runCalContactsSyncWorker() {
     }
 }
 
+
 int runTestAuth(shared_ptr<Account> account) {
+    // Enable very detailed mailcore logging and redirect the messages to our accumulator log
+    MCLogEnabled = 1;
+    MCLogFn = MCLogToAccumulatorLog;
+
     // NOTE: This method returns the account upon success but the client is not
     // reading the result. This function cannot mutate the account object.
     
     IMAPSession session;
     SMTPSession smtp;
-    AccumulatorLogger logger;
     Array * folders;
     ErrorCode err = ErrorNone;
     Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
@@ -266,9 +289,9 @@ int runTestAuth(shared_ptr<Account> account) {
     string mainPrefix = "";
     
     // imap
-    logger.log("----------IMAP----------\n");
+    alogger.log("----------IMAP----------\n");
     MailUtils::configureSessionForAccount(session, account);
-    session.setConnectionLogger(&logger);
+    session.setConnectionLogger(&alogger);
     session.connect(&err);
     if (err != ErrorNone) {
         goto done;
@@ -298,27 +321,27 @@ int runTestAuth(shared_ptr<Account> account) {
         }
     }
     if (err != ErrorNone) {
-        logger.log("\n\nRequired folder not found. Ensure your account has an `Inbox` folder, or if this is a Gmail account, verify that `All Mail` is enabled for IMAP in your Gmail settings.\n");
+        alogger.log("\n\nRequired folder not found. Ensure your account has an `Inbox` folder, or if this is a Gmail account, verify that `All Mail` is enabled for IMAP in your Gmail settings.\n");
         goto done;
     }
 
     // smtp
-    logger.log("\n\n----------SMTP----------\n");
+    alogger.log("\n\n----------SMTP----------\n");
     errorService = "smtp";
-    smtp.setConnectionLogger(&logger);
+    smtp.setConnectionLogger(&alogger);
     MailUtils::configureSessionForAccount(smtp, account);
     smtp.checkAccount(from, &err);
     if (err != ErrorNone) {
         if (smtp.lastSMTPResponse()) {
-            logger.log("\nSMTP Last Response Code: " + to_string(smtp.lastSMTPResponseCode()));
-            logger.log("\n\nSMTP Last Response: " + string(smtp.lastSMTPResponse()->UTF8Characters()));
+            alogger.log("\nSMTP Last Response Code: " + to_string(smtp.lastSMTPResponseCode()));
+            alogger.log("\n\nSMTP Last Response: " + string(smtp.lastSMTPResponse()->UTF8Characters()));
         }
         if (smtp.lastLibetpanError()) {
             int e = smtp.lastLibetpanError();
             string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : "Unknown";
-            logger.log("\n\nmailsmtp Last Error Code: " + es);
-            logger.log("\n\nmailsmtp Last Error Location: " + to_string(smtp.lastLibetpanErrorLocation()));
-            logger.log("\n\nmailsmtp Last Auth Type: " + to_string(smtp.authType()));
+            alogger.log("\n\nmailsmtp Last Error Code: " + es);
+            alogger.log("\n\nmailsmtp Last Error Location: " + to_string(smtp.lastLibetpanErrorLocation()));
+            alogger.log("\n\nmailsmtp Last Auth Type: " + to_string(smtp.authType()));
         }
         goto done;
     }
@@ -327,7 +350,7 @@ done:
     json resp = {
         {"error", nullptr},
         {"error_service", errorService},
-        {"log", logger.accumulated},
+        {"log", alogger.accumulated},
         {"account", nullptr}
     };
     if (err == ErrorNone) {

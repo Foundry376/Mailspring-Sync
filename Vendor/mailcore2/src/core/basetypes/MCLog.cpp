@@ -22,6 +22,11 @@
 
 static pid_t sPid = -1;
 int MCLogEnabled = 0;
+void (*MCLogFn)(const char *, const char *, unsigned int, int, const char *, ...) = MCLogInternal;
+
+// BG EDIT
+FILE * MCLogDestination = 0;
+
 
 INITIALIZE(Log)
 {
@@ -111,3 +116,6 @@ static void logInternalv(FILE * file,
     }
 #endif
 }
+    
+
+
