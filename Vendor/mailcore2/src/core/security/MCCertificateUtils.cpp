@@ -13,6 +13,7 @@
 #include <Security/Security.h>
 #else
 #include <string>
+#include <openssl/opensslv.h>
 #include <openssl/bio.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
@@ -40,7 +41,7 @@ bool mailcore::checkCertificate(mailstream *stream, String *hostname)
     carray *cCerts = mailstream_get_certificate_chain(stream);
     if (cCerts == NULL)
     {
-        fprintf(stderr, "warning: No certificate chain retrieved");
+        MCLog("warning: No certificate chain retrieved");
         goto err;
     }
 
@@ -132,6 +133,7 @@ err:
         "/etc/ssl/ca-bundle.pem",
     };
 
+    MCLog("OpenSSL version: %s", OpenSSL_version());
     OpenSSL_add_all_algorithms();
     ERR_load_BIO_strings();
     ERR_load_crypto_strings();
@@ -139,14 +141,14 @@ err:
     carray *cCerts = mailstream_get_certificate_chain(stream);
     if (cCerts == NULL)
     {
-        fprintf(stderr, "warning: No certificate chain retrieved");
+        MCLog("warning: No certificate chain retrieved");
         goto err;
     }
 
     store = X509_STORE_new();
     if (store == NULL)
     {
-        fprintf(stderr, "Error creating X509_STORE_CTX object");
+        MCLog("Error creating X509_STORE_CTX object");
         goto free_certs;
     }
 
@@ -198,7 +200,7 @@ err:
     status = X509_STORE_set_default_paths(store);
     if (status != 1)
     {
-        fprintf(stderr, "Error loading the system-wide CA certificates");
+        MCLog("Error loading the system-wide CA certificates");
     }
 
     for (const auto path : certificatePaths)
@@ -216,7 +218,7 @@ err:
         str = (MMAPString *)carray_get(cCerts, i);
         if (str == NULL)
         {
-            fprintf(stderr, "Could not read carray_get cert");
+            MCLog("Could not read carray_get cert");
             goto free_certs;
         }
         BIO *bio = BIO_new_mem_buf((void *)str->str, str->len);
@@ -224,7 +226,7 @@ err:
         BIO_free(bio);
         if (!sk_X509_push(certificates, certificate))
         {
-            fprintf(stderr, "Could not append certificate via sk_X509_push");
+            MCLog("Could not append certificate via sk_X509_push");
             goto free_certs;
         }
     }
@@ -232,14 +234,14 @@ err:
     storectx = X509_STORE_CTX_new();
     if (storectx == NULL)
     {
-        fprintf(stderr, "Could not call X509_STORE_CTX_new");
+        MCLog("Could not call X509_STORE_CTX_new");
         goto free_certs;
     }
 
     status = X509_STORE_CTX_init(storectx, store, sk_X509_value(certificates, 0), certificates);
     if (status != 1)
     {
-        fprintf(stderr, "Could not call X509_STORE_CTX_init");
+        MCLog("Could not call X509_STORE_CTX_init");
         goto free_certs;
     }
 
@@ -250,14 +252,14 @@ err:
     }
     else
     {
-        fprintf(stderr, "Verification failed:\n");
-        fprintf(stderr, "X509_verify_cert_error_string:\n");
-        fprintf(stderr, X509_verify_cert_error_string(storectx->error));
+        MCLog("Verification failed:\n");
+        MCLog("X509_verify_cert_error_string:\n");
+        MCLog(X509_verify_cert_error_string(storectx->error));
         /*  get the offending certificate causing the failure */
         X509 *error_cert = X509_STORE_CTX_get_current_cert(storectx);
         X509_NAME *certsubject = X509_NAME_new();
         certsubject = X509_get_subject_name(error_cert);
-        fprintf(stderr, "X509_get_subject_name:\n");
+        MCLog("X509_get_subject_name:\n");
         BIO *outbio = BIO_new_fp(stderr, BIO_NOCLOSE);
         X509_NAME_print_ex(outbio, certsubject, 0, XN_FLAG_MULTILINE);
         BIO_printf(outbio, "\n");
