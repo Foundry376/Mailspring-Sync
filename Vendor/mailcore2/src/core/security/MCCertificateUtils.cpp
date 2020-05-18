@@ -15,8 +15,10 @@
 #include <string>
 #include <openssl/opensslv.h>
 #include <openssl/bio.h>
+#include <openssl/ossl_typ.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
+#include <openssl/stack.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
 #endif
@@ -133,7 +135,7 @@ err:
         "/etc/ssl/ca-bundle.pem",
     };
 
-    MCLog("OpenSSL version: %s", OpenSSL_version());
+    MCLog("OpenSSL version: %s", OpenSSL_version(0));
     OpenSSL_add_all_algorithms();
     ERR_load_BIO_strings();
     ERR_load_crypto_strings();
@@ -254,7 +256,8 @@ err:
     {
         MCLog("Verification failed:\n");
         MCLog("X509_verify_cert_error_string:\n");
-        MCLog(X509_verify_cert_error_string(storectx->error));
+        int errcode = X509_STORE_CTX_get_error(storectx);
+        MCLog(X509_verify_cert_error_string(errcode));
         /*  get the offending certificate causing the failure */
         X509 *error_cert = X509_STORE_CTX_get_current_cert(storectx);
         X509_NAME *certsubject = X509_NAME_new();
