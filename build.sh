@@ -6,7 +6,7 @@
 export MAILSYNC_DIR=$( cd $(dirname $0) ; pwd -P );
 export APP_ROOT_DIR="$MAILSYNC_DIR/../app"
 export APP_DIST_DIR="$APP_ROOT_DIR/dist"
-export DEP_BUILDS_DIR=/tmp/mailsync-build-deps
+export DEP_BUILDS_DIR=/tmp/mailsync-build-deps-v1
 
 set -e
 mkdir -p "$APP_DIST_DIR"
@@ -41,7 +41,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     wget -q https://ftp.openssl.org/source/old/1.1.0/openssl-1.1.0f.tar.gz
     tar -xzf openssl-1.1.0f.tar.gz
     cd openssl-1.1.0f
-    sudo ./config --prefix=/opt/openssl --openssldir=/opt/openssl/ssl shared zlib
+    sudo ./config --prefix=/opt/openssl --openssldir=/opt/openssl/ssl
     sudo make
   fi
   sudo make install
@@ -65,11 +65,12 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     echo "Building and installing curl-7.54.0..."
     cd "$DEP_BUILDS_DIR"
     sudo apt-get build-dep curl
-    wget -q http://curl.haxx.se/download/curl-7.54.0.tar.bz2
+    wget -q --no-check-certificate http://curl.haxx.se/download/curl-7.54.0.tar.bz2
     tar -xjf curl-7.54.0.tar.bz2
     cd curl-7.54.0
-    ./configure --quiet --disable-cookies --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --enable-ares --without-libidn --without-librtmp --with-ssl
+    ./configure --quiet --disable-cookies --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --enable-ares --without-libidn --without-librtmp --with-ssl --with-libssl-prefix=/opt/openssl
     make >/dev/null
+    sudo make install prefix=/usr >/dev/null
     sudo ldconfig
   fi
 
@@ -111,6 +112,13 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   cd "$APP_ROOT_DIR"
   tar -czf "$APP_DIST_DIR/mailsync.tar.gz" *.so* mailsync mailsync.bin --wildcards
 
+  # Put the previous version of SSL back, since Trusty is not meant to have 1.1.0 weird things break
+  sudo mv /usr/bin/openssl /usr/bin/openssl.updated
+  sudo mv /usr/include/openssl /usr/include/openssl.updated
+  sudo mv /usr/bin/openssl.old /usr/bin/openssl
+  sudo mv /usr/include/openssl.old /usr/include/openssl
+  sudo rm /etc/ld.so.conf.d/openssl.conf
+  sudo apt-get install openssl
 else
   echo "Mailsync does not build on $OSTYPE yet.";
 fi
