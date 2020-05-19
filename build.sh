@@ -26,17 +26,33 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   fi
 
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
-  echo "Building and installing libetpan..."
-  cd "$MAILSYNC_DIR/Vendor/libetpan"
-  ./autogen.sh
-  make >/dev/null
-  sudo make install prefix=/usr >/dev/null
-
   # we cache this directory between builds to make CI faster.
   # if it exists, just run make install again, otherwise pull
   # the libraries down and build from source.
   if [ ! -d "$DEP_BUILDS_DIR" ]; then
     mkdir "$DEP_BUILDS_DIR"
+  fi
+
+  if [ -d "$DEP_BUILDS_DIR/openssl-1.1.0f" ]; then
+    echo "Installing openssl-1.1.0f"
+    cd "$DEP_BUILDS_DIR/openssl-1.1.0f"
+    sudo make install
+    sudo mv /usr/bin/openssl /usr/bin/openssl.old
+    sudo ln -s /opt/openssl/bin/openssl /usr/bin/openssl
+    sudo sh -c 'echo "/opt/openssl/lib" > /etc/ld.so.conf.d/openssl.conf'
+    sudo ldconfig
+  else
+    cd "$DEP_BUILDS_DIR"
+    wget -q https://ftp.openssl.org/source/old/1.1.0/openssl-1.1.0f.tar.gz
+    tar -xzf openssl-1.1.0f.tar.gz
+    cd openssl-1.1.0f
+    sudo ./config --prefix=/opt/openssl --openssldir=/opt/openssl/ssl shared zlib
+    sudo make
+    sudo make install
+    sudo mv /usr/bin/openssl /usr/bin/openssl.old
+    sudo ln -s /opt/openssl/bin/openssl /usr/bin/openssl
+    sudo sh -c 'echo "/opt/openssl/lib" > /etc/ld.so.conf.d/openssl.conf'
+    sudo ldconfig
   fi
 
   if [ -d "$DEP_BUILDS_DIR/curl-7.54.0" ]; then
@@ -56,6 +72,12 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     make >/dev/null
     sudo ldconfig
   fi
+
+  echo "Building and installing libetpan..."
+  cd "$MAILSYNC_DIR/Vendor/libetpan"
+  ./autogen.sh
+  make >/dev/null
+  sudo make install prefix=/usr >/dev/null
 
   # print out openssl version
   openssl version -a
