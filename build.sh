@@ -6,7 +6,7 @@
 export MAILSYNC_DIR=$( cd $(dirname $0) ; pwd -P );
 export APP_ROOT_DIR="$MAILSYNC_DIR/../app"
 export APP_DIST_DIR="$APP_ROOT_DIR/dist"
-export DEP_BUILDS_DIR=/tmp/mailsync-build-deps-v1
+export DEP_BUILDS_DIR=/tmp/mailsync-build-deps-v1 # Note: also referenced in CMakeLists
 
 set -e
 mkdir -p "$APP_DIST_DIR"
@@ -36,24 +36,19 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   if [ -d "$DEP_BUILDS_DIR/openssl-1.1.0f" ]; then
     echo "Installing openssl-1.1.0f"
     cd "$DEP_BUILDS_DIR/openssl-1.1.0f"
+    sudo make install
+    sudo ldconfig
   else
     cd "$DEP_BUILDS_DIR"
     wget -q https://ftp.openssl.org/source/old/1.1.0/openssl-1.1.0f.tar.gz
     tar -xzf openssl-1.1.0f.tar.gz
     cd openssl-1.1.0f
-    sudo ./config --prefix=/opt/openssl --openssldir=/opt/openssl/ssl
+    sudo ./config --prefix=/opt/openssl --openssldir=/opt/openssl shared
     sudo make
+    sudo make install
+    sudo ldconfig
   fi
-  sudo make install
-  sudo mv /usr/bin/openssl /usr/bin/openssl.old
-  sudo mv /usr/include/openssl /usr/include/openssl.old
-  sudo ln -s /opt/openssl/bin/openssl /usr/bin/openssl
-  sudo ln -s /opt/openssl/include/openssl /usr/include/openssl
-  sudo sh -c 'echo "/opt/openssl/lib" > /etc/ld.so.conf.d/openssl.conf'
-  sudo ldconfig
 
-  echo "Successfully upgraded OpenSSL. New version:"
-  openssl version -a
 
   if [ -d "$DEP_BUILDS_DIR/curl-7.70.0" ]; then
     echo "Installing curl-7.70.0..."
@@ -65,10 +60,10 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     echo "Building and installing curl-7.70.0..."
     cd "$DEP_BUILDS_DIR"
     sudo apt-get build-dep curl
-    wget -q --no-check-certificate http://curl.haxx.se/download/curl-7.70.0.tar.bz2
+    wget -q http://curl.haxx.se/download/curl-7.70.0.tar.bz2
     tar -xjf curl-7.70.0.tar.bz2
     cd curl-7.70.0
-    ./configure --quiet --disable-cookies --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --enable-ares --without-libidn --without-librtmp --with-ssl --with-libssl-prefix=/opt/openssl
+    ./configure --quiet --disable-cookies --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --enable-ares --without-libidn --without-librtmp --with-ssl=/opt/openssl
     make >/dev/null
     sudo make install prefix=/usr >/dev/null
     sudo ldconfig
@@ -76,7 +71,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
 
   echo "Building and installing libetpan..."
   cd "$MAILSYNC_DIR/Vendor/libetpan"
-  ./autogen.sh
+  ./autogen.sh -with-openssl=/opt/openssl
   make >/dev/null
   sudo make install prefix=/usr >/dev/null
 
@@ -111,14 +106,6 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   # Zip this stuff up so we can push it to S3 as a single artifacts
   cd "$APP_ROOT_DIR"
   tar -czf "$APP_DIST_DIR/mailsync.tar.gz" *.so* mailsync mailsync.bin --wildcards
-
-  # Put the previous version of SSL back, since Trusty is not meant to have 1.1.0 weird things break
-  sudo mv /usr/bin/openssl /usr/bin/openssl.updated
-  sudo mv /usr/include/openssl /usr/include/openssl.updated
-  sudo mv /usr/bin/openssl.old /usr/bin/openssl
-  sudo mv /usr/include/openssl.old /usr/include/openssl
-  sudo rm /etc/ld.so.conf.d/openssl.conf
-  sudo apt-get install openssl
 else
   echo "Mailsync does not build on $OSTYPE yet.";
 fi

@@ -90,7 +90,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   find_library(ICUDATA_LIB NAMES libicudata.a libicudata)
   target_link_libraries(mailsync ${ICUDATA_LIB})
 
-  target_link_libraries(mailsync /tmp/mailsync-build-deps/curl-7.54.0/lib/.libs/libcurl.a)    
+  target_link_libraries(mailsync /tmp/mailsync-build-deps-v1/curl-7.70.0/lib/.libs/libcurl.a)    
 
   find_library(C_ARES_LIB NAMES libcares.a libcares)
   target_link_libraries(mailsync ${C_ARES_LIB})
@@ -98,8 +98,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   #find_library(SASL2_LIB NAMES libsasl2.a libsasl2)
   #target_link_libraries(mailsync ${SASL2_LIB})
 
-  find_library(SSL_LIB NAMES libssl.a libssl)
-  target_link_libraries(mailsync ${SSL_LIB})
+  target_link_libraries(mailsync /opt/openssl/lib/libssl.a)
 
   find_library(CRYPTO_LIB NAMES libcrypto.a libcrypto)
   target_link_libraries(mailsync ${CRYPTO_LIB})
