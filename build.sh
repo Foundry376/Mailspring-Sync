@@ -57,6 +57,9 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     sudo ldconfig
   fi
 
+  # print out openssl version
+  openssl version -a
+
   # build mailcore2
   echo "Building mailcore2..."
   cd "$MAILSYNC_DIR/Vendor/mailcore2"
