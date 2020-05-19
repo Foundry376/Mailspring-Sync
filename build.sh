@@ -6,7 +6,7 @@
 export MAILSYNC_DIR=$( cd $(dirname $0) ; pwd -P );
 export APP_ROOT_DIR="$MAILSYNC_DIR/../app"
 export APP_DIST_DIR="$APP_ROOT_DIR/dist"
-export DEP_BUILDS_DIR=/tmp/mailsync-build-deps-v1 # Note: also referenced in CMakeLists
+export DEP_BUILDS_DIR=/tmp/mailsync-build-deps-v2 # Note: also referenced in CMakeLists
 
 set -e
 mkdir -p "$APP_DIST_DIR"
@@ -39,6 +39,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     sudo make install
     sudo ldconfig
   else
+    echo "Building and installing openssl-1.1.0f"
     cd "$DEP_BUILDS_DIR"
     wget -q https://ftp.openssl.org/source/old/1.1.0/openssl-1.1.0f.tar.gz
     tar -xzf openssl-1.1.0f.tar.gz
