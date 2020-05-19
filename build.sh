@@ -69,10 +69,19 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     sudo make install prefix=/usr >/dev/null
     sudo ldconfig
   fi
+  
+
+  echo "OpenSSL files:"
+  ls /opt/openssl/include/openssl
+  ls /opt/openssl/lib
+
+  echo "Symbolic linking new libssl libs into /usr/lib to workaround weird libetpan autogen:"
+  sudo ln -s /opt/openssl/lib/libssl.so.1.1 /usr/lib/libssl.so.1.1
+  sudo ln -s /opt/openssl/lib/libcrypto.so.1.1 /usr/lib/libcrypto.so.1.1
 
   echo "Building and installing libetpan..."
   cd "$MAILSYNC_DIR/Vendor/libetpan"
-  ./autogen.sh -with-openssl=/opt/openssl
+  ./autogen.sh --with-openssl=/opt/openssl
   make >/dev/null
   sudo make install prefix=/usr >/dev/null
 
