@@ -1408,14 +1408,14 @@ int mailesmtp_auth_sasl(mailsmtp * session, const char * auth_type,
       local_ip_port, remote_ip_port, sasl_callback, 0,
       (sasl_conn_t **) &session->smtp_sasl.sasl_conn);
   if (r != SASL_OK) {
-    res = MAILSMTP_ERROR_AUTH_LOGIN;
+    res = 100 + r;
     goto free_secret;
   }
   
   r = sasl_client_start(session->smtp_sasl.sasl_conn,
       auth_type, NULL, &sasl_out, &sasl_out_len, &mechusing);
   if ((r != SASL_CONTINUE) && (r != SASL_OK)) {
-    res = MAILSMTP_ERROR_AUTH_LOGIN;
+    res = 200 + r;
     goto free_sasl_conn;
   }
   
