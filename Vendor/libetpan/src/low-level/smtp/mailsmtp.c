@@ -1404,18 +1404,23 @@ int mailesmtp_auth_sasl(mailsmtp * session, const char * auth_type,
     mailsasl_ref();
   }
   
+  if (mailsasl_init_error() != SASL_OK) {
+    res = 100 + mailsasl_init_error();
+    goto free_secret;
+  }
+  
   r = sasl_client_new("smtp", server_fqdn,
       local_ip_port, remote_ip_port, sasl_callback, 0,
       (sasl_conn_t **) &session->smtp_sasl.sasl_conn);
   if (r != SASL_OK) {
-    res = 100 + r;
+    res = 200 + r;
     goto free_secret;
   }
   
   r = sasl_client_start(session->smtp_sasl.sasl_conn,
       auth_type, NULL, &sasl_out, &sasl_out_len, &mechusing);
   if ((r != SASL_CONTINUE) && (r != SASL_OK)) {
-    res = 200 + r;
+    res = 300 + r;
     goto free_sasl_conn;
   }
   

@@ -290,6 +290,7 @@ int runTestAuth(shared_ptr<Account> account) {
     string errorService = "imap";
     string mainPrefix = "";
     
+    
     // imap
     alogger.log("----------IMAP----------\n");
     MailUtils::configureSessionForAccount(session, account);
@@ -334,18 +335,20 @@ int runTestAuth(shared_ptr<Account> account) {
     MailUtils::configureSessionForAccount(smtp, account);
     smtp.checkAccount(from, &err);
     if (err != ErrorNone) {
+        alogger.log("\n\nSASL_PATH: " + MailUtils::getEnvUTF8("SASL_PATH"));
+
         if (smtp.lastSMTPResponse()) {
-            alogger.log("\nSMTP Last Response Code: " + to_string(smtp.lastSMTPResponseCode()));
-            alogger.log("\n\nSMTP Last Response: " + string(smtp.lastSMTPResponse()->UTF8Characters()));
+            alogger.log("\n\nSMTP Last Response Code: " + to_string(smtp.lastSMTPResponseCode()));
+            alogger.log("\nSMTP Last Response: " + string(smtp.lastSMTPResponse()->UTF8Characters()));
         }
         if (smtp.lastLibetpanError()) {
             int e = smtp.lastLibetpanError();
             string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : "Unknown";
 
             alogger.log("\n\nmailsmtp Last Error Code: " + to_string(e));
-            alogger.log("\n\nmailsmtp Last Error Explanation: " + es);
-            alogger.log("\n\nmailsmtp Last Error Location: " + to_string(smtp.lastLibetpanErrorLocation()));
-            alogger.log("\n\nmailsmtp Last Auth Type: " + to_string(smtp.authType()));
+            alogger.log("\nmailsmtp Last Error Explanation: " + es);
+            alogger.log("\nmailsmtp Last Error Location: " + to_string(smtp.lastLibetpanErrorLocation()));
+            alogger.log("\nmailsmtp Last Auth Type: " + to_string(smtp.authType()));
         }
         goto done;
     }

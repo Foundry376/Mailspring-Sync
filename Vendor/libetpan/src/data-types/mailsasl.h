@@ -42,6 +42,8 @@ void mailsasl_external_ref(void);
 void mailsasl_ref(void);
 void mailsasl_unref(void);
 
+int mailsasl_init_error(void);
+
 #ifdef __cplusplus
 }
 #endif

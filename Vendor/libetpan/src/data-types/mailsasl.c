@@ -70,6 +70,7 @@ static int sasl_lock_init_done =  0;
 #endif
 
 static int sasl_use_count = 0;
+static int sasl_init_error = 0;
 
 #ifdef LIBETPAN_REENTRANT
 
@@ -110,7 +111,7 @@ void mailsasl_ref(void)
   LOCK_SASL();
   sasl_use_count ++;
   if (sasl_use_count == 1)
-    sasl_client_init(NULL);
+    sasl_init_error = sasl_client_init(NULL);
   UNLOCK_SASL();
 }
 
@@ -124,6 +125,11 @@ void mailsasl_unref(void)
 #endif
   }
   UNLOCK_SASL();
+}
+
+int mailsasl_init_error(void)
+{
+  return sasl_init_error;
 }
 
 #else
