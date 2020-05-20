@@ -110,7 +110,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   # (We set SASL_PATH below so it finds these.)
   cp /usr/lib/x86_64-linux-gnu/sasl2/* "$APP_ROOT_DIR"
 
-  printf "#!/bin/bash\nset -e\nset -o pipefail\nSASL_PATH=\"\$(dirname \$(realpath \$0))\" LD_LIBRARY_PATH=\"\$(dirname \$(realpath \$0));\$LD_LIBRARY_PATH\" \"\$(dirname \$0)/mailsync.bin\" \"\$@\"" > "$APP_ROOT_DIR/mailsync"
+  printf "#!/bin/bash\nset -e\nset -o pipefail\nSCRIPTPATH=\"\$( cd \"\$(dirname \"\$0\")\" >/dev/null 2>&1 ; pwd -P )\"\nSASL_PATH=\"\$SCRIPTPATH\" LD_LIBRARY_PATH=\"\$SCRIPTPATH;\$LD_LIBRARY_PATH\" \"\$SCRIPTPATH/mailsync.bin\" \"\$@\"" > "$APP_ROOT_DIR/mailsync"
   chmod +x "$APP_ROOT_DIR/mailsync"
 
   # Zip this stuff up so we can push it to S3 as a single artifacts
