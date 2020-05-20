@@ -273,6 +273,8 @@ void runCalContactsSyncWorker() {
 
 
 int runTestAuth(shared_ptr<Account> account) {
+    AutoreleasePool pool;
+
     // Enable very detailed mailcore logging and redirect the messages to our accumulator log
     MCLogEnabled = 1;
     MCLogFn = MCLogToAccumulatorLog;
@@ -339,7 +341,9 @@ int runTestAuth(shared_ptr<Account> account) {
         if (smtp.lastLibetpanError()) {
             int e = smtp.lastLibetpanError();
             string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : "Unknown";
-            alogger.log("\n\nmailsmtp Last Error Code: " + es);
+
+            alogger.log("\n\nmailsmtp Last Error Code: " + to_string(e));
+            alogger.log("\n\nmailsmtp Last Error Explanation: " + es);
             alogger.log("\n\nmailsmtp Last Error Location: " + to_string(smtp.lastLibetpanErrorLocation()));
             alogger.log("\n\nmailsmtp Last Auth Type: " + to_string(smtp.authType()));
         }
