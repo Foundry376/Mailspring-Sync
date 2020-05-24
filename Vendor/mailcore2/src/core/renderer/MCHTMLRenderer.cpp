@@ -243,7 +243,13 @@ static String * htmlForAbstractMessage(String * folder, AbstractMessage * messag
     if (content == NULL)
         return NULL;
     
-    content = htmlCallback->filterHTMLForMessage(content);
+    if (context.hasTextHTMLPart) {
+        content = htmlCallback->filterHTMLForMessage(content);
+    } else {
+        // BG Note: Just a small hack because I didn't want to pass back two values
+        content = MCSTR("PLAINTEXT:")->stringByAppendingString(content);
+    }
+    
     return content;
 }
 
@@ -338,8 +344,6 @@ static String * htmlForAbstractSinglePart(AbstractPart * part, htmlRendererConte
             if (context->hasTextHTMLPart) {
                 str = str->htmlMessageContent();
                 str = context->htmlCallback->filterHTMLForPart(str);
-            } else {
-                str = MCSTR("PLAINTEXT:")->stringByAppendingString(str);
             }
 
             return str;
@@ -443,7 +447,7 @@ String * htmlForAbstractMultipartAlternative(AbstractMultipart * part, htmlRende
 // BG EDITS: In a multipart mixed message multiple parts are NOT alternatives, they are meant to be
 // concatenated together.
 // - If ONE part is HTML, we force everything to be rendered to HTML by setting context->hasTextHTMLPart
-// - When we concatenate parts, we strip the PLAINTEXT: prefix so PLAINTEXT:A + PLAINTEXT:B = PLAINTEXT:AB
+//   before we actually start formatting the parts.
 //
 static String * htmlForAbstractMultipartMixed(AbstractMultipart * part, htmlRendererContext * context)
 {
@@ -466,9 +470,6 @@ static String * htmlForAbstractMultipartMixed(AbstractMultipart * part, htmlRend
             if (substring == NULL)
                 return NULL;
             
-            if (substring->hasPrefix(MCSTR("PLAINTEXT:"))) {
-                substring = substring->substringFromIndex(10);
-            }
             result->appendString(substring);
         }
     }
