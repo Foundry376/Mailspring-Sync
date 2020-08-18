@@ -59,19 +59,34 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
     return real_size;
 }
 
-const json MakeGmailOAuthRequest(string clientId, string refreshToken) {
+const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken) {
     CURL * curl_handle = curl_easy_init();
-    const char * url = "https://www.googleapis.com/oauth2/v4/token";
+    const char * url =
+          provider == "gmail" ? "https://www.googleapis.com/oauth2/v4/token"
+        : provider == "office365" ? "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        : "";
     curl_easy_setopt(curl_handle, CURLOPT_URL, url);
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
     
     auto c = curl_easy_escape(curl_handle, clientId.c_str(), 0);
     auto r = curl_easy_escape(curl_handle, refreshToken.c_str(), 0);
     string payload = "grant_type=refresh_token&client_id=" + string(c) + "&refresh_token=" + string(r);
-
+    if (provider == "office365") {
+        // workaround the fact that Microsoft's OAUTH flow allows you to authorize many scopes, but you
+        // have to get a separate token for outlook (email + IMAP) and contacts / calendar / Microsoft Graph APIs
+        // separately. The same refresh token will give you access tokens, but the access tokens are different.
+        payload += "&scope=https%3A%2F%2Foutlook.office365.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office365.com%2FSMTP.Send";
+    }
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Accept: application/json");
     headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+    if (provider == "office365") {
+        // workaround "AADSTS9002327: Tokens issued for the 'Single-Page Application' client-type
+        // may only be redeemed via cross-origin requests"
+        headers = curl_slist_append(headers, "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Mailspring/1.7.8 Chrome/69.0.3497.128 Electron/4.2.12 Safari/537.36");
+        headers = curl_slist_append(headers, "Origin: null");
+
+    }
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, "POST");
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payload.c_str());

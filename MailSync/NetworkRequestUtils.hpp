@@ -26,7 +26,7 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
 CURL * CreateJSONRequest(string url, string method = "GET", string authorization = "", const char * payloadChars = nullptr);
 CURL * CreateCalDavRequest(string url, string method = "GET", const char * payloadChars = nullptr);
 
-const json MakeGmailOAuthRequest(string clientId, string refreshToken);
+const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken);
 
 const string PerformRequest(CURL * curl_handle);
 const json PerformJSONRequest(CURL * curl_handle);
