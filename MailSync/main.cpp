@@ -1,13 +1,24 @@
-//
-//  main.cpp
-//  MailSync
-//
-//  Created by Ben Gotow on 6/15/17.
-//  Copyright © 2017 Foundry 376. All rights reserved.
-//
-//  Use of this file is subject to the terms and conditions defined
-//  in 'LICENSE.md', which is part of the Mailspring-Sync package.
-//
+/** MailSync
+ *
+ * Author(s): Ben Gotow
+ */
+
+/* LICENSE
+* Copyright (C) 2017-2021 Foundry 376.
+*
+* This program is free software: you can redistribute it and/or modify
+* it under the terms of the GNU General Public License as published by
+* the Free Software Foundation, either version 3 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License
+* along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
 
 #include <iostream>
 #include <string>
@@ -19,30 +30,29 @@
 #include <sqlite3.h>
 
 #include <MailCore/MailCore.h>
-#include <SQLiteCpp/SQLiteCpp.h>
+#include "SQLiteCpp/SQLiteCpp.h"
 #include <StanfordCPPLib/exceptions.h>
 #include <curl/curl.h>
-#include "json.hpp"
+#include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
-#include "optionparser.h"
-#include "exceptions.h"
+#include "optionparser/optionparser.h"
 
-#include "Account.hpp"
-#include "Identity.hpp"
-#include "MailUtils.hpp"
-#include "MailStore.hpp"
-#include "DeltaStream.hpp"
-#include "SyncWorker.hpp"
-#include "MetadataWorker.hpp"
-#include "MetadataExpirationWorker.hpp"
-#include "DAVWorker.hpp"
-#include "GoogleContactsWorker.hpp"
-#include "SyncException.hpp"
-#include "Task.hpp"
-#include "TaskProcessor.hpp"
-#include "ThreadUtils.h"
-#include "constants.h"
-#include "SPDLogExtensions.hpp"
+#include "mailsync/models/account.hpp"
+#include "mailsync/models/identity.hpp"
+#include "mailsync/mail_utils.hpp"
+#include "mailsync/mail_store.hpp"
+#include "mailsync/delta_stream.hpp"
+#include "mailsync/sync_worker.hpp"
+#include "mailsync/metadata_worker.hpp"
+#include "mailsync/metadata_expiration_worker.hpp"
+#include "mailsync/dav_worker.hpp"
+#include "mailsync/google_contacts_worker.hpp"
+#include "mailsync/sync_exception.hpp"
+#include "mailsync/task.hpp"
+#include "mailsync/task_processor.hpp"
+#include "mailsync/thread_utils.hpp"
+#include "mailsync/constants.hpp"
+#include "mailsync/spd_log_extensions.hpp"
 
 using namespace nlohmann;
 using option::Option;
@@ -71,7 +81,7 @@ std::thread * metadataExpirationThread = nullptr;
 class AccumulatorLogger : public ConnectionLogger {
 public:
     string accumulated = "";
-    
+
     void log(string str) {
         accumulated = accumulated + str;
     }
@@ -160,7 +170,7 @@ void runForegroundSyncWorker() {
 
 void runBackgroundSyncWorker() {
     bool started = false;
-    
+
     // wait a few seconds before launching. This avoids database locking caused by many
     // sync workers all trying to open several sqlite references at once.
     MailUtils::sleepWorkerUntilWakeOrSec(bgWorker->account->startDelay());
@@ -168,7 +178,7 @@ void runBackgroundSyncWorker() {
     while(true) {
         try {
             bgWorker->configure();
-            
+
             // mark any existing folders as busy so the UI shows us syncing mail until
             // the sync worker gets through its first iteration.
             if (!started || bgWorkerShouldMarkAll) {
@@ -281,7 +291,7 @@ int runTestAuth(shared_ptr<Account> account) {
 
     // NOTE: This method returns the account upon success but the client is not
     // reading the result. This function cannot mutate the account object.
-    
+
     IMAPSession session;
     SMTPSession smtp;
     Array * folders;
@@ -289,8 +299,8 @@ int runTestAuth(shared_ptr<Account> account) {
     Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
     string errorService = "imap";
     string mainPrefix = "";
-    
-    
+
+
     // imap
     alogger.log("----------IMAP----------\n");
     MailUtils::configureSessionForAccount(session, account);
@@ -303,9 +313,9 @@ int runTestAuth(shared_ptr<Account> account) {
     if (err != ErrorNone) {
         goto done;
     }
-    
+
     mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
-    
+
     err = ErrorInvalidAccount;
     for (unsigned int i = 0; i < folders->count(); i ++) {
         // Gmail accounts must have "All Mail" enabled, IMAP accounts must have an Inbox.
@@ -352,7 +362,7 @@ int runTestAuth(shared_ptr<Account> account) {
         }
         goto done;
     }
-    
+
 done:
     json resp = {
         {"error", nullptr},
@@ -394,7 +404,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
     time_t lostCINAt = 0;
 
     processor.cleanupTasksAfterLaunch();
-    
+
     while(true) {
         AutoreleasePool pool;
         json packet = {};
@@ -431,7 +441,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 packet["task"]["v"] = 0;
                 Task task{packet["task"]};
                 processor.performLocal(&task);
-        
+
                 // interrupt the foreground sync worker to do the remote part of the task. We wait a short time
                 // because we want tasks queued back to back to run ASAP and not fight for locks with remote
                 // syncback. This also mitigates any potential remote loads+saves that aren't inside transactions
@@ -448,23 +458,23 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                     queuedForegroundWake = true;
                 }
             }
-            
+
             if (type == "cancel-task") {
                 // we can't always dequeue a task (if it's started already or potentially even finished).
                 // but if we're deleting a draft we want to dequeue saves, etc.
                 processor.cancel(packet["taskId"].get<string>());
             }
-            
+
             if (type == "wake-workers") {
                 spdlog::get("logger")->info("Waking all workers...");
 
                 // mark that the background worker should mark all the folders as busy
                 // (on it's thread!)
                 bgWorkerShouldMarkAll = true;
-                
+
                 // Wake the workers
                 MailUtils::wakeAllWorkers();
-                
+
                 // interrupt the foreground worker's IDLE call, because our network
                 // connection may have been reset and it'll sit for a while otherwise
                 // and wake-workers is called when waking from sleep
@@ -512,7 +522,7 @@ int main(int argc, const char * argv[]) {
 
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);
-    
+
 string exectuablePath = argv[0];
 
 #ifndef DEBUG
@@ -538,12 +548,12 @@ string exectuablePath = argv[0];
 
     if (parse.error())
         return 1;
-    
+
     if (options[HELP] || argc == 0) {
         option::printUsage(std::cout, usage);
         return 1;
     }
-    
+
     // check required environment
     string eConfigDirPath = MailUtils::getEnvUTF8("CONFIG_DIR_PATH");
     string eIdentityServer = MailUtils::getEnvUTF8("IDENTITY_SERVER");
@@ -560,7 +570,7 @@ string exectuablePath = argv[0];
 
     // handle --mode migrate early for speed
     string mode(options[MODE].arg);
-    
+
     if (mode == "migrate") {
         return runSingleFunctionAndExit([](){
             MailStore store;
@@ -592,7 +602,7 @@ string exectuablePath = argv[0];
 		cout << "\n" << resp.dump();
 		return 1;
 	}
-    
+
     if (mode == "reset") {
         return runSingleFunctionAndExit([&](){
             MailStore store;
@@ -622,7 +632,7 @@ string exectuablePath = argv[0];
 		cout << "\n" << resp.dump();
 		return 1;
 	}
-    
+
     std::vector<shared_ptr<spdlog::sinks::sink>> sinks;
     bool logToFile = mode == "sync" && !options[ORPHAN];
 
@@ -661,7 +671,7 @@ string exectuablePath = argv[0];
     auto stderr_sink = make_shared<spdlog::sinks::stderr_sink_mt>();
     stderr_sink->set_level(spdlog::level::critical);
     sinks.push_back(stderr_sink);
-    
+
     spdlog::create("logger", std::begin(sinks), std::end(sinks));
 
     MailUtils::setBaseIDVersion(Identity::GetGlobal()->createdAt());
@@ -703,13 +713,13 @@ string exectuablePath = argv[0];
             metadataExpirationWorker = make_shared<MetadataExpirationWorker>(account->id());
             metadataExpirationWorker->run();
         });
-        
+
         if (!options[ORPHAN]) {
             runListenOnMainThread(account);
         } else {
             bgThread->join(); // will block forever.
         }
     }
-    
+
     return 0;
 }

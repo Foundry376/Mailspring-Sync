@@ -1,6 +1,10 @@
-cmake_minimum_required (VERSION 3.1 FATAL_ERROR)
-project (mailsync) 
+# Specify the version being used
+cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
 
+# Name the project
+project(mailsync)
+
+# TODO: Support Clang and GCC (later versions too) alike.
 SET (CMAKE_C_COMPILER "/usr/bin/gcc-5")
 SET (CMAKE_C_FLAGS     "-std=c++1z")
 
@@ -10,52 +14,79 @@ SET (CMAKE_CXX_FLAGS   "-std=c++1z -Wno-unknown-pragmas")
 #Set Linker flags
 set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
 
+# Use CMake's pkg-config
+find_package(PkgConfig REQUIRED)
 
-find_package (PkgConfig REQUIRED)
-pkg_check_modules (GLIB REQUIRED glib-2.0)
-
+# Include GLib (2.0 or later)
+pkg_check_modules(GLIB REQUIRED glib-2.0)
 include_directories (${GLIB_INCLUDE_DIRS})
 link_directories (${GLIB_LIBRARY_DIRS})
 
-IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-
+# Linux version
+if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   set(additional_includes
     /usr/include/tidy
     /usr/include/libxml2
     /usr/include/curl
   )
-  
+
+  # Link ICU and other Linux-specific dependencies.
   set(icu_libraries icudata icui18n icuio icule iculx icutest icutu icuuc)
   set(linux_libraries ${icu_libraries} pthread uuid xml2)
 
+  # WARNING: This is not a good practice! Load into a temporary directory.
   link_directories(/opt/openssl/lib)
+
+  # Link Mailcore2
   link_directories(Vendor/mailcore2/build/src)
   include_directories(Vendor/mailcore2/build/src/include)
 
+  # Include third-party dependencies
   include_directories(Vendor)
+
+  # Include niohmann/json
   include_directories(Vendor/nlohmann)
+
+  # Include icalendarlib
   include_directories(Vendor/icalendarlib)
+
+  # Include SQLiteCpp
   include_directories(Vendor/SQLiteCpp/include Vendor/SQLiteCpp/sqlite3)
+
+  # Include StandfordCPPLib
   include_directories(Vendor/StanfordCPPLib)
+
+  # Include Models
   include_directories(MailSync MailSync/Models)
 
+  # Bundle Mailsync source and dependencies
   file(GLOB SOURCES
-    MailSync/*.h
-    MailSync/*.[ch]pp
-    MailSync/Models/*.h
-    MailSync/Models/*.[ch]pp
-    Vendor/SQLiteCpp/sqlite3/*.[ch]
-    Vendor/SQLiteCpp/src/*.[ch]pp
+    MailSync/include/*.hpp
+    MailSync/include/models/*.hpp
+    MailSync/src/.cpp
+    MailSync/src/models/*.cpp
+
     Vendor/icalendarlib/*.h
     Vendor/icalendarlib/*.cpp
+
+    Vendor/nlohmann/*.hpp
+    Vendor/optionparser/*.h
+    Vendor/PicoSHA2/*.h
+
+    Vendor/SQLiteCpp/sqlite3/*.[ch]
+    Vendor/SQLiteCpp/src/*.[ch]pp
+
     Vendor/StanfordCPPLib/*.[ch]pp
     Vendor/StanfordCPPLib/stacktrace/*.[ch]pp
   )
 
+  # Create executable
   add_executable(mailsync MailSync/main.cpp ${SOURCES})
 
+  # Additional linker flags
   add_definitions(-DSQLITE_ENABLE_FTS5=1 -DHAVE_USLEEP=1 -DSQLITE_OMIT_LOAD_EXTENSION=1)
 
+  # Link static libraries
   target_link_libraries(mailsync libMailCore.a)
   target_link_libraries(mailsync ${GLIB_LIBRARIES})
   target_link_libraries(mailsync libetpan.a)
@@ -91,7 +122,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   find_library(ICUDATA_LIB NAMES libicudata.a libicudata)
   target_link_libraries(mailsync ${ICUDATA_LIB})
 
-  target_link_libraries(mailsync /tmp/mailsync-build-deps-v2/curl-7.70.0/lib/.libs/libcurl.a)    
+  target_link_libraries(mailsync /tmp/mailsync-build-deps-v2/curl-7.70.0/lib/.libs/libcurl.a)
 
   find_library(C_ARES_LIB NAMES libcares.a libcares)
   target_link_libraries(mailsync ${C_ARES_LIB})
@@ -117,4 +148,4 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   #target_link_libraries(mailsync pthread sasl2 ssl crypto dl)
   target_link_libraries(mailsync pthread sasl2 dl)
 
-ENDIF()
+endif()

@@ -68,9 +68,9 @@
 #  undef MOUSE_MOVED
 #  undef HELP_KEY
 #endif
-#include "json.hpp"
+#include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
-#include "GenericException.hpp"
+#include "mailsync/generic_exception.hpp"
 
 // uncomment the definition below to use an alternative 'signal stack'
 // which helps in handling stack overflow errors
@@ -232,10 +232,10 @@ void setTopLevelExceptionHandlerEnabled(bool enabled, bool force) {
 #ifdef _WIN32
         // disabling this code for now because it messes with the
         // newly added uncaught signal handler
-        
+
         // The system does not display the Windows Error Reporting dialog.
         SetErrorMode(SEM_NOGPFAULTERRORBOX);
-        
+
         // The system does not display the critical-error-handler message box. Instead, the system sends the error to the calling process.
         SetErrorMode(SEM_FAILCRITICALERRORS);
         SetThreadErrorMode(SEM_FAILCRITICALERRORS, nullptr);
@@ -245,7 +245,7 @@ void setTopLevelExceptionHandlerEnabled(bool enabled, bool force) {
         _set_invalid_parameter_handler(newHandler);
         _set_error_mode(_OUT_TO_STDERR);
 #endif // _WIN32
-        
+
         // also set up a signal handler for things like segfaults / null-pointer-dereferences
         signalHandlerEnable();
     } else if ((STATIC_VARIABLE(topLevelExceptionHandlerEnabled) || force) && !enabled) {
@@ -409,11 +409,11 @@ void printStackTrace(std::vector<stacktrace::entry> entries) {
             entriesToShowCount++;
         }
     }
-    
+
     if (entries.empty() || entriesToShowCount == 0) {
         return;   // couldn't get a stack trace, or had no useful data  :-(
     }
-    
+
     if (lineStrLength > 0) {
         out << "*** Stack trace (line numbers are approximate):" << std::endl;
         if (STATIC_VARIABLE(STACK_TRACE_SHOW_TOP_BOTTOM_BARS)) {
@@ -426,11 +426,11 @@ void printStackTrace(std::vector<stacktrace::entry> entries) {
     } else {
         out << "*** Stack trace:" << std::endl;
     }
-    
+
     for (int i = 0; i < entries.size(); ++i) {
         stacktrace::entry entry = entries[i];
         entry.file = getTail(entry.file);
-        
+
         // skip certain entries for clarity
         if (STATIC_VARIABLE(STACK_TRACE_SHOULD_FILTER)
                 && (shouldFilterOutFromStackTrace(entry.function)
@@ -438,7 +438,7 @@ void printStackTrace(std::vector<stacktrace::entry> entries) {
                     || shouldFilterOutFromStackTrace(entry.lineStr))) {
             continue;
         }
-        
+
         // show Main() as main() to hide hidden case-change by Stanford C++ lib internals
         if (startsWith(entry.function, "Main(")) {
             entry.function.replace(0, 5, "main(");
@@ -476,14 +476,14 @@ void printStackTrace(std::vector<stacktrace::entry> entries) {
         if (entry.lineStr.empty() && entry.line > 0) {
             lineStr = "line " + std::to_string(entry.line);
         }
-        
+
         // we use a temporary 'lineout' because cerr aggressively flushes on <<,
         // leading to awkward line breaks in the output pane
         std::ostringstream lineout;
         lineout << "*** " << std::left << std::setw(lineStrLength) << lineStr
                   << "  " << entry.function;
         out << lineout.str() << std::endl;
-        
+
         // don't show entries beneath the student's main() function, for simplicity
         if (entry.function == "main"
                 || entry.function == "main()"
@@ -502,9 +502,9 @@ void printStackTrace(std::vector<stacktrace::entry> entries) {
         lineout << "*** " << std::string(lineStrLength + 2 + funcNameLength, '=');
         out << lineout.str() << std::endl;
     }
-    
+
     out << "***" << std::endl;
-    
+
     auto logger = spdlog::get("logger");
     if (logger) {
         logger->critical(out.str());
@@ -556,7 +556,7 @@ static void signalHandlerEnable() {
     ss.ss_size = SIGSTKSZ;
     ss.ss_flags = 0;
     sigaltstack(&ss, nullptr);
-    
+
     struct sigaction sig_action = {};
     sig_action.sa_sigaction = stanfordCppLibPosixSignalHandler;
     sigemptyset(&sig_action.sa_mask);
@@ -617,7 +617,7 @@ static void stanfordCppLibSignalHandler(int sig) {
     } else if (sig == SIGSTACK) {
         FILL_IN_AND_LOG_MSG(ex, "A stack overflow", "function calling itself infinitely.");
     }
-    
+
 
     if (sig != SIGSTACK) {
         exceptions::printStackTrace();
@@ -645,7 +645,7 @@ static std::string insertStarsBeforeEachLine(const std::string& s) {
 void logCurrentExceptionWithStackTrace() {
      std::string DEFAULT_EXCEPTION_KIND = "An exception";
      std::string DEFAULT_EXCEPTION_DETAILS = "(unknown exception details)";
-     
+
      std::string msg;
      msg += "\n";
      msg += "***\n";
@@ -653,7 +653,7 @@ void logCurrentExceptionWithStackTrace() {
      msg += "*** " + DEFAULT_EXCEPTION_KIND + " occurred during program execution: \n";
      msg += "*** " + DEFAULT_EXCEPTION_DETAILS + "\n";
      msg += "***\n";
-     
+
      try {
          signalHandlerDisable();   // don't want both a signal AND a terminate() call
          throw;   // re-throws the exception that already occurred
@@ -773,4 +773,3 @@ static void stanfordCppLibUnexpectedHandler() {
 }
 
 } // namespace exceptions
-
