@@ -24,7 +24,7 @@
 #define SyncException_hpp
 
 #include <stdio.h>
-#include <MailCore/MailCore.h>
+#include "MailCore/MailCore.h"
 #include <curl/curl.h>
 #include "nlohmann/json.hpp"
 #include "mailsync/generic_exception.hpp"

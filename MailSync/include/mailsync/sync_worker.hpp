@@ -28,7 +28,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <MailCore/MailCore.h>
+#include "MailCore/MailCore.h"
 
 #include "mailsync/models/account.hpp"
 #include "mailsync/mail_store.hpp"

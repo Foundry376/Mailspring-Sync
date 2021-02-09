@@ -29,7 +29,7 @@
 #include <pthread.h>
 #include <sqlite3.h>
 
-#include <MailCore/MailCore.h>
+#include "MailCore/MailCore.h"
 #include "SQLiteCpp/SQLiteCpp.h"
 #include <StanfordCPPLib/exceptions.h>
 #include <curl/curl.h>

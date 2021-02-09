@@ -26,7 +26,7 @@
 #include <stdio.h>
 #include <vector>
 
-#include <MailCore/MailCore.h>
+#include "MailCore/MailCore.h"
 #include "SQLiteCpp/SQLiteCpp.h"
 #include "nlohmann/json.hpp"
 

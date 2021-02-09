@@ -34,7 +34,7 @@
 #include "mailsync/models/mail_model.hpp"
 #include "mailsync/mail_store.hpp"
 #include "mailsync/models/account.hpp"
-#include <MailCore/MailCore.h>
+#include "MailCore/MailCore.h"
 
 using namespace nlohmann;
 using namespace std;

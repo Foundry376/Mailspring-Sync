@@ -24,7 +24,7 @@
 #define ProgressCollectors_hpp
 
 #include <stdio.h>
-#include <MailCore/MailCore.h>
+#include "MailCore/MailCore.h"
 
 using namespace mailcore;
 

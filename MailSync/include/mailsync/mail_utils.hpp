@@ -26,7 +26,7 @@
 #include <iostream>
 #include <string>
 #include <stdio.h>
-#include <MailCore/MailCore.h>
+#include "MailCore/MailCore.h"
 #include "SQLiteCpp/SQLiteCpp.h"
 #include "nlohmann/json.hpp"
 #include "mailsync/xoauth2_token_manager.hpp"

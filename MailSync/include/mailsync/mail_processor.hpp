@@ -25,7 +25,7 @@
 
 #include <stdio.h>
 
-#include <MailCore/MailCore.h>
+#include "MailCore/MailCore.h"
 #include "SQLiteCpp/SQLiteCpp.h"
 #include "spdlog/spdlog.h"
 #include "nlohmann/json.hpp"
