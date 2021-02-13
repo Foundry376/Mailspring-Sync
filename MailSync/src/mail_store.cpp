@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "mailsync/mail_store.hpp"
 #include "mailsync/mail_utils.hpp"
 #include "mailsync/mail_store_transaction.hpp"
@@ -113,8 +115,8 @@ void MailStore::migrate() {
     }
     if (version < 3) {
         // This one will be time consuming - display window
-        cout << "\nRunning " << verb;
-        cout.flush();
+        std::cout << "\nRunning " << verb;
+        std::cout.flush();
         for (string sql : V3_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
@@ -154,8 +156,8 @@ void MailStore::migrate() {
 
     // VACUUM if it's been a while
     if (time(0) - vacuumTime > VACUUM_INTERVAL) {
-        cout << "\nRunning Vacuum\n";
-        cout.flush();
+        std::cout << "\nRunning Vacuum\n";
+        std::cout.flush();
 
         // Update vacuum timer first so we don't re-attempt vacuuming if it fails
         saveKeyValue(VACUUM_TIME_KEY, to_string(time(0)));
@@ -165,8 +167,8 @@ void MailStore::migrate() {
         } catch (std::exception & ex) {
             // Vacuuming can fail if we run out of disk space and isn't mandatory,
             // so we fail silently and still return 0 to allow the app to launch.
-            cout << "\n" << "Vacuuming failed with SQLite error:";
-            cout << "\n" << ex.what();
+            std::cout << "\n" << "Vacuuming failed with SQLite error:";
+            std::cout << "\n" << ex.what();
         }
     }
 }

@@ -23,57 +23,54 @@
 #ifndef DAVWorker_hpp
 #define DAVWorker_hpp
 
+#include <stdio.h>
+
+#include <string>
+#include <vector>
+
+#include "spdlog/spdlog.h"
+
 #include "mailsync/models/account.hpp"
 #include "mailsync/models/identity.hpp"
 #include "mailsync/models/contact_book.hpp"
 #include "mailsync/mail_store.hpp"
 #include "mailsync/dav_xml.hpp"
 
-#include <stdio.h>
-
-#include <iostream>
-#include <string>
-#include <vector>
-
-#include "spdlog/spdlog.h"
-
-using namespace std;
-
-typedef string ETAG;
+typedef std::string ETAG;
 
 class DAVWorker {
     MailStore * store;
-    shared_ptr<spdlog::logger> logger;
+    std::shared_ptr<spdlog::logger> logger;
 
-    string calHost;
-    string calPrincipal;
+    std::string calHost;
+    std::string calPrincipal;
 
 public:
-    shared_ptr<Account> account;
+    std::shared_ptr<Account> account;
 
-    DAVWorker(shared_ptr<Account> account);
+    DAVWorker(std::shared_ptr<Account> account);
 
     void run();
 
-    shared_ptr<ContactBook> resolveAddressBook();
+    std::shared_ptr<ContactBook> resolveAddressBook();
 
-    void writeAndResyncContact(shared_ptr<Contact> contact);
-    void deleteContact(shared_ptr<Contact> contact);
+    void writeAndResyncContact(std::shared_ptr<Contact> contact);
+    void deleteContact(std::shared_ptr<Contact> contact);
 
     void runContacts();
-    void runForAddressBook(shared_ptr<ContactBook> ab);
+    void runForAddressBook(std::shared_ptr<ContactBook> ab);
 
-    void ingestContactDeletions(shared_ptr<ContactBook> ab, vector<ETAG> deleted);
-    shared_ptr<Contact> ingestAddressDataNode(shared_ptr<DavXML> doc, xmlNodePtr node, bool & isGroup);
-    void rebuildContactGroup(shared_ptr<Contact> contact);
+    void ingestContactDeletions(std::shared_ptr<ContactBook> ab, std::vector<ETAG> deleted);
+    std::shared_ptr<Contact> ingestAddressDataNode(std::shared_ptr<DavXML> doc, xmlNodePtr node, bool & isGroup);
+    void rebuildContactGroup(std::shared_ptr<Contact> contact);
 
     void runCalendars();
-    void runForCalendar(string id, string name, string path);
+    void runForCalendar(std::string id, std::string name, std::string path);
 
-    const string getAuthorizationHeader();
+    const std::string getAuthorizationHeader();
 
-    shared_ptr<DavXML> performXMLRequest(string path, string method, string payload = "");
-    string performVCardRequest(string _url, string method, string vcard = "", ETAG existingEtag = "");
+    std::shared_ptr<DavXML> performXMLRequest(std::string path, std::string method, std::string payload = "");
+    std::string performVCardRequest(std::string _url, std::string method, std::string vcard = "", ETAG existingEtag = "");
 
 };
 

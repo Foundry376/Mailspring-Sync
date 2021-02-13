@@ -14,7 +14,6 @@
 
 #include <stdlib.h>
 #include <functional>
-#include <chrono>
 #include <future>
 #include <cstdio>
 
@@ -22,15 +21,15 @@ using namespace nlohmann;
 
 // Singleton Implementation
 
-shared_ptr<DeltaStream> _globalStream = make_shared<DeltaStream>();
+std::shared_ptr<DeltaStream> _globalStream = make_shared<DeltaStream>();
 
-shared_ptr<DeltaStream> SharedDeltaStream() {
+std::shared_ptr<DeltaStream> SharedDeltaStream() {
     return _globalStream;
 }
 
 // DeltaStreamItem
 
-DeltaStreamItem::DeltaStreamItem(string type, string modelClass, vector<json> inJSONs) :
+DeltaStreamItem::DeltaStreamItem(std::string type, std::string modelClass, std::vector<json> inJSONs) :
     type(type), modelClass(modelClass)
 {
     for (const auto & itemJSON : inJSONs) {
@@ -38,13 +37,13 @@ DeltaStreamItem::DeltaStreamItem(string type, string modelClass, vector<json> in
     }
 }
 
-DeltaStreamItem::DeltaStreamItem(string type, MailModel * model) :
+DeltaStreamItem::DeltaStreamItem(std::string type, MailModel * model) :
     type(type), modelClass(model->tableName())
 {
     upsertModelJSON(model->toJSONDispatch());
 }
 
-DeltaStreamItem::DeltaStreamItem(string type, vector<shared_ptr<MailModel>> & models) :
+DeltaStreamItem::DeltaStreamItem(std::string type, std::vector<std::shared_ptr<MailModel>> & models) :
     type(type), modelClass("none"), modelJSONs({})
 {
     if (models.size() > 0) {
@@ -69,7 +68,7 @@ void DeltaStreamItem::upsertModelJSON(const json & item) {
     // scan and replace any instance of the object already available, or append.
     // It's important two back-to-back saves of the same object don't create two entries,
     // only the last one.
-    string id = item["id"].get<string>();
+    std::string id = item["id"].get<std::string>();
 
     if (idIndexes.count(id)) {
         // If we already have a delta for object X, merge the keys of `item` into X, replacing
@@ -86,7 +85,7 @@ void DeltaStreamItem::upsertModelJSON(const json & item) {
     }
 }
 
-string DeltaStreamItem::dump() const {
+std::string DeltaStreamItem::dump() const {
     json j = {
         {"type", type},
         {"modelJSONs", modelJSONs},
@@ -106,7 +105,7 @@ DeltaStream::~DeltaStream() {
 
 json DeltaStream::waitForJSON() {
     try {
-        string buffer;
+        std::string buffer;
         cin.clear();
         cin.sync();
         getline(cin, buffer);
@@ -123,11 +122,11 @@ json DeltaStream::waitForJSON() {
 }
 
 void DeltaStream::flushBuffer() {
-    lock_guard<mutex> lock(bufferMtx);
+    std::lock_guard<std::mutex> lock(bufferMtx);
     for (const auto & it : buffer) {
         for (const auto & item : it.second) {
-            cout << item.dump() + "\n";
-            cout << flush;
+            std::cout << item.dump() + "\n";
+            std::cout << std::flush;
         }
     }
     buffer = {};
@@ -136,8 +135,8 @@ void DeltaStream::flushBuffer() {
 
 void DeltaStream::flushWithin(int ms) {
     std::chrono::system_clock::time_point desiredTime = std::chrono::system_clock::now();
-    desiredTime += chrono::milliseconds(ms);
-    lock_guard<mutex> lock(bufferMtx);
+    desiredTime += std::chrono::milliseconds(ms);
+    std::lock_guard<std::mutex> lock(bufferMtx);
 
     if (!scheduled) {
         scheduledTime = desiredTime;
@@ -156,7 +155,7 @@ void DeltaStream::flushWithin(int ms) {
 }
 
 void DeltaStream::queueDeltaForDelivery(DeltaStreamItem item) {
-    lock_guard<mutex> lock(bufferMtx);
+    std::lock_guard<std::mutex> lock(bufferMtx);
 
     if (!buffer.count(item.modelClass)) {
         buffer[item.modelClass] = {};
@@ -171,24 +170,24 @@ void DeltaStream::emit(DeltaStreamItem item, int maxDeliveryDelay) {
     flushWithin(maxDeliveryDelay);
 }
 
-void DeltaStream::emit(vector<DeltaStreamItem> items, int maxDeliveryDelay) {
+void DeltaStream::emit(std::vector<DeltaStreamItem> items, int maxDeliveryDelay) {
     for (const auto item : items) {
         queueDeltaForDelivery(item);
     }
     flushWithin(maxDeliveryDelay);
 }
 
-void DeltaStream::beginConnectionError(string accountId) {
+void DeltaStream::beginConnectionError(std::string accountId) {
     connectionError = true;
-    vector<json> items {};
+    std::vector<json> items {};
     items.push_back({{"accountId", accountId}, {"id", accountId}, {"connectionError", connectionError}});
     emit(DeltaStreamItem("persist", "ProcessState", items), 0);
 }
 
-void DeltaStream::endConnectionError(string accountId) {
+void DeltaStream::endConnectionError(std::string accountId) {
     if (connectionError) {
         connectionError = false;
-        vector<json> items {};
+        std::vector<json> items {};
         items.push_back({{"accountId", accountId}, {"id", accountId}, {"connectionError", connectionError}});
         emit(DeltaStreamItem("persist", "ProcessState", items), 0);
     }

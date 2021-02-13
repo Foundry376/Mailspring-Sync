@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "mailsync/mail_utils.hpp"
 #include "mailsync/metadata_expiration_worker.hpp"
 #include "mailsync/sync_exception.hpp"
@@ -397,7 +399,7 @@ shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_p
         }
     }
 
-    cout << "\n\nIMPORTANT --- Label not found: " << mlname;
+    std::cout << "\n\nIMPORTANT --- Label not found: " << mlname;
     return shared_ptr<Label>{};
 }
 

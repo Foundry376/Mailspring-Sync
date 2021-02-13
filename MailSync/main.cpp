@@ -372,11 +372,11 @@ done:
     };
     if (err == ErrorNone) {
         resp["account"] = account->toJSON();
-        cout << resp.dump();
+        std::cout << resp.dump();
         return 0;
     } else {
         resp["error"] = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : "Unknown";
-        cout << resp.dump();
+        std::cout << resp.dump();
         return 1;
     }
 }
@@ -390,7 +390,7 @@ int runSingleFunctionAndExit(std::function<void()> fn) {
         resp["error"] = ex.what();
         code = 1;
     }
-    cout << "\n" << resp.dump();
+    std::cout << "\n" << resp.dump();
     return code;
 }
 
@@ -413,7 +413,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
         } catch (std::invalid_argument & ex) {
             json resp = {{"error", ex.what()}};
             spdlog::get("logger")->error(resp.dump());
-            cout << "\n" << resp.dump() << "\n";
+            std::cout << "\n" << resp.dump() << "\n";
             continue;
         }
 
@@ -584,7 +584,7 @@ string exectuablePath = argv[0];
         Option ac = options[ACCOUNT];
         accountJSON = string(options[ACCOUNT].arg);
     } else {
-        cout << "\nWaiting for Account JSON:\n";
+        std::cout << "\nWaiting for Account JSON:\n";
         getline(cin, accountJSON);
     }
     shared_ptr<Account> account = nullptr;
@@ -592,14 +592,14 @@ string exectuablePath = argv[0];
         account = make_shared<Account>(json::parse(accountJSON));
     } catch (json::exception& e) {
         json resp = { { "error", "Invalid Account JSON: " + string(e.what()) }, { "log", accountJSON } };
-        cout << "\n" << resp.dump();
+        std::cout << "\n" << resp.dump();
         return 1;
     }
 
 
 	if (account->valid() != "") {
 		json resp = { { "error", "Account is missing required fields:" + account->valid() } };
-		cout << "\n" << resp.dump();
+		std::cout << "\n" << resp.dump();
 		return 1;
 	}
 
@@ -616,20 +616,20 @@ string exectuablePath = argv[0];
 		Option ac = options[IDENTITY];
 		identityJSON = string(options[IDENTITY].arg);
 	} else {
-		cout << "\nWaiting for Identity JSON:\n";
+		std::cout << "\nWaiting for Identity JSON:\n";
         getline(cin, identityJSON);
 	}
     try {
         Identity::SetGlobal(make_shared<Identity>(json::parse(identityJSON)));
     } catch (json::exception& e) {
         json resp = { { "error", "Invalid Identity JSON: " + string(e.what()) }, { "log", identityJSON } };
-        cout << "\n" << resp.dump();
+        std::cout << "\n" << resp.dump();
         return 1;
     }
 
 	if (!Identity::GetGlobal()->valid()) {
 		json resp = { { "error", "ErrorIdentityMissingFields" } };
-		cout << "\n" << resp.dump();
+		std::cout << "\n" << resp.dump();
 		return 1;
 	}
 
@@ -662,7 +662,7 @@ string exectuablePath = argv[0];
         }
     } catch (spdlog::spdlog_ex& e) {
         json resp = { { "error", "Setup Failed: " + string(e.what()) } };
-        cout << "\n" << resp.dump();
+        std::cout << "\n" << resp.dump();
         return 1;
     }
 

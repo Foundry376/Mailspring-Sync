@@ -29,14 +29,20 @@
 #define DeltaStream_hpp
 
 #include <stdio.h>
-#include <mutex>
+
+#include <chrono>
 #include <condition_variable>
-#include "mailsync/models/mail_model.hpp"
+#include <map>
+#include <mutex>
+#include <string>
+#include <vector>
+
 #include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
 
+#include "mailsync/models/mail_model.hpp"
+
 using namespace nlohmann;
-using namespace std;
 
 #define DELTA_TYPE_METADATA_EXPIRATION  "metadata-expiration"
 #define DELTA_TYPE_PERSIST              "persist"
@@ -44,23 +50,23 @@ using namespace std;
 
 class DeltaStreamItem {
 public:
-    string type;
-    vector<json> modelJSONs;
-    string modelClass;
-    map<string, size_t> idIndexes;
+    std::string type;
+    std::vector<json> modelJSONs;
+    std::string modelClass;
+    std::map<std::string, size_t> idIndexes;
 
-    DeltaStreamItem(string type, string modelClass, vector<json> modelJSONs);
-    DeltaStreamItem(string type, vector<shared_ptr<MailModel>> & models);
-    DeltaStreamItem(string type, MailModel * model);
+    DeltaStreamItem(std::string type, std::string modelClass, std::vector<json> modelJSONs);
+    DeltaStreamItem(std::string type, std::vector<shared_ptr<MailModel>> & models);
+    DeltaStreamItem(std::string type, MailModel * model);
 
     bool concatenate(const DeltaStreamItem & other);
     void upsertModelJSON(const json & modelJSON);
-    string dump() const;
+    std::string dump() const;
 };
 
 class DeltaStream  {
-    mutex bufferMtx;
-    map<string, vector<DeltaStreamItem>> buffer;
+    std::mutex bufferMtx;
+    std::map<std::string, std::vector<DeltaStreamItem>> buffer;
 
     bool scheduled;
     bool connectionError;
@@ -80,10 +86,10 @@ public:
     void queueDeltaForDelivery(DeltaStreamItem item);
 
     void emit(DeltaStreamItem item, int maxDeliveryDelay);
-    void emit(vector<DeltaStreamItem> items, int maxDeliveryDelay);
+    void emit(std::vector<DeltaStreamItem> items, int maxDeliveryDelay);
 
-    void beginConnectionError(string accountId);
-    void endConnectionError(string accountId);
+    void beginConnectionError(std::string accountId);
+    void endConnectionError(std::string accountId);
 };
 
 

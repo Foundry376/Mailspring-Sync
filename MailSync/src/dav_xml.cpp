@@ -1,9 +1,7 @@
 #include "mailsync/dav_xml.hpp"
 #include "mailsync/sync_exception.hpp"
 
-using namespace std;
-
-DavXML::DavXML(string xml, string url):
+DavXML::DavXML(std::string xml, std::string url):
     xpathContext(nullptr)
 {
     doc = xmlReadMemory(xml.c_str(), (int)xml.size(), url.c_str(), "utf-8", 0);
@@ -22,7 +20,7 @@ DavXML::~DavXML() noexcept // nothrow
     }
 }
 
-void DavXML::evaluateXPath(string expr, std::function<void(xmlNodePtr)> yieldBlock, xmlNodePtr withinNode)
+void DavXML::evaluateXPath(std::string expr, std::function<void(xmlNodePtr)> yieldBlock, xmlNodePtr withinNode)
 {
     if (xpathContext == nullptr) {
         xpathContext = xmlXPathNewContext(doc);
@@ -69,10 +67,10 @@ void DavXML::evaluateXPath(string expr, std::function<void(xmlNodePtr)> yieldBlo
     xmlXPathFreeObject(xpathObj);
 }
 
-string DavXML::nodeContentAtXPath(string expr, xmlNodePtr withinNode) {
-    string result = "";
+std::string DavXML::nodeContentAtXPath(std::string expr, xmlNodePtr withinNode) {
+    std::string result = "";
     evaluateXPath(expr, ([&](xmlNodePtr cur) {
-        result = string((char *)cur->content);
+        result = std::string((char *)cur->content);
         return;
     }), withinNode);
     return result;

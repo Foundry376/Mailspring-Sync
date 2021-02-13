@@ -25,22 +25,23 @@
 
 #include <stdio.h>
 #include <string>
+#include <memory>
 #include <vector>
 
 #include "mailsync/models/contact.hpp"
 #include "mailsync/vcard.hpp"
 
-static string X_VCARD3_KIND = "X-ADDRESSBOOKSERVER-KIND";
-static string X_VCARD3_MEMBER = "X-ADDRESSBOOKSERVER-MEMBER";
-static string CARDDAV_SYNC_SOURCE = "carddav";
+static const std::string X_VCARD3_KIND = "X-ADDRESSBOOKSERVER-KIND";
+static const std::string X_VCARD3_MEMBER = "X-ADDRESSBOOKSERVER-MEMBER";
+static const std::string CARDDAV_SYNC_SOURCE = "carddav";
 
 class DAVUtils {
 
 public:
 
-static void addMembersToGroupCard(shared_ptr<VCard> card, vector<shared_ptr<Contact>> contacts);
-static void removeMembersFromGroupCard(shared_ptr<VCard> card, vector<shared_ptr<Contact>> contacts);
-static bool isGroupCard(shared_ptr<VCard> card);
+static void addMembersToGroupCard(std::shared_ptr<VCard> card, std::vector<std::shared_ptr<Contact>> contacts);
+static void removeMembersFromGroupCard(std::shared_ptr<VCard> card, std::vector<std::shared_ptr<Contact>> contacts);
+static bool isGroupCard(std::shared_ptr<VCard> card);
 
 };
 

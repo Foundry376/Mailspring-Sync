@@ -1,3 +1,5 @@
+#include <curl/curl.h>
+
 #include "mailsync/dav_worker.hpp"
 #include "mailsync/dav_utils.hpp"
 #include "mailsync/models/contact_group.hpp"
@@ -12,9 +14,6 @@
 #include "mailsync/models/calendar.hpp"
 #include "mailsync/network_request_utils.hpp"
 
-#include <string>
-#include <curl/curl.h>
-
 struct EventResult {
     std::string icsHref;
     ETAG etag;
@@ -22,20 +21,20 @@ struct EventResult {
 
 
 
-string firstPropVal(json attrs, string key, string fallback = "") {
+std::string firstPropVal(json attrs, std::string key, std::string fallback = "") {
     if (!attrs.count(key)) return fallback;
     if (!attrs[key].size()) return fallback;
-    return attrs[key][0].get<string>();
+    return attrs[key][0].get<std::string>();
 }
 
-string replacePath(string url, string path) {
+std::string replacePath(std::string url, std::string path) {
     unsigned long hostStart = url.find("://");
     unsigned long hostEnd = 0;
-    if (hostStart == string::npos) {
+    if (hostStart == std::string::npos) {
         hostEnd = url.find("/");
     } else {
         hostEnd = url.substr(hostStart + 3).find("/");
-        if (hostEnd != string::npos) {
+        if (hostEnd != std::string::npos) {
             hostEnd += hostStart + 3;
         }
     }
@@ -45,7 +44,7 @@ string replacePath(string url, string path) {
     return url.substr(0, hostEnd) + path;
 }
 
-DAVWorker::DAVWorker(shared_ptr<Account> account) :
+DAVWorker::DAVWorker(std::shared_ptr<Account> account) :
     store(new MailStore()),
     account(account),
     logger(spdlog::get("logger"))
@@ -60,19 +59,19 @@ DAVWorker::DAVWorker(shared_ptr<Account> account) :
         calPrincipal = "/caldav/v2/" + account->emailAddress();
     }
 
-    if (account->IMAPHost().find("imap.mail.ru") != string::npos) {
+    if (account->IMAPHost().find("imap.mail.ru") != std::string::npos) {
         calHost = "calendar.mail.ru";
         calPrincipal = "discover";
     }
-    if (account->IMAPHost().find("imap.yandex.com") != string::npos) {
+    if (account->IMAPHost().find("imap.yandex.com") != std::string::npos) {
         calHost = "yandex.ru";
         calPrincipal = "discover";
     }
-    if (account->IMAPHost().find("securemail.a1.net") != string::npos) {
+    if (account->IMAPHost().find("securemail.a1.net") != std::string::npos) {
         calHost = "caldav.a1.net";
         calPrincipal = "discover";
     }
-    if (account->IMAPHost().find("imap.zoho.com") != string::npos) {
+    if (account->IMAPHost().find("imap.zoho.com") != std::string::npos) {
         calHost = "calendar.zoho.com";
         calPrincipal = "discover";
     }
@@ -101,25 +100,25 @@ void DAVWorker::runContacts() {
  Currently we load whatever contact book we have saved locally, but still re-run the DNS + well-known
  search to see if we need to update it's URL since users have no way to do this manually.
 */
-shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
-    shared_ptr<ContactBook> existing = store->find<ContactBook>(Query().equal("accountId", account->id()));
+std::shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
+    std::shared_ptr<ContactBook> existing = store->find<ContactBook>(Query().equal("accountId", account->id()));
     if (existing && existing->source() != CARDDAV_SYNC_SOURCE) {
         return nullptr;
     }
 
-    string cardHost = "";
+    std::string cardHost = "";
 
     // Try to use DNS SRV records to find the principal URL. We do this through a server API so that
     // we don't have to compile C++ that does DNS lookups. On Win it's a pain and on Linux it generates
     // a binary that is bound to a specific version of glibc which generates relocation errors when
     // run on Ubuntu 18.
-    string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
-    string imapHost = account->IMAPHost();
+    std::string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
+    std::string imapHost = account->IMAPHost();
     json payload = {{"domain", domain}, {"imapHost", imapHost}};
     json result = PerformJSONRequest(CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str()));
 
     if (result.count("carddavHost")) {
-        cardHost = result["carddavHost"].get<string>();
+        cardHost = result["carddavHost"].get<std::string>();
     }
 
     if (cardHost == "") {
@@ -129,10 +128,10 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
 
     // Use the .well-known convention to try to look up the root path of the carddav service at the host. If this doesn't
     // work, that's fine with us, we just try the root.
-    string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
+    std::string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
     if (cardRoot == "") {
         cardRoot = PerformExpectedRedirect("http://" + cardHost + "/.well-known/carddav");
-        if (cardRoot == "" || cardRoot.find("/.well-known") != string::npos) {
+        if (cardRoot == "" || cardRoot.find("/.well-known") != std::string::npos) {
             // if we couldn't find the root or the redirect looks like it was sending us in a circle,
             // (or redirecting us to https://) fall back to the root.
             cardRoot = cardHost + "/";
@@ -146,15 +145,15 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
 
     // Fetch the current user principal URL from the CardDav root
     auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>");
-    string cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
-    if (cardPrincipal.find("://") == string::npos) {
+    std::string cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
+    if (cardPrincipal.find("://") == std::string::npos) {
         cardPrincipal = replacePath(cardRoot, cardPrincipal);
     }
 
     // Fetch the address book home set URL from the user principal URL
     auto abSetDoc = performXMLRequest(cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>");
     auto abSetURL = abSetDoc->nodeContentAtXPath("//carddav:addressbook-home-set/D:href/text()");
-    if (abSetURL.find("://") == string::npos) {
+    if (abSetURL.find("://") == std::string::npos) {
         abSetURL = replacePath(cardRoot, abSetURL);
     }
 
@@ -165,10 +164,10 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     // TODO: Pick the primary one somehow!
 
     abSetContentsDoc->evaluateXPath("//D:response[.//carddav:addressbook]", ([&](xmlNodePtr node) {
-        string abHREF = abSetContentsDoc->nodeContentAtXPath(".//D:href/text()", node);
-        string abURL = (abHREF.find("://") == string::npos) ? replacePath(abSetURL, abHREF) : abHREF;
+        std::string abHREF = abSetContentsDoc->nodeContentAtXPath(".//D:href/text()", node);
+        std::string abURL = (abHREF.find("://") == std::string::npos) ? replacePath(abSetURL, abHREF) : abHREF;
         if (!existing) {
-            existing = make_shared<ContactBook>(account->id() + "-default", account->id());
+            existing = std::make_shared<ContactBook>(account->id() + "-default", account->id());
         }
         existing->setSource("carddav");
         existing->setURL(abURL);
@@ -178,28 +177,28 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     return existing;
 }
 
-void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
-    shared_ptr<ContactBook> ab = store->find<ContactBook>(Query().equal("accountId", account->id()));
+void DAVWorker::writeAndResyncContact(std::shared_ptr<Contact> contact) {
+    std::shared_ptr<ContactBook> ab = store->find<ContactBook>(Query().equal("accountId", account->id()));
 
     if (ab == nullptr) {
         logger->warn("No address book found.");
         return;
     }
 
-    string vcf = contact->info()["vcf"].get<string>();
-    string href = contact->info().count("href") ? contact->info()["href"].get<string>() : "";
+    std::string vcf = contact->info()["vcf"].get<std::string>();
+    std::string href = contact->info().count("href") ? contact->info()["href"].get<std::string>() : "";
 
     // write the card
     if (href == "") {
-        string result = performVCardRequest(ab->url(), "POST", vcf);
-        auto postDoc = make_shared<DavXML>(result, ab->url());
+        std::string result = performVCardRequest(ab->url(), "POST", vcf);
+        auto postDoc = std::make_shared<DavXML>(result, ab->url());
         href = postDoc->nodeContentAtXPath("//D:href/text()");
 
     } else {
         try {
         performVCardRequest(replacePath(ab->url(), href), "PUT", vcf, contact->etag());
         } catch (SyncException & e) {
-            if (e.key.find("403") != string::npos) {
+            if (e.key.find("403") != std::string::npos) {
                 // silently continue so our "Bad" vcard is immediately reverted below.
             } else {
                 throw;
@@ -238,14 +237,14 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
     }
 }
 
-void DAVWorker::deleteContact(shared_ptr<Contact> contact) {
+void DAVWorker::deleteContact(std::shared_ptr<Contact> contact) {
     if (contact->source() != CARDDAV_SYNC_SOURCE) {
         logger->info("Deleted contact not synced via CardDAV");
         return;
     }
 
-    shared_ptr<ContactBook> ab = store->find<ContactBook>(Query().equal("accountId", account->id()));
-    string vcf = contact->info()["vcf"].get<string>();
+    std::shared_ptr<ContactBook> ab = store->find<ContactBook>(Query().equal("accountId", account->id()));
+    std::string vcf = contact->info()["vcf"].get<std::string>();
 
     if (ab == nullptr) {
         logger->warn("No address book found.");
@@ -257,7 +256,7 @@ void DAVWorker::deleteContact(shared_ptr<Contact> contact) {
         return;
     }
 
-    string href = contact->info()["href"].get<string>();
+    std::string href = contact->info()["href"].get<std::string>();
     if (href == "") {
        logger->warn("Blank href in info.");
        return;
@@ -267,8 +266,8 @@ void DAVWorker::deleteContact(shared_ptr<Contact> contact) {
     store->remove(contact.get());
 }
 
-void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
-    map<ETAG, string> remote {};
+void DAVWorker::runForAddressBook(std::shared_ptr<ContactBook> ab) {
+    map<ETAG, std::string> remote {};
 
     {
         auto etagsDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /></d:prop></c:addressbook-query>");
@@ -276,7 +275,7 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
         etagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             auto etag = etagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
             auto href = etagsDoc->nodeContentAtXPath(".//D:href/text()", node);
-            remote[string(etag.c_str())] = string(href.c_str());
+            remote[std::string(etag.c_str())] = std::string(href.c_str());
         }));
     }
 
@@ -293,8 +292,8 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
     }
 
     // identify new and deleted events
-    vector<ETAG> deleted {};
-    vector<ETAG> needed {};
+    std::vector<ETAG> deleted {};
+    std::vector<ETAG> needed {};
     for (auto & pair : remote) {
         if (local.count(pair.first)) continue;
         needed.push_back(pair.second);
@@ -315,10 +314,10 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
         logger->info("  needed: {}", needed.size());
     }
 
-    vector<shared_ptr<Contact>> updatedGroups;
+    std::vector<std::shared_ptr<Contact>> updatedGroups;
 
     for (auto chunk : MailUtils::chunksOfVector(needed, 90)) {
-        string payload = "";
+        std::string payload = "";
         for (auto & href : chunk) {
             payload += "<d:href>" + href + "</d:href>";
         }
@@ -368,7 +367,7 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
     }
 }
 
-void DAVWorker::ingestContactDeletions(shared_ptr<ContactBook> ab, vector<string> deleted) {
+void DAVWorker::ingestContactDeletions(std::shared_ptr<ContactBook> ab, std::vector<std::string> deleted) {
     if (deleted.size() == 0) {
         return;
     }
@@ -376,7 +375,7 @@ void DAVWorker::ingestContactDeletions(shared_ptr<ContactBook> ab, vector<string
 
     for (auto & deletionChunk : deletionChunks) {
         // Delete the contacts
-        vector<string> possibleGroupIds {};
+        std::vector<std::string> possibleGroupIds {};
         auto deletedItem = store->findAll<Contact>(Query().equal("bookId", ab->id()).equal("etag", deletionChunk));
         for (auto & e : deletedItem) {
             possibleGroupIds.push_back(e->id());
@@ -393,7 +392,7 @@ void DAVWorker::ingestContactDeletions(shared_ptr<ContactBook> ab, vector<string
     deletionChunks.clear();
 }
 
-shared_ptr<Contact> DAVWorker::ingestAddressDataNode(shared_ptr<DavXML> doc, xmlNodePtr node, bool & isGroup) {
+std::shared_ptr<Contact> DAVWorker::ingestAddressDataNode(std::shared_ptr<DavXML> doc, xmlNodePtr node, bool & isGroup) {
     auto etag = doc->nodeContentAtXPath(".//D:getetag/text()", node);
     auto href = doc->nodeContentAtXPath(".//D:href/text()", node);
     auto vcardString = doc->nodeContentAtXPath(".//carddav:address-data/text()", node);
@@ -402,20 +401,20 @@ shared_ptr<Contact> DAVWorker::ingestAddressDataNode(shared_ptr<DavXML> doc, xml
         return nullptr;
     }
 
-    auto vcard = make_shared<VCard>(vcardString);
+    auto vcard = std::make_shared<VCard>(vcardString);
     if (vcard->incomplete()) {
         logger->info("Unable to decode vcard: {}", vcardString);
         return nullptr;
     }
-    string id = vcard->getUniqueId()->getValue();
+    std::string id = vcard->getUniqueId()->getValue();
     if (id == "") id = MailUtils::idForCalendar(account->id(), href);
-    string email = vcard->getEmails().front()->getValue();
-    string name = vcard->getFormattedName()->getValue();
+    std::string email = vcard->getEmails().front()->getValue();
+    std::string name = vcard->getFormattedName()->getValue();
     if (name == "") name = vcard->getName()->getValue();
 
     auto contact = store->find<Contact>(Query().equal("id", id));
     if (!contact) {
-        contact = make_shared<Contact>(id, account->id(), email, CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
+        contact = std::make_shared<Contact>(id, account->id(), email, CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
     }
     contact->setInfo(json::object({{"vcf", vcardString}, {"href", href}}));
     contact->setName(name);
@@ -429,28 +428,28 @@ shared_ptr<Contact> DAVWorker::ingestAddressDataNode(shared_ptr<DavXML> doc, xml
     return contact;
 }
 
-void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
+void DAVWorker::rebuildContactGroup(std::shared_ptr<Contact> contact) {
     // Support iCloud's "Contact Groups are just Contacts with a member list field" idea
     // by hiding the contact (so it's still synced via etag) and creating a group for it.
     // Note that we have to tear this down when we unsync the contact.
     auto group = store->find<ContactGroup>(Query().equal("id", contact->id()));
     if (!group) {
-        group = make_shared<ContactGroup>(contact->id(), account->id());
+        group = std::make_shared<ContactGroup>(contact->id(), account->id());
     }
     group->setName(contact->name());
     group->setBookId(contact->bookId());
     store->save(group.get());
 
-    shared_ptr<VCard> vcard = make_shared<VCard>(contact->info()["vcf"].get<string>());
+    std::shared_ptr<VCard> vcard = std::make_shared<VCard>(contact->info()["vcf"].get<std::string>());
     if (vcard->incomplete()) {
         return;
     }
 
-    vector<string> members;
+    std::vector<std::string> members;
 
     // vcard4 members
     for (const auto & prop : vcard->getMembers()) {
-        string mid = prop->getValue();
+        std::string mid = prop->getValue();
         if (mid.find("urn:uuid:") == 0) {
             mid = mid.substr(9);
         }
@@ -459,7 +458,7 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
     // vcard3 members / icloud
     for (const auto & prop : vcard->getExtendedProperties()) {
         if (prop->getName()!= X_VCARD3_MEMBER) continue;
-        string mid = prop->getValue();
+        std::string mid = prop->getValue();
         if (mid.find("urn:uuid:") == 0) {
             mid = mid.substr(9);
         }
@@ -507,8 +506,8 @@ void DAVWorker::runCalendars() {
     }));
 }
 
-void DAVWorker::runForCalendar(string calendarId, string name, string url) {
-    map<ETAG, string> remote {};
+void DAVWorker::runForCalendar(std::string calendarId, std::string name, std::string url) {
+    map<ETAG, std::string> remote {};
     {
         // Request the ETAG value of every event in the calendar. We should compare these
         // values against a set in the database. Any event we don't have should be added
@@ -518,7 +517,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
         eventEtagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             auto etag = eventEtagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
             auto icsHref = eventEtagsDoc->nodeContentAtXPath(".//D:href/text()", node);
-            remote[string(etag.c_str())] = string(icsHref.c_str());
+            remote[std::string(etag.c_str())] = std::string(icsHref.c_str());
         }));
     }
 
@@ -535,8 +534,8 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     }
 
     // identify new and deleted events
-    vector<ETAG> deleted {};
-    vector<string> needed {};
+    std::vector<ETAG> deleted {};
+    std::vector<std::string> needed {};
     for (auto & pair : remote) {
         if (local.count(pair.first)) continue;
         needed.push_back(pair.second);
@@ -560,7 +559,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     auto deletionChunks = MailUtils::chunksOfVector(deleted, 100);
 
     for (auto chunk : MailUtils::chunksOfVector(needed, 90)) {
-        string payload = "";
+        std::string payload = "";
         for (auto & icsHref : chunk) {
             payload += "<D:href>" + icsHref + "</D:href>";
         }
@@ -631,26 +630,26 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
 }
 
 
-const string DAVWorker::getAuthorizationHeader() {
+const std::string DAVWorker::getAuthorizationHeader() {
     if (account->refreshToken() != "") {
         auto parts = SharedXOAuth2TokenManager()->partsForAccount(account);
         return "Authorization: Bearer " + parts.accessToken;
     }
 
-    string plain = account->IMAPUsername() + ":" + account->IMAPPassword();
-    string encoded = MailUtils::toBase64(plain.c_str(), strlen(plain.c_str()));
+    std::string plain = account->IMAPUsername() + ":" + account->IMAPPassword();
+    std::string encoded = MailUtils::toBase64(plain.c_str(), strlen(plain.c_str()));
     return "Authorization: Basic " + encoded;
 }
 
-shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, string payload) {
-    string url = _url.find("http") != 0 ? "https://" + _url : _url;
+std::shared_ptr<DavXML> DAVWorker::performXMLRequest(std::string _url, std::string method, std::string payload) {
+    std::string url = _url.find("http") != 0 ? "https://" + _url : _url;
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
     headers = curl_slist_append(headers, "Prefer: return-minimal");
     headers = curl_slist_append(headers, "Content-Type: application/xml; charset=utf-8");
 
-    if (payload.find("xml:ns:carddav") != string::npos) {
+    if (payload.find("xml:ns:carddav") != std::string::npos) {
         headers = curl_slist_append(headers, "Accept: text/vcard; version=4.0");
     }
     headers = curl_slist_append(headers, "Depth: 1");
@@ -663,19 +662,19 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
 
-    string result = PerformRequest(curl_handle);
-    return make_shared<DavXML>(result, url);
+    std::string result = PerformRequest(curl_handle);
+    return std::make_shared<DavXML>(result, url);
 }
 
-string DAVWorker::performVCardRequest(string _url, string method, string vcard, ETAG existingEtag) {
-    string url = _url.find("http") != 0 ? "https://" + _url : _url;
+std::string DAVWorker::performVCardRequest(std::string _url, std::string method, std::string vcard, ETAG existingEtag) {
+    std::string url = _url.find("http") != 0 ? "https://" + _url : _url;
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
     headers = curl_slist_append(headers, "Content-Type: text/vcard; charset=utf-8");
     headers = curl_slist_append(headers, "Accept: text/vcard; version=4.0");
     if (existingEtag != "") {
-        string etagHeader = "If-Match: " + existingEtag;
+        std::string etagHeader = "If-Match: " + existingEtag;
         headers = curl_slist_append(headers, etagHeader.c_str());
     }
 
@@ -688,6 +687,6 @@ string DAVWorker::performVCardRequest(string _url, string method, string vcard, 
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
 
     logger->info("{}: {} {}", _url, vcard, existingEtag);
-    string result = PerformRequest(curl_handle);
+    std::string result = PerformRequest(curl_handle);
     return result;
 }

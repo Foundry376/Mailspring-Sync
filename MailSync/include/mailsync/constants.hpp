@@ -21,24 +21,26 @@
 */
 
 #include <map>
+#include <string>
+
 #include "libetpan/mailsmtp_types.h"
 
-#ifndef constants_h
-#define constants_h
+#ifndef MAILSYNC_CONSTANTS_H
+#define MAILSYNC_CONSTANTS_H
 
 #define AS_MCSTR(X)         mailcore::String::uniquedStringWithUTF8Characters(X.c_str())
 #define AS_WIDE_MCSTR(X)    mailcore::String::stringWithCharacters(X.c_str())
 
 #if defined _WIN32 || defined __CYGWIN__
-static string FS_PATH_SEP = "\\";
+static const std::string FS_PATH_SEP = "\\";
 #else
-static string FS_PATH_SEP = "/";
+static const std::string FS_PATH_SEP = "/";
 #endif
 
-static string MAILSPRING_FOLDER_PREFIX_V1 = "[Mailspring]";
-static string MAILSPRING_FOLDER_PREFIX_V2 = "Mailspring";
+static const std::string MAILSPRING_FOLDER_PREFIX_V1 = "[Mailspring]";
+static const std::string MAILSPRING_FOLDER_PREFIX_V2 = "Mailspring";
 
-static vector<string> ACCOUNT_RESET_QUERIES = {
+static vector<std::string> ACCOUNT_RESET_QUERIES = {
     "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Folder` WHERE `accountId` = ?)",
     "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Label` WHERE `accountId` = ?)",
     "DELETE FROM `ThreadCategory` WHERE `id` IN (SELECT id FROM `Thread` WHERE `accountId` = ?)",
@@ -60,7 +62,7 @@ static vector<string> ACCOUNT_RESET_QUERIES = {
     "DELETE FROM `Account` WHERE `id` = ?",
 };
 
-static vector<string> V1_SETUP_QUERIES = {
+static vector<std::string> V1_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `_State` (id VARCHAR(40) PRIMARY KEY, value TEXT)",
 
     "CREATE TABLE IF NOT EXISTS `File` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), filename TEXT)",
@@ -188,32 +190,32 @@ static vector<string> V1_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `Task` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), status VARCHAR(255))",
 };
 
-static vector<string> V2_SETUP_QUERIES = {
+static vector<std::string> V2_SETUP_QUERIES = {
     "CREATE INDEX IF NOT EXISTS MessageUIDScanIndex ON Message(accountId, remoteFolderId, remoteUID)",
 };
 
-static vector<string> V3_SETUP_QUERIES = {
+static vector<std::string> V3_SETUP_QUERIES = {
     "ALTER TABLE `MessageBody` ADD COLUMN fetchedAt DATETIME",
     "UPDATE `MessageBody` SET fetchedAt = datetime('now')",
 };
 
-static vector<string> V4_SETUP_QUERIES = {
+static vector<std::string> V4_SETUP_QUERIES = {
     "DELETE FROM Task WHERE Task.status = \"complete\" OR Task.status = \"cancelled\"",
     "CREATE INDEX IF NOT EXISTS TaskByStatus ON Task(accountId, status)",
 };
 
-static vector<string> V6_SETUP_QUERIES = {
+static vector<std::string> V6_SETUP_QUERIES = {
     "DROP TABLE IF EXISTS `Event`",
     "CREATE TABLE IF NOT EXISTS `Event` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8), etag VARCHAR(40), calendarId VARCHAR(40), recurrenceStart INTEGER, recurrenceEnd INTEGER)",
     "CREATE INDEX IF NOT EXISTS EventETag ON Event(calendarId, etag)",
 };
 
-static vector<string> V7_SETUP_QUERIES = {
+static vector<std::string> V7_SETUP_QUERIES = {
     "ALTER TABLE `Event` ADD COLUMN icsuid VARCHAR(150)",
     "CREATE INDEX IF NOT EXISTS EventUID ON Event(accountId, icsuid)",
 };
 
-static vector<string> V8_SETUP_QUERIES = {
+static vector<std::string> V8_SETUP_QUERIES = {
     "DELETE FROM Contact WHERE refs = 0;",
     "ALTER TABLE `Contact` ADD COLUMN hidden TINYINT(1) DEFAULT 0",
     "ALTER TABLE `Contact` ADD COLUMN source VARCHAR(10) DEFAULT 'mail'",
@@ -226,7 +228,7 @@ static vector<string> V8_SETUP_QUERIES = {
 };
 
 
-static map<string, string> COMMON_FOLDER_NAMES = {
+static std::map<std::string, std::string> COMMON_FOLDER_NAMES = {
     {"gel\xc3\xb6scht", "trash"},
     {"papierkorb", "trash"},
     {"\xd0\x9a\xd0\xbe\xd1\x80\xd0\xb7\xd0\xb8\xd0\xbd\xd0\xb0", "trash"},
@@ -296,7 +298,7 @@ static map<string, string> COMMON_FOLDER_NAMES = {
     {"Mailspring.Snoozed", "snoozed"},
 };
 
-static map<int, string> LibEtPanCodeToTypeMap = {
+static std::map<int, std::string> LibEtPanCodeToTypeMap = {
     {MAILSMTP_NO_ERROR, "MAILSMTP_NO_ERROR"},
     {MAILSMTP_ERROR_UNEXPECTED_CODE, "MAILSMTP_ERROR_UNEXPECTED_CODE"},
     {MAILSMTP_ERROR_SERVICE_NOT_AVAILABLE, "MAILSMTP_ERROR_SERVICE_NOT_AVAILABLE"},
@@ -327,7 +329,7 @@ static map<int, string> LibEtPanCodeToTypeMap = {
     {MAILSMTP_ERROR_SSL, "MAILSMTP_ERROR_SSL"},
 };
 
-static map<ErrorCode, string> ErrorCodeToTypeMap = {
+static std::map<ErrorCode, std::string> ErrorCodeToTypeMap = {
     {ErrorNone, "ErrorNone"}, // 0
     {ErrorRename, "ErrorRename"},
     {ErrorDelete, "ErrorDelete"},
@@ -381,4 +383,4 @@ static map<ErrorCode, string> ErrorCodeToTypeMap = {
     {ErrorAuthenticationRequired, "ErrorAuthenticationRequired"},
 };
 
-#endif /* constants_h */
+#endif // MAILSYNC_CONSTANTS_H

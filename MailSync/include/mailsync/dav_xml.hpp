@@ -23,24 +23,23 @@
 #ifndef DavXML_hpp
 #define DavXML_hpp
 
-#include <string>
 #include <functional>
+#include <string>
+
 #include <libxml/parser.h>
 #include <libxml/xpath.h>
 #include <libxml/xpathInternals.h>
-
-using namespace std;
 
 class DavXML
 {
 public:
 
-    explicit DavXML(string xml, string url);
+    explicit DavXML(std::string xml, std::string url);
 
     virtual ~DavXML() noexcept; // nothrow
 
-    void evaluateXPath(string expr, std::function<void(xmlNodePtr)> yieldBlock, xmlNodePtr withinNode = nullptr);
-    string nodeContentAtXPath(string expr, xmlNodePtr withinNode = nullptr);
+    void evaluateXPath(std::string expr, std::function<void(xmlNodePtr)> yieldBlock, xmlNodePtr withinNode = nullptr);
+    std::string nodeContentAtXPath(std::string expr, xmlNodePtr withinNode = nullptr);
 
 private:
     // Transaction must be non-copyable

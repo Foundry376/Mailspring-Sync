@@ -1,12 +1,9 @@
 #include "mailsync/dav_utils.hpp"
 
 
-using namespace std;
-
-
-void DAVUtils::addMembersToGroupCard(shared_ptr<VCard> card, vector<shared_ptr<Contact>> contacts) {
+void DAVUtils::addMembersToGroupCard(std::shared_ptr<VCard> card, std::vector<std::shared_ptr<Contact>> contacts) {
     for (auto contact : contacts) {
-        string uuid = "urn:uuid:" + contact->id();
+        std::string uuid = "urn:uuid:" + contact->id();
         bool found = false;
 
         // vcard4
@@ -18,7 +15,7 @@ void DAVUtils::addMembersToGroupCard(shared_ptr<VCard> card, vector<shared_ptr<C
                 }
             }
             if (!found) {
-                card->addProperty(make_shared<VCardProperty>("MEMBER", uuid));
+                card->addProperty(std::make_shared<VCardProperty>("MEMBER", uuid));
             }
 
         // vcard3 / icloud / fastmail
@@ -30,16 +27,16 @@ void DAVUtils::addMembersToGroupCard(shared_ptr<VCard> card, vector<shared_ptr<C
                 }
             }
             if (!found) {
-                card->addProperty(make_shared<VCardProperty>(X_VCARD3_MEMBER, uuid));
+                card->addProperty(std::make_shared<VCardProperty>(X_VCARD3_MEMBER, uuid));
             }
         }
     }
 }
 
 
-void DAVUtils::removeMembersFromGroupCard(shared_ptr<VCard> card, vector<shared_ptr<Contact>> contacts) {
+void DAVUtils::removeMembersFromGroupCard(std::shared_ptr<VCard> card, std::vector<std::shared_ptr<Contact>> contacts) {
     for (auto contact : contacts) {
-        string uuid = "urn:uuid:" + contact->id();
+        std::string uuid = "urn:uuid:" + contact->id();
 
         // vcard4
         if (card->getVersion()->getValue() == "4.0" && card->getKind()->getValue() != "") {
@@ -62,7 +59,7 @@ void DAVUtils::removeMembersFromGroupCard(shared_ptr<VCard> card, vector<shared_
     }
 }
 
-bool DAVUtils::isGroupCard(shared_ptr<VCard> card) {
+bool DAVUtils::isGroupCard(std::shared_ptr<VCard> card) {
     if (card->getKind() && card->getKind()->getValue() == "group") {
         return true; //vcard4
     }

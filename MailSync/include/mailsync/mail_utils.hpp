@@ -23,7 +23,6 @@
 #ifndef MailUtils_hpp
 #define MailUtils_hpp
 
-#include <iostream>
 #include <string>
 #include <stdio.h>
 #include "MailCore/MailCore.h"
