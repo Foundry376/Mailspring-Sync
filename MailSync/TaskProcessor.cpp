@@ -1220,6 +1220,11 @@ void TaskProcessor::performLocalSyncbackMetadata(Task * task) {
 
 
 void TaskProcessor::performRemoteSyncbackMetadata(Task * task) {
+    if (Identity::GetGlobal() == nullptr) {
+        logger->info("Skipped metadata sync, not logged in.");
+        return;
+    }
+    
     json & data = task->data();
     string id = data["modelId"];
     string pluginId = data["pluginId"];
@@ -1606,6 +1611,10 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
 }
 
 void TaskProcessor::performRemoteSendFeatureUsageEvent(Task * task) {
+    if (Identity::GetGlobal() == nullptr) {
+        logger->info("Skipped metadata sync, not logged in.");
+        return;
+    }
     const auto feature = task->data()["feature"].get<string>();
     json payload = {
         {"feature", feature}

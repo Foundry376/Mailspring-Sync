@@ -211,6 +211,13 @@ void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
 
 CURL * CreateIdentityRequest(string path, string method, const char * payloadChars) {
     string url { MailUtils::getEnvUTF8("IDENTITY_SERVER") + path };
+
+    if (Identity::GetGlobal() == nullptr) {
+        // Note: almost all the backend APIs require auth except for /api/resolve-dav-hosts
+        // and calls to this method should be avoided if no identity is present.
+        return CreateJSONRequest(url, method, "", payloadChars);
+    }
+
     string plain = Identity::GetGlobal()->token() + ":";
     string encoded = MailUtils::toBase64(plain.c_str(), strlen(plain.c_str()));
     string authorization = "Basic " + encoded;

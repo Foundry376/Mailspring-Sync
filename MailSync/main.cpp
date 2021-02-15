@@ -610,14 +610,18 @@ string exectuablePath = argv[0];
         getline(cin, identityJSON);
 	}
     try {
-        Identity::SetGlobal(make_shared<Identity>(json::parse(identityJSON)));
+        if (identityJSON == "null") {
+            Identity::SetGlobal(nullptr);
+        } else {
+            Identity::SetGlobal(make_shared<Identity>(json::parse(identityJSON)));
+        }
     } catch (json::exception& e) {
         json resp = { { "error", "Invalid Identity JSON: " + string(e.what()) }, { "log", identityJSON } };
         cout << "\n" << resp.dump();
         return 1;
     }
 
-	if (!Identity::GetGlobal()->valid()) {
+	if (Identity::GetGlobal() && !Identity::GetGlobal()->valid()) {
 		json resp = { { "error", "ErrorIdentityMissingFields" } };
 		cout << "\n" << resp.dump();
 		return 1;
@@ -664,7 +668,8 @@ string exectuablePath = argv[0];
     
     spdlog::create("logger", std::begin(sinks), std::end(sinks));
 
-    MailUtils::setBaseIDVersion(Identity::GetGlobal()->createdAt());
+    time_t createdAt = Identity::GetGlobal() ? Identity::GetGlobal()->createdAt() : time(0);
+    MailUtils::setBaseIDVersion(createdAt);
     if (options[VERBOSE]) {
         MailUtils::enableVerboseLogging();
     }
