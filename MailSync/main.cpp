@@ -54,20 +54,15 @@
 #include "mailsync/constants.hpp"
 #include "mailsync/spd_log_extensions.hpp"
 
-using namespace nlohmann;
-using option::Option;
-using option::Descriptor;
-using option::Parser;
-using option::Stats;
-using option::ArgStatus;
 
-shared_ptr<SyncWorker> bgWorker = nullptr;
-shared_ptr<SyncWorker> fgWorker = nullptr;
-shared_ptr<DAVWorker> davWorker = nullptr;
-shared_ptr<GoogleContactsWorker> contactsWorker = nullptr;
 
-shared_ptr<MetadataWorker> metadataWorker = nullptr;
-shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
+std::shared_ptr<SyncWorker> bgWorker = nullptr;
+std::shared_ptr<SyncWorker> fgWorker = nullptr;
+std::shared_ptr<DAVWorker> davWorker = nullptr;
+std::shared_ptr<GoogleContactsWorker> contactsWorker = nullptr;
+
+std::shared_ptr<MetadataWorker> metadataWorker = nullptr;
+std::shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
 
 bool bgWorkerShouldMarkAll = true;
 
@@ -78,15 +73,15 @@ std::thread * metadataThread = nullptr;
 std::thread * metadataExpirationThread = nullptr;
 
 
-class AccumulatorLogger : public ConnectionLogger {
+class AccumulatorLogger : public mailcore::ConnectionLogger {
 public:
-    string accumulated = "";
+    std::string accumulated = "";
 
-    void log(string str) {
+    void log(std::string str) {
         accumulated = accumulated + str;
     }
 
-    void log(void * sender, ConnectionLogType logType, Data * buffer) {
+    void log(void * sender, mailcore::ConnectionLogType logType, mailcore::Data * buffer) {
         if (buffer) {
             accumulated = accumulated + buffer->stringWithCharset("UTF-8")->UTF8Characters();
         }
@@ -114,15 +109,15 @@ void MCLogToAccumulatorLog(const char * user,
 
 struct CArg: public option::Arg
 {
-    static ArgStatus Required(const Option& option, bool)
+    static option::ArgStatus Required(const option::Option& option, bool)
     {
         return option.arg == 0 ? option::ARG_ILLEGAL : option::ARG_OK;
     }
-    static ArgStatus Optional(const Option& option, bool)
+    static option::ArgStatus Optional(const option::Option& option, bool)
     {
         return option.arg == 0 ? option::ARG_IGNORE : option::ARG_OK;
     }
-    static ArgStatus Empty(const Option& option, bool)
+    static option::ArgStatus Empty(const option::Option& option, bool)
     {
         return (option.arg == 0 || option.arg[0] == 0) ? option::ARG_OK : option::ARG_IGNORE;
     }
@@ -196,7 +191,7 @@ void runBackgroundSyncWorker() {
                 if (!fgThread) {
                     fgThread = new std::thread([&]() {
                         SetThreadName("foreground");
-                        fgWorker = make_shared<SyncWorker>(bgWorker->account);
+                        fgWorker = std::make_shared<SyncWorker>(bgWorker->account);
                         runForegroundSyncWorker();
                     });
                 }
@@ -256,13 +251,13 @@ void runCalContactsSyncWorker() {
             // eventually (in case the SSL cert error is caused by a boingo hotspot or something.)
             // or when a "wake" is triggered by the user!
 
-            if (ex.debuginfo.find("dailyLimitExceeded") != string::npos) {
+            if (ex.debuginfo.find("dailyLimitExceeded") != std::string::npos) {
                 spdlog::get("logger")->info("Suspending sync for 4 hours - Google app API request quota hit.");
                 std::this_thread::sleep_for(std::chrono::hours(4));
 
-            } else if (ex.key.find("Code: 403") != string::npos ||
-                       ex.key.find("Code: 401") != string::npos ||
-                       ex.debuginfo.find("invalid_grant") != string::npos) {
+            } else if (ex.key.find("Code: 403") != std::string::npos ||
+                       ex.key.find("Code: 401") != std::string::npos ||
+                       ex.debuginfo.find("invalid_grant") != std::string::npos) {
                 spdlog::get("logger")->info("Stopping sync - unable to authenticate.");
                 return;
 
@@ -282,8 +277,8 @@ void runCalContactsSyncWorker() {
 }
 
 
-int runTestAuth(shared_ptr<Account> account) {
-    AutoreleasePool pool;
+int runTestAuth(std::shared_ptr<Account> account) {
+    mailcore::AutoreleasePool pool;
 
     // Enable very detailed mailcore logging and redirect the messages to our accumulator log
     MCLogEnabled = 1;
@@ -292,13 +287,13 @@ int runTestAuth(shared_ptr<Account> account) {
     // NOTE: This method returns the account upon success but the client is not
     // reading the result. This function cannot mutate the account object.
 
-    IMAPSession session;
-    SMTPSession smtp;
-    Array * folders;
-    ErrorCode err = ErrorNone;
-    Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
-    string errorService = "imap";
-    string mainPrefix = "";
+    mailcore::IMAPSession session;
+    mailcore::SMTPSession smtp;
+    mailcore::Array * folders;
+    mailcore::ErrorCode err = mailcore::ErrorNone;
+    mailcore::Address * from = mailcore::Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
+    std::string errorService = "imap";
+    std::string mainPrefix = "";
 
 
     // imap
@@ -306,34 +301,34 @@ int runTestAuth(shared_ptr<Account> account) {
     MailUtils::configureSessionForAccount(session, account);
     session.setConnectionLogger(&alogger);
     session.connect(&err);
-    if (err != ErrorNone) {
+    if (err != mailcore::ErrorNone) {
         goto done;
     }
     folders = session.fetchAllFolders(&err);
-    if (err != ErrorNone) {
+    if (err != mailcore::ErrorNone) {
         goto done;
     }
 
     mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
 
-    err = ErrorInvalidAccount;
+    err = mailcore::ErrorInvalidAccount;
     for (unsigned int i = 0; i < folders->count(); i ++) {
         // Gmail accounts must have "All Mail" enabled, IMAP accounts must have an Inbox.
         // Ensure we can find at least one folder matching the requirement.
-        string role = MailUtils::roleForFolder(mainPrefix, (IMAPFolder *)folders->objectAtIndex(i));
+        std::string role = MailUtils::roleForFolder(mainPrefix, (mailcore::IMAPFolder *)folders->objectAtIndex(i));
         if (account->IMAPHost() == "imap.gmail.com") {
             if (role == "all") {
-                err = ErrorNone;
+                err = mailcore::ErrorNone;
                 break;
             }
         } else {
             if (role == "inbox") {
-                err = ErrorNone;
+                err = mailcore::ErrorNone;
                 break;
             }
         }
     }
-    if (err != ErrorNone) {
+    if (err != mailcore::ErrorNone) {
         alogger.log("\n\nRequired folder not found. Ensure your account has an `Inbox` folder, or if this is a Gmail account, verify that `All Mail` is enabled for IMAP in your Gmail settings.\n");
         goto done;
     }
@@ -344,16 +339,16 @@ int runTestAuth(shared_ptr<Account> account) {
     smtp.setConnectionLogger(&alogger);
     MailUtils::configureSessionForAccount(smtp, account);
     smtp.checkAccount(from, &err);
-    if (err != ErrorNone) {
+    if (err != mailcore::ErrorNone) {
         alogger.log("\n\nSASL_PATH: " + MailUtils::getEnvUTF8("SASL_PATH"));
 
         if (smtp.lastSMTPResponse()) {
             alogger.log("\n\nSMTP Last Response Code: " + to_string(smtp.lastSMTPResponseCode()));
-            alogger.log("\nSMTP Last Response: " + string(smtp.lastSMTPResponse()->UTF8Characters()));
+            alogger.log("\nSMTP Last Response: " + std::string(smtp.lastSMTPResponse()->UTF8Characters()));
         }
         if (smtp.lastLibetpanError()) {
             int e = smtp.lastLibetpanError();
-            string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : "Unknown";
+            std::string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : "Unknown";
 
             alogger.log("\n\nmailsmtp Last Error Code: " + to_string(e));
             alogger.log("\nmailsmtp Last Error Explanation: " + es);
@@ -364,13 +359,13 @@ int runTestAuth(shared_ptr<Account> account) {
     }
 
 done:
-    json resp = {
+    nlohmann::json resp = {
         {"error", nullptr},
         {"error_service", errorService},
         {"log", alogger.accumulated},
         {"account", nullptr}
     };
-    if (err == ErrorNone) {
+    if (err == mailcore::ErrorNone) {
         resp["account"] = account->toJSON();
         std::cout << resp.dump();
         return 0;
@@ -382,7 +377,7 @@ done:
 }
 
 int runSingleFunctionAndExit(std::function<void()> fn) {
-    json resp = {{"error", nullptr}};
+    nlohmann::json resp = {{"error", nullptr}};
     int code = 0;
     try {
         fn();
@@ -395,7 +390,7 @@ int runSingleFunctionAndExit(std::function<void()> fn) {
 }
 
 
-void runListenOnMainThread(shared_ptr<Account> account) {
+void runListenOnMainThread(std::shared_ptr<Account> account) {
     MailStore store;
     TaskProcessor processor{account, &store, nullptr};
 
@@ -406,12 +401,12 @@ void runListenOnMainThread(shared_ptr<Account> account) {
     processor.cleanupTasksAfterLaunch();
 
     while(true) {
-        AutoreleasePool pool;
-        json packet = {};
+        mailcore::AutoreleasePool pool;
+        nlohmann::json packet = {};
         try {
             packet = SharedDeltaStream()->waitForJSON();
         } catch (std::invalid_argument & ex) {
-            json resp = {{"error", ex.what()}};
+            nlohmann::json resp = {{"error", ex.what()}};
             spdlog::get("logger")->error(resp.dump());
             std::cout << "\n" << resp.dump() << "\n";
             continue;
@@ -435,7 +430,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
         }
 
         try {
-            string type = packet.count("type") ? packet["type"].get<string>() : "";
+            std::string type = packet.count("type") ? packet["type"].get<std::string>() : "";
 
             if (type == "queue-task") {
                 packet["task"]["v"] = 0;
@@ -462,7 +457,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             if (type == "cancel-task") {
                 // we can't always dequeue a task (if it's started already or potentially even finished).
                 // but if we're deleting a draft we want to dequeue saves, etc.
-                processor.cancel(packet["taskId"].get<string>());
+                processor.cancel(packet["taskId"].get<std::string>());
             }
 
             if (type == "wake-workers") {
@@ -483,9 +478,9 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
             if (type == "need-bodies") {
                 // interrupt the foreground sync worker to do the remote part of the task
-                vector<string> ids{};
+                std::vector<std::string> ids{};
                 for (auto id : packet["ids"]) {
-                    ids.push_back(id.get<string>());
+                    ids.push_back(id.get<std::string>());
                 }
                 if (fgWorker) fgWorker->idleQueueBodiesToSync(ids);
                 if (fgWorker) fgWorker->idleInterrupt();
@@ -523,14 +518,14 @@ int main(int argc, const char * argv[]) {
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);
 
-string exectuablePath = argv[0];
+std::string exectuablePath = argv[0];
 
 #ifndef DEBUG
     // check path to executable in an obtuse way, prevent re-use of
     // Mailspring-Sync in products / forks not called Mailspring.
     transform(exectuablePath.begin(), exectuablePath.end(), exectuablePath.begin(), ::tolower);
-    string headerMessageId = string(USAGE_STRING).substr(59, 4) + string(USAGE_IDENTITY).substr(33, 6);
-    if (exectuablePath.find(headerMessageId) == string::npos) {
+    std::string headerMessageId = std::string(USAGE_STRING).substr(59, 4) + std::string(USAGE_IDENTITY).substr(33, 6);
+    if (exectuablePath.find(headerMessageId) == std::string::npos) {
         return 2;
     }
 #endif
@@ -542,8 +537,8 @@ string exectuablePath = argv[0];
     // parse launch arguments, skip program name argv[0] if present
     argc-=(argc>0); argv+=(argc>0);
     option::Stats stats(usage, argc, argv);
-    vector<option::Option> options(stats.options_max);
-    vector<option::Option> buffer(stats.buffer_max);
+    std::vector<option::Option> options(stats.options_max);
+    std::vector<option::Option> buffer(stats.buffer_max);
     option::Parser parse(usage, argc, argv, &options[0], &buffer[0]);
 
     if (parse.error())
@@ -555,8 +550,8 @@ string exectuablePath = argv[0];
     }
 
     // check required environment
-    string eConfigDirPath = MailUtils::getEnvUTF8("CONFIG_DIR_PATH");
-    string eIdentityServer = MailUtils::getEnvUTF8("IDENTITY_SERVER");
+    std::string eConfigDirPath = MailUtils::getEnvUTF8("CONFIG_DIR_PATH");
+    std::string eIdentityServer = MailUtils::getEnvUTF8("IDENTITY_SERVER");
 
     if ((eConfigDirPath == "") || (eIdentityServer == "")) {
         option::printUsage(std::cout, usage);
@@ -569,7 +564,7 @@ string exectuablePath = argv[0];
     sqlite3_temp_directory = sqlite3_mprintf("%s", eConfigDirPath.c_str());
 
     // handle --mode migrate early for speed
-    string mode(options[MODE].arg);
+    std::string mode(options[MODE].arg);
 
     if (mode == "migrate") {
         return runSingleFunctionAndExit([](){
@@ -579,26 +574,26 @@ string exectuablePath = argv[0];
     }
 
 	// get the account via param or stdin
-    string accountJSON = "";
+    std::string accountJSON = "";
     if (options[ACCOUNT].count() > 0) {
-        Option ac = options[ACCOUNT];
-        accountJSON = string(options[ACCOUNT].arg);
+        option::Option ac = options[ACCOUNT];
+        accountJSON = std::string(options[ACCOUNT].arg);
     } else {
         std::cout << "\nWaiting for Account JSON:\n";
         getline(cin, accountJSON);
     }
-    shared_ptr<Account> account = nullptr;
+    std::shared_ptr<Account> account = nullptr;
     try {
-        account = make_shared<Account>(json::parse(accountJSON));
-    } catch (json::exception& e) {
-        json resp = { { "error", "Invalid Account JSON: " + string(e.what()) }, { "log", accountJSON } };
+        account = std::make_shared<Account>(nlohmann::json::parse(accountJSON));
+    } catch (nlohmann::json::exception& e) {
+        nlohmann::json resp = { { "error", "Invalid Account JSON: " + std::string(e.what()) }, { "log", accountJSON } };
         std::cout << "\n" << resp.dump();
         return 1;
     }
 
 
 	if (account->valid() != "") {
-		json resp = { { "error", "Account is missing required fields:" + account->valid() } };
+		nlohmann::json resp = { { "error", "Account is missing required fields:" + account->valid() } };
 		std::cout << "\n" << resp.dump();
 		return 1;
 	}
@@ -611,29 +606,29 @@ string exectuablePath = argv[0];
     }
 
 	// get the identity via param or stdin
-    string identityJSON = "";
+    std::string identityJSON = "";
 	if (options[IDENTITY].count() > 0) {
-		Option ac = options[IDENTITY];
-		identityJSON = string(options[IDENTITY].arg);
+		option::Option ac = options[IDENTITY];
+		identityJSON = std::string(options[IDENTITY].arg);
 	} else {
 		std::cout << "\nWaiting for Identity JSON:\n";
         getline(cin, identityJSON);
 	}
     try {
-        Identity::SetGlobal(make_shared<Identity>(json::parse(identityJSON)));
-    } catch (json::exception& e) {
-        json resp = { { "error", "Invalid Identity JSON: " + string(e.what()) }, { "log", identityJSON } };
+        Identity::SetGlobal(std::make_shared<Identity>(nlohmann::json::parse(identityJSON)));
+    } catch (nlohmann::json::exception& e) {
+        nlohmann::json resp = { { "error", "Invalid Identity JSON: " + std::string(e.what()) }, { "log", identityJSON } };
         std::cout << "\n" << resp.dump();
         return 1;
     }
 
 	if (!Identity::GetGlobal()->valid()) {
-		json resp = { { "error", "ErrorIdentityMissingFields" } };
+		nlohmann::json resp = { { "error", "ErrorIdentityMissingFields" } };
 		std::cout << "\n" << resp.dump();
 		return 1;
 	}
 
-    std::vector<shared_ptr<spdlog::sinks::sink>> sinks;
+    std::vector<std::shared_ptr<spdlog::sinks::sink>> sinks;
     bool logToFile = mode == "sync" && !options[ORPHAN];
 
     try {
@@ -643,32 +638,32 @@ string exectuablePath = argv[0];
             // IMPORANT: On Windows, only one sync worker can have this file open at once.
             spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%P %+"));
     #if defined(_MSC_VER)
-            wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+            wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> convert;
             wstring logPath = convert.from_bytes(eConfigDirPath) + convert.from_bytes(FS_PATH_SEP + "mailsync-" + account->id() + ".log");
     #else
-            string logPath = eConfigDirPath + FS_PATH_SEP + "mailsync-" + account->id() + ".log";
+            std::string logPath = eConfigDirPath + FS_PATH_SEP + "mailsync-" + account->id() + ".log";
     #endif
-            sinks.push_back(make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3));
-            sinks.push_back(make_shared<SPDFlusherSink>());
+            sinks.push_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(logPath, 1048576 * 5, 3));
+            sinks.push_back(std::make_shared<SPDFlusherSink>());
         } else {
             // If we're attached to a debugger / console, log everything to
             // stdout in an abbreviated format.
             spdlog::set_formatter(std::make_shared<SPDFormatterWithThreadNames>("%l: %v"));
     #if defined(_MSC_VER)
-            sinks.push_back(make_shared<spdlog::sinks::stdout_sink_mt>());
+            sinks.push_back(std::make_shared<spdlog::sinks::stdout_sink_mt>());
     #else
-            sinks.push_back(make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>());
+            sinks.push_back(std::make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>());
     #endif
         }
     } catch (spdlog::spdlog_ex& e) {
-        json resp = { { "error", "Setup Failed: " + string(e.what()) } };
+        nlohmann::json resp = { { "error", "Setup Failed: " + std::string(e.what()) } };
         std::cout << "\n" << resp.dump();
         return 1;
     }
 
     // Always log critical errors to the stderr as well as a log file / stdout.
     // When attached to the client, these are saved and if we terminate, reported.
-    auto stderr_sink = make_shared<spdlog::sinks::stderr_sink_mt>();
+    auto stderr_sink = std::make_shared<spdlog::sinks::stderr_sink_mt>();
     stderr_sink->set_level(spdlog::level::critical);
     sinks.push_back(stderr_sink);
 
@@ -692,25 +687,25 @@ string exectuablePath = argv[0];
         fgThread = nullptr; // started after background iteration
         bgThread = new std::thread([&]() {
             SetThreadName("background");
-            bgWorker = make_shared<SyncWorker>(account);
+            bgWorker = std::make_shared<SyncWorker>(account);
             runBackgroundSyncWorker();
         });
         calContactsThread = new std::thread([&]() {
             SetThreadName("calContacts");
             if (account->provider() == "gmail") {
-                contactsWorker = make_shared<GoogleContactsWorker>(account);
+                contactsWorker = std::make_shared<GoogleContactsWorker>(account);
             }
-            davWorker = make_shared<DAVWorker>(account);
+            davWorker = std::make_shared<DAVWorker>(account);
             runCalContactsSyncWorker();
         });
         metadataThread = new std::thread([&]() {
              SetThreadName("metadata");
-             metadataWorker = make_shared<MetadataWorker>(account);
+             metadataWorker = std::make_shared<MetadataWorker>(account);
              metadataWorker->run();
         });
         metadataExpirationThread = new std::thread([&]() {
             SetThreadName("metadataExpiration");
-            metadataExpirationWorker = make_shared<MetadataExpirationWorker>(account->id());
+            metadataExpirationWorker = std::make_shared<MetadataExpirationWorker>(account->id());
             metadataExpirationWorker->run();
         });
 

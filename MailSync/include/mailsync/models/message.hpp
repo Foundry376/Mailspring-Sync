@@ -34,8 +34,8 @@
 
 #include "nlohmann/json.hpp"
 
-using namespace std;
-using namespace nlohmann;
+
+
 
 class File;
 class MailStore;
@@ -48,8 +48,8 @@ struct MessageSnapshot {
     bool starred;
     bool inAllMail;
     size_t fileCount;
-    json remoteXGMLabels;
-    string clientFolderId;
+    nlohmann::json remoteXGMLabels;
+    std::string clientFolderId;
 };
 
 static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, false, 0, nullptr, ""};
@@ -58,17 +58,17 @@ static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, fals
 
 class Message : public MailModel {
 
-    string _bodyForDispatch;
+    std::string _bodyForDispatch;
     MessageSnapshot _lastSnapshot;
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    static shared_ptr<Message> messageWithDeletionPlaceholderFor(shared_ptr<Message> draft);
+    static std::shared_ptr<Message> messageWithDeletionPlaceholderFor(std::shared_ptr<Message> draft);
 
     Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTimestamp);
     Message(SQLite::Statement & query);
-    Message(json json);
+    Message(nlohmann::json json);
 
     bool supportsMetadata();
 
@@ -87,23 +87,23 @@ public:
     bool isStarred();
     void setStarred(bool s);
 
-    string threadId();
-    void setThreadId(string threadId);
+    std::string threadId();
+    void setThreadId(std::string threadId);
 
-    string snippet();
-    void setSnippet(string s);
+    std::string snippet();
+    void setSnippet(std::string s);
 
     bool plaintext();
     void setPlaintext(bool p);
 
-    string replyToHeaderMessageId();
-    void setReplyToHeaderMessageId(string s);
+    std::string replyToHeaderMessageId();
+    void setReplyToHeaderMessageId(std::string s);
 
-    string forwardedHeaderMessageId();
-    void setForwardedHeaderMessageId(string s);
+    std::string forwardedHeaderMessageId();
+    void setForwardedHeaderMessageId(std::string s);
 
-    json files();
-    void setFiles(vector<File> & files);
+    nlohmann::json files();
+    void setFiles(std::vector<File> & files);
     int fileCountForThreadList();
 
     bool isDraft();
@@ -115,48 +115,48 @@ public:
     int syncUnsavedChanges();
     void setSyncUnsavedChanges(int t);
 
-    void setBodyForDispatch(string s);
+    void setBodyForDispatch(std::string s);
 
     bool isSentByUser();
     bool isInInbox();
-    bool _isIn(string roleAlsoLabelName);
+    bool _isIn(std::string roleAlsoLabelName);
 
-    json & remoteXGMLabels();
-    void setRemoteXGMLabels(json & labels);
+    nlohmann::json & remoteXGMLabels();
+    void setRemoteXGMLabels(nlohmann::json & labels);
 
     uint32_t remoteUID();
     void setRemoteUID(uint32_t v);
 
-    json clientFolder();
-    string clientFolderId();
+    nlohmann::json clientFolder();
+    std::string clientFolderId();
     void setClientFolder(Folder * folder);
 
-    json remoteFolder();
-    string remoteFolderId();
-    void setRemoteFolder(json folder);
+    nlohmann::json remoteFolder();
+    std::string remoteFolderId();
+    void setRemoteFolder(nlohmann::json folder);
     void setRemoteFolder(Folder * folder);
 
     // immutable attributes
 
-    json & to();
-    json & cc();
-    json & bcc();
-    json & from();
-    json & replyTo();
+    nlohmann::json & to();
+    nlohmann::json & cc();
+    nlohmann::json & bcc();
+    nlohmann::json & from();
+    nlohmann::json & replyTo();
 
     time_t date();
-    string subject();
-    string gMsgId();
-    string headerMessageId();
+    std::string subject();
+    std::string gMsgId();
+    std::string headerMessageId();
 
-    string tableName();
-    vector<string> columnsForQuery();
+    std::string tableName();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 
     void afterSave(MailStore * store);
     void afterRemove(MailStore * store);
 
-    json toJSONDispatch();
+    nlohmann::json toJSONDispatch();
 
     bool _skipThreadUpdatesAfterSave;
 };

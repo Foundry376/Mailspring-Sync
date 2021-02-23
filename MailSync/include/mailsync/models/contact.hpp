@@ -24,6 +24,7 @@
 #define Contact_hpp
 
 #include <stdio.h>
+#include <functional>
 #include <string>
 #include <unordered_set>
 #include "nlohmann/json.hpp"
@@ -34,11 +35,11 @@
 #include "mailsync/vcard.hpp"
 #include "MailCore/MailCore.h"
 
-using namespace nlohmann;
-using namespace std;
-using namespace mailcore;
 
-static string CONTACT_SOURCE_MAIL = "mail";
+
+
+
+static std::string CONTACT_SOURCE_MAIL = "mail";
 static int CONTACT_MAX_REFS = 100000;
 
 class Message;
@@ -46,41 +47,41 @@ class Message;
 class Contact : public MailModel {
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    Contact(string id, string accountId, string email, int refs, string source);
-    Contact(json json);
+    Contact(std::string id, std::string accountId, std::string email, int refs, std::string source);
+    Contact(nlohmann::json json);
     Contact(SQLite::Statement & query);
 
-    string name();
-    void setName(string name);
-    string googleResourceName();
-    void setGoogleResourceName(string rn);
-    string email();
-    void setEmail(string email);
+    std::string name();
+    void setName(std::string name);
+    std::string googleResourceName();
+    void setGoogleResourceName(std::string rn);
+    std::string email();
+    void setEmail(std::string email);
     bool hidden();
     void setHidden(bool b);
-    string source();
-    string searchContent();
-    json info();
-    void setInfo(json info);
-    string etag();
-    void setEtag(string etag);
-    string bookId();
-    void setBookId(string bookId);
+    std::string source();
+    std::string searchContent();
+    nlohmann::json info();
+    void setInfo(nlohmann::json info);
+    std::string etag();
+    void setEtag(std::string etag);
+    std::string bookId();
+    void setBookId(std::string bookId);
 
-    unordered_set<string> groupIds();
-    void setGroupIds(unordered_set<string> set);
+    std::unordered_set<std::string> groupIds();
+    void setGroupIds(std::unordered_set<std::string> set);
 
     int refs();
     void incrementRefs();
 
-    void mutateCardInInfo(function<void(shared_ptr<VCard>)> yieldBlock);
+    void mutateCardInInfo(std::function<void(std::shared_ptr<VCard>)> yieldBlock);
 
-    string tableName();
-    string constructorName();
+    std::string tableName();
+    std::string constructorName();
 
-    vector<string> columnsForQuery();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 
     void afterSave(MailStore * store);

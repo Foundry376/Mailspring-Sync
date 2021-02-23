@@ -39,29 +39,31 @@
 
 #include "mailsync/mail_store.hpp"
 
-using namespace mailcore;
-using namespace std;
+#include <string>
+#include <map>
+#include <memory>
+#include <vector>
 
 class MailProcessor {
     MailStore * store;
-    shared_ptr<Account> account;
-    shared_ptr<spdlog::logger> logger;
+    std::shared_ptr<Account> account;
+    std::shared_ptr<spdlog::logger> logger;
 
 public:
-    MailProcessor(shared_ptr<Account> account, MailStore * store);
-    shared_ptr<Message> insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
-    shared_ptr<Message> insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
-    void updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp);
-    void retrievedMessageBody(Message * message, MessageParser * parser);
-    bool retrievedFileData(File * file, Data * data);
+    MailProcessor(std::shared_ptr<Account> account, MailStore * store);
+    std::shared_ptr<Message> insertFallbackToUpdateMessage(mailcore::IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
+    std::shared_ptr<Message> insertMessage(mailcore::IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
+    void updateMessage(Message * local, mailcore::IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp);
+    void retrievedMessageBody(Message * message, mailcore::MessageParser * parser);
+    bool retrievedFileData(File * file, mailcore::Data * data);
     void unlinkMessagesMatchingQuery(Query & query, int phase);
     void deleteMessagesStillUnlinkedFromPhase(int phase);
 
 private:
-    void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
-    void upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references);
+    void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, mailcore::String * bodyToAppendOrNull);
+    void upsertThreadReferences(std::string threadId, std::string accountId, std::string headerMessageId, mailcore::Array * references);
     void upsertContacts(Message * message);
-    shared_ptr<Label> labelForXGMLabelName(string mlname);
+    std::shared_ptr<Label> labelForXGMLabelName(std::string mlname);
 };
 
 #endif /* MailProcessor_hpp */

@@ -3,12 +3,12 @@
 #include "mailsync/models/thread.hpp"
 #include "mailsync/models/message.hpp"
 
-using namespace std;
-using namespace mailcore;
 
-string ContactGroup::TABLE_NAME = "ContactGroup";
 
-ContactGroup::ContactGroup(string id, string accountId) :
+
+std::string ContactGroup::TABLE_NAME = "ContactGroup";
+
+ContactGroup::ContactGroup(std::string id, std::string accountId) :
     MailModel(id, accountId)
 {
 }
@@ -18,40 +18,40 @@ ContactGroup::ContactGroup(SQLite::Statement & query) :
 {
 }
 
-string ContactGroup::constructorName() {
-    return _data["__cls"].get<string>();
+std::string ContactGroup::constructorName() {
+    return _data["__cls"].get<std::string>();
 }
 
-string ContactGroup::tableName() {
+std::string ContactGroup::tableName() {
     return ContactGroup::TABLE_NAME;
 }
 
-string ContactGroup::name() {
-    return _data["name"].get<string>();
+std::string ContactGroup::name() {
+    return _data["name"].get<std::string>();
 }
 
-void ContactGroup::setName(string name) {
+void ContactGroup::setName(std::string name) {
     _data["name"] = name;
 }
 
-string ContactGroup::bookId() {
-    return _data.count("bid") ? _data["bid"].get<string>() : "";
+std::string ContactGroup::bookId() {
+    return _data.count("bid") ? _data["bid"].get<std::string>() : "";
 }
 
-void ContactGroup::setBookId(string rci) {
+void ContactGroup::setBookId(std::string rci) {
     _data["bid"] = rci;
 }
 
-string ContactGroup::googleResourceName() {
-    return _data.count("grn") ? _data["grn"].get<string>() : "";
+std::string ContactGroup::googleResourceName() {
+    return _data.count("grn") ? _data["grn"].get<std::string>() : "";
 }
 
-void ContactGroup::setGoogleResourceName(string rn) {
+void ContactGroup::setGoogleResourceName(std::string rn) {
     _data["grn"] = rn;
 }
 
-vector<string> ContactGroup::columnsForQuery() {
-    return vector<string>{"id", "accountId", "version", "data", "name", "bookId"};
+std::vector<std::string> ContactGroup::columnsForQuery() {
+    return std::vector<std::string>{"id", "accountId", "version", "data", "name", "bookId"};
 }
 
 void ContactGroup::bindToQuery(SQLite::Statement * query) {
@@ -70,20 +70,20 @@ void ContactGroup::afterRemove(MailStore * store) {
     update.exec();
 }
 
-vector<string> ContactGroup::getMembers(MailStore * store) {
+std::vector<std::string> ContactGroup::getMembers(MailStore * store) {
     SQLite::Statement find(store->db(), "SELECT id FROM ContactContactGroup WHERE value = ?");
     find.bind(1, id());
-    vector<string> contactIds;
+    std::vector<std::string> contactIds;
     while (find.executeStep()) {
         contactIds.push_back(find.getColumn("id").getString());
     }
     return contactIds;
 }
 
-void ContactGroup::syncMembers(MailStore * store, vector<string> newContactIds) {
+void ContactGroup::syncMembers(MailStore * store, std::vector<std::string> newContactIds) {
     store->beginTransaction();
 
-    vector<string> oldContactIds = getMembers(store);
+    std::vector<std::string> oldContactIds = getMembers(store);
 
     // remove all the join table entries
     SQLite::Statement removeMembers(store->db(), "DELETE FROM ContactContactGroup WHERE value = ?");
@@ -101,7 +101,7 @@ void ContactGroup::syncMembers(MailStore * store, vector<string> newContactIds) 
 
     // update the actual contacts. This is unfortunately necessary because Mailspring
     // will not update live queries unless the membershsip data is on the actual models
-    vector<string> all {};
+    std::vector<std::string> all {};
     all.insert(all.end(), oldContactIds.begin(), oldContactIds.end());
     all.insert(all.end(), newContactIds.begin(), newContactIds.end());
 

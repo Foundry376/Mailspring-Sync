@@ -5,8 +5,8 @@
 #include "mailsync/mail_utils.hpp"
 #include "mailsync/sync_exception.hpp"
 
-using namespace nlohmann;
-using namespace std;
+
+
 
 
 // TODO: figure out how to use templates for this
@@ -14,17 +14,17 @@ using namespace std;
 Query::Query() noexcept : _clauses({}), _limit(0) {
 }
 
-Query & Query::equal(string col, string val) {
+Query & Query::equal(std::string col, std::string val) {
     _clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }
 
-Query & Query::equal(string col, double val) {
+Query & Query::equal(std::string col, double val) {
     _clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }
 
-Query & Query::equal(string col, vector<string> & val) {
+Query & Query::equal(std::string col, std::vector<std::string> & val) {
     if (val.size() > 999) {
         spdlog::get("logger")->warn("Attempting to construct WHERE {} IN () query with >999 values ({}), this will fail and should be reported.", col, val.size());
     }
@@ -32,27 +32,27 @@ Query & Query::equal(string col, vector<string> & val) {
     return *this;
 }
 
-Query & Query::equal(string col, vector<uint32_t> & val) {
+Query & Query::equal(std::string col, std::vector<uint32_t> & val) {
     _clauses[col] = {{"op","="}, {"rhs", val}};
     return *this;
 }
 
-Query & Query::gt(string col, double val) {
+Query & Query::gt(std::string col, double val) {
     _clauses[col] = {{"op",">"}, {"rhs", val}};
     return *this;
 }
 
-Query & Query::gte(string col, double val) {
+Query & Query::gte(std::string col, double val) {
     _clauses[col] = {{"op",">="}, {"rhs", val}};
     return *this;
 }
 
-Query & Query::lt(string col, double val) {
+Query & Query::lt(std::string col, double val) {
     _clauses[col] = {{"op","<"}, {"rhs", val}};
     return *this;
 }
 
-Query & Query::lte(string col, double val) {
+Query & Query::lte(std::string col, double val) {
     _clauses[col] = {{"op","<="}, {"rhs", val}};
     return *this;
 }
@@ -66,18 +66,18 @@ int Query::getLimit() {
     return _limit;
 }
 
-string Query::getSQL() {
-    string result = "";
+std::string Query::getSQL() {
+    std::string result = "";
 
     if (_clauses.size() > 0) {
         result += " WHERE ";
 
-        for (json::iterator it = _clauses.begin(); it != _clauses.end(); ++it) {
+        for (nlohmann::json::iterator it = _clauses.begin(); it != _clauses.end(); ++it) {
             if (it != _clauses.begin()) {
                 result += " AND ";
             }
-            string op = it.value()["op"].get<string>();
-            json & rhs = it.value()["rhs"];
+            std::string op = it.value()["op"].get<std::string>();
+            nlohmann::json & rhs = it.value()["rhs"];
 
             if (rhs.is_array()) {
                 if (op != "=") {
@@ -98,15 +98,15 @@ string Query::getSQL() {
 
 void Query::bind(SQLite::Statement & query) {
     int ii = 1;
-    for (json::iterator it = _clauses.begin(); it != _clauses.end(); ++it) {
-        json & rhs = it.value()["rhs"];
+    for (nlohmann::json::iterator it = _clauses.begin(); it != _clauses.end(); ++it) {
+        nlohmann::json & rhs = it.value()["rhs"];
 
         if (rhs.is_array()) {
-            for (json::iterator at = rhs.begin(); at != rhs.end(); ++at) {
+            for (nlohmann::json::iterator at = rhs.begin(); at != rhs.end(); ++at) {
                 if (at->is_number()) {
                     query.bind(ii++, at->get<double>());
                 } else if (at->is_string()) {
-                    query.bind(ii++, at->get<string>());
+                    query.bind(ii++, at->get<std::string>());
                 } else {
                     throw SyncException("query-builder", "Unsure of how to bind json to sqlite", true);
                 }
@@ -115,7 +115,7 @@ void Query::bind(SQLite::Statement & query) {
             if (rhs.is_number()) {
                 query.bind(ii++, rhs.get<double>());
             } else if (rhs.is_string()) {
-                query.bind(ii++, rhs.get<string>());
+                query.bind(ii++, rhs.get<std::string>());
             } else {
                 throw SyncException("query-builder", "Unsure of how to bind json to sqlite", true);
             }

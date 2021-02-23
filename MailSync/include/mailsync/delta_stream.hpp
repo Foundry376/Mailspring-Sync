@@ -42,8 +42,6 @@
 
 #include "mailsync/models/mail_model.hpp"
 
-using namespace nlohmann;
-
 #define DELTA_TYPE_METADATA_EXPIRATION  "metadata-expiration"
 #define DELTA_TYPE_PERSIST              "persist"
 #define DELTA_TYPE_UNPERSIST            "unpersist"
@@ -51,16 +49,16 @@ using namespace nlohmann;
 class DeltaStreamItem {
 public:
     std::string type;
-    std::vector<json> modelJSONs;
+    std::vector<nlohmann::json> modelJSONs;
     std::string modelClass;
     std::map<std::string, size_t> idIndexes;
 
-    DeltaStreamItem(std::string type, std::string modelClass, std::vector<json> modelJSONs);
-    DeltaStreamItem(std::string type, std::vector<shared_ptr<MailModel>> & models);
+    DeltaStreamItem(std::string type, std::string modelClass, std::vector<nlohmann::json> modelJSONs);
+    DeltaStreamItem(std::string type, std::vector<std::shared_ptr<MailModel>> & models);
     DeltaStreamItem(std::string type, MailModel * model);
 
     bool concatenate(const DeltaStreamItem & other);
-    void upsertModelJSON(const json & modelJSON);
+    void upsertModelJSON(const nlohmann::json & modelJSON);
     std::string dump() const;
 };
 
@@ -78,7 +76,7 @@ public:
     DeltaStream();
     ~DeltaStream();
 
-    json waitForJSON();
+    nlohmann::json waitForJSON();
 
     void flushBuffer();
     void flushWithin(int ms);
@@ -93,6 +91,6 @@ public:
 };
 
 
-shared_ptr<DeltaStream> SharedDeltaStream();
+std::shared_ptr<DeltaStream> SharedDeltaStream();
 
 #endif /* DeltaStream_hpp */

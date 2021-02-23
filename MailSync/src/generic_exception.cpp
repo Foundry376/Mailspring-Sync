@@ -11,7 +11,7 @@ void GenericException::printStackTrace() {
     exceptions::printStackTrace(_stackentries);
 }
 
-json GenericException::toJSON() {
+nlohmann::json GenericException::toJSON() {
     return {
         {"what", what()},
     };

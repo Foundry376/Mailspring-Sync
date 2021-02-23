@@ -29,24 +29,24 @@
 #include "nlohmann/json.hpp"
 #include "mailsync/generic_exception.hpp"
 
-using namespace nlohmann;
 
-using namespace std;
-using namespace mailcore;
+
+
+
 
 class SyncException : public GenericException {
     bool retryable = false;
     bool offline = false;
 
 public:
-    SyncException(string key, string di, bool retryable);
-    SyncException(CURLcode c, string di);
-    SyncException(mailcore::ErrorCode c, string di);
-    string key;
-    string debuginfo;
+    SyncException(std::string key, std::string di, bool retryable);
+    SyncException(CURLcode c, std::string di);
+    SyncException(mailcore::ErrorCode c, std::string di);
+    std::string key;
+    std::string debuginfo;
     bool isRetryable();
     bool isOffline();
-    json toJSON();
+    nlohmann::json toJSON();
 };
 
 

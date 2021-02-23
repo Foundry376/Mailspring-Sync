@@ -15,45 +15,45 @@
  the card into rows / properties, allows those to be mutated, and puts it back together. It is not
  lossy.
  */
-VCardProperty::VCardProperty(string name, string value, string attrs):
+VCardProperty::VCardProperty(std::string name, std::string value, std::string attrs):
     _name(toUpperCase(name)), _value(value), _attrs(attrs)
 {
 }
 
-VCardProperty::VCardProperty(string line)
+VCardProperty::VCardProperty(std::string line)
 {
     size_t colon = line.find(":");
     size_t semicolon = line.find(";");
 
-    if (semicolon != string::npos && colon != string::npos && semicolon < colon) {
+    if (semicolon != std::string::npos && colon != std::string::npos && semicolon < colon) {
         // attributes are present
         _name = toUpperCase(line.substr(0, semicolon));
         _attrs = line.substr(semicolon + 1, colon - semicolon - 1);
         _value = line.substr(colon + 1);
-    } else if (colon != string::npos) {
+    } else if (colon != std::string::npos) {
         _name = toUpperCase(line.substr(0, colon));
         _attrs = "";
         _value = line.substr(colon + 1);
     }
 }
 
-string VCardProperty::getName() {
+std::string VCardProperty::getName() {
     return _name;
 }
 
-void VCardProperty::setName(string name) {
+void VCardProperty::setName(std::string name) {
     _name = name;
 }
 
-string VCardProperty::getValue() {
+std::string VCardProperty::getValue() {
     return _value;
 }
 
-void VCardProperty::setValue(string value) {
+void VCardProperty::setValue(std::string value) {
     _value = value;
 }
 
-string VCardProperty::serialize() {
+std::string VCardProperty::serialize() {
     if (_attrs != "") {
         return _name + ";" + _attrs + ":" + _value;
     } else {
@@ -62,11 +62,11 @@ string VCardProperty::serialize() {
 }
 
 
-VCard::VCard(string vcf) {
+VCard::VCard(std::string vcf) {
     vcf = vcf + "\r\n";
 
     auto split = vcf.find("\n");
-    string unparsed = "";
+    std::string unparsed = "";
 
     // A Vcard is mostly one-property per line but lines can be "run-on", in which case
     // it looks like this. To accomodate these we accumulate the current line in "unparsed"
@@ -82,8 +82,8 @@ VCard::VCard(string vcf) {
      REV:2019-10-11T20:03:16Z
      */
 
-    while (split != string::npos) {
-        string line = vcf.substr(0, split);
+    while (split != std::string::npos) {
+        std::string line = vcf.substr(0, split);
         if (line.size()) {
             // Note: We split based on "\n" but the official format calls for "\r\n", so we check
             // and optionally remove the \r if it's present on eacch line.
@@ -95,7 +95,7 @@ VCard::VCard(string vcf) {
                     unparsed += line.substr(1);
                 } else {
                     if (unparsed != "") {
-                        auto prop = make_shared<VCardProperty>(unparsed);
+                        auto prop = std::make_shared<VCardProperty>(unparsed);
                         if (prop->getName() != "BEGIN" && prop->getName() != "END") {
                             _properties.push_back(prop);
                         }
@@ -110,7 +110,7 @@ VCard::VCard(string vcf) {
     }
 
     if (unparsed != "") {
-        auto prop = make_shared<VCardProperty>(unparsed);
+        auto prop = std::make_shared<VCardProperty>(unparsed);
         if (prop->getName() != "BEGIN" && prop->getName() != "END") {
             _properties.push_back(prop);
         }
@@ -127,51 +127,51 @@ bool VCard::incomplete() {
 // These getters add a property with a blank value if no matching properties
 // are found, and the new property can be mutated. This is for consistency with Belcard.
 
-shared_ptr<VCardProperty> VCard::getUniqueId() {
+std::shared_ptr<VCardProperty> VCard::getUniqueId() {
     return propertiesWithName("UID", true).front();
 }
 
-shared_ptr<VCardProperty> VCard::getVersion() {
+std::shared_ptr<VCardProperty> VCard::getVersion() {
     return propertiesWithName("VERSION", true).front();
 }
 
-vector<shared_ptr<VCardProperty>> VCard::getEmails() {
+std::vector<std::shared_ptr<VCardProperty>> VCard::getEmails() {
     return propertiesWithName("EMAIL", true);
 
 }
-shared_ptr<VCardProperty> VCard::getFormattedName() {
+std::shared_ptr<VCardProperty> VCard::getFormattedName() {
     return propertiesWithName("FN", true).front();
 
 }
-shared_ptr<VCardProperty> VCard::getKind() {
+std::shared_ptr<VCardProperty> VCard::getKind() {
     return propertiesWithName("KIND", true).front();
 }
 
-shared_ptr<VCardProperty> VCard::getName() {
+std::shared_ptr<VCardProperty> VCard::getName() {
     return propertiesWithName("N", true).front();
 }
 
-void VCard::setName(string name) {
+void VCard::setName(std::string name) {
     propertiesWithName("N", true).front()->setValue(name);
 }
 
-void VCard::addProperty(shared_ptr<VCardProperty> prop) {
+void VCard::addProperty(std::shared_ptr<VCardProperty> prop) {
     _properties.push_back(prop);
 }
 
-void VCard::removeProperty(shared_ptr<VCardProperty> prop) {
+void VCard::removeProperty(std::shared_ptr<VCardProperty> prop) {
     auto idx = std::find(_properties.begin(), _properties.end(), prop);
     if (idx != _properties.end()) {
         _properties.erase(idx);
     }
 }
 
-vector<shared_ptr<VCardProperty>> VCard::getMembers() {
+std::vector<std::shared_ptr<VCardProperty>> VCard::getMembers() {
     return propertiesWithName("MEMBER");
 }
 
-vector<shared_ptr<VCardProperty>> VCard::getExtendedProperties() {
-    vector<shared_ptr<VCardProperty>> results {};
+std::vector<std::shared_ptr<VCardProperty>> VCard::getExtendedProperties() {
+    std::vector<std::shared_ptr<VCardProperty>> results {};
     for (auto prop : _properties) {
         if (prop->getName().substr(0, 2) == "X-") {
             results.push_back(prop);
@@ -180,15 +180,15 @@ vector<shared_ptr<VCardProperty>> VCard::getExtendedProperties() {
     return results;
 }
 
-vector<shared_ptr<VCardProperty>> VCard::propertiesWithName(string name, bool createIfEmpty) {
-    vector<shared_ptr<VCardProperty>> results {};
+std::vector<std::shared_ptr<VCardProperty>> VCard::propertiesWithName(std::string name, bool createIfEmpty) {
+    std::vector<std::shared_ptr<VCardProperty>> results {};
     for (auto prop : _properties) {
         if (prop->getName() == name) {
             results.push_back(prop);
         }
     }
     if (createIfEmpty && results.size() == 0) {
-        shared_ptr<VCardProperty> added = make_shared<VCardProperty>(name, "");
+        std::shared_ptr<VCardProperty> added = std::make_shared<VCardProperty>(name, "");
         results.push_back(added);
         _properties.push_back(added);
     }
@@ -196,7 +196,7 @@ vector<shared_ptr<VCardProperty>> VCard::propertiesWithName(string name, bool cr
     return results;
 }
 
-string VCard::serialize() {
+std::string VCard::serialize() {
     stringstream str;
     str << "BEGIN:VCARD\r\n";
     for (auto prop : _properties) {

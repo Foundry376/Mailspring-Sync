@@ -4,25 +4,25 @@
 #include <iomanip>
 #include <sstream>
 
-using namespace std;
-using namespace mailcore;
+
+
 
 // Singleton implementation
 
-shared_ptr<Identity> Identity::_global = nullptr;
+std::shared_ptr<Identity> Identity::_global = nullptr;
 
-shared_ptr<Identity> Identity::GetGlobal() {
+std::shared_ptr<Identity> Identity::GetGlobal() {
     return _global;
 }
 
-void Identity::SetGlobal(shared_ptr<Identity> i) {
+void Identity::SetGlobal(std::shared_ptr<Identity> i) {
     _global = i;
 }
 
 
 // Class implementation
 
-Identity::Identity(json json) : MailModel(json) {
+Identity::Identity(nlohmann::json json) : MailModel(json) {
 
 }
 
@@ -36,39 +36,39 @@ bool Identity::valid() {
 time_t Identity::createdAt() {
     struct tm timeinfo {};
     memset(&timeinfo, 0, sizeof(struct tm));
-    std::istringstream ss(_data["createdAt"].get<string>());
+    std::istringstream ss(_data["createdAt"].get<std::string>());
     ss >> std::get_time(&timeinfo, "%Y-%m-%dT%H:%M:%S.000Z");
     return mktime(&timeinfo);
 }
 
-string Identity::firstName() {
-    return _data["firstName"].get<string>();
+std::string Identity::firstName() {
+    return _data["firstName"].get<std::string>();
 }
 
-string Identity::lastName() {
-    return _data["lastName"].get<string>();
+std::string Identity::lastName() {
+    return _data["lastName"].get<std::string>();
 }
 
-string Identity::emailAddress() {
-    return _data["emailAddress"].get<string>();
+std::string Identity::emailAddress() {
+    return _data["emailAddress"].get<std::string>();
 }
 
-string Identity::token() {
-    return _data["token"].get<string>();
+std::string Identity::token() {
+    return _data["token"].get<std::string>();
 }
 
 /* Identity objects are not stored in the database. */
 
-string Identity::tableName(){
+std::string Identity::tableName(){
     assert(false);
 	return "";
 }
-string Identity::constructorName() {
+std::string Identity::constructorName() {
     assert(false);
 	return "";
 }
 
-vector<string> Identity::columnsForQuery() {
+std::vector<std::string> Identity::columnsForQuery() {
     assert(false);
 	return {};
 }

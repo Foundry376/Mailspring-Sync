@@ -1,13 +1,13 @@
 #include "mailsync/sync_exception.hpp"
 #include "mailsync/constants.hpp"
 
-SyncException::SyncException(string key, string di, bool retryable) :
+SyncException::SyncException(std::string key, std::string di, bool retryable) :
     key(key), debuginfo(di), retryable(retryable), GenericException()
 {
 
 }
 
-SyncException::SyncException(CURLcode c, string di) :
+SyncException::SyncException(CURLcode c, std::string di) :
     key(curl_easy_strerror(c)), debuginfo(di), GenericException()
 {
     if ((c == CURLE_COULDNT_RESOLVE_PROXY) ||
@@ -29,7 +29,7 @@ SyncException::SyncException(CURLcode c, string di) :
     }
 }
 
-SyncException::SyncException(mailcore::ErrorCode c, string di) :
+SyncException::SyncException(mailcore::ErrorCode c, std::string di) :
     key(""), debuginfo(di.c_str()), GenericException()
 {
     if (ErrorCodeToTypeMap.count(c)) {
@@ -57,7 +57,7 @@ bool SyncException::isOffline() {
     return offline;
 }
 
-json SyncException::toJSON() {
+nlohmann::json SyncException::toJSON() {
     return {
         {"what", what()},
         {"key", key},

@@ -35,27 +35,27 @@
 #include "mailsync/delta_stream.hpp"
 #include "mailsync/models/folder.hpp"
 
-using namespace mailcore;
+
 
 class SyncWorker {
-    IMAPSession session;
+    mailcore::IMAPSession session;
 
     MailStore * store;
     MailProcessor * processor;
-    shared_ptr<spdlog::logger> logger;
+    std::shared_ptr<spdlog::logger> logger;
 
     int unlinkPhase;
     bool idleShouldReloop;
     int iterationsSinceLaunch;
-    vector<string> idleFetchBodyIDs;
+    std::vector<std::string> idleFetchBodyIDs;
     std::mutex idleMtx;
     std::condition_variable idleCv;
 
 public:
 
-    shared_ptr<Account> account;
+    std::shared_ptr<Account> account;
 
-    SyncWorker(shared_ptr<Account> account);
+    SyncWorker(std::shared_ptr<Account> account);
     void configure();
 
 #pragma mark Foreground Worker
@@ -63,7 +63,7 @@ public:
 public:
 
     void idleInterrupt();
-    void idleQueueBodiesToSync(vector<string> & ids);
+    void idleQueueBodiesToSync(std::vector<std::string> & ids);
     void idleCycleIteration();
 
 
@@ -79,15 +79,15 @@ public:
 
 private:
 
-    void ensureRootMailspringFolder(Array * remoteFolders);
+    void ensureRootMailspringFolder(mailcore::Array * remoteFolders);
 
-    bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
+    bool initialSyncFolderIncremental(Folder & folder, mailcore::IMAPFolderStatus & remoteStatus);
 
-    void syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
+    void syncFolderUIDRange(Folder & folder, mailcore::Range range, bool heavyInitialRequest, std::vector<std::shared_ptr<Message>> * syncedMessages = nullptr);
 
-    void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus, bool mustSyncAll);
+    void syncFolderChangesViaCondstore(Folder & folder, mailcore::IMAPFolderStatus & remoteStatus, bool mustSyncAll);
 
-    void fetchRangeInFolder(String * folder, std::string folderId, Range range);
+    void fetchRangeInFolder(mailcore::String * folder, std::string folderId, mailcore::Range range);
 
     void cleanMessageCache(Folder & folder);
 
@@ -95,7 +95,7 @@ private:
     long long countBodiesNeeded(Folder & folder);
     time_t maxAgeForBodySync(Folder & folder);
     bool shouldCacheBodiesInFolder(Folder & folder);
-    bool syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
+    bool syncMessageBodies(Folder & folder, mailcore::IMAPFolderStatus & remoteStatus);
     void syncMessageBody(Message * message);
 };
 

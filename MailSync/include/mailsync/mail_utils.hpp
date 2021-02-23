@@ -23,11 +23,14 @@
 #ifndef MailUtils_hpp
 #define MailUtils_hpp
 
+#include <memory>
 #include <string>
+#include <vector>
+
 #include <stdio.h>
 #include "MailCore/MailCore.h"
 #include "SQLiteCpp/SQLiteCpp.h"
-#include "nlohmann/json.hpp"
+#include "nlohmann/nlohmann::json.hpp"
 #include "mailsync/xoauth2_token_manager.hpp"
 
 class File;
@@ -36,78 +39,73 @@ class Account;
 class Message;
 class Query;
 
-using namespace nlohmann;
-using namespace std;
-using namespace mailcore;
-
-
 class MailUtils {
 
 private:
     static int compareEmails(void * a, void * b, void * context);
 
 public:
-    static string toBase58(const unsigned char * pbegin, size_t len);
-    static string toBase64(const char * pbegin, size_t len);
+    static std::string toBase58(const unsigned char * pbegin, size_t len);
+    static std::string toBase64(const char * pbegin, size_t len);
 
-    static string getEnvUTF8(string key);
+    static std::string getEnvUTF8(std::string key);
 
-    static json merge(const json &a, const json &b);
-    static json contactJSONFromAddress(Address * addr);
-    static Address * addressFromContactJSON(json & j);
+    static nlohmann::json merge(const nlohmann::json &a, const nlohmann::json &b);
+    static nlohmann::json contactJSONFromAddress(mailcore::Address * addr);
+    static mailcore::Address * addressFromContactJSON(nlohmann::json & j);
 
-    static string contactKeyForEmail(string email);
+    static std::string contactKeyForEmail(std::string email);
 
-    static string localTimestampForTime(time_t time);
+    static std::string localTimestampForTime(time_t time);
 
-    static vector<uint32_t> uidsOfArray(Array * array);
+    static std::vector<uint32_t> uidsOfArray(mailcore::Array * array);
 
-    static vector<Query> queriesForUIDRangesInIndexSet(string remoteFolderId, IndexSet * set);
+    static std::vector<Query> queriesForUIDRangesInIndexSet(std::string remoteFolderId, mailcore::IndexSet * set);
 
-    static string pathForFile(string root, File * file, bool create);
+    static std::string pathForFile(std::string root, File * file, bool create);
 
-    static string namespacePrefixOrBlank(IMAPSession * session);
+    static std::string namespacePrefixOrBlank(mailcore::IMAPSession * session);
 
-    static vector<string> roles();
-    static string roleForFolder(string mainPrefix, IMAPFolder * folder);
-    static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);
-    static string roleForFolderViaPath(string mainPrefix, IMAPFolder * folder);
+    static std::vector<std::string> roles();
+    static std::string roleForFolder(std::string mainPrefix, mailcore::IMAPFolder * folder);
+    static std::string roleForFolderViaFlags(std::string mainPrefix, mailcore::IMAPFolder * folder);
+    static std::string roleForFolderViaPath(std::string mainPrefix, mailcore::IMAPFolder * folder);
 
     static void setBaseIDVersion(time_t identityCreationDate);
 
-    static string idRandomlyGenerated();
-    static string idForEvent(string accountId, string calendarId, string etag);
-    static string idForCalendar(string accountId, string url);
-    static string idForMessage(string accountId, string folderPath, IMAPMessage * msg);
-    static string idForFolder(string accountId, string folderPath);
-    static string idForFile(Message * message, Attachment * attachment);
-    static string idForDraftHeaderMessageId(string accountId, string headerMessageId);
+    static std::string idRandomlyGenerated();
+    static std::string idForEvent(std::string accountId, std::string calendarId, std::string etag);
+    static std::string idForCalendar(std::string accountId, std::string url);
+    static std::string idForMessage(std::string accountId, std::string folderPath, mailcore::IMAPMessage * msg);
+    static std::string idForFolder(std::string accountId, std::string folderPath);
+    static std::string idForFile(Message * message, mailcore::Attachment * attachment);
+    static std::string idForDraftHeaderMessageId(std::string accountId, std::string headerMessageId);
 
-    static shared_ptr<Label> labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> allLabels);
+    static std::shared_ptr<Label> labelForXGMLabelName(std::string mlname, std::vector<std::shared_ptr<Label>> allLabels);
 
-    static string qmarks(size_t count);
-    static string qmarkSets(size_t count, size_t perSet);
+    static std::string qmarks(size_t count);
+    static std::string qmarkSets(size_t count, size_t perSet);
 
-    static XOAuth2Parts userAndTokenFromXOAuth2(string xoauth2);
+    static XOAuth2Parts userAndTokenFromXOAuth2(std::string xoauth2);
 
     static void enableVerboseLogging();
-    static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
-    static void configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account);
+    static void configureSessionForAccount(mailcore::IMAPSession & session, std::shared_ptr<Account> account);
+    static void configureSessionForAccount(mailcore::SMTPSession & session, std::shared_ptr<Account> account);
 
-    static IMAPMessagesRequestKind messagesRequestKindFor(IndexSet * capabilities, bool heavyOrNeedToComputeIDs);
+    static mailcore::IMAPMessagesRequestKind messagesRequestKindFor(mailcore::IndexSet * capabilities, bool heavyOrNeedToComputeIDs);
 
     static void sleepWorkerUntilWakeOrSec(int sec);
     static void wakeAllWorkers();
 
     template<typename T>
-    static vector<vector<T>> chunksOfVector(vector<T> & v, size_t chunkSize) {
-        vector<vector<T>> results{};
+    static std::vector<std::vector<T>> chunksOfVector(std::vector<T> & v, size_t chunkSize) {
+        std::vector<std::vector<T>> results{};
 
         while (v.size() > 0) {
             auto from = v.begin();
             auto to = v.size() > chunkSize ? from + chunkSize : v.end();
 
-            results.push_back(vector<T>{std::make_move_iterator(from), std::make_move_iterator(to)});
+            results.push_back(std::vector<T>{std::make_move_iterator(from), std::make_move_iterator(to)});
             v.erase(from, to);
         }
         return results;

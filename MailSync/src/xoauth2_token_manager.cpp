@@ -2,13 +2,13 @@
 #include "mailsync/network_request_utils.hpp"
 #include "mailsync/sync_exception.hpp"
 
-using namespace nlohmann;
+
 
 // Singleton Implementation
 
-shared_ptr<XOAuth2TokenManager> _globalXOAuth2TokenManager = make_shared<XOAuth2TokenManager>();
+std::shared_ptr<XOAuth2TokenManager> _globalXOAuth2TokenManager = std::make_shared<XOAuth2TokenManager>();
 
-shared_ptr<XOAuth2TokenManager> SharedXOAuth2TokenManager() {
+std::shared_ptr<XOAuth2TokenManager> SharedXOAuth2TokenManager() {
     return _globalXOAuth2TokenManager;
 }
 
@@ -23,13 +23,13 @@ XOAuth2TokenManager::~XOAuth2TokenManager() {
 
 
 
-XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
-    string key = account->id();
+XOAuth2Parts XOAuth2TokenManager::partsForAccount(std::shared_ptr<Account> account) {
+    std::string key = account->id();
 
     // There's not much of a point to having two threads request the same token at once.
     // Only allow one thread to access / update the cache and make others wait until it
     // exits.
-    lock_guard<mutex> guard(_cacheLock);
+    std::lock_guard<std::mutex> guard(_cacheLock);
 
     if (_cache.find(key) != _cache.end()) {
         XOAuth2Parts parts = _cache.at(key);
@@ -40,7 +40,7 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
     }
 
     auto refreshClientId = account->refreshClientId();
-    json updated {};
+    nlohmann::json updated {};
     if (refreshClientId != "") {
         spdlog::get("logger")->info("Fetching XOAuth2 access token ({}) for {}", account->provider(), account->id());
         updated = MakeOAuthRefreshRequest(account->provider(), refreshClientId, account->refreshToken());
@@ -51,7 +51,7 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
 
     XOAuth2Parts parts;
     parts.username = account->IMAPUsername();
-    parts.accessToken = updated["access_token"].get<string>();
+    parts.accessToken = updated["access_token"].get<std::string>();
     parts.expiryDate = updated["expiry_date"].get<int>();
     _cache[key] = parts;
     return parts;

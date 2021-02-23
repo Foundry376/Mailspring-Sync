@@ -5,10 +5,10 @@
 
 #include "icalendarlib/icalendar.h"
 
-using namespace std;
-using namespace mailcore;
 
-string Event::TABLE_NAME = "Event";
+
+
+std::string Event::TABLE_NAME = "Event";
 
 static Date DISTANT_FUTURE;
 
@@ -27,7 +27,7 @@ Date endOf(ICalendarEvent * event) {
     return DISTANT_FUTURE;
 }
 
-Event::Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent * event)
+Event::Event(std::string etag, std::string accountId, std::string calendarId, std::string ics, ICalendarEvent * event)
 : MailModel(MailUtils::idForEvent(accountId, calendarId, etag), accountId) {
     _data["cid"] = calendarId;
     _data["ics"] = ics;
@@ -45,28 +45,28 @@ Event::Event(SQLite::Statement & query) :
 {
 }
 
-string Event::constructorName() {
-    return _data["__cls"].get<string>();
+std::string Event::constructorName() {
+    return _data["__cls"].get<std::string>();
 }
 
-string Event::tableName() {
+std::string Event::tableName() {
     return Event::TABLE_NAME;
 }
 
-string Event::calendarId() {
-    return _data["cid"].get<string>();
+std::string Event::calendarId() {
+    return _data["cid"].get<std::string>();
 }
 
-string Event::icsData() {
-    return _data["ics"].get<string>();
+std::string Event::icsData() {
+    return _data["ics"].get<std::string>();
 }
 
-string Event::icsUID() {
-    return _data["icsuid"].get<string>();
+std::string Event::icsUID() {
+    return _data["icsuid"].get<std::string>();
 }
 
-string Event::etag() {
-    return _data["etag"].get<string>();
+std::string Event::etag() {
+    return _data["etag"].get<std::string>();
 }
 
 int Event::recurrenceStart() {
@@ -77,8 +77,8 @@ int Event::recurrenceEnd() {
     return _data["re"].get<int>();
 }
 
-vector<string> Event::columnsForQuery() {
-    return vector<string>{"id", "data", "icsuid", "accountId", "etag", "calendarId", "recurrenceStart", "recurrenceEnd"};
+std::vector<std::string> Event::columnsForQuery() {
+    return std::vector<std::string>{"id", "data", "icsuid", "accountId", "etag", "calendarId", "recurrenceStart", "recurrenceEnd"};
 }
 
 void Event::bindToQuery(SQLite::Statement * query) {

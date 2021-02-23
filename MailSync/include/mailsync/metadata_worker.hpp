@@ -34,19 +34,19 @@
 
 #include "spdlog/spdlog.h"
 
-using namespace std;
+
 
 class MetadataWorker {
     MailStore * store;
-    shared_ptr<spdlog::logger> logger;
-    shared_ptr<Account> account;
+    std::shared_ptr<spdlog::logger> logger;
+    std::shared_ptr<Account> account;
 
-    string deltasBuffer;
-    string deltasCursor;
+    std::string deltasBuffer;
+    std::string deltasCursor;
     int backoffStep;
 
 public:
-    MetadataWorker(shared_ptr<Account> account);
+    MetadataWorker(std::shared_ptr<Account> account);
 
     void run();
 
@@ -54,12 +54,12 @@ public:
     void fetchDeltaCursor();
     void fetchDeltasBlocking();
 
-    void setDeltaCursor(string cursor);
+    void setDeltaCursor(std::string cursor);
 
     void onDeltaData(void * contents, size_t bytes);
-    void onDelta(const json & delta);
+    void onDelta(const nlohmann::json & delta);
 
-    void applyMetadataJSON(const json & metadata);
+    void applyMetadataJSON(const nlohmann::json & metadata);
 };
 
 #endif /* MetadataWorker_hpp */

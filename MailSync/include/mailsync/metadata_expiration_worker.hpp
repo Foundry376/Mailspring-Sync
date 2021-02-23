@@ -32,25 +32,25 @@
 #include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
 
-using namespace nlohmann;
-using namespace std;
+
+
 
 
 class MetadataExpirationWorker  {
-    string _accountId;
+    std::string _accountId;
     std::chrono::system_clock::time_point _wakeTime;
     std::condition_variable _wakeCv;
     std::mutex _wakeMtx;
 
 public:
-    MetadataExpirationWorker(string accountId);
+    MetadataExpirationWorker(std::string accountId);
 
     void isSavingMetadataWithExpiration(long e);
     void run();
 };
 
 
-MetadataExpirationWorker * MetadataExpirationWorkerForAccountId(string aid);
+MetadataExpirationWorker * MetadataExpirationWorkerForAccountId(std::string aid);
 void WakeAllMetadataExpirationWorkers();
 
 #endif /* MetadataExpirationWorker_hpp */

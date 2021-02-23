@@ -30,34 +30,34 @@
 
 #include "mailsync/models/mail_model.hpp"
 
-using namespace nlohmann;
-using namespace std;
-using namespace mailcore;
+
+
+
 
 class Task : public MailModel {
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    Task(string constructorName, string accountId, json taskSpecificData);
+    Task(std::string constructorName, std::string accountId, nlohmann::json taskSpecificData);
 
-    Task(json json);
+    Task(nlohmann::json json);
     Task(SQLite::Statement & query);
 
-    json & data();
-    string tableName();
-    string constructorName();
+    nlohmann::json & data();
+    std::string tableName();
+    std::string constructorName();
 
-    string status();
-    void setStatus(string s);
+    std::string status();
+    void setStatus(std::string s);
 
     bool shouldCancel();
     void setShouldCancel();
 
-    json error();
-    void setError(json e);
+    nlohmann::json error();
+    void setError(nlohmann::json e);
 
-    vector<string> columnsForQuery();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 };
 

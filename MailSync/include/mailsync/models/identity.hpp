@@ -30,33 +30,33 @@
 
 #include "mailsync/models/mail_model.hpp"
 
-using namespace nlohmann;
-using namespace std;
+
+
 
 class Identity : public MailModel {
 
 public:
-    static shared_ptr<Identity> _global;
-    static shared_ptr<Identity> GetGlobal();
-    static void SetGlobal(shared_ptr<Identity> i);
+    static std::shared_ptr<Identity> _global;
+    static std::shared_ptr<Identity> GetGlobal();
+    static void SetGlobal(std::shared_ptr<Identity> i);
 
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    Identity(json json);
+    Identity(nlohmann::json json);
 
     bool valid();
 
     time_t createdAt();
-    string firstName();
-    string lastName();
-    string emailAddress();
-    string token();
+    std::string firstName();
+    std::string lastName();
+    std::string emailAddress();
+    std::string token();
 
 
-    string tableName();
-    string constructorName();
+    std::string tableName();
+    std::string constructorName();
 
-    vector<string> columnsForQuery();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 };
 

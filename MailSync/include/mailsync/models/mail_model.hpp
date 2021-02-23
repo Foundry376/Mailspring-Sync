@@ -32,33 +32,33 @@
 
 #include "nlohmann/json.hpp"
 
-using namespace std;
-using namespace nlohmann;
+
+
 
 class MailStore;
 
 class MailModel {
 public:
-    json _data;
+    nlohmann::json _data;
 
-    map<string, int> _initialMetadataPluginIds;
+    std::map<std::string, int> _initialMetadataPluginIds;
 
-    static string TABLE_NAME;
-    virtual string tableName();
+    static std::string TABLE_NAME;
+    virtual std::string tableName();
 
-    MailModel(string id, string accountId, int version = 0);
+    MailModel(std::string id, std::string accountId, int version = 0);
     MailModel(SQLite::Statement & query);
-    MailModel(json json);
+    MailModel(nlohmann::json json);
 
     void captureInitialMetadataState();
 
-    string id();
-    string accountId();
+    std::string id();
+    std::string accountId();
     int version();
     void incrementVersion();
 
-    int upsertMetadata(string pluginId, const json & value, int version = -1);
-    json & metadata();
+    int upsertMetadata(std::string pluginId, const nlohmann::json & value, int version = -1);
+    nlohmann::json & metadata();
 
     virtual bool supportsMetadata();
 
@@ -68,10 +68,10 @@ public:
     virtual void afterSave(MailStore * store);
     virtual void afterRemove(MailStore * store);
 
-    virtual vector<string> columnsForQuery() = 0;
+    virtual std::vector<std::string> columnsForQuery() = 0;
 
-    virtual json toJSON();
-    virtual json toJSONDispatch();
+    virtual nlohmann::json toJSON();
+    virtual nlohmann::json toJSONDispatch();
 };
 
 #endif /* MailModel_hpp */

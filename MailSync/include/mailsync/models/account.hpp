@@ -30,45 +30,45 @@
 
 #include "mailsync/models/mail_model.hpp"
 
-using namespace nlohmann;
-using namespace std;
-using namespace mailcore;
+
+
+
 
 class Account : public MailModel {
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    Account(json json);
+    Account(nlohmann::json json);
     Account(SQLite::Statement & query);
 
     int startDelay();
 
-    string valid();
+    std::string valid();
 
-    string refreshToken();
-    string refreshClientId();
-    string provider();
-    string emailAddress();
+    std::string refreshToken();
+    std::string refreshClientId();
+    std::string provider();
+    std::string emailAddress();
 
     unsigned int IMAPPort();
-    string IMAPHost();
-    string IMAPUsername();
-    string IMAPPassword();
-    string IMAPSecurity();
+    std::string IMAPHost();
+    std::string IMAPUsername();
+    std::string IMAPPassword();
+    std::string IMAPSecurity();
     bool IMAPAllowInsecureSSL();
 
     unsigned int SMTPPort();
-    string SMTPHost();
-    string SMTPUsername();
-    string SMTPPassword();
-    string SMTPSecurity();
+    std::string SMTPHost();
+    std::string SMTPUsername();
+    std::string SMTPPassword();
+    std::string SMTPSecurity();
     bool SMTPAllowInsecureSSL();
 
-    string tableName();
-    string constructorName();
+    std::string tableName();
+    std::string constructorName();
 
-    vector<string> columnsForQuery();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 };
 

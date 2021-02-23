@@ -32,34 +32,35 @@
 
 #include <stdio.h>
 
+#include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
 
-using namespace std;
-
-static string GOOGLE_SYNC_SOURCE = "gpeople";
+static std::string GOOGLE_SYNC_SOURCE = "gpeople";
 
 class GoogleContactsWorker {
     MailStore * store;
-    shared_ptr<spdlog::logger> logger;
-    shared_ptr<Account> account;
+    std::shared_ptr<spdlog::logger> logger;
+    std::shared_ptr<Account> account;
 
 public:
-    GoogleContactsWorker(shared_ptr<Account> account);
+    GoogleContactsWorker(std::shared_ptr<Account> account);
 
     void run();
-    void paginateGoogleCollection(string urlRoot, string authorization, string syncTokenKey, std::function<void(json)> yieldBlock);
+    void paginateGoogleCollection(std::string urlRoot, std::string authorization, std::string syncTokenKey, std::function<void(nlohmann::json)> yieldBlock);
 
-    void upsertContactGroup(shared_ptr<ContactGroup> group);
-    void deleteContactGroup(string groupResourceName);
-    void updateContactGroupMembership(shared_ptr<ContactGroup> group, vector<shared_ptr<Contact>> contacts, string direction);
-    void deleteContact(shared_ptr<Contact> contact);
-    void upsertContact(shared_ptr<Contact> contact);
+    void upsertContactGroup(std::shared_ptr<ContactGroup> group);
+    void deleteContactGroup(std::string groupResourceName);
+    void updateContactGroupMembership(std::shared_ptr<ContactGroup> group, std::vector<std::shared_ptr<Contact>> contacts, std::string direction);
+    void deleteContact(std::shared_ptr<Contact> contact);
+    void upsertContact(std::shared_ptr<Contact> contact);
 
 private:
-    void applyJSONToContact(shared_ptr<Contact> local, const json & conn);
+    void applyJSONToContact(std::shared_ptr<Contact> local, const nlohmann::json & conn);
 
 };
 

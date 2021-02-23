@@ -32,36 +32,36 @@
 #include "mailsync/mail_store.hpp"
 #include "MailCore/MailCore.h"
 
-using namespace nlohmann;
-using namespace std;
-using namespace mailcore;
+
+
+
 
 
 class ContactGroup : public MailModel {
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    ContactGroup(string id, string accountId);
+    ContactGroup(std::string id, std::string accountId);
     ContactGroup(SQLite::Statement & query);
 
-    string name();
-    void setName(string name);
-    string bookId();
-    void setBookId(string bookId);
-    string googleResourceName();
-    void setGoogleResourceName(string rn);
+    std::string name();
+    void setName(std::string name);
+    std::string bookId();
+    void setBookId(std::string bookId);
+    std::string googleResourceName();
+    void setGoogleResourceName(std::string rn);
 
-    string tableName();
-    string constructorName();
+    std::string tableName();
+    std::string constructorName();
 
-    vector<string> columnsForQuery();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 
     void afterRemove(MailStore * store);
 
-    vector<string> getMembers(MailStore * store);
-    void syncMembers(MailStore * store, vector<string> newContactIds);
+    std::vector<std::string> getMembers(MailStore * store);
+    void syncMembers(MailStore * store, std::vector<std::string> newContactIds);
 };
 
 #endif /* ContactGroup_hpp */

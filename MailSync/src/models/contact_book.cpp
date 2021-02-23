@@ -3,12 +3,12 @@
 #include "mailsync/models/thread.hpp"
 #include "mailsync/models/message.hpp"
 
-using namespace std;
-using namespace mailcore;
 
-string ContactBook::TABLE_NAME = "ContactBook";
 
-ContactBook::ContactBook(string id, string accountId) :
+
+std::string ContactBook::TABLE_NAME = "ContactBook";
+
+ContactBook::ContactBook(std::string id, std::string accountId) :
     MailModel(id, accountId)
 {
     setSource("");
@@ -20,32 +20,32 @@ ContactBook::ContactBook(SQLite::Statement & query) :
 {
 }
 
-string ContactBook::constructorName() {
-    return _data["__cls"].get<string>();
+std::string ContactBook::constructorName() {
+    return _data["__cls"].get<std::string>();
 }
 
-string ContactBook::tableName() {
+std::string ContactBook::tableName() {
     return ContactBook::TABLE_NAME;
 }
 
-string ContactBook::url() {
-    return _data["url"].get<string>();
+std::string ContactBook::url() {
+    return _data["url"].get<std::string>();
 }
 
-void ContactBook::setURL(string url) {
+void ContactBook::setURL(std::string url) {
     _data["url"] = url;
 }
 
-string ContactBook::source() {
-    return _data["source"].get<string>();
+std::string ContactBook::source() {
+    return _data["source"].get<std::string>();
 }
 
-void ContactBook::setSource(string source) {
+void ContactBook::setSource(std::string source) {
     _data["source"] = source;
 }
 
-vector<string> ContactBook::columnsForQuery() {
-    return vector<string>{"id", "accountId", "version", "data"};
+std::vector<std::string> ContactBook::columnsForQuery() {
+    return std::vector<std::string>{"id", "accountId", "version", "data"};
 }
 
 void ContactBook::bindToQuery(SQLite::Statement * query) {

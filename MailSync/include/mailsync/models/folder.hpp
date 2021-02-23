@@ -29,28 +29,28 @@
 
 #include "mailsync/models/mail_model.hpp"
 
-using namespace nlohmann;
-using namespace std;
+
+
 
 class Folder : public MailModel {
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    Folder(json & json);
-    Folder(string id, string accountId, int version);
+    Folder(nlohmann::json & json);
+    Folder(std::string id, std::string accountId, int version);
     Folder(SQLite::Statement & query);
 
-    json & localStatus();
+    nlohmann::json & localStatus();
 
-    string path();
-    void setPath(string path);
+    std::string path();
+    void setPath(std::string path);
 
-    string role() const;
-    void setRole(string role);
+    std::string role() const;
+    void setRole(std::string role);
 
-    string tableName();
-    vector<string> columnsForQuery();
+    std::string tableName();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 
     void beforeSave(MailStore * store);

@@ -3,21 +3,23 @@
 #include "mailsync/models/thread.hpp"
 #include "mailsync/models/message.hpp"
 
-using namespace std;
-using namespace mailcore;
+#include <functional>
 
-string Contact::TABLE_NAME = "Contact";
 
-Contact::Contact(string id, string accountId, string email, int refs, string source) : MailModel(id, accountId) {
+
+
+std::string Contact::TABLE_NAME = "Contact";
+
+Contact::Contact(std::string id, std::string accountId, std::string email, int refs, std::string source) : MailModel(id, accountId) {
     _data["email"] = email;
     _data["s"] = source;
     _data["refs"] = refs;
-    _data["gis"] = json::array();
-    _data["info"] = json::object();
+    _data["gis"] = nlohmann::json::array();
+    _data["info"] = nlohmann::json::object();
     _data["name"] = "";
 }
 
-Contact::Contact(json json) :
+Contact::Contact(nlohmann::json json) :
     MailModel(json)
 {
 }
@@ -27,80 +29,80 @@ Contact::Contact(SQLite::Statement & query) :
 {
 }
 
-string Contact::constructorName() {
-    return _data["__cls"].get<string>();
+std::string Contact::constructorName() {
+    return _data["__cls"].get<std::string>();
 }
 
-string Contact::tableName() {
+std::string Contact::tableName() {
     return Contact::TABLE_NAME;
 }
 
-string Contact::name() {
-    return _data["name"].get<string>();
+std::string Contact::name() {
+    return _data["name"].get<std::string>();
 }
 
-void Contact::setName(string name) {
+void Contact::setName(std::string name) {
     _data["name"] = name;
 }
 
-string Contact::googleResourceName() {
-    return _data.count("grn") ? _data["grn"].get<string>() : "";
+std::string Contact::googleResourceName() {
+    return _data.count("grn") ? _data["grn"].get<std::string>() : "";
 }
 
-void Contact::setGoogleResourceName(string rn) {
+void Contact::setGoogleResourceName(std::string rn) {
     _data["grn"] = rn;
 }
 
-string Contact::email() {
-    return _data["email"].get<string>();
+std::string Contact::email() {
+    return _data["email"].get<std::string>();
 }
 
-void Contact::setEmail(string email) {
+void Contact::setEmail(std::string email) {
     _data["email"] = email;
 }
 
-string Contact::source() {
-    return _data.count("s") ? _data["s"].get<string>() : CONTACT_SOURCE_MAIL;
+std::string Contact::source() {
+    return _data.count("s") ? _data["s"].get<std::string>() : CONTACT_SOURCE_MAIL;
 }
 
-string Contact::etag() {
-    return _data.count("etag") ? _data["etag"].get<string>() : "";
+std::string Contact::etag() {
+    return _data.count("etag") ? _data["etag"].get<std::string>() : "";
 }
 
-unordered_set<string> Contact::groupIds() {
-    unordered_set<string> set {};
+std::unordered_set<std::string> Contact::groupIds() {
+    std::unordered_set<std::string> set {};
     if (!_data.count("gis")) return set;
     for (auto item : _data["gis"]) {
-        set.insert(item.get<string>());
+        set.insert(item.get<std::string>());
     }
     return set;
 }
 
-void Contact::setGroupIds(unordered_set<string> set) {
-    vector<string> arr;
+void Contact::setGroupIds(std::unordered_set<std::string> set) {
+    std::vector<std::string> arr;
     for (auto item : set) {
         arr.push_back(item);
     }
     _data["gis"] = arr;
 }
 
-void Contact::setEtag(string etag) {
+void Contact::setEtag(std::string etag) {
     _data["etag"] = etag;
 }
 
-string Contact::bookId() {
-    return _data.count("bid") ? _data["bid"].get<string>() : "";
+std::string Contact::bookId() {
+    return _data.count("bid") ? _data["bid"].get<std::string>() : "";
 }
 
-void Contact::setBookId(string rci) {
+void Contact::setBookId(std::string rci) {
     _data["bid"] = rci;
 }
 
-json Contact::info() {
+nlohmann::json Contact::info() {
     return _data["info"];
 }
 
-void Contact::setInfo(json info) {
+void Contact::setInfo(nlohmann::json info) {
     _data["info"] = info;
 }
 
@@ -111,15 +113,15 @@ void Contact::setHidden(bool b) {
     _data["h"] = b;
 }
 
-string Contact::searchContent() {
-    string content = _data["email"].get<string>();
+std::string Contact::searchContent() {
+    std::string content = _data["email"].get<std::string>();
 
     size_t at = content.find("@");
-    if (at != string::npos) {
+    if (at != std::string::npos) {
         content = content.replace(at, 1, " ");
     }
     if (_data.count("name")) {
-        content = content + " " + _data["name"].get<string>();
+        content = content + " " + _data["name"].get<std::string>();
     }
 
     return content;
@@ -133,9 +135,9 @@ void Contact::incrementRefs() {
     _data["refs"] = refs() + 1;
 }
 
-void Contact::mutateCardInInfo(function<void(shared_ptr<VCard>)> yieldBlock) {
+void Contact::mutateCardInInfo(std::function<void(std::shared_ptr<VCard>)> yieldBlock) {
     auto nextInfo = info();
-    auto card = make_shared<VCard>(nextInfo["vcf"].get<string>());
+    auto card = std::make_shared<VCard>(nextInfo["vcf"].get<std::string>());
     if (card->incomplete()) {
         return;
     }
@@ -145,8 +147,8 @@ void Contact::mutateCardInInfo(function<void(shared_ptr<VCard>)> yieldBlock) {
     setInfo(nextInfo);
 }
 
-vector<string> Contact::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "refs", "email", "hidden", "source", "etag", "bookId" };
+std::vector<std::string> Contact::columnsForQuery() {
+    return std::vector<std::string>{"id", "data", "accountId", "version", "refs", "email", "hidden", "source", "etag", "bookId" };
 }
 
 void Contact::bindToQuery(SQLite::Statement * query) {

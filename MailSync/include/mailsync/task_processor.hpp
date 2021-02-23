@@ -36,38 +36,38 @@
 #include "mailsync/models/account.hpp"
 #include "MailCore/MailCore.h"
 
-using namespace nlohmann;
-using namespace std;
-using namespace mailcore;
+
+
+
 
 struct ChangeMailModels {
-    vector<shared_ptr<Message>> messages;
+    std::vector<std::shared_ptr<Message>> messages;
 };
 
 
 class TaskProcessor {
     MailStore * store;
-    shared_ptr<spdlog::logger> logger;
-    shared_ptr<Account> account;
-    IMAPSession * session;
+    std::shared_ptr<spdlog::logger> logger;
+    std::shared_ptr<Account> account;
+    mailcore::IMAPSession * session;
 
 public:
-    TaskProcessor(shared_ptr<Account> account, MailStore * store, IMAPSession * session);
+    TaskProcessor(std::shared_ptr<Account> account, MailStore * store, mailcore::IMAPSession * session);
 
     void cleanupTasksAfterLaunch();
     void cleanupOldTasksAtRuntime();
 
     void performLocal(Task * task);
     void performRemote(Task * task);
-    void cancel(string taskId);
+    void cancel(std::string taskId);
 
 private:
-    ChangeMailModels inflateMessages(json & data);
-    ChangeMailModels inflateThreadsAndMessages(json & data);
-    Message inflateClientDraftJSON(json & draftJSON, shared_ptr<Message> existing);
+    ChangeMailModels inflateMessages(nlohmann::json & data);
+    ChangeMailModels inflateThreadsAndMessages(nlohmann::json & data);
+    Message inflateClientDraftJSON(nlohmann::json & draftJSON, std::shared_ptr<Message> existing);
 
-    void performLocalChangeOnMessages(Task * task,  void (*modifyLocalMessage)(Message *, json &));
-    void performRemoteChangeOnMessages(Task * task, bool updatesFolder, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data));
+    void performLocalChangeOnMessages(Task * task,  void (*modifyLocalMessage)(Message *, nlohmann::json &));
+    void performRemoteChangeOnMessages(Task * task, bool updatesFolder, void (*applyInFolder)(mailcore::IMAPSession * session, mailcore::String * path, mailcore::IndexSet * uids, std::vector<std::shared_ptr<Message>> messages, nlohmann::json & data));
     void performLocalSaveDraft(Task * task);
     void performLocalDestroyDraft(Task * task);
     void performRemoteDestroyDraft(Task * task);

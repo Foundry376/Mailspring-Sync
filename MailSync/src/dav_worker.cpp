@@ -21,7 +21,7 @@ struct EventResult {
 
 
 
-std::string firstPropVal(json attrs, std::string key, std::string fallback = "") {
+std::string firstPropVal(nlohmann::json attrs, std::string key, std::string fallback = "") {
     if (!attrs.count(key)) return fallback;
     if (!attrs[key].size()) return fallback;
     return attrs[key][0].get<std::string>();
@@ -114,8 +114,8 @@ std::shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     // run on Ubuntu 18.
     std::string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
     std::string imapHost = account->IMAPHost();
-    json payload = {{"domain", domain}, {"imapHost", imapHost}};
-    json result = PerformJSONRequest(CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str()));
+    nlohmann::json payload = {{"domain", domain}, {"imapHost", imapHost}};
+    nlohmann::json result = PerformJSONRequest(CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str()));
 
     if (result.count("carddavHost")) {
         cardHost = result["carddavHost"].get<std::string>();
@@ -267,7 +267,7 @@ void DAVWorker::deleteContact(std::shared_ptr<Contact> contact) {
 }
 
 void DAVWorker::runForAddressBook(std::shared_ptr<ContactBook> ab) {
-    map<ETAG, std::string> remote {};
+    std::map<ETAG, std::string> remote {};
 
     {
         auto etagsDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /></d:prop></c:addressbook-query>");
@@ -282,7 +282,7 @@ void DAVWorker::runForAddressBook(std::shared_ptr<ContactBook> ab) {
 
     // Because etags change when the event content changes, we only need to ADD new events
     // and DELETE missing events. To do this we query just the index for IDs and go from there.
-    map<ETAG, bool> local {};
+    std::map<ETAG, bool> local {};
     {
         SQLite::Statement findEtags(store->db(), "SELECT etag FROM Contact WHERE bookId = ?");
         findEtags.bind(1, ab->id());
@@ -416,7 +416,7 @@ std::shared_ptr<Contact> DAVWorker::ingestAddressDataNode(std::shared_ptr<DavXML
     if (!contact) {
         contact = std::make_shared<Contact>(id, account->id(), email, CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
     }
-    contact->setInfo(json::object({{"vcf", vcardString}, {"href", href}}));
+    contact->setInfo(nlohmann::json::object({{"vcf", vcardString}, {"href", href}}));
     contact->setName(name);
     contact->setEmail(email);
     contact->setEtag(etag);
@@ -507,7 +507,7 @@ void DAVWorker::runCalendars() {
 }
 
 void DAVWorker::runForCalendar(std::string calendarId, std::string name, std::string url) {
-    map<ETAG, std::string> remote {};
+    std::map<ETAG, std::string> remote {};
     {
         // Request the ETAG value of every event in the calendar. We should compare these
         // values against a set in the database. Any event we don't have should be added
@@ -524,7 +524,7 @@ void DAVWorker::runForCalendar(std::string calendarId, std::string name, std::st
 
     // Because etags change when the event content changes, we only need to ADD new events
     // and DELETE missing events. To do this we query just the index for IDs and go from there.
-    map<ETAG, bool> local {};
+    std::map<ETAG, bool> local {};
     {
         SQLite::Statement findEtags(store->db(), "SELECT etag FROM Event WHERE calendarId = ?");
         findEtags.bind(1, calendarId);

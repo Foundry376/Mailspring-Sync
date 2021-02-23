@@ -10,15 +10,15 @@
 #include <locale>
 #endif
 
-using namespace std;
-using nlohmann::json;
+#include <map>
+#include <vector>
 
-class CleanHTMLBodyRendererTemplateCallback : public Object, public HTMLRendererTemplateCallback {
-    mailcore::String * templateForMainHeader(MessageHeader * header) {
+class CleanHTMLBodyRendererTemplateCallback : public mailcore::Object, public HTMLRendererTemplateCallback {
+    mailcore::String * templateForMainHeader(mailcore::MessageHeader * header) {
         return MCSTR("");
     }
 
-    mailcore::String * templateForAttachment(AbstractPart * part) {
+    mailcore::String * templateForAttachment(mailcore::AbstractPart * part) {
         return MCSTR("");
     }
 
@@ -39,13 +39,13 @@ class CleanHTMLBodyRendererTemplateCallback : public Object, public HTMLRenderer
     // and the client expects to filter attachments based on whether they
     // have cids.
 
-//    mailcore::String * templateForImage(AbstractPart * part) {
+//    mailcore::String * templateForImage(mailcore::AbstractPart * part) {
 //        MailUtils::idForFilePart(part)
 //        return MCSTR("<img src=\"{{CONTENTID}}\" data-size=\"{{SIZE}}\" data-filename=\"{{FILENAME}}\" />");
 //    }
 //
-//    bool canPreviewPart(AbstractPart * part) {
-//        string t = part->mimeType()->UTF8Characters();
+//    bool canPreviewPart(mailcore::AbstractPart * part) {
+//        std::string t = part->mimeType()->UTF8Characters();
 //
 //        if ((t == "image/png") || (t == "image/jpeg") || (t == "image/jpg") || (t == "image/gif")) {
 //            return true;
@@ -54,7 +54,7 @@ class CleanHTMLBodyRendererTemplateCallback : public Object, public HTMLRenderer
 //    }
 };
 
-string stringByAppendingOrSkipping(string input, string val) {
+std::string stringByAppendingOrSkipping(std::string input, std::string val) {
     auto valWithSpace = " " + val;
     if (input.find(valWithSpace) != std::string::npos) {
         return input;
@@ -62,7 +62,7 @@ string stringByAppendingOrSkipping(string input, string val) {
     return input + valWithSpace;
 }
 
-MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
+MailProcessor::MailProcessor(std::shared_ptr<Account> account, MailStore * store) :
     store(store),
     account(account),
     logger(spdlog::get("logger"))
@@ -70,7 +70,7 @@ MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
 
 }
 
-shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
+std::shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(mailcore::IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
     try {
         return insertMessage(mMsg, folder, syncDataTimestamp);
     } catch (const SQLite::Exception & ex) {
@@ -87,13 +87,13 @@ shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * m
     }
 }
 
-shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
-    shared_ptr<Message> msg = make_shared<Message>(mMsg, folder, syncDataTimestamp);
-    shared_ptr<Thread> thread = nullptr;
+std::shared_ptr<Message> MailProcessor::insertMessage(mailcore::IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
+    std::shared_ptr<Message> msg = std::make_shared<Message>(mMsg, folder, syncDataTimestamp);
+    std::shared_ptr<Thread> thread = nullptr;
 
-    Array * references = mMsg->header()->references();
+    mailcore::Array * references = mMsg->header()->references();
     if (references == nullptr) {
-        references = new Array();
+        references = new mailcore::Array();
         references->autorelease();
     }
 
@@ -110,22 +110,22 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
             // find an existing thread using the references. Note - a rouge client could
             // throw a lot of shit in here, limit the number of refs we look at to 50.
             // TODO: It appears we should technically use the first 1 and then last 49.
-            int refcount = min(50, (int)references->count());
+            int refcount = std::min(50, (int)references->count());
             SQLite::Statement tQuery(store->db(), "SELECT Thread.* FROM Thread INNER JOIN ThreadReference ON ThreadReference.threadId = Thread.id WHERE ThreadReference.accountId = ? AND ThreadReference.headerMessageId IN (" + MailUtils::qmarks(1 + refcount) + ") LIMIT 1");
             tQuery.bind(1, msg->accountId());
             tQuery.bind(2, msg->headerMessageId());
             for (int i = 0; i < refcount; i ++) {
-                String * ref = (String *)references->objectAtIndex(i);
+                mailcore::String * ref = (mailcore::String *)references->objectAtIndex(i);
                 tQuery.bind(3 + i, ref->UTF8Characters());
             }
             if (tQuery.executeStep()) {
-                thread = make_shared<Thread>(tQuery);
+                thread = std::make_shared<Thread>(tQuery);
             }
         }
 
         if (thread == nullptr) {
             // TODO: could move to message save hooks
-            thread = make_shared<Thread>(msg->id(), account->id(), msg->subject(), mMsg->gmailThreadID());
+            thread = std::make_shared<Thread>(msg->id(), account->id(), msg->subject(), mMsg->gmailThreadID());
         }
 
         msg->setThreadId(thread->id());
@@ -156,7 +156,7 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
     return msg;
 }
 
-void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
+void MailProcessor::updateMessage(Message * local, mailcore::IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
 {
     if (local->syncedAt() > syncDataTimestamp) {
         logger->warn("Ignoring changes to {}, local data is newer {} < {}", local->subject(), syncDataTimestamp, local->syncedAt());
@@ -164,7 +164,7 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     }
 
     auto updated = MessageAttributesForMessage(remote);
-    auto jlabels = json(updated.labels);
+    auto jlabels = nlohmann::json(updated.labels);
 
 
     bool noChanges = true;
@@ -223,19 +223,19 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     }
 }
 
-void MailProcessor::retrievedMessageBody(Message * message, MessageParser * parser) {
+void MailProcessor::retrievedMessageBody(Message * message, mailcore::MessageParser * parser) {
     CleanHTMLBodyRendererTemplateCallback * htmlCallback = new CleanHTMLBodyRendererTemplateCallback();
     const char * bodyRepresentation;
     bool bodyIsPlaintext;
 
-    Array * partAttachments = Array::array();
-    Array * htmlInlineAttachments = Array::array();
+    mailcore::Array * partAttachments = mailcore::Array::array();
+    mailcore::Array * htmlInlineAttachments = mailcore::Array::array();
 
     // Note - exposed this lower level API manually so that we can avoid running this renderer three
     // times to retrieve attachments, relatedAttachments, message HTML separately. The code seems to build
     // and discard things you don't ask for.
-    String * html = parser->htmlRenderingAndAttachments(htmlCallback, partAttachments, htmlInlineAttachments);
-    String * text = html;
+    mailcore::String * html = parser->htmlRenderingAndAttachments(htmlCallback, partAttachments, htmlInlineAttachments);
+    mailcore::String * text = html;
 
     if (html->hasPrefix(MCSTR("PLAINTEXT:"))) {
         text = html->substringFromIndex(10);
@@ -249,13 +249,13 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
     MC_SAFE_RELEASE(htmlCallback);
 
     // build file containers for the attachments and write them to disk
-    Array attachments = Array();
+    mailcore::Array attachments = mailcore::Array();
     attachments.addObjectsFromArray(partAttachments);
     attachments.addObjectsFromArray(htmlInlineAttachments);
 
-    vector<File> files;
+    std::vector<File> files;
     for (int ii = 0; ii < attachments.count(); ii ++) {
-        Attachment * a = (Attachment *)attachments.objectAtIndex(ii);
+        mailcore::Attachment * a = (mailcore::Attachment *)attachments.objectAtIndex(ii);
         if (a->contentID() && a->isInlineAttachment() == false) {
             // This is suspicious - the item has a content ID but we don't think it's an attachment?
             // Look in the content of the message for "cid:XXX". If we find it, the MIME was missing
@@ -269,9 +269,9 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
 
         bool duplicate = false;
         for (auto & other : files) {
-            if (other.partId() == string(a->partID()->UTF8Characters())) {
+            if (other.partId() == std::string(a->partID()->UTF8Characters())) {
                 duplicate = true;
-                logger->info("Attachment is duplicate: {}", f.toJSON().dump());
+                logger->info("mailcore::Attachment is duplicate: {}", f.toJSON().dump());
                 break;
             }
         }
@@ -333,14 +333,14 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
 }
 
 
-bool MailProcessor::retrievedFileData(File * file, Data * data) {
-    string root = MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "files";
-    string path = MailUtils::pathForFile(root, file, true);
+bool MailProcessor::retrievedFileData(File * file, mailcore::Data * data) {
+    std::string root = MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "files";
+    std::string path = MailUtils::pathForFile(root, file, true);
 #ifdef _MSC_VER
-    wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
-    return (data->writeToFile(AS_WIDE_MCSTR(convert.from_bytes(path))) == ErrorNone);
+    wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> convert;
+    return (data->writeToFile(AS_WIDE_MCSTR(convert.from_bytes(path))) == mailcore::ErrorNone);
 #else
-    return (data->writeToFile(AS_MCSTR(path)) == ErrorNone);
+    return (data->writeToFile(AS_MCSTR(path)) == mailcore::ErrorNone);
 #endif
 }
 
@@ -424,11 +424,11 @@ void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
     }
 }
 
-void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull) {
-    string to = "";
-    string from = "";
-    string categories = thread->categoriesSearchString();
-    string body = "";
+void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, mailcore::String * bodyToAppendOrNull) {
+    std::string to = "";
+    std::string from = "";
+    std::string categories = thread->categoriesSearchString();
+    std::string body = "";
 
     // retrieve the current index if there is one
     if (thread->searchRowId()) {
@@ -443,20 +443,20 @@ void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messa
 
     if (messageToAppendOrNull != nullptr) {
         for (auto c : messageToAppendOrNull->to()) {
-            if (c.count("email")) { to = stringByAppendingOrSkipping(to, c["email"].get<string>()); }
-            if (c.count("name")) { to = stringByAppendingOrSkipping(to, c["name"].get<string>()); }
+            if (c.count("email")) { to = stringByAppendingOrSkipping(to, c["email"].get<std::string>()); }
+            if (c.count("name")) { to = stringByAppendingOrSkipping(to, c["name"].get<std::string>()); }
         }
         for (auto c : messageToAppendOrNull->cc()) {
-            if (c.count("email")) { to = stringByAppendingOrSkipping(to, c["email"].get<string>()); }
-            if (c.count("name")) { to = stringByAppendingOrSkipping(to, c["name"].get<string>()); }
+            if (c.count("email")) { to = stringByAppendingOrSkipping(to, c["email"].get<std::string>()); }
+            if (c.count("name")) { to = stringByAppendingOrSkipping(to, c["name"].get<std::string>()); }
         }
         for (auto c : messageToAppendOrNull->bcc()) {
-            if (c.count("email")) { to = stringByAppendingOrSkipping(to, c["email"].get<string>()); }
-            if (c.count("name")) { to = stringByAppendingOrSkipping(to, c["name"].get<string>()); }
+            if (c.count("email")) { to = stringByAppendingOrSkipping(to, c["email"].get<std::string>()); }
+            if (c.count("name")) { to = stringByAppendingOrSkipping(to, c["name"].get<std::string>()); }
         }
         for (auto c : messageToAppendOrNull->from()) {
-            if (c.count("email")) { from = stringByAppendingOrSkipping(from, c["email"].get<string>()); }
-            if (c.count("name")) { from = stringByAppendingOrSkipping(from, c["name"].get<string>()); }
+            if (c.count("email")) { from = stringByAppendingOrSkipping(from, c["email"].get<std::string>()); }
+            if (c.count("name")) { from = stringByAppendingOrSkipping(from, c["name"].get<std::string>()); }
         }
     }
 
@@ -485,7 +485,7 @@ void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messa
     }
 }
 
-void MailProcessor::upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references) {
+void MailProcessor::upsertThreadReferences(std::string threadId, std::string accountId, std::string headerMessageId, mailcore::Array * references) {
     SQLite::Statement query(store->db(), "INSERT OR IGNORE INTO ThreadReference (threadId, accountId, headerMessageId) VALUES (?,?,?)");
     query.bind(1, threadId);
     query.bind(2, accountId);
@@ -496,8 +496,8 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
     // todo: technically, we should look at the first reference (Start of thread)
     // and then the last N, where N is some number we give a shit about, but we've
     // rarely seen more than 100 items.
-    for (int i = 0; i < min(100, (int)references->count()); i ++) {
-        String * address = (String*)references->objectAtIndex(i);
+    for (int i = 0; i < std::min(100, (int)references->count()); i ++) {
+        mailcore::String * address = (mailcore::String*)references->objectAtIndex(i);
         query.bind(3, address->UTF8Characters());
         query.exec();
         query.reset(); // does not clear bindings 1 and 2! https://sqlite.org/c3ref/reset.html
@@ -511,20 +511,20 @@ void MailProcessor::upsertContacts(Message * message) {
         return;
     }
 
-    map<string, json> byEmail{};
+    std::map<std::string, nlohmann::json> byEmail{};
     for (auto & c : message->to()) {
         if (c.count("email")) {
-            byEmail[MailUtils::contactKeyForEmail(c["email"].get<string>())] = c;
+            byEmail[MailUtils::contactKeyForEmail(c["email"].get<std::string>())] = c;
         }
     }
     for (auto & c : message->cc()) {
         if (c.count("email")) {
-            byEmail[MailUtils::contactKeyForEmail(c["email"].get<string>())] = c;
+            byEmail[MailUtils::contactKeyForEmail(c["email"].get<std::string>())] = c;
         }
     }
     for (auto & c : message->from()) {
         if (c.count("email")) {
-            byEmail[MailUtils::contactKeyForEmail(c["email"].get<string>())] = c;
+            byEmail[MailUtils::contactKeyForEmail(c["email"].get<std::string>())] = c;
         }
     }
 
@@ -533,7 +533,7 @@ void MailProcessor::upsertContacts(Message * message) {
         byEmail.erase("");
     }
 
-    vector<string> emails{};
+    std::vector<std::string> emails{};
     for (auto const& imap: byEmail) {
         emails.push_back(imap.first);
     }
@@ -561,8 +561,8 @@ void MailProcessor::upsertContacts(Message * message) {
 
     // insert remaining items
     for (auto & result : byEmail) {
-        auto c = make_shared<Contact>(result.first, message->accountId(), result.first, 0, CONTACT_SOURCE_MAIL);
-        c->setName(result.second.count("name") ? result.second["name"].get<string>() : "");
+        auto c = std::make_shared<Contact>(result.first, message->accountId(), result.first, 0, CONTACT_SOURCE_MAIL);
+        c->setName(result.second.count("name") ? result.second["name"].get<std::string>() : "");
         c->incrementRefs();
         store->save(c.get());
     }

@@ -31,26 +31,26 @@
 
 #include "nlohmann/json.hpp"
 
-using namespace nlohmann;
-using namespace std;
+
+
 
 
 class Query {
-    json _clauses;
+    nlohmann::json _clauses;
     int _limit;
 
 public:
     Query() noexcept;
 
-    Query & equal(string col, string val);
-    Query & equal(string col, double val);
-    Query & equal(string col, vector<string> & val);
-    Query & equal(string col, vector<uint32_t> & val);
+    Query & equal(std::string col, std::string val);
+    Query & equal(std::string col, double val);
+    Query & equal(std::string col, std::vector<std::string> & val);
+    Query & equal(std::string col, std::vector<uint32_t> & val);
 
-    Query & gt(string col, double val);
-    Query & gte(string col, double val);
-    Query & lt(string col, double val);
-    Query & lte(string col, double val);
+    Query & gt(std::string col, double val);
+    Query & gte(std::string col, double val);
+    Query & lt(std::string col, double val);
+    Query & lte(std::string col, double val);
 
     Query & limit(int l);
 

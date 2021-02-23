@@ -34,7 +34,7 @@ void runFlushLoop() {
         desiredTime += chrono::milliseconds(30000);
         {
             // Wait for a message, or for 30 seconds, whichever happens first
-            unique_lock<mutex> lck(spdFlushMtx);
+            std::unique_lock<std::mutex> lck(spdFlushMtx);
             spdFlushCV.wait_until(lck, desiredTime);
             if (spdFlushExit) {
                 return;
@@ -49,7 +49,7 @@ void runFlushLoop() {
 
         {
             // Perform flush
-            unique_lock<mutex> lck(spdFlushMtx);
+            std::unique_lock<std::mutex> lck(spdFlushMtx);
             spdlog::get("logger")->flush();
             spdUnflushed = 0;
         }
@@ -65,14 +65,14 @@ public:
 
     }
     ~SPDFlusherSink() {
-        lock_guard<mutex> lck(spdFlushMtx);
+        std::lock_guard<std::mutex> lck(spdFlushMtx);
         spdFlushExit = true;
         spdFlushCV.notify_one();
     }
 
     void log(const spdlog::details::log_msg& msg) {
         // ensure we have a flush queued
-        lock_guard<mutex> lck(spdFlushMtx);
+        std::lock_guard<std::mutex> lck(spdFlushMtx);
         spdUnflushed += 1;
         spdFlushCV.notify_one();
     }

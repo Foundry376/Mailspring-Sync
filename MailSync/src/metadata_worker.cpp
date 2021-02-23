@@ -22,7 +22,7 @@ static size_t _onDeltaData(void *contents, size_t length, size_t nmemb, void *us
 }
 
 
-MetadataWorker::MetadataWorker(shared_ptr<Account> account) :
+MetadataWorker::MetadataWorker(std::shared_ptr<Account> account) :
     store(new MailStore()),
     account(account),
     logger(spdlog::get("logger"))
@@ -72,7 +72,7 @@ void MetadataWorker::run() {
 
 bool MetadataWorker::fetchMetadata(int page) {
     int pageSize = 500;
-    const json & metadata = PerformIdentityRequest("/metadata/" + account->id() + "?limit=" + to_string(pageSize) + "&offset=" + to_string(pageSize * page));
+    const nlohmann::json & metadata = PerformIdentityRequest("/metadata/" + account->id() + "?limit=" + to_string(pageSize) + "&offset=" + to_string(pageSize * page));
     for (const auto & metadatum : metadata) {
         applyMetadataJSON(metadatum);
     }
@@ -80,7 +80,7 @@ bool MetadataWorker::fetchMetadata(int page) {
 }
 
 void MetadataWorker::fetchDeltaCursor() {
-    const json & result = PerformIdentityRequest("/deltas/" + account->id() + "/head");
+    const nlohmann::json & result = PerformIdentityRequest("/deltas/" + account->id() + "/head");
     if (result == nullptr || !result.count("cursor")) {
         logger->info("Unexpected response from /delta/head: {}", result ? result.dump() : "nullptr");
         throw SyncException("no-cursor", "/delta/head API did not return JSON with a cursor", true);
@@ -93,7 +93,7 @@ void MetadataWorker::fetchDeltaCursor() {
 }
 
 void MetadataWorker::fetchDeltasBlocking() {
-    string platform = "linux";
+    std::string platform = "linux";
 #if defined(_MSC_VER)
     platform = "win32";
 #endif
@@ -101,7 +101,7 @@ void MetadataWorker::fetchDeltasBlocking() {
     platform = "darwin";
 #endif
     const char * a = account->IMAPHost().c_str();
-    string aEscaped = curl_escape(a, (int)strlen(a));
+    std::string aEscaped = curl_escape(a, (int)strlen(a));
     CURL * curl_handle = CreateIdentityRequest("/deltas/" + account->id() + "/streaming?p=" + platform + "&ih=" + aEscaped + "&cursor=" + deltasCursor);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onDeltaData);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)this);
@@ -128,7 +128,7 @@ void MetadataWorker::fetchDeltasBlocking() {
     curl_easy_cleanup(curl_handle);
 }
 
-void MetadataWorker::setDeltaCursor(string cursor) {
+void MetadataWorker::setDeltaCursor(std::string cursor) {
     deltasCursor = cursor;
     store->saveKeyValue("cursor-" + account->id(), deltasCursor);
 }
@@ -139,19 +139,19 @@ void MetadataWorker::onDeltaData(void * contents, size_t bytes) {
     bool matched = true;
     while (matched) {
         size_t pos = deltasBuffer.find("\n");
-        if (pos == string::npos) {
+        if (pos == std::string::npos) {
             matched = false;
             break;
         }
 
         if (pos > 1) { // ignore heartbeat newlines
-            string delta { deltasBuffer.substr(0, pos) };
+            std::string delta { deltasBuffer.substr(0, pos) };
 
             try {
-                json deltaJSON = json::parse(delta);
+                nlohmann::json deltaJSON = nlohmann::json::parse(delta);
                 onDelta(deltaJSON);
-            } catch (json::exception & ex) {
-                json resp = {{"error", ex.what()}};
+            } catch (nlohmann::json::exception & ex) {
+                nlohmann::json resp = {{"error", ex.what()}};
                 this->logger->error("Received invalid JSON in server delta stream: {}", delta);
             }
         }
@@ -160,8 +160,8 @@ void MetadataWorker::onDeltaData(void * contents, size_t bytes) {
     }
 }
 
-void MetadataWorker::onDelta(const json & delta) {
-    string klass = delta["object"].get<string>() ;
+void MetadataWorker::onDelta(const nlohmann::json & delta) {
+    std::string klass = delta["object"].get<std::string>() ;
     if (klass == "metadata") {
         applyMetadataJSON(delta["attributes"]);
         setDeltaCursor(delta["cursor"]);
@@ -170,7 +170,7 @@ void MetadataWorker::onDelta(const json & delta) {
     }
 }
 
-void MetadataWorker::applyMetadataJSON(const json & metadataJSON) {
+void MetadataWorker::applyMetadataJSON(const nlohmann::json & metadataJSON) {
     // find the associated object
     auto m = MetadataFromJSON(metadataJSON);
     {

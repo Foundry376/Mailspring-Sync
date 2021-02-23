@@ -6,9 +6,9 @@
 #include "mailsync/models/file.hpp"
 #include "mailsync/models/thread.hpp"
 
-using namespace std;
 
-string Message::TABLE_NAME = "Message";
+
+std::string Message::TABLE_NAME = "Message";
 
 /*
  The concept behind the "deletion placeholder" is that we need something
@@ -20,10 +20,10 @@ string Message::TABLE_NAME = "Message";
  In this approach we "free" up the headerMessageId and id, and create an
  invisible message for a few seconds.
 */
-shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Message> draft) {
-    json stubJSON = draft->toJSON(); // note: copy
+std::shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(std::shared_ptr<Message> draft) {
+    nlohmann::json stubJSON = draft->toJSON(); // note: copy
     stubJSON["id"] = "deleted-" + MailUtils::idRandomlyGenerated();
-    stubJSON["hMsgId"] = "deleted-" + stubJSON["id"].get<string>();
+    stubJSON["hMsgId"] = "deleted-" + stubJSON["id"].get<std::string>();
     stubJSON["subject"] = "Deleting...";
 
     // very important to set v=0 so the Message gets both "added" and "deleted"
@@ -31,8 +31,8 @@ shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Messag
     // and get the counters off by one!
     stubJSON["v"] = 0;
 
-    auto stub = make_shared<Message>(stubJSON);
-    auto nolabels = json::array();
+    auto stub = std::make_shared<Message>(stubJSON);
+    auto nolabels = nlohmann::json::array();
     stub->setDraft(false);
     stub->setUnread(false);
     stub->setStarred(false);
@@ -56,15 +56,15 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
 
     _data["remoteUID"] = msg->uid();
 
-    _data["files"] = json::array();
+    _data["files"] = nlohmann::json::array();
     _data["date"] = msg->header()->date() == -1 ? msg->header()->receivedDate() : msg->header()->date();
     _data["hMsgId"] = msg->header()->messageID() ? msg->header()->messageID()->UTF8Characters() : "no-header-message-id";
     _data["subject"] = msg->header()->subject() ? msg->header()->subject()->UTF8Characters() : "No Subject";
     _data["gMsgId"] = to_string(msg->gmailMessageID());
 
-    Array * irt = msg->header()->inReplyTo();
+    mailcore::Array * irt = msg->header()->inReplyTo();
     if (irt && irt->count() && irt->lastObject()) {
-        _data["rthMsgId"] = ((String*)irt->lastObject())->UTF8Characters();
+        _data["rthMsgId"] = ((mailcore::String*)irt->lastObject())->UTF8Characters();
     } else {
         _data["rthMsgId"] = nullptr;
     }
@@ -78,10 +78,10 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
         _data["draft"] = true;
     }
 
-    _data["extraHeaders"] = json::object();
+    _data["extraHeaders"] = nlohmann::json::object();
     auto extra = msg->header()->allExtraHeadersNames();
     for (unsigned int ii = 0; ii < extra->count(); ii ++) {
-        auto const key = (String *)extra->objectAtIndex(ii);
+        auto const key = (mailcore::String *)extra->objectAtIndex(ii);
         if (key == nullptr) continue;
         auto const val = msg->header()->extraHeaderValueForName(key);
         if (val == nullptr) continue;
@@ -89,12 +89,12 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
     }
 
     // inflate the participant fields
-    _data["from"] = json::array();
+    _data["from"] = nlohmann::json::array();
     if (msg->header()->from()) {
         _data["from"] += MailUtils::contactJSONFromAddress(msg->header()->from());
     }
 
-    map<string, void*> fields = {
+    std::map<std::string, void*> fields = {
         {"to", msg->header()->to()},
         {"cc", msg->header()->cc()},
         {"bcc", msg->header()->bcc()},
@@ -102,13 +102,13 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
     };
 
     for (auto const pair : fields) {
-        string field = pair.first;
-        Array * arr = (Array *)pair.second;
-        _data[field] = json::array();
+        std::string field = pair.first;
+        mailcore::Array * arr = (mailcore::Array *)pair.second;
+        _data[field] = nlohmann::json::array();
 
         if (arr != nullptr) {
             for (unsigned int ii = 0; ii < arr->count(); ii ++) {
-                Address * addr = (Address *)arr->objectAtIndex(ii);
+                mailcore::Address * addr = (mailcore::Address *)arr->objectAtIndex(ii);
                 _data[field].push_back(MailUtils::contactJSONFromAddress(addr));
             }
         }
@@ -122,7 +122,7 @@ Message::Message(SQLite::Statement & query) :
     _lastSnapshot = getSnapshot();
 }
 
-Message::Message(json json) :
+Message::Message(nlohmann::json json) :
     MailModel(json)
 {
     _skipThreadUpdatesAfterSave = false;
@@ -160,7 +160,7 @@ bool Message::isHiddenReminder() {
     if (!from()[0].count("name") || !from()[0]["name"].is_string()) {
         return false;
     }
-    auto fromName = from()[0]["name"].get<string>();
+    auto fromName = from()[0]["name"].get<std::string>();
     if (fromName.length() < 15) {
         return false;
     }
@@ -171,7 +171,7 @@ bool Message::isHiddenReminder() {
 // mutable attributes
 
 bool Message::inAllMail() {
-    auto role = clientFolder()["role"].get<string>();
+    auto role = clientFolder()["role"].get<std::string>();
     return role != "spam" && role != "trash";
 }
 
@@ -191,27 +191,27 @@ void Message::setStarred(bool s) {
     _data["starred"] = s;
 }
 
-json & Message::remoteXGMLabels() {
+nlohmann::json & Message::remoteXGMLabels() {
     return _data["labels"];
 }
 
-void Message::setRemoteXGMLabels(json & labels) {
+void Message::setRemoteXGMLabels(nlohmann::json & labels) {
     _data["labels"] = labels;
 }
 
-string Message::threadId() {
-    return _data["threadId"].get<string>();
+std::string Message::threadId() {
+    return _data["threadId"].get<std::string>();
 }
 
-void Message::setThreadId(string threadId) {
+void Message::setThreadId(std::string threadId) {
     _data["threadId"] = threadId;
 }
 
-string Message::snippet() {
-    return _data["snippet"].get<string>();
+std::string Message::snippet() {
+    return _data["snippet"].get<std::string>();
 }
 
-void Message::setSnippet(string s) {
+void Message::setSnippet(std::string s) {
     _data["snippet"] = s;
 }
 
@@ -223,34 +223,34 @@ void Message::setPlaintext(bool p) {
     _data["plaintext"] = p;
 }
 
-string Message::replyToHeaderMessageId() {
+std::string Message::replyToHeaderMessageId() {
     if (_data["rthMsgId"].is_null()) {
         return "";
     }
-    return _data["rthMsgId"].get<string>();
+    return _data["rthMsgId"].get<std::string>();
 }
 
-void Message::setReplyToHeaderMessageId(string s) {
+void Message::setReplyToHeaderMessageId(std::string s) {
     _data["rthMsgId"] = s;
 }
 
-string Message::forwardedHeaderMessageId() {
+std::string Message::forwardedHeaderMessageId() {
     if (_data["fwdMsgId"].is_null()) {
         return "";
     }
-    return _data["fwdMsgId"].get<string>();
+    return _data["fwdMsgId"].get<std::string>();
 }
 
-void Message::setForwardedHeaderMessageId(string s) {
+void Message::setForwardedHeaderMessageId(std::string s) {
     _data["fwdMsgId"] = s;
 }
 
-json Message::files() {
+nlohmann::json Message::files() {
     return _data["files"];
 }
 
-void Message::setFiles(vector<File> & files) {
-    json arr = json::array();
+void Message::setFiles(std::vector<File> & files) {
+    nlohmann::json arr = nlohmann::json::array();
     for (auto & file : files) {
         arr.push_back(file.toJSON());
     }
@@ -283,7 +283,7 @@ void Message::setDraft(bool d) {
     _data["draft"] = d;
 }
 
-void Message::setBodyForDispatch(string s) {
+void Message::setBodyForDispatch(std::string s) {
     _bodyForDispatch = s;
 }
 
@@ -295,15 +295,15 @@ bool Message::isInInbox() {
     return this->_isIn("inbox");
 }
 
-bool Message::_isIn(string roleAlsoLabelName) {
-    string folderRole = remoteFolder()["role"].get<string>();
+bool Message::_isIn(std::string roleAlsoLabelName) {
+    std::string folderRole = remoteFolder()["role"].get<std::string>();
     if (folderRole == roleAlsoLabelName) {
         return true;
     }
     if (folderRole == "all") {
-        string needle = roleAlsoLabelName;
+        std::string needle = roleAlsoLabelName;
         for (auto & l : remoteXGMLabels()) {
-            string ln = l.get<string>();
+            std::string ln = l.get<std::string>();
             auto it = std::search(ln.begin(), ln.end(), needle.begin(), needle.end(), [](char ch1, char ch2) {
                 return std::toupper(ch1) == std::toupper(ch2);
             });
@@ -324,12 +324,12 @@ void Message::setRemoteUID(uint32_t v) {
     _data["remoteUID"] = v;
 }
 
-json Message::clientFolder() {
+nlohmann::json Message::clientFolder() {
     return _data["folder"];
 }
 
-string Message::clientFolderId() {
-    return _data["folder"]["id"].get<string>();
+std::string Message::clientFolderId() {
+    return _data["folder"]["id"].get<std::string>();
 }
 
 void Message::setClientFolder(Folder * folder) {
@@ -339,15 +339,15 @@ void Message::setClientFolder(Folder * folder) {
     }
 }
 
-json Message::remoteFolder() {
+nlohmann::json Message::remoteFolder() {
     return _data["remoteFolder"];
 }
 
-string Message::remoteFolderId() {
-    return _data["remoteFolder"]["id"].get<string>();
+std::string Message::remoteFolderId() {
+    return _data["remoteFolder"]["id"].get<std::string>();
 }
 
-void Message::setRemoteFolder(json folder) {
+void Message::setRemoteFolder(nlohmann::json folder) {
     _data["remoteFolder"] = folder;
 }
 
@@ -376,23 +376,23 @@ void Message::setSyncUnsavedChanges(int t) {
 
 // immutable attributes
 
-json & Message::to() {
+nlohmann::json & Message::to() {
     return _data["to"];
 }
 
-json & Message::cc(){
+nlohmann::json & Message::cc(){
     return _data["cc"];
 }
 
-json & Message::bcc(){
+nlohmann::json & Message::bcc(){
     return _data["bcc"];
 }
 
-json & Message::replyTo(){
+nlohmann::json & Message::replyTo(){
     return _data["replyTo"];
 }
 
-json & Message::from() {
+nlohmann::json & Message::from() {
     return _data["from"];
 }
 
@@ -400,24 +400,24 @@ time_t Message::date() {
     return _data["date"].get<time_t>();
 }
 
-string Message::subject() {
-    return _data["subject"].get<string>();
+std::string Message::subject() {
+    return _data["subject"].get<std::string>();
 }
 
-string Message::gMsgId() {
-    return _data["gMsgId"].get<string>();
+std::string Message::gMsgId() {
+    return _data["gMsgId"].get<std::string>();
 }
 
-string Message::headerMessageId() {
-    return _data["hMsgId"].get<string>();
+std::string Message::headerMessageId() {
+    return _data["hMsgId"].get<std::string>();
 }
 
-string Message::tableName() {
+std::string Message::tableName() {
     return Message::TABLE_NAME;
 }
 
-vector<string> Message::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "unread", "starred", "remoteUID", "remoteXGMLabels", "remoteFolderId", "threadId"};
+std::vector<std::string> Message::columnsForQuery() {
+    return std::vector<std::string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "unread", "starred", "remoteUID", "remoteXGMLabels", "remoteFolderId", "threadId"};
 }
 
 void Message::bindToQuery(SQLite::Statement * query) {
@@ -485,8 +485,8 @@ void Message::afterRemove(MailStore * store) {
     removeBody.exec();
 }
 
-json Message::toJSONDispatch() {
-    json j = toJSON();
+nlohmann::json Message::toJSONDispatch() {
+    nlohmann::json j = toJSON();
     if (_bodyForDispatch.length() > 0) {
         j["body"] = _bodyForDispatch;
         j["fullSyncComplete"] = true;

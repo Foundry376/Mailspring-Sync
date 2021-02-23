@@ -27,52 +27,52 @@
 #include <memory>
 #include <string>
 
-using namespace std;
+
 
 class VCardProperty
 {
-    string _name;
-    string _value;
-    string _attrs;
+    std::string _name;
+    std::string _value;
+    std::string _attrs;
 
     public:
-    VCardProperty(string name, string value, string attrs = "");
-    VCardProperty(string line);
+    VCardProperty(std::string name, std::string value, std::string attrs = "");
+    VCardProperty(std::string line);
 
-    string getName();
-    void setName(string name);
-    string getValue();
-    void setValue(string value);
-    string serialize();
+    std::string getName();
+    void setName(std::string name);
+    std::string getValue();
+    void setValue(std::string value);
+    std::string serialize();
 };
 
 class VCard
 {
-    vector<shared_ptr<VCardProperty>> _properties;
+    std::vector<std::shared_ptr<VCardProperty>> _properties;
 public:
-    explicit VCard(string vcf);
+    explicit VCard(std::string vcf);
 
     bool incomplete();
 
-    shared_ptr<VCardProperty> getUniqueId();
-    shared_ptr<VCardProperty> getVersion();
-    vector<shared_ptr<VCardProperty>> getEmails();
-    shared_ptr<VCardProperty> getFormattedName();
-    shared_ptr<VCardProperty> getKind();
+    std::shared_ptr<VCardProperty> getUniqueId();
+    std::shared_ptr<VCardProperty> getVersion();
+    std::vector<std::shared_ptr<VCardProperty>> getEmails();
+    std::shared_ptr<VCardProperty> getFormattedName();
+    std::shared_ptr<VCardProperty> getKind();
 
-    shared_ptr<VCardProperty> getName();
-    void setName(string name);
+    std::shared_ptr<VCardProperty> getName();
+    void setName(std::string name);
 
-    vector<shared_ptr<VCardProperty>> getMembers();
+    std::vector<std::shared_ptr<VCardProperty>> getMembers();
 
-    vector<shared_ptr<VCardProperty>> getExtendedProperties();
-    void addProperty(shared_ptr<VCardProperty> prop);
-    void removeProperty(shared_ptr<VCardProperty> prop);
+    std::vector<std::shared_ptr<VCardProperty>> getExtendedProperties();
+    void addProperty(std::shared_ptr<VCardProperty> prop);
+    void removeProperty(std::shared_ptr<VCardProperty> prop);
 
-    string serialize();
+    std::string serialize();
 
 protected:
-    vector<shared_ptr<VCardProperty>> propertiesWithName(string name, bool createIfEmpty = false);
+    std::vector<std::shared_ptr<VCardProperty>> propertiesWithName(std::string name, bool createIfEmpty = false);
 };
 
 #endif

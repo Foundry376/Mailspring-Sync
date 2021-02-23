@@ -17,11 +17,9 @@
 #include <future>
 #include <cstdio>
 
-using namespace nlohmann;
-
 // Singleton Implementation
 
-std::shared_ptr<DeltaStream> _globalStream = make_shared<DeltaStream>();
+std::shared_ptr<DeltaStream> _globalStream = std::make_shared<DeltaStream>();
 
 std::shared_ptr<DeltaStream> SharedDeltaStream() {
     return _globalStream;
@@ -29,7 +27,7 @@ std::shared_ptr<DeltaStream> SharedDeltaStream() {
 
 // DeltaStreamItem
 
-DeltaStreamItem::DeltaStreamItem(std::string type, std::string modelClass, std::vector<json> inJSONs) :
+DeltaStreamItem::DeltaStreamItem(std::string type, std::string modelClass, std::vector<nlohmann::json> inJSONs) :
     type(type), modelClass(modelClass)
 {
     for (const auto & itemJSON : inJSONs) {
@@ -64,7 +62,7 @@ bool DeltaStreamItem::concatenate(const DeltaStreamItem & other) {
     return true;
 }
 
-void DeltaStreamItem::upsertModelJSON(const json & item) {
+void DeltaStreamItem::upsertModelJSON(const nlohmann::json & item) {
     // scan and replace any instance of the object already available, or append.
     // It's important two back-to-back saves of the same object don't create two entries,
     // only the last one.
@@ -86,7 +84,7 @@ void DeltaStreamItem::upsertModelJSON(const json & item) {
 }
 
 std::string DeltaStreamItem::dump() const {
-    json j = {
+    nlohmann::json j = {
         {"type", type},
         {"modelJSONs", modelJSONs},
         {"modelClass", modelClass}
@@ -103,14 +101,14 @@ DeltaStream::DeltaStream() : scheduled(false) {
 DeltaStream::~DeltaStream() {
 }
 
-json DeltaStream::waitForJSON() {
+nlohmann::json DeltaStream::waitForJSON() {
     try {
         std::string buffer;
         cin.clear();
         cin.sync();
         getline(cin, buffer);
         if (buffer.size() > 0) {
-            json j = json::parse(buffer);
+            nlohmann::json j = nlohmann::json::parse(buffer);
             return j;
         }
     } catch (char const * e) {
@@ -179,7 +177,7 @@ void DeltaStream::emit(std::vector<DeltaStreamItem> items, int maxDeliveryDelay)
 
 void DeltaStream::beginConnectionError(std::string accountId) {
     connectionError = true;
-    std::vector<json> items {};
+    std::vector<nlohmann::json> items {};
     items.push_back({{"accountId", accountId}, {"id", accountId}, {"connectionError", connectionError}});
     emit(DeltaStreamItem("persist", "ProcessState", items), 0);
 }
@@ -187,7 +185,7 @@ void DeltaStream::beginConnectionError(std::string accountId) {
 void DeltaStream::endConnectionError(std::string accountId) {
     if (connectionError) {
         connectionError = false;
-        std::vector<json> items {};
+        std::vector<nlohmann::json> items {};
         items.push_back({{"accountId", accountId}, {"id", accountId}, {"connectionError", connectionError}});
         emit(DeltaStreamItem("persist", "ProcessState", items), 0);
     }

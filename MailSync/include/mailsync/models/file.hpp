@@ -32,32 +32,32 @@
 #include "mailsync/mail_store.hpp"
 #include "MailCore/MailCore.h"
 
-using namespace nlohmann;
-using namespace std;
-using namespace mailcore;
+
+
+
 
 class Message;
 
 class File : public MailModel {
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    File(Message * msg, Attachment * a);
-    File(json json);
+    File(Message * msg, mailcore::Attachment * a);
+    File(nlohmann::json json);
     File(SQLite::Statement & query);
 
-    string filename();
-    string safeFilename();
-    string partId();
-    json & contentId();
-    void setContentId(string s);
-    string contentType();
+    std::string filename();
+    std::string safeFilename();
+    std::string partId();
+    nlohmann::json & contentId();
+    void setContentId(std::string s);
+    std::string contentType();
 
-    string tableName();
-    string constructorName();
+    std::string tableName();
+    std::string constructorName();
 
-    vector<string> columnsForQuery();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 };
 

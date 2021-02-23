@@ -16,11 +16,7 @@
 #include <locale>
 #endif
 
-using namespace std;
-using namespace mailcore;
-using namespace nlohmann;
-
-static vector<string> unworthyPrefixes = {
+static std::vector<std::string> unworthyPrefixes = {
     "noreply",
     "no-reply",
     "no_reply",
@@ -50,10 +46,10 @@ static vector<string> unworthyPrefixes = {
 
 static bool calledsrand = false;
 
-bool create_directory(string dir) {
+bool create_directory(std::string dir) {
     int c = 0;
 #if defined(_WIN32)
-    wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+    wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> convert;
     wstring dirWide = convert.from_bytes(dir);
     c = _wmkdir(dirWide.c_str());
 #else
@@ -100,7 +96,7 @@ std::string MailUtils::toBase58(const unsigned char * pbegin, size_t len)
     std::vector<unsigned char>::iterator it = b58.begin() + (size - length);
     while (it != b58.end() && *it == 0)
         it++;
-    // Translate the result into a string.
+    // Translate the result into a std::string.
     std::string str;
     str.reserve(zeroes + (b58.end() - it));
     str.assign(zeroes, '1');
@@ -154,7 +150,7 @@ std::string MailUtils::toBase64(const char * pbegin, size_t in_len) {
 }
 
 
-string MailUtils::getEnvUTF8(string key) {
+std::string MailUtils::getEnvUTF8(std::string key) {
 #if defined(_MSC_VER)
     size_t wKeyLength = MultiByteToWideChar( CP_UTF8, 0, key.c_str(), (int)key.length(), 0, 0 );
     std::wstring wKey( wKeyLength, L'\0' );
@@ -163,24 +159,24 @@ string MailUtils::getEnvUTF8(string key) {
     wchar_t wstr[MAX_PATH];
     size_t len = _countof(wstr);
     _wgetenv_s(&len, wstr, len, wKey.c_str());
-    wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
-    string out = convert.to_bytes(wstr);
+    wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> convert;
+    std::string out = convert.to_bytes(wstr);
     return out;
 #else
     char * val = getenv(key.c_str());
     if (val == nullptr) {
         return "";
     }
-    return string(val);
+    return std::string(val);
 #endif
 }
 
-json MailUtils::merge(const json &a, const json &b)
+nlohmann::json MailUtils::merge(const nlohmann::json &a, const nlohmann::json &b)
 {
-    json result = a.flatten();
-    json tmp = b.flatten();
+    nlohmann::json result = a.flatten();
+    nlohmann::json tmp = b.flatten();
 
-    for (json::iterator it = tmp.begin(); it != tmp.end(); ++it)
+    for (nlohmann::json::iterator it = tmp.begin(); it != tmp.end(); ++it)
     {
         result[it.key()] = it.value();
     }
@@ -188,8 +184,8 @@ json MailUtils::merge(const json &a, const json &b)
     return result.unflatten();
 }
 
-json MailUtils::contactJSONFromAddress(Address * addr) {
-    json contact;
+nlohmann::json MailUtils::contactJSONFromAddress(mailcore::Address * addr) {
+    nlohmann::json contact;
     // note: for some reason, using ternarys here doesn't work.
     if (addr->displayName()) {
         contact["name"] = addr->displayName()->UTF8Characters();
@@ -200,14 +196,14 @@ json MailUtils::contactJSONFromAddress(Address * addr) {
     return contact;
 }
 
-Address * MailUtils::addressFromContactJSON(json & j) {
+mailcore::Address * MailUtils::addressFromContactJSON(nlohmann::json & j) {
     if (j["name"].is_string()) {
-        return Address::addressWithDisplayName(AS_MCSTR(j["name"].get<string>()), AS_MCSTR(j["email"].get<string>()));
+        return mailcore::Address::addressWithDisplayName(AS_MCSTR(j["name"].get<std::string>()), AS_MCSTR(j["email"].get<std::string>()));
     }
-    return Address::addressWithMailbox(AS_MCSTR(j["email"].get<string>()));
+    return mailcore::Address::addressWithMailbox(AS_MCSTR(j["email"].get<std::string>()));
 }
 
-string MailUtils::contactKeyForEmail(string email) {
+std::string MailUtils::contactKeyForEmail(std::string email) {
 
     // lowercase the email
     transform(email.begin(), email.end(), email.begin(), ::tolower);
@@ -217,20 +213,20 @@ string MailUtils::contactKeyForEmail(string email) {
         return "";
     }
     // fast check for common prefixes we don't want
-    for (string & prefix : unworthyPrefixes) {
-        if (equal(email.begin(), email.begin() + min(email.size(), prefix.size()), prefix.begin())) {
+    for (std::string & prefix : unworthyPrefixes) {
+        if (equal(email.begin(), email.begin() + std::min(email.size(), prefix.size()), prefix.begin())) {
             return "";
         }
     }
 
     // check for non-prefix scenarios
-    if (email.find("@noreply") != string::npos) { // x@noreply.github.com
+    if (email.find("@noreply") != std::string::npos) { // x@noreply.github.com
         return "";
     }
-    if (email.find("@notifications") != string::npos) { // x@notifications.intuit.com
+    if (email.find("@notifications") != std::string::npos) { // x@notifications.intuit.com
         return "";
     }
-    if (email.find("noreply@") != string::npos) { // reservations-noreply@bla.com
+    if (email.find("noreply@") != std::string::npos) { // reservations-noreply@bla.com
         return "";
     }
 
@@ -238,10 +234,10 @@ string MailUtils::contactKeyForEmail(string email) {
 }
 
 int MailUtils::compareEmails(void * a, void * b, void * context) {
-    return ((String*)a)->compare((String*)b);
+    return ((mailcore::String*)a)->compare((mailcore::String*)b);
 }
 
-string MailUtils::localTimestampForTime(time_t time) {
+std::string MailUtils::localTimestampForTime(time_t time) {
     // Some messages can have date=-1 if no Date: header is present. Win32
     // doesn't allow this value, so we always convert it to one second past 1970.
     if (time == -1) {
@@ -257,64 +253,64 @@ string MailUtils::localTimestampForTime(time_t time) {
     tm * ptm = localtime(&time);
     strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", ptm);
 #endif
-    return string(buffer);
+    return std::string(buffer);
 }
 
-string MailUtils::namespacePrefixOrBlank(IMAPSession * session) {
+std::string MailUtils::namespacePrefixOrBlank(mailcore::IMAPSession * session) {
     if (!session->defaultNamespace()->mainPrefix()) {
         return "";
     }
     return session->defaultNamespace()->mainPrefix()->UTF8Characters();
 }
 
-vector<string> MailUtils::roles() {
+std::vector<std::string> MailUtils::roles() {
     return {"all", "sent", "drafts", "spam", "important", "starred", "archive", "inbox", "trash", "snoozed"};
 }
 
-string MailUtils::roleForFolder(string mainPrefix, IMAPFolder * folder) {
-    string role = MailUtils::roleForFolderViaFlags(mainPrefix, folder);
+std::string MailUtils::roleForFolder(std::string mainPrefix, mailcore::IMAPFolder * folder) {
+    std::string role = MailUtils::roleForFolderViaFlags(mainPrefix, folder);
     if (role == "") {
         role = MailUtils::roleForFolderViaPath(mainPrefix, folder);
     }
     return role;
 }
 
-string MailUtils::roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder) {
-    IMAPFolderFlag flags = folder->flags();
+std::string MailUtils::roleForFolderViaFlags(std::string mainPrefix, mailcore::IMAPFolder * folder) {
+    mailcore::IMAPFolderFlag flags = folder->flags();
 
-    if (flags & IMAPFolderFlagAll) {
+    if (flags & mailcore::IMAPFolderFlagAll) {
         return "all";
     }
-    if (flags & IMAPFolderFlagSentMail) {
+    if (flags & mailcore::IMAPFolderFlagSentMail) {
         return "sent";
     }
-    if (flags & IMAPFolderFlagDrafts) {
+    if (flags & mailcore::IMAPFolderFlagDrafts) {
         return "drafts";
     }
-    if (flags & IMAPFolderFlagJunk) {
+    if (flags & mailcore::IMAPFolderFlagJunk) {
         return "spam";
     }
-    if (flags & IMAPFolderFlagSpam) {
+    if (flags & mailcore::IMAPFolderFlagSpam) {
         return "spam";
     }
-    if (flags & IMAPFolderFlagImportant) {
+    if (flags & mailcore::IMAPFolderFlagImportant) {
         return "important";
     }
-    if (flags & IMAPFolderFlagStarred) {
+    if (flags & mailcore::IMAPFolderFlagStarred) {
         return "starred";
     }
-    if (flags & IMAPFolderFlagInbox) {
+    if (flags & mailcore::IMAPFolderFlagInbox) {
         return "inbox";
     }
-    if (flags & IMAPFolderFlagTrash) {
+    if (flags & mailcore::IMAPFolderFlagTrash) {
         return "trash";
     }
     return "";
 }
 
-string MailUtils::roleForFolderViaPath(string mainPrefix, IMAPFolder * folder) {
-    string delimiter {folder->delimiter()};
-    string path = string(folder->path()->UTF8Characters());
+std::string MailUtils::roleForFolderViaPath(std::string mainPrefix, mailcore::IMAPFolder * folder) {
+    std::string delimiter {folder->delimiter()};
+    std::string path = std::string(folder->path()->UTF8Characters());
 
     // Strip the namespace prefix if it's present
     if ((mainPrefix.size() > 0) && (path.size() > mainPrefix.size()) && (path.substr(0, mainPrefix.size()) == mainPrefix)) {
@@ -332,7 +328,7 @@ string MailUtils::roleForFolderViaPath(string mainPrefix, IMAPFolder * folder) {
     // In our [Mailspring] subfolder, folder names are roles:
     // [mailspring]/snoozed = snoozed
     // [mailspring]/XXX = xxx
-    string mailspringPrefix = MAILSPRING_FOLDER_PREFIX_V1 + delimiter;
+    std::string mailspringPrefix = MAILSPRING_FOLDER_PREFIX_V1 + delimiter;
     transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
     if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
         return path.substr(mailspringPrefix.size());
@@ -353,12 +349,12 @@ string MailUtils::roleForFolderViaPath(string mainPrefix, IMAPFolder * folder) {
     return "";
 }
 
-string MailUtils::pathForFile(string root, File * file, bool create) {
-    string id = file->id();
+std::string MailUtils::pathForFile(std::string root, File * file, bool create) {
+    std::string id = file->id();
     transform(id.begin(), id.end(), id.begin(), ::tolower);
 
     if (create && !create_directory(root)) { return ""; }
-    string path = root + FS_PATH_SEP + id.substr(0, 2);
+    std::string path = root + FS_PATH_SEP + id.substr(0, 2);
     if (create && !create_directory(path)) { return ""; }
     path += FS_PATH_SEP + id.substr(2, 2);
     if (create && !create_directory(path)) { return ""; }
@@ -369,7 +365,7 @@ string MailUtils::pathForFile(string root, File * file, bool create) {
     return path;
 }
 
-shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> allLabels) {
+std::shared_ptr<Label> MailUtils::labelForXGMLabelName(std::string mlname, std::vector<std::shared_ptr<Label>> allLabels) {
     for (const auto & label : allLabels) {
         if (label->path() == mlname) {
             return label;
@@ -382,7 +378,7 @@ shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_p
         transform(mlname.begin(), mlname.end(), mlname.begin(), ::tolower);
 
         for (const auto & label : allLabels) {
-            string path(label->path());
+            std::string path(label->path());
             transform(path.begin(), path.end(), path.begin(), ::tolower);
             if (path.substr(0, 8) == "[gmail]/") {
                 path = path.substr(8, path.length() - 8);
@@ -400,16 +396,16 @@ shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_p
     }
 
     std::cout << "\n\nIMPORTANT --- Label not found: " << mlname;
-    return shared_ptr<Label>{};
+    return std::shared_ptr<Label>{};
 }
 
-vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, IndexSet * set) {
-    vector<Query> results {};
-    vector<uint32_t> uids {};
+std::vector<Query> MailUtils::queriesForUIDRangesInIndexSet(std::string remoteFolderId, mailcore::IndexSet * set) {
+    std::vector<Query> results {};
+    std::vector<uint32_t> uids {};
 
     for (int ii = 0; ii < set->rangesCount(); ii++) {
-        uint64_t left = RangeLeftBound(set->allRanges()[ii]);
-        uint64_t right = RangeRightBound(set->allRanges()[ii]);
+        uint64_t left = mailcore::RangeLeftBound(set->allRanges()[ii]);
+        uint64_t right = mailcore::RangeRightBound(set->allRanges()[ii]);
 
         spdlog::get("logger")->info("- Building queries for range {}-{}", left, right);
 
@@ -420,7 +416,7 @@ vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, In
 
         if (left > right) {
             // an invalid range
-            spdlog::get("logger")->error("- IndexSet UID range ({}-{}) has a lower bound greater than it's upper bound.", left, right);
+            spdlog::get("logger")->error("- mailcore::IndexSet UID range ({}-{}) has a lower bound greater than it's upper bound.", left, right);
             continue;
         }
 
@@ -439,7 +435,7 @@ vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, In
     }
 
     if (uids.size() > 0) {
-        for (vector<uint32_t> chunk : MailUtils::chunksOfVector(uids, 200)) {
+        for (std::vector<uint32_t> chunk : MailUtils::chunksOfVector(uids, 200)) {
             results.push_back(Query().equal("remoteFolderId", remoteFolderId).equal("remoteUID", chunk));
         }
     }
@@ -447,25 +443,25 @@ vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, In
     return results;
 }
 
-vector<uint32_t> MailUtils::uidsOfArray(Array * array) {
-    vector<uint32_t> uids {};
+std::vector<uint32_t> MailUtils::uidsOfArray(mailcore::Array * array) {
+    std::vector<uint32_t> uids {};
     uids.reserve(array->count());
     for (int ii = 0; ii < array->count(); ii++) {
-        uids.push_back(((IMAPMessage*)array->objectAtIndex(ii))->uid());
+        uids.push_back(((mailcore::IMAPMessage*)array->objectAtIndex(ii))->uid());
     }
     return uids;
 }
 
-string MailUtils::idForFolder(string accountId, string folderPath) {
-    vector<unsigned char> hash(32);
-    string src_str = accountId + ":" + folderPath;
+std::string MailUtils::idForFolder(std::string accountId, std::string folderPath) {
+    std::vector<unsigned char> hash(32);
+    std::string src_str = accountId + ":" + folderPath;
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
 }
 
-string MailUtils::idForFile(Message * message, Attachment * attachment) {
-    vector<unsigned char> hash(32);
-    string src_str = message->id() + ":" + message->accountId();
+std::string MailUtils::idForFile(Message * message, mailcore::Attachment * attachment) {
+    std::vector<unsigned char> hash(32);
+    std::string src_str = message->id() + ":" + message->accountId();
     bool has_something_unique = false;
 
     if (attachment->partID() != nullptr) {
@@ -478,7 +474,7 @@ string MailUtils::idForFile(Message * message, Attachment * attachment) {
     }
 
     if (has_something_unique == false) {
-        string description = attachment->description()->UTF8Characters();
+        std::string description = attachment->description()->UTF8Characters();
         spdlog::get("logger")->warn("Encountered an attachment with no partID or uniqueID to form a unique ID. Falling back to description. Debug Info:\n" + description);
         src_str = src_str + ":" + description;
     }
@@ -487,9 +483,9 @@ string MailUtils::idForFile(Message * message, Attachment * attachment) {
     return toBase58(hash.data(), 30);
 }
 
-string MailUtils::idRandomlyGenerated() {
-    static string charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
-    string result;
+std::string MailUtils::idRandomlyGenerated() {
+    static std::string charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+    std::string result;
     result.resize(40);
 
     if (!calledsrand) {
@@ -502,10 +498,10 @@ string MailUtils::idRandomlyGenerated() {
     return result;
 }
 
-string MailUtils::idForDraftHeaderMessageId(string accountId, string headerMessageId)
+std::string MailUtils::idForDraftHeaderMessageId(std::string accountId, std::string headerMessageId)
 {
-    vector<unsigned char> hash(32);
-    string src_str = accountId + ":" + headerMessageId;
+    std::vector<unsigned char> hash(32);
+    std::string src_str = accountId + ":" + headerMessageId;
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
 }
@@ -523,27 +519,27 @@ void MailUtils::setBaseIDVersion(time_t identityCreationDate) {
     spdlog::get("logger")->info("Identity created at {} - using ID Schema {}", identityCreationDate, _baseIDSchemaVersion);
 }
 
-string MailUtils::idForEvent(string accountId, string calendarId, string etag) {
-    string src_str = accountId;
+std::string MailUtils::idForEvent(std::string accountId, std::string calendarId, std::string etag) {
+    std::string src_str = accountId;
     src_str = src_str.append("-");
     src_str = src_str.append(calendarId);
     src_str = src_str.append("-");
     src_str = src_str.append(etag);
-    vector<unsigned char> hash(32);
+    std::vector<unsigned char> hash(32);
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
 }
 
-string MailUtils::idForCalendar(string accountId, string url) {
-    string src_str = accountId;
+std::string MailUtils::idForCalendar(std::string accountId, std::string url) {
+    std::string src_str = accountId;
     src_str = src_str.append("-");
     src_str = src_str.append(url);
-    vector<unsigned char> hash(32);
+    std::vector<unsigned char> hash(32);
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
 }
 
-string MailUtils::idForMessage(string accountId, string folderPath, IMAPMessage * msg) {
+std::string MailUtils::idForMessage(std::string accountId, std::string folderPath, mailcore::IMAPMessage * msg) {
 
     /* I want to correct flaws in the ID algorithm, but changing this will cause
      duplicate messages to appear in threads and message metadata to be lost.
@@ -562,28 +558,28 @@ string MailUtils::idForMessage(string accountId, string folderPath, IMAPMessage 
         scheme = 1;
     }
 
-    Array * addresses = new Array();
+    mailcore::Array * addresses = new mailcore::Array();
     addresses->addObjectsFromArray(msg->header()->to());
     addresses->addObjectsFromArray(msg->header()->cc());
     addresses->addObjectsFromArray(msg->header()->bcc());
 
-    Array * emails = new Array();
+    mailcore::Array * emails = new mailcore::Array();
     for (int i = 0; i < addresses->count(); i ++) {
-        Address * addr = (Address*)addresses->objectAtIndex(i);
+        mailcore::Address * addr = (mailcore::Address*)addresses->objectAtIndex(i);
         emails->addObject(addr->mailbox());
     }
 
     emails->sortArray(compareEmails, NULL);
 
-    String * participants = emails->componentsJoinedByString(MCSTR(""));
+    mailcore::String * participants = emails->componentsJoinedByString(MCSTR(""));
 
     addresses->release();
     emails->release();
 
-    String * messageID = msg->header()->isMessageIDAutoGenerated() ? MCSTR("") : msg->header()->messageID();
-    String * subject = msg->header()->subject();
+    mailcore::String * messageID = msg->header()->isMessageIDAutoGenerated() ? MCSTR("") : msg->header()->messageID();
+    mailcore::String * subject = msg->header()->subject();
 
-    string src_str = accountId;
+    std::string src_str = accountId;
     src_str = src_str.append("-");
     if (scheme == 1) {
         time_t date = msg->header()->date();
@@ -614,28 +610,28 @@ string MailUtils::idForMessage(string accountId, string folderPath, IMAPMessage 
     src_str = src_str.append("-");
     src_str = src_str.append(messageID->UTF8Characters());
 
-    vector<unsigned char> hash(32);
+    std::vector<unsigned char> hash(32);
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);
 }
 
-string MailUtils::qmarks(size_t count) {
+std::string MailUtils::qmarks(size_t count) {
     if (count == 0) {
         return "";
     }
-    string qmarks{"?"};
+    std::string qmarks{"?"};
     for (int i = 1; i < count; i ++) {
         qmarks = qmarks + ",?";
     }
     return qmarks;
 }
 
-string MailUtils::qmarkSets(size_t count, size_t perSet) {
+std::string MailUtils::qmarkSets(size_t count, size_t perSet) {
     if (count == 0) {
         return "";
     }
-    string one = "(" + MailUtils::qmarks(perSet) + ")";
-    string qmarks{one};
+    std::string one = "(" + MailUtils::qmarks(perSet) + ")";
+    std::string qmarks{one};
     for (int i = 1; i < count; i ++) {
         qmarks = qmarks + "," + one;
     }
@@ -651,54 +647,54 @@ void MailUtils::enableVerboseLogging() {
     _verboseLogging = true;
 }
 
-class MailcoreSPDLogger : public ConnectionLogger {
+class MailcoreSPDLogger : public mailcore::ConnectionLogger {
   public:
-    void log(string str) {
+    void log(std::string str) {
         spdlog::get("logger")->info(str);
     }
 
-    void log(void *sender, ConnectionLogType logType, Data *buffer) {
-        string logTypeString{"unknown"};
+    void log(void *sender, mailcore::ConnectionLogType logType, mailcore::Data *buffer) {
+        std::string logTypeString{"unknown"};
         switch (logType)
         {
-        case ConnectionLogTypeReceived:
+        case mailcore::ConnectionLogTypeReceived:
             logTypeString = "recv";
             break;
 
-        case ConnectionLogTypeSent:
+        case mailcore::ConnectionLogTypeSent:
             logTypeString = "sent";
             break;
 
-        case ConnectionLogTypeSentPrivate:
+        case mailcore::ConnectionLogTypeSentPrivate:
             logTypeString = "sent-private";
             break;
 
-        case ConnectionLogTypeErrorParse:
+        case mailcore::ConnectionLogTypeErrorParse:
             logTypeString = "error-parse";
             break;
 
-        case ConnectionLogTypeErrorReceived:
+        case mailcore::ConnectionLogTypeErrorReceived:
             logTypeString = "error-received";
             break;
 
-        case ConnectionLogTypeErrorSent:
+        case mailcore::ConnectionLogTypeErrorSent:
             logTypeString = "error-sent";
             break;
 
         default:
             break;
         }
-        string msg = buffer != nullptr ? buffer->stringWithCharset("UTF-8")->UTF8Characters() : "";
+        std::string msg = buffer != nullptr ? buffer->stringWithCharset("UTF-8")->UTF8Characters() : "";
         spdlog::get("logger")->info("{} {}", logTypeString, msg);
     }
 };
 
-void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Account> account) {
+void MailUtils::configureSessionForAccount(mailcore::IMAPSession &session, std::shared_ptr<Account> account) {
     if (account->refreshToken() != "") {
         XOAuth2Parts parts = SharedXOAuth2TokenManager()->partsForAccount(account);
         session.setUsername(AS_MCSTR(parts.username));
         session.setOAuth2Token(AS_MCSTR(parts.accessToken));
-        session.setAuthType(AuthTypeXOAuth2);
+        session.setAuthType(mailcore::AuthTypeXOAuth2);
     } else {
         session.setUsername(AS_MCSTR(account->IMAPUsername()));
         session.setPassword(AS_MCSTR(account->IMAPPassword()));
@@ -706,11 +702,11 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
     session.setHostname(AS_MCSTR(account->IMAPHost()));
     session.setPort(account->IMAPPort());
     if (account->IMAPSecurity() == "SSL / TLS") {
-        session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+        session.setConnectionType(mailcore::ConnectionType::ConnectionTypeTLS);
     } else if (account->IMAPSecurity() == "STARTTLS") {
-        session.setConnectionType(ConnectionType::ConnectionTypeStartTLS);
+        session.setConnectionType(mailcore::ConnectionType::ConnectionTypeStartTLS);
     } else {
-        session.setConnectionType(ConnectionType::ConnectionTypeClear);
+        session.setConnectionType(mailcore::ConnectionType::ConnectionTypeClear);
     }
     if (account->IMAPAllowInsecureSSL()) {
         session.setCheckCertificateEnabled(false);
@@ -721,12 +717,12 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
     }
 }
 
-void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account) {
+void MailUtils::configureSessionForAccount(mailcore::SMTPSession & session, std::shared_ptr<Account> account) {
     if (account->refreshToken() != "") {
         XOAuth2Parts parts = SharedXOAuth2TokenManager()->partsForAccount(account);
         session.setUsername(AS_MCSTR(parts.username));
         session.setOAuth2Token(AS_MCSTR(parts.accessToken));
-        session.setAuthType(AuthTypeXOAuth2);
+        session.setAuthType(mailcore::AuthTypeXOAuth2);
     } else {
         session.setUsername(AS_MCSTR(account->SMTPUsername()));
         session.setPassword(AS_MCSTR(account->SMTPPassword()));
@@ -734,11 +730,11 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     session.setHostname(AS_MCSTR(account->SMTPHost()));
     session.setPort(account->SMTPPort());
     if (account->SMTPSecurity() == "SSL / TLS") {
-        session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+        session.setConnectionType(mailcore::ConnectionType::ConnectionTypeTLS);
     } else if (account->SMTPSecurity() == "STARTTLS") {
-        session.setConnectionType(ConnectionType::ConnectionTypeStartTLS);
+        session.setConnectionType(mailcore::ConnectionType::ConnectionTypeStartTLS);
     } else {
-        session.setConnectionType(ConnectionType::ConnectionTypeClear);
+        session.setConnectionType(mailcore::ConnectionType::ConnectionTypeClear);
     }
     if (account->SMTPAllowInsecureSSL()) {
         session.setCheckCertificateEnabled(false);
@@ -749,20 +745,20 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     }
 }
 
-IMAPMessagesRequestKind MailUtils::messagesRequestKindFor(IndexSet * capabilities, bool heavyOrNeedToComputeIDs) {
-    bool gmail = capabilities->containsIndex(IMAPCapabilityGmail);
+mailcore::IMAPMessagesRequestKind MailUtils::messagesRequestKindFor(mailcore::IndexSet * capabilities, bool heavyOrNeedToComputeIDs) {
+    bool gmail = capabilities->containsIndex(mailcore::IMAPCapabilityGmail);
 
     if (heavyOrNeedToComputeIDs) {
         if (gmail) {
-            return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindInternalDate | IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
+            return mailcore::IMAPMessagesRequestKind(mailcore::IMAPMessagesRequestKindHeaders | mailcore::IMAPMessagesRequestKindInternalDate | mailcore::IMAPMessagesRequestKindFlags | mailcore::IMAPMessagesRequestKindGmailLabels | mailcore::IMAPMessagesRequestKindGmailThreadID | mailcore::IMAPMessagesRequestKindGmailMessageID);
         }
-        return IMAPMessagesRequestKind(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindInternalDate | IMAPMessagesRequestKindFlags);
+        return mailcore::IMAPMessagesRequestKind(mailcore::IMAPMessagesRequestKindHeaders | mailcore::IMAPMessagesRequestKindInternalDate | mailcore::IMAPMessagesRequestKindFlags);
     }
 
     if (gmail) {
-        return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags | IMAPMessagesRequestKindGmailLabels);
+        return mailcore::IMAPMessagesRequestKind(mailcore::IMAPMessagesRequestKindFlags | mailcore::IMAPMessagesRequestKindGmailLabels);
     }
-    return IMAPMessagesRequestKind(IMAPMessagesRequestKindFlags);
+    return mailcore::IMAPMessagesRequestKind(mailcore::IMAPMessagesRequestKindFlags);
 }
 
 
@@ -775,14 +771,14 @@ std::condition_variable workerSleepCV;
 void MailUtils::sleepWorkerUntilWakeOrSec(int sec) {
     auto desiredTime = std::chrono::system_clock::now();
     desiredTime += chrono::milliseconds(sec * 1000);
-    unique_lock<mutex> lck(workerSleepMtx);
+    std::unique_lock<std::mutex> lck(workerSleepMtx);
     workerSleepCV.wait_until(lck, desiredTime);
 }
 
 void MailUtils::wakeAllWorkers() {
     // wake sync workers that sleep between cycles
     {
-        lock_guard<mutex> lck(workerSleepMtx);
+        std::lock_guard<std::mutex> lck(workerSleepMtx);
         workerSleepCV.notify_all();
     }
 

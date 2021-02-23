@@ -33,30 +33,30 @@
 #include "mailsync/mail_store.hpp"
 #include "MailCore/MailCore.h"
 
-using namespace nlohmann;
-using namespace std;
-using namespace mailcore;
+
+
+
 
 class Event : public MailModel {
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent * event);
+Event(std::string etag, std::string accountId, std::string calendarId, std::string ics, ICalendarEvent * event);
     Event(SQLite::Statement & query);
 
-    string etag();
-    string calendarId();
-    string icsData();
-    string icsUID();
+    std::string etag();
+    std::string calendarId();
+    std::string icsData();
+    std::string icsUID();
 
     int recurrenceStart();
     int recurrenceEnd();
 
-    string tableName();
-    string constructorName();
+    std::string tableName();
+    std::string constructorName();
 
-    vector<string> columnsForQuery();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 };
 

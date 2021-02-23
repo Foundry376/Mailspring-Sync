@@ -4,9 +4,9 @@
 
 // Singleton Implementation
 
-map<string, MetadataExpirationWorker*> _workerMap;
+std::map<std::string, MetadataExpirationWorker*> _workerMap;
 
-MetadataExpirationWorker * MetadataExpirationWorkerForAccountId(string aid) {
+MetadataExpirationWorker * MetadataExpirationWorkerForAccountId(std::string aid) {
     return _workerMap[aid];
 }
 
@@ -16,7 +16,7 @@ void WakeAllMetadataExpirationWorkers() {
     }
 }
 
-MetadataExpirationWorker::MetadataExpirationWorker(string accountId) :
+MetadataExpirationWorker::MetadataExpirationWorker(std::string accountId) :
     _accountId(accountId)
 {
     _workerMap[accountId] = this;
@@ -59,10 +59,10 @@ void MetadataExpirationWorker::run() {
             SQLite::Statement find(store.db(), "SELECT objectType, id FROM ModelPluginMetadata WHERE accountId = ? AND expiration <= ?");
             find.bind(1, _accountId);
             find.bind(2, now);
-            map<string, vector<string>> results;
+            std::map<std::string, std::vector<std::string>> results;
             while (find.executeStep()) {
-                string objectType = find.getColumn("objectType").getString();
-                string objectId = find.getColumn("id").getString();
+                std::string objectType = find.getColumn("objectType").getString();
+                std::string objectId = find.getColumn("id").getString();
                 if (!results.count(objectType)) {
                     results[objectType] = {};
                 }

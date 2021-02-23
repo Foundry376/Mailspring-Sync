@@ -32,28 +32,28 @@
 #include "mailsync/mail_store.hpp"
 #include "MailCore/MailCore.h"
 
-using namespace nlohmann;
-using namespace std;
-using namespace mailcore;
+
+
+
 
 
 class ContactBook : public MailModel {
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    ContactBook(string id, string accountId);
+    ContactBook(std::string id, std::string accountId);
     ContactBook(SQLite::Statement & query);
 
-    string url();
-    void setURL(string url);
-    string source();
-    void setSource(string source);
+    std::string url();
+    void setURL(std::string url);
+    std::string source();
+    void setSource(std::string source);
 
-    string tableName();
-    string constructorName();
+    std::string tableName();
+    std::string constructorName();
 
-    vector<string> columnsForQuery();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 };
 

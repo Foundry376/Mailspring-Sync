@@ -2,15 +2,15 @@
 #include "mailsync/mail_utils.hpp"
 #include "mailsync/mail_store.hpp"
 
-using namespace std;
 
-string Folder::TABLE_NAME = "Folder";
 
-Folder::Folder(json & json) : MailModel(json) {
+std::string Folder::TABLE_NAME = "Folder";
+
+Folder::Folder(nlohmann::json & json) : MailModel(json) {
 
 }
 
-Folder::Folder(string id, string accountId, int version) :
+Folder::Folder(std::string id, std::string accountId, int version) :
     MailModel(id, accountId, version)
 {
     _data["path"] = "";
@@ -22,32 +22,32 @@ Folder::Folder(SQLite::Statement & query) :
 {
 }
 
-json & Folder::localStatus() {
+nlohmann::json & Folder::localStatus() {
     return _data["localStatus"];
 }
 
-string Folder::path() {
-    return _data["path"].get<string>();
+std::string Folder::path() {
+    return _data["path"].get<std::string>();
 }
 
-void Folder::setPath(string path) {
+void Folder::setPath(std::string path) {
     _data["path"] = path;
 }
 
-string Folder::role() const {
-    return _data["role"].get<string>();
+std::string Folder::role() const {
+    return _data["role"].get<std::string>();
 }
 
-void Folder::setRole(string role) {
+void Folder::setRole(std::string role) {
     _data["role"] = role;
 }
 
-string Folder::tableName() {
+std::string Folder::tableName() {
     return Folder::TABLE_NAME;
 }
 
-vector<string> Folder::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "path", "role"};
+std::vector<std::string> Folder::columnsForQuery() {
+    return std::vector<std::string>{"id", "data", "accountId", "version", "path", "role"};
 }
 
 void Folder::bindToQuery(SQLite::Statement * query) {

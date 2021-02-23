@@ -4,11 +4,11 @@
 
 #define DEFAULT_SUBJECT "unassigned"
 
-using namespace std;
 
-string Thread::TABLE_NAME = "Thread";
 
-Thread::Thread(string msgId, string accountId, string subject, uint64_t gThreadId) :
+std::string Thread::TABLE_NAME = "Thread";
+
+Thread::Thread(std::string msgId, std::string accountId, std::string subject, uint64_t gThreadId) :
     MailModel("t:" + msgId, accountId, 0)
 {
     // set immutable properties of new Thread
@@ -29,9 +29,9 @@ Thread::Thread(string msgId, string accountId, string subject, uint64_t gThreadI
     _data["inAllMail"] = false;
     _data["attachmentCount"] = 0;
     _data["searchRowId"] = 0;
-    _data["folders"] = json::array();
-    _data["labels"] = json::array();
-    _data["participants"] = json::array();
+    _data["folders"] = nlohmann::json::array();
+    _data["labels"] = nlohmann::json::array();
+    _data["participants"] = nlohmann::json::array();
 
     captureInitialState();
 }
@@ -46,11 +46,11 @@ bool Thread::supportsMetadata() {
     return true;
 }
 
-string Thread::subject() {
-    return _data["subject"].get<string>();
+std::string Thread::subject() {
+    return _data["subject"].get<std::string>();
 }
 
-void Thread::setSubject(string s) {
+void Thread::setSubject(std::string s) {
     _data["subject"] = s;
 }
 
@@ -90,8 +90,8 @@ bool Thread::inAllMail() {
     return _data["inAllMail"].get<bool>();
 }
 
-string Thread::gThrId() {
-    return _data["gThrId"].get<string>();
+std::string Thread::gThrId() {
+    return _data["gThrId"].get<std::string>();
 }
 
 time_t Thread::lastMessageTimestamp() {
@@ -110,34 +110,34 @@ time_t Thread::lastMessageSentTimestamp() {
     return _data["lmst"].get<time_t>();
 }
 
-json & Thread::folders() {
+nlohmann::json & Thread::folders() {
     return _data["folders"];
 }
 
-json & Thread::labels() {
+nlohmann::json & Thread::labels() {
     return _data["labels"];
 }
 
-json & Thread::participants() {
+nlohmann::json & Thread::participants() {
     return _data["participants"];
 }
 
-string Thread::categoriesSearchString() {
-    string categories;
+std::string Thread::categoriesSearchString() {
+    std::string categories;
     for (auto f : folders()) {
-        string role = f.count("role") ? f["role"].get<string>() : "";
+        std::string role = f.count("role") ? f["role"].get<std::string>() : "";
         if (role.length()) {
             categories += role + " ";
         } else {
-            categories += f["path"].get<string>() + " ";
+            categories += f["path"].get<std::string>() + " ";
         }
     }
     for (auto f : labels()) {
-        string role = f.count("role") ? f["role"].get<string>() : "";
+        std::string role = f.count("role") ? f["role"].get<std::string>() : "";
         if (role.length()) {
             categories += role + " ";
         } else {
-            categories += f["path"].get<string>() + " ";
+            categories += f["path"].get<std::string>() + " ";
         }
     }
     return categories;
@@ -147,13 +147,13 @@ void Thread::resetCountedAttributes() {
     setUnread(0);
     setStarred(0);
     setAttachmentCount(0);
-    _data["folders"] = json::array();
-    _data["labels"] = json::array();
+    _data["folders"] = nlohmann::json::array();
+    _data["labels"] = nlohmann::json::array();
 
     // now call applyMessageAttributeChanges(empty, msg) for all messages
 }
 
-void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> allLabels) {
+void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next, std::vector<std::shared_ptr<Label>> allLabels) {
     // decrement basic attributes
     setUnread(unread() - old.unread);
     setStarred(starred() - old.starred);
@@ -162,9 +162,9 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
     // decrement folder refcounts. Iterate through the thread's folders
     // and build a new set containing every folder that still has a
     // refcount > 0 after we subtract one from the message's folder.
-    json nextFolders = json::array();
+    nlohmann::json nextFolders = nlohmann::json::array();
     for (auto & f : folders()) {
-        if (f["id"].get<string>() != old.clientFolderId) {
+        if (f["id"].get<std::string>() != old.clientFolderId) {
             nextFolders.push_back(f);
             continue;
         }
@@ -185,13 +185,13 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
     // Note: Since labels are within `All Mail`, a message only contributes
     // to a label's unread count if it is also in `All Mail`.
     for (auto& mlname : old.remoteXGMLabels) {
-        shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
+        std::shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
         if (ml == nullptr) {
             continue;
         }
-        json nextLabels = json::array();
+        nlohmann::json nextLabels = nlohmann::json::array();
         for (auto & l : labels()) {
-            if (l["id"].get<string>() != ml->id()) {
+            if (l["id"].get<std::string>() != ml->id()) {
                 nextLabels.push_back(l);
                 continue;
             }
@@ -248,17 +248,17 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
         }
 
         // update our folder set + increment refcounts
-        string clientFolderId = next->clientFolderId();
+        std::string clientFolderId = next->clientFolderId();
         bool found = false;
         for (auto& f : folders()) {
-            if (f["id"].get<string>() == clientFolderId) {
+            if (f["id"].get<std::string>() == clientFolderId) {
                 f["_refs"] = f["_refs"].get<int>() + 1;
                 f["_u"] = f["_u"].get<int>() + next->isUnread();
                 found = true;
             }
         }
         if (!found) {
-            json f = next->clientFolder();
+            nlohmann::json f = next->clientFolder();
             f["_refs"] = 1;
             f["_u"] = next->isUnread() ? 1 : 0;
             folders().push_back(f);
@@ -266,14 +266,14 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
 
         // update our label set + increment refcounts
         for (auto& mlname : next->remoteXGMLabels()) {
-            shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
+            std::shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
             if (ml == nullptr) {
                 continue;
             }
 
             bool found = false;
             for (auto& l : labels()) {
-                if (l["id"].get<string>() == ml->id()) {
+                if (l["id"].get<std::string>() == ml->id()) {
                     l["_refs"] = l["_refs"].get<int>() + 1;
                     l["_u"] = l["_u"].get<int>() + next->isUnread() && next->inAllMail(); // See Note
                     found = true;
@@ -281,7 +281,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
                 }
             }
             if (!found) {
-                json l = ml->toJSON();
+                nlohmann::json l = ml->toJSON();
                 l["_refs"] = 1;
                 l["_u"] = (next->isUnread() && next->inAllMail()) ? 1 : 0; // See Note
                 labels().push_back(l);
@@ -293,7 +293,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
         std::map<std::string, bool>emails;
         for (auto& p : participants()) {
             if (p.count("email")) {
-                emails[p["email"].get<string>()] = true;
+                emails[p["email"].get<std::string>()] = true;
             }
         }
         addMissingParticipants(emails, next->to());
@@ -304,7 +304,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
     // InAllMail should be true unless the thread is entirely in the spam or trash folder.
     int spamOrTrash = 0;
     for (auto& f : folders()) {
-        string role = f["role"].get<string>();
+        std::string role = f["role"].get<std::string>();
         if ((role == "spam") || (role == "trash")) {
             spamOrTrash ++;
         }
@@ -312,12 +312,12 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
     _data["inAllMail"] = folders().size() > spamOrTrash;
 }
 
-string Thread::tableName() {
+std::string Thread::tableName() {
     return Thread::TABLE_NAME;
 }
 
-vector<string> Thread::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "gThrId", "unread", "starred", "inAllMail", "subject", "lastMessageTimestamp", "lastMessageReceivedTimestamp", "lastMessageSentTimestamp", "firstMessageTimestamp", "hasAttachments"};
+std::vector<std::string> Thread::columnsForQuery() {
+    return std::vector<std::string>{"id", "data", "accountId", "version", "gThrId", "unread", "starred", "inAllMail", "subject", "lastMessageTimestamp", "lastMessageReceivedTimestamp", "lastMessageSentTimestamp", "firstMessageTimestamp", "hasAttachments"};
 }
 
 void Thread::bindToQuery(SQLite::Statement * query) {
@@ -340,13 +340,13 @@ void Thread::afterSave(MailStore * store) {
     bool _inAllMail = inAllMail();
     double _lmrt = (double)lastMessageReceivedTimestamp();
     double _lmst = (double)lastMessageSentTimestamp();
-    map<string, bool> categoryIds = captureCategoryIDs();
+    std::map<std::string, bool> categoryIds = captureCategoryIDs();
 
     // update the ThreadCategory join table to include our folder and labels
     // note this is pretty expensive, so we avoid it if relevant attributes
     // have not changed since the model was loaded.
     if (_initialCategoryIds != categoryIds || _initialLMRT != _lmrt || _initialLMST != _lmst) {
-        string _id = id();
+        std::string _id = id();
         SQLite::Statement removeFolders(store->db(), "DELETE FROM ThreadCategory WHERE id = ?");
         removeFolders.bind(1, id());
         removeFolders.exec();
@@ -370,7 +370,7 @@ void Thread::afterSave(MailStore * store) {
         // update the thread counts table. We keep track of our initial / updated
         // unread count and category membership so that we can quickly compute changes
         // to these counters
-        map<string, array<int, 2>> diffs{};
+        std::map<std::string, array<int, 2>> diffs{};
         for (auto& it : _initialCategoryIds) {
             diffs[it.first] = {-it.second, -1};
         }
@@ -423,13 +423,13 @@ void Thread::afterRemove(MailStore * store) {
 
 #pragma mark Private
 
-map<string, bool> Thread::captureCategoryIDs() {
-    map<string, bool> result{};
+std::map<std::string, bool> Thread::captureCategoryIDs() {
+    std::map<std::string, bool> result{};
     for (const auto & f : folders()) {
-        result[f["id"].get<string>()] = f["_u"].get<int>() > 0;
+        result[f["id"].get<std::string>()] = f["_u"].get<int>() > 0;
     }
     for (const auto & l : labels()) {
-        result[l["id"].get<string>()] = l["_u"].get<int>() > 0;
+        result[l["id"].get<std::string>()] = l["_u"].get<int>() > 0;
     }
     return result;
 }
@@ -440,10 +440,10 @@ void Thread::captureInitialState() {
     _initialCategoryIds = captureCategoryIDs();
 }
 
-void Thread::addMissingParticipants(std::map<std::string, bool> & existing, json & incoming) {
+void Thread::addMissingParticipants(std::map<std::string, bool> & existing, nlohmann::json & incoming) {
     for (const auto & contact : incoming) {
         if (contact.count("email")) {
-            const auto email = contact["email"].get<string>();
+            const auto email = contact["email"].get<std::string>();
             if (!existing.count(email)) {
                 existing[email] = true;
                 _data["participants"] += contact;

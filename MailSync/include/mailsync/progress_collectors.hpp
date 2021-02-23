@@ -26,18 +26,18 @@
 #include <stdio.h>
 #include "MailCore/MailCore.h"
 
-using namespace mailcore;
 
-class IMAPProgress : public IMAPProgressCallback {
+
+class IMAPProgress : public mailcore::IMAPProgressCallback {
 public:
-    void bodyProgress(IMAPSession * session, unsigned int current, unsigned int maximum);
-    void itemsProgress(IMAPSession * session, unsigned int current, unsigned int maximum);
+    void bodyProgress(mailcore::IMAPSession * session, unsigned int current, unsigned int maximum);
+    void itemsProgress(mailcore::IMAPSession * session, unsigned int current, unsigned int maximum);
 };
 
-class SMTPProgress : public SMTPProgressCallback {
+class SMTPProgress : public mailcore::SMTPProgressCallback {
 public:
 
-    void bodyProgress(IMAPSession * session, unsigned int current, unsigned int maximum);
+    void bodyProgress(mailcore::IMAPSession * session, unsigned int current, unsigned int maximum);
 };
 
 

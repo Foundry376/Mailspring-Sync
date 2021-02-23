@@ -1,13 +1,10 @@
 #include "mailsync/mail_store_transaction.hpp"
 
-using namespace std;
-using namespace std::chrono;
-
-MailStoreTransaction::MailStoreTransaction(MailStore * store, string nameHint) :
-    mStore(store), mCommited(false), mStart(system_clock::now()), mBegan(system_clock::now()), mNameHint(nameHint)
+MailStoreTransaction::MailStoreTransaction(MailStore * store, std::string nameHint) :
+    mStore(store), mCommited(false), mStart(std::chrono::system_clock::now()), mBegan(std::chrono::system_clock::now()), mNameHint(nameHint)
 {
     mStore->beginTransaction();
-    mBegan = system_clock::now();
+    mBegan = std::chrono::system_clock::now();
 }
 
 MailStoreTransaction::~MailStoreTransaction() noexcept // nothrow
@@ -28,11 +25,11 @@ void MailStoreTransaction::commit()
         mStore->commitTransaction();
         mCommited = true;
 
-        auto now = system_clock::now();
+        auto now = std::chrono::system_clock::now();
         auto elapsed = now - mStart;
-        long long milliseconds = duration_cast<std::chrono::milliseconds>(elapsed).count();
+        long long milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
         if (milliseconds > 80) { // 80ms
-            long long waiting = duration_cast<std::chrono::milliseconds>(mBegan - mStart).count();
+            long long waiting = std::chrono::duration_cast<std::chrono::milliseconds>(mBegan - mStart).count();
             spdlog::get("logger")->warn("[SLOW] Transaction={} > 80ms ({}ms, {} waiting to aquire)", mNameHint, milliseconds, waiting);
         }
 

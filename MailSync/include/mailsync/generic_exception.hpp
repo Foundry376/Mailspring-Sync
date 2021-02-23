@@ -27,17 +27,14 @@
 #include "nlohmann/json.hpp"
 #include "StanfordCPPLib/stacktrace/call_stack.h"
 
-using namespace nlohmann;
-using namespace std;
-
 class GenericException : public std::exception {
-    vector<stacktrace::entry> _stackentries;
+    std::vector<stacktrace::entry> _stackentries;
 
 public:
     GenericException();
     void printStackTrace();
 
-    virtual json toJSON();
+    virtual nlohmann::json toJSON();
 };
 
 

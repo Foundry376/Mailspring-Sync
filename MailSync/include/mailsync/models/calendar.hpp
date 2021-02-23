@@ -29,26 +29,26 @@
 
 #include "mailsync/models/mail_model.hpp"
 
-using namespace nlohmann;
-using namespace std;
+
+
 
 class Calendar : public MailModel {
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    Calendar(json & json);
-    Calendar(string id, string accountId);
+    Calendar(nlohmann::json & json);
+    Calendar(std::string id, std::string accountId);
     Calendar(SQLite::Statement & query);
 
-    string path();
-    void setPath(string path);
+    std::string path();
+    void setPath(std::string path);
 
-    string name();
-    void setName(string name);
+    std::string name();
+    void setName(std::string name);
 
-    string tableName();
-    vector<string> columnsForQuery();
+    std::string tableName();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 };
 

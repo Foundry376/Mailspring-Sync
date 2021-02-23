@@ -23,7 +23,11 @@
 #ifndef MailStore_hpp
 #define MailStore_hpp
 
+#include <stdint.h>
 #include <stdio.h>
+#include <string>
+#include <map>
+#include <memory>
 #include <vector>
 
 #include "MailCore/MailCore.h"
@@ -38,26 +42,23 @@
 #include "mailsync/delta_stream.hpp"
 #include "mailsync/mail_utils.hpp"
 
-using namespace nlohmann;
-using namespace std;
-
 struct Metadata {
     int version;
-    string objectId;
-    string objectType;
-    string accountId;
-    string pluginId;
-    json value;
+    std::string objectId;
+    std::string objectType;
+    std::string accountId;
+    std::string pluginId;
+    nlohmann::json value;
 };
 
-Metadata MetadataFromJSON(const json & metadata);
+Metadata MetadataFromJSON(const nlohmann::json & metadata);
 
 struct MessageAttributes {
     uint32_t uid;
     bool unread;
     bool starred;
     bool draft;
-    vector<string> labels;
+    std::vector<std::string> labels;
 };
 
 MessageAttributes MessageAttributesForMessage(mailcore::IMAPMessage * msg);
@@ -71,13 +72,13 @@ class MailStore {
     SQLite::Statement _stmtCommitTransaction;
 
     bool _transactionOpen;
-    vector<DeltaStreamItem> _transactionDeltas;
+    std::vector<DeltaStreamItem> _transactionDeltas;
 
-    map<string, shared_ptr<SQLite::Statement>> _saveUpdateQueries;
-    map<string, shared_ptr<SQLite::Statement>> _saveInsertQueries;
-    map<string, shared_ptr<SQLite::Statement>> _removeQueries;
+    std::map<std::string, std::shared_ptr<SQLite::Statement>> _saveUpdateQueries;
+    std::map<std::string, std::shared_ptr<SQLite::Statement>> _saveInsertQueries;
+    std::map<std::string, std::shared_ptr<SQLite::Statement>> _removeQueries;
 
-    vector<shared_ptr<Label>> _labelCache;
+    std::vector<std::shared_ptr<Label>> _labelCache;
     int _labelCacheVersion;
     int _streamMaxDelay;
     size_t _owningThread;
@@ -91,11 +92,11 @@ public:
 
     SQLite::Database & db();
 
-    void resetForAccount(string accountId);
+    void resetForAccount(std::string accountId);
 
-    string getKeyValue(string key);
+    std::string getKeyValue(std::string key);
 
-    void saveKeyValue(string key, string value);
+    void saveKeyValue(std::string key, std::string value);
 
     void beginTransaction();
 
@@ -107,54 +108,54 @@ public:
 
     void save(MailModel * model);
 
-    void saveFolderStatus(Folder * folder, json & initialLocalStatus);
+    void saveFolderStatus(Folder * folder, nlohmann::json & initialLocalStatus);
 
     uint32_t fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint32_t before = UINT32_MAX);
 
-    map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
+    std::map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
 
-    vector<shared_ptr<Label>> allLabelsCache(string accountId);
+    std::vector<std::shared_ptr<Label>> allLabelsCache(std::string accountId);
 
     void setStreamDelay(int streamMaxDelay);
 
     // Detatched plugin metadata storage
 
-    vector<Metadata> findAndDeleteDetatchedPluginMetadata(string accountId, string objectId);
+    std::vector<Metadata> findAndDeleteDetatchedPluginMetadata(std::string accountId, std::string objectId);
 
     void saveDetatchedPluginMetadata(Metadata & m);
 
     // Find - Not templated
 
-    shared_ptr<MailModel> findGeneric(string type, Query query);
+    std::shared_ptr<MailModel> findGeneric(std::string type, Query query);
 
-    vector<shared_ptr<MailModel>> findAllGeneric(string type, Query query);
+    std::vector<std::shared_ptr<MailModel>> findAllGeneric(std::string type, Query query);
 
     // Find - Template methods which must be defined in header file
 
     template<typename ModelClass>
-    shared_ptr<ModelClass> find(Query & query) {
+    std::shared_ptr<ModelClass> find(Query & query) {
         assertCorrectThread();
         SQLite::Statement statement(this->_db, "SELECT data FROM " + ModelClass::TABLE_NAME + query.getSQL() + " LIMIT 1");
         query.bind(statement);
         if (statement.executeStep()) {
-            return make_shared<ModelClass>(statement);
+            return std::make_shared<ModelClass>(statement);
         }
         return nullptr;
     }
 
     template<typename ModelClass>
-    vector<shared_ptr<ModelClass>> findAll(Query & query) {
+    std::vector<std::shared_ptr<ModelClass>> findAll(Query & query) {
         assertCorrectThread();
-        string sql = "SELECT data FROM " + ModelClass::TABLE_NAME + query.getSQL();
+        std::string sql = "SELECT data FROM " + ModelClass::TABLE_NAME + query.getSQL();
         if (query.getLimit() != 0) {
             sql = sql + " LIMIT " + to_string(query.getLimit());
         }
         SQLite::Statement statement(this->_db, sql);
         query.bind(statement);
 
-        vector<shared_ptr<ModelClass>> results;
+        std::vector<std::shared_ptr<ModelClass>> results;
         while (statement.executeStep()) {
-            results.push_back(make_shared<ModelClass>(statement));
+            results.push_back(std::make_shared<ModelClass>(statement));
         }
 
         return results;
@@ -165,10 +166,10 @@ public:
      Handles dividing a large set into small chunks of <1000 and re-aggregating the results so SQLite can handle it.
      */
     template<typename ModelClass>
-    vector<shared_ptr<ModelClass>> findLargeSet(std::string colname, vector<std::string> & set) {
+    std::vector<std::shared_ptr<ModelClass>> findLargeSet(std::string colname, std::vector<std::string> & set) {
         assertCorrectThread();
 
-        vector<shared_ptr<ModelClass>> all;
+        std::vector<std::shared_ptr<ModelClass>> all;
 
         auto chunks = MailUtils::chunksOfVector(set, 900);
         for (auto chunk : chunks) {
@@ -182,28 +183,28 @@ public:
 
 
     template<typename ModelClass>
-    map<string, shared_ptr<ModelClass>> findAllMap(Query & query, std::string keyField) {
+    std::map<std::string, std::shared_ptr<ModelClass>> findAllMap(Query & query, std::string keyField) {
         assertCorrectThread();
         SQLite::Statement statement(this->_db, "SELECT " + keyField + ", data FROM " + ModelClass::TABLE_NAME + query.getSQL());
         query.bind(statement);
 
-        map<string, shared_ptr<ModelClass>> results;
+        std::map<std::string, std::shared_ptr<ModelClass>> results;
         while (statement.executeStep()) {
-            results[statement.getColumn(keyField.c_str()).getString()] = make_shared<ModelClass>(statement);
+            results[statement.getColumn(keyField.c_str()).getString()] = std::make_shared<ModelClass>(statement);
         }
 
         return results;
     }
 
     template<typename ModelClass>
-    map<uint32_t, shared_ptr<ModelClass>> findAllUINTMap(Query & query, std::string keyField) {
+    std::map<uint32_t, std::shared_ptr<ModelClass>> findAllUINTMap(Query & query, std::string keyField) {
         assertCorrectThread();
         SQLite::Statement statement(this->_db, "SELECT " + keyField + ", data FROM " + ModelClass::TABLE_NAME + query.getSQL());
         query.bind(statement);
 
-        map<uint32_t, shared_ptr<ModelClass>> results;
+        std::map<uint32_t, std::shared_ptr<ModelClass>> results;
         while (statement.executeStep()) {
-            results[statement.getColumn(keyField.c_str()).getUInt()] = make_shared<ModelClass>(statement);
+            results[statement.getColumn(keyField.c_str()).getUInt()] = std::make_shared<ModelClass>(statement);
         }
 
         return results;

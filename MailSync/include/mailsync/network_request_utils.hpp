@@ -29,26 +29,26 @@
 
 class Account;
 
-using namespace nlohmann;
-using namespace std;
+
+
 
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp);
 
-CURL * CreateJSONRequest(string url, string method = "GET", string authorization = "", const char * payloadChars = nullptr);
-CURL * CreateCalDavRequest(string url, string method = "GET", const char * payloadChars = nullptr);
+CURL * CreateJSONRequest(std::string url, std::string method = "GET", std::string authorization = "", const char * payloadChars = nullptr);
+CURL * CreateCalDavRequest(std::string url, std::string method = "GET", const char * payloadChars = nullptr);
 
-const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken);
+const nlohmann::json MakeOAuthRefreshRequest(std::string provider, std::string clientId, std::string refreshToken);
 
-const string PerformRequest(CURL * curl_handle);
-const json PerformJSONRequest(CURL * curl_handle);
+const std::string PerformRequest(CURL * curl_handle);
+const nlohmann::json PerformJSONRequest(CURL * curl_handle);
 
-const string PerformExpectedRedirect(string url);
+const std::string PerformExpectedRedirect(std::string url);
 
-void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp);
+void ValidateRequestResp(CURLcode res, CURL * curl_handle, std::string resp);
 
 // Shorthand methods for Identity Server
 
-CURL * CreateIdentityRequest(string path, string method = "GET", const char * payloadChars = nullptr);
-const json PerformIdentityRequest(string path, string method = "GET", const json & payload = nullptr);
+CURL * CreateIdentityRequest(std::string path, std::string method = "GET", const char * payloadChars = nullptr);
+const nlohmann::json PerformIdentityRequest(std::string path, std::string method = "GET", const nlohmann::json & payload = nullptr);
 
 #endif /* NetworkRequestUtils_hpp */

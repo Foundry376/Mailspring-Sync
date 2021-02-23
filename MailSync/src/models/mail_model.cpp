@@ -4,25 +4,25 @@
 #include "mailsync/sync_exception.hpp"
 #include "mailsync/metadata_expiration_worker.hpp"
 
-using namespace std;
 
-string MailModel::TABLE_NAME = "MailModel";
+
+std::string MailModel::TABLE_NAME = "MailModel";
 
 /* Note: If creating a brand new object, pass version = 0. */
-MailModel::MailModel(string id, string accountId, int version) :
+MailModel::MailModel(std::string id, std::string accountId, int version) :
     _data({{"id", id}, {"aid", accountId}, {"v", version}})
 {
     captureInitialMetadataState();
 }
 
 MailModel::MailModel(SQLite::Statement & query) :
-    _data(json::parse(query.getColumn("data").getString()))
+    _data(nlohmann::json::parse(query.getColumn("data").getString()))
 {
     captureInitialMetadataState();
 }
 
 
-MailModel::MailModel(json json) :
+MailModel::MailModel(nlohmann::json json) :
     _data(json)
 {
     assert(_data.is_object());
@@ -33,17 +33,17 @@ void MailModel::captureInitialMetadataState() {
     _initialMetadataPluginIds = {};
     if (_data.count("metadata")) {
         for (const auto & m : _data["metadata"]) {
-            _initialMetadataPluginIds[m["pluginId"].get<string>()] = m["v"].get<int>();
+            _initialMetadataPluginIds[m["pluginId"].get<std::string>()] = m["v"].get<int>();
         }
     }
 }
 
-string MailModel::id()
+std::string MailModel::id()
 {
     return _data["id"].get<std::string>();
 }
 
-string MailModel::accountId()
+std::string MailModel::accountId()
 {
     return _data["aid"].get<std::string>();
 }
@@ -62,15 +62,15 @@ bool MailModel::supportsMetadata() {
     return false;
 }
 
-int MailModel::upsertMetadata(string pluginId, const json & value, int version)
+int MailModel::upsertMetadata(std::string pluginId, const nlohmann::json & value, int version)
 {
     assert(supportsMetadata());
 
     if (!_data.count("metadata")) {
-        _data["metadata"] = json::array();
+        _data["metadata"] = nlohmann::json::array();
     }
     for (auto & m : _data["metadata"]) {
-        if (m["pluginId"].get<string>() == pluginId) {
+        if (m["pluginId"].get<std::string>() == pluginId) {
             if (version != -1 && m["v"].get<int>() >= version) {
                 return -1;
             }
@@ -90,16 +90,16 @@ int MailModel::upsertMetadata(string pluginId, const json & value, int version)
     return nextVersion;
 }
 
-json & MailModel::metadata() {
+nlohmann::json & MailModel::metadata() {
     return _data["metadata"];
 }
 
-string MailModel::tableName()
+std::string MailModel::tableName()
 {
     return TABLE_NAME;
 }
 
-json MailModel::toJSON()
+nlohmann::json MailModel::toJSON()
 {
     // note: do not override for Task!
     if (!_data.count("__cls")) {
@@ -108,7 +108,7 @@ json MailModel::toJSON()
     return _data;
 }
 
-json MailModel::toJSONDispatch()
+nlohmann::json MailModel::toJSONDispatch()
 {
     return this->toJSON();
 }
@@ -128,7 +128,7 @@ void MailModel::bindToQuery(SQLite::Statement * query) {
 void MailModel::beforeSave(MailStore * store) {
     if (version() == 1 && supportsMetadata()) {
         // look for any pending metadata we need to attach to ourselves
-        vector<Metadata> metadatas = store->findAndDeleteDetatchedPluginMetadata(accountId(), id());
+        std::vector<Metadata> metadatas = store->findAndDeleteDetatchedPluginMetadata(accountId(), id());
 
         for (auto & m : metadatas) {
             spdlog::get("logger")->info("-- Attaching waiting metadata for {}", m.pluginId);
@@ -142,10 +142,10 @@ void MailModel::afterSave(MailStore * store) {
         return;
     }
 
-    map<string, int> metadataPluginIds{};
+    std::map<std::string, int> metadataPluginIds{};
     if (_data.count("metadata")) {
         for (const auto & m : _data["metadata"]) {
-            metadataPluginIds[m["pluginId"].get<string>()] = m["v"].get<int>();
+            metadataPluginIds[m["pluginId"].get<std::string>()] = m["v"].get<int>();
         }
     }
 
@@ -153,7 +153,7 @@ void MailModel::afterSave(MailStore * store) {
     // note this is pretty expensive, so we avoid it if relevant attributes
     // have not changed since the model was loaded.
     if (_initialMetadataPluginIds != metadataPluginIds) {
-        string _id = id();
+        std::string _id = id();
 
         SQLite::Statement removePluginIds(store->db(), "DELETE FROM ModelPluginMetadata WHERE id = ?");
         removePluginIds.bind(1, _id);
@@ -176,7 +176,7 @@ void MailModel::afterSave(MailStore * store) {
 
             bool hasExpiration = m["value"].count("expiration") && m["value"]["expiration"].is_number();
 
-            insertPluginIds.bind(4, m["pluginId"].get<string>());
+            insertPluginIds.bind(4, m["pluginId"].get<std::string>());
             if (hasExpiration) {
                 long e = m["value"]["expiration"].get<long>();
                 if (e < lowestExpiration) { lowestExpiration = e; }
@@ -204,7 +204,7 @@ void MailModel::afterRemove(MailStore * store) {
     if (!supportsMetadata()) {
         return;
     }
-    string _id = id();
+    std::string _id = id();
     SQLite::Statement removePluginIds(store->db(), "DELETE FROM ModelPluginMetadata WHERE id = ?");
     removePluginIds.bind(1, _id);
     removePluginIds.exec();

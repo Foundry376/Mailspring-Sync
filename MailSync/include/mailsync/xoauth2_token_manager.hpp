@@ -30,27 +30,27 @@
 #include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
 
-using namespace nlohmann;
-using namespace std;
+
+
 
 struct XOAuth2Parts {
-    string username;
-    string accessToken;
+    std::string username;
+    std::string accessToken;
     time_t expiryDate;
 };
 
 class XOAuth2TokenManager  {
-    map<string, XOAuth2Parts> _cache;
-    mutex _cacheLock;
+    std::map<std::string, XOAuth2Parts> _cache;
+    std::mutex _cacheLock;
 
 public:
     XOAuth2TokenManager();
     ~XOAuth2TokenManager();
-    XOAuth2Parts partsForAccount(shared_ptr<Account> account);
+    XOAuth2Parts partsForAccount(std::shared_ptr<Account> account);
 };
 
 
-shared_ptr<XOAuth2TokenManager> SharedXOAuth2TokenManager();
+std::shared_ptr<XOAuth2TokenManager> SharedXOAuth2TokenManager();
 
 
 #endif /* XOAUTH2TokenManager_hpp */

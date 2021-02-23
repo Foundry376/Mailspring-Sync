@@ -36,26 +36,26 @@
 
 #include "nlohmann/json.hpp"
 
-using namespace nlohmann;
-using namespace std;
+
+
 
 
 class Thread : public MailModel {
 
     time_t _initialLMST;
     time_t _initialLMRT;
-    map<string, bool> _initialCategoryIds;
+    std::map<std::string, bool> _initialCategoryIds;
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    Thread(string msgId, string accountId, string subject, uint64_t gThreadId);
+    Thread(std::string msgId, std::string accountId, std::string subject, uint64_t gThreadId);
     Thread(SQLite::Statement & query);
 
     bool supportsMetadata();
 
-    string subject();
-    void setSubject(string s);
+    std::string subject();
+    void setSubject(std::string s);
     int unread();
     void setUnread(int u);
     int starred();
@@ -66,32 +66,32 @@ public:
     uint64_t searchRowId();
     void setSearchRowId(uint64_t s);
 
-    json & participants();
-    string gThrId();
+    nlohmann::json & participants();
+    std::string gThrId();
     bool inAllMail();
     time_t lastMessageTimestamp();
     time_t firstMessageTimestamp();
     time_t lastMessageReceivedTimestamp();
     time_t lastMessageSentTimestamp();
 
-    json & folders();
-    json & labels();
-    string categoriesSearchString();
+    nlohmann::json & folders();
+    nlohmann::json & labels();
+    std::string categoriesSearchString();
 
     void resetCountedAttributes();
-    void applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> allLabels);
-    void upsertReferences(SQLite::Database & db, string headerMessageId, mailcore::Array * references);
+    void applyMessageAttributeChanges(MessageSnapshot & old, Message * next, std::vector<std::shared_ptr<Label>> allLabels);
+    void upsertReferences(SQLite::Database & db, std::string headerMessageId, mailcore::Array * references);
 
-    string tableName();
-    vector<string> columnsForQuery();
+    std::string tableName();
+    std::vector<std::string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
     void afterSave(MailStore * store);
     void afterRemove(MailStore * store);
 
 private:
-    map<string, bool> captureCategoryIDs();
+    std::map<std::string, bool> captureCategoryIDs();
     void captureInitialState();
-    void addMissingParticipants(std::map<std::string, bool> & existing, json & incoming);
+    void addMissingParticipants(std::map<std::string, bool> & existing, nlohmann::json & incoming);
 
 };
 

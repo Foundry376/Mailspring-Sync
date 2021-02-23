@@ -29,18 +29,18 @@
 
 #include "mailsync/models/folder.hpp"
 
-using namespace nlohmann;
-using namespace std;
+
+
 
 class Label : public Folder {
 
 public:
-    static string TABLE_NAME;
+    static std::string TABLE_NAME;
 
-    Label(string id, string accountId, int version);
+    Label(std::string id, std::string accountId, int version);
     Label(SQLite::Statement & query);
 
-    string tableName();
+    std::string tableName();
 };
 
 #endif /* Folder_hpp */

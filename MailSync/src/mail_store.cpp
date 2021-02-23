@@ -10,19 +10,16 @@
 #include "mailsync/models/message.hpp"
 #include "mailsync/models/thread.hpp"
 
-using namespace mailcore;
-using namespace std;
-
 std::atomic<int> globalLabelsVersion {1};
 
 #pragma mark Metadata
 
-Metadata MetadataFromJSON(const json & metadata) {
+Metadata MetadataFromJSON(const nlohmann::json & metadata) {
     Metadata m;
-    m.objectType = metadata["object_type"].get<string>();
-    m.objectId = metadata["object_id"].get<string>();
-    m.accountId = metadata["aid"].get<string>();
-    m.pluginId = metadata["plugin_id"].get<string>();
+    m.objectType = metadata["object_type"].get<std::string>();
+    m.objectId = metadata["object_id"].get<std::string>();
+    m.accountId = metadata["aid"].get<std::string>();
+    m.pluginId = metadata["plugin_id"].get<std::string>();
     m.version = metadata["v"].get<uint32_t>();
     m.value = metadata["value"];
     return m;
@@ -30,19 +27,19 @@ Metadata MetadataFromJSON(const json & metadata) {
 
 #pragma mark MessageAttributes
 
-MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
+MessageAttributes MessageAttributesForMessage(mailcore::IMAPMessage * msg) {
     auto m = MessageAttributes{};
     m.uid = msg->uid();
-    m.unread = bool(!(msg->flags() & MessageFlagSeen));
-    m.starred = bool(msg->flags() & MessageFlagFlagged);
+    m.unread = bool(!(msg->flags() & mailcore::MessageFlagSeen));
+    m.starred = bool(msg->flags() & mailcore::MessageFlagFlagged);
     m.labels = std::vector<std::string>{};
 
-    Array * labels = msg->gmailLabels();
+    mailcore::Array * labels = msg->gmailLabels();
     bool draftLabelPresent = false;
     bool trashSpamLabelPresent = false;
     if (labels != nullptr) {
         for (unsigned int ii = 0; ii < labels->count(); ii ++) {
-            string str = ((String *)labels->objectAtIndex(ii))->UTF8Characters();
+            std::string str = ((mailcore::String *)labels->objectAtIndex(ii))->UTF8Characters();
             // Gmail exposes Trash and Spam as folders and labels. We want them
             // to be folders so we ignore their presence as labels.
             if ((str == "\\Trash") || (str == "\\Spam")) {
@@ -54,10 +51,10 @@ MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
             }
             m.labels.push_back(str);
         }
-        sort(m.labels.begin(), m.labels.end());
+        std::sort(m.labels.begin(), m.labels.end());
     }
 
-    m.draft = (bool(msg->flags() & MessageFlagDraft) || draftLabelPresent) && !trashSpamLabelPresent;
+    m.draft = (bool(msg->flags() & mailcore::MessageFlagDraft) || draftLabelPresent) && !trashSpamLabelPresent;
 
     return m;
 }
@@ -92,7 +89,7 @@ MailStore::MailStore() :
 }
 
 static int CURRENT_VERSION = 8;
-static string VACUUM_TIME_KEY = "VACUUM_TIME";
+static std::string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 14 * 24 * 60 * 60; // 14 days
 
 void MailStore::migrate() {
@@ -101,15 +98,15 @@ void MailStore::migrate() {
     int version = uv.getColumn(0).getInt();
     uv.reset();
 
-    string verb = version == 0 ? "Setup" : "Migration";
+    std::string verb = version == 0 ? "Setup" : "Migration";
 
     if (version < 1) {
-        for (string sql : V1_SETUP_QUERIES) {
+        for (std::string sql : V1_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
     }
     if (version < 2) {
-        for (string sql : V2_SETUP_QUERIES) {
+        for (std::string sql : V2_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
     }
@@ -117,27 +114,27 @@ void MailStore::migrate() {
         // This one will be time consuming - display window
         std::cout << "\nRunning " << verb;
         std::cout.flush();
-        for (string sql : V3_SETUP_QUERIES) {
+        for (std::string sql : V3_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
     }
     if (version < 4) {
-        for (string sql : V4_SETUP_QUERIES) {
+        for (std::string sql : V4_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
     }
     if (version < 6) {
-        for (string sql : V6_SETUP_QUERIES) {
+        for (std::string sql : V6_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
     }
     if (version < 7) {
-        for (string sql : V7_SETUP_QUERIES) {
+        for (std::string sql : V7_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
     }
     if (version < 8) {
-        for (string sql : V8_SETUP_QUERIES) {
+        for (std::string sql : V8_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
     }
@@ -151,7 +148,7 @@ void MailStore::migrate() {
     // Initialize VACUUM timer if we're on version 0, but make everyone coming
     // from old versions VACUUM for the first time.
     if (version == 0) saveKeyValue(VACUUM_TIME_KEY, to_string(time(0)));
-    string vacuumTimeS = getKeyValue(VACUUM_TIME_KEY);
+    std::string vacuumTimeS = getKeyValue(VACUUM_TIME_KEY);
     time_t vacuumTime = vacuumTimeS != "" ? stol(vacuumTimeS) : 0;
 
     // VACUUM if it's been a while
@@ -188,9 +185,9 @@ void MailStore::assertCorrectThread() {
     }
 }
 
-void MailStore::resetForAccount(string accountId) {
+void MailStore::resetForAccount(std::string accountId) {
     assertCorrectThread();
-    for (string sql : ACCOUNT_RESET_QUERIES) {
+    for (std::string sql : ACCOUNT_RESET_QUERIES) {
         SQLite::Statement statement {_db, sql };
         statement.bind(1, accountId);
         statement.exec();
@@ -207,7 +204,7 @@ SQLite::Database & MailStore::db()
     return this->_db;
 }
 
-map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range range, Folder & folder) {
+std::map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder) {
     assertCorrectThread();
     SQLite::Statement query(this->_db, "SELECT id, unread, starred, remoteUID, remoteXGMLabels FROM Message WHERE accountId = ? AND remoteFolderId = ? AND remoteUID >= ? AND remoteUID <= ?");
     query.bind(1, folder.accountId());
@@ -222,7 +219,7 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
         query.bind(4, (long long)(range.location + range.length));
     }
 
-    map<uint32_t, MessageAttributes> results {};
+    std::map<uint32_t, MessageAttributes> results {};
 
     while (query.executeStep()) {
         MessageAttributes attrs{};
@@ -231,9 +228,9 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
         attrs.starred = query.getColumn("starred").getInt() != 0;
         attrs.unread = query.getColumn("unread").getInt() != 0;
 
-        vector<string> labels{};
-        for (const auto i : json::parse(query.getColumn("remoteXGMLabels").getString())) {
-            labels.push_back(i.get<string>());
+        std::vector<std::string> labels{};
+        for (const auto i : nlohmann::json::parse(query.getColumn("remoteXGMLabels").getString())) {
+            labels.push_back(i.get<std::string>());
         }
         attrs.labels = labels;
 
@@ -257,7 +254,7 @@ uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint
     return 1;
 }
 
-string MailStore::getKeyValue(string key) {
+std::string MailStore::getKeyValue(std::string key) {
     assertCorrectThread();
     SQLite::Statement query(this->_db, "SELECT value FROM _State WHERE id = ?");
     query.bind(1, key);
@@ -268,7 +265,7 @@ string MailStore::getKeyValue(string key) {
     return "";
 }
 
-void MailStore::saveKeyValue(string key, string value) {
+void MailStore::saveKeyValue(std::string key, std::string value) {
     assertCorrectThread();
     SQLite::Statement query(this->_db, "REPLACE INTO _State (id, value) VALUES (?, ?)");
     query.bind(1, key);
@@ -276,7 +273,7 @@ void MailStore::saveKeyValue(string key, string value) {
     query.exec();
 }
 
-vector<shared_ptr<Label>> MailStore::allLabelsCache(string accountId) {
+std::vector<std::shared_ptr<Label>> MailStore::allLabelsCache(std::string accountId) {
     // todo bg: this assumes a single accountId will ever be used
     if (_labelCacheVersion != globalLabelsVersion) {
         _labelCache = findAll<Label>(Query().equal("accountId", accountId));
@@ -336,7 +333,7 @@ void MailStore::save(MailModel * model) {
 
     if (model->version() > 1) {
         if (!_saveUpdateQueries.count(tableName)) {
-            string pairs{""};
+            std::string pairs{""};
             for (const auto col : model->columnsForQuery()) {
                 if (col == "id") {
                     continue;
@@ -345,7 +342,7 @@ void MailStore::save(MailModel * model) {
             }
             pairs.pop_back();
 
-            auto stmt = make_shared<SQLite::Statement>(this->_db, "UPDATE " + tableName + " SET " + pairs + " WHERE id = :id");
+            auto stmt = std::make_shared<SQLite::Statement>(this->_db, "UPDATE " + tableName + " SET " + pairs + " WHERE id = :id");
             _saveUpdateQueries[tableName] = stmt;
         }
         auto query = _saveUpdateQueries[tableName];
@@ -355,8 +352,8 @@ void MailStore::save(MailModel * model) {
 
     } else {
         if (!_saveInsertQueries.count(tableName)) {
-            string cols{""};
-            string values{""};
+            std::string cols{""};
+            std::string values{""};
             for (const auto col : model->columnsForQuery()) {
                 cols += col + ",";
                 values += ":" + col + ",";
@@ -364,7 +361,7 @@ void MailStore::save(MailModel * model) {
             cols.pop_back();
             values.pop_back();
 
-            auto stmt = make_shared<SQLite::Statement>(this->_db, "INSERT INTO " + tableName + " (" + cols + ") VALUES (" + values + ")");
+            auto stmt = std::make_shared<SQLite::Statement>(this->_db, "INSERT INTO " + tableName + " (" + cols + ") VALUES (" + values + ")");
             _saveInsertQueries[tableName] = stmt;
         }
 
@@ -384,8 +381,8 @@ void MailStore::save(MailModel * model) {
     _emit(delta);
 }
 
-void MailStore::saveFolderStatus(Folder * folder, json & initialStatus) {
-    json & changedStatus = folder->localStatus();
+void MailStore::saveFolderStatus(Folder * folder, nlohmann::json & initialStatus) {
+    nlohmann::json & changedStatus = folder->localStatus();
     if (changedStatus == initialStatus) {
         return;
     }
@@ -410,7 +407,7 @@ void MailStore::remove(MailModel * model) {
     assertCorrectThread();
     auto tableName = model->tableName();
     if (!_removeQueries.count(tableName)) {
-        _removeQueries[tableName] = make_shared<SQLite::Statement>(this->_db, "DELETE FROM " + tableName + " WHERE id = ?");
+        _removeQueries[tableName] = std::make_shared<SQLite::Statement>(this->_db, "DELETE FROM " + tableName + " WHERE id = ?");
     }
     auto query = _removeQueries[tableName];
     query->reset();
@@ -435,7 +432,7 @@ void MailStore::_emit(DeltaStreamItem & delta) {
     }
 }
 
-shared_ptr<MailModel> MailStore::findGeneric(string type, Query query) {
+std::shared_ptr<MailModel> MailStore::findGeneric(std::string type, Query query) {
     assertCorrectThread();
     transform(type.begin(), type.end(), type.begin(), ::tolower);
 
@@ -449,7 +446,7 @@ shared_ptr<MailModel> MailStore::findGeneric(string type, Query query) {
     assert(false);
 }
 
-vector<shared_ptr<MailModel>> MailStore::findAllGeneric(string type, Query query) {
+std::vector<std::shared_ptr<MailModel>> MailStore::findAllGeneric(std::string type, Query query) {
     assertCorrectThread();
     transform(type.begin(), type.end(), type.begin(), ::tolower);
 
@@ -469,14 +466,14 @@ vector<shared_ptr<MailModel>> MailStore::findAllGeneric(string type, Query query
     assert(false);
 }
 
-vector<Metadata> MailStore::findAndDeleteDetatchedPluginMetadata(string accountId, string objectId) {
+std::vector<Metadata> MailStore::findAndDeleteDetatchedPluginMetadata(std::string accountId, std::string objectId) {
     assertCorrectThread();
     if (!_saveInsertQueries.count("metadata")) {
-        auto stmt = make_shared<SQLite::Statement>(db(), "SELECT version, value, pluginId, objectType FROM DetatchedPluginMetadata WHERE objectId = ? AND accountId = ?");
+        auto stmt = std::make_shared<SQLite::Statement>(db(), "SELECT version, value, pluginId, objectType FROM DetatchedPluginMetadata WHERE objectId = ? AND accountId = ?");
         _saveInsertQueries["metadata"] = stmt;
     }
 
-    vector<Metadata> results;
+    std::vector<Metadata> results;
     auto st = _saveInsertQueries["metadata"];
     st->reset();
     st->bind(1, objectId);
@@ -485,7 +482,7 @@ vector<Metadata> MailStore::findAndDeleteDetatchedPluginMetadata(string accountI
         Metadata m;
         m.accountId = accountId;
         m.version = st->getColumn("version").getInt();
-        m.value = json::parse(st->getColumn("value").getString());
+        m.value = nlohmann::json::parse(st->getColumn("value").getString());
         m.pluginId = st->getColumn("pluginId").getString();
         m.objectType = st->getColumn("objectType").getString();
         m.objectId = objectId;

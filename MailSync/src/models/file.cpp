@@ -5,12 +5,12 @@
 #include "mailsync/models/thread.hpp"
 #include "mailsync/models/message.hpp"
 
-using namespace std;
-using namespace mailcore;
 
-string File::TABLE_NAME = "File";
 
-File::File(Message * msg, Attachment * a) :
+
+std::string File::TABLE_NAME = "File";
+
+File::File(Message * msg, mailcore::Attachment * a) :
     MailModel(MailUtils::idForFile(msg, a), msg->accountId(), 0)
 {
     _data["messageId"] = msg->id();
@@ -23,14 +23,14 @@ File::File(Message * msg, Attachment * a) :
         _data["contentType"] = a->mimeType()->UTF8Characters();
     }
 
-    string name = "";
+    std::string name = "";
     if (a->filename()) {
         name = a->filename()->UTF8Characters();
     }
     if (name == "") {
-        name = "Unnamed Attachment";
+        name = "Unnamed mailcore::Attachment";
 
-        string type = _data["contentType"];
+        std::string type = _data["contentType"];
         if (type == "text/calendar") {
             name = "Event.ics";
         }
@@ -58,7 +58,7 @@ File::File(Message * msg, Attachment * a) :
     _data["size"] = a->data()->length();
 }
 
-File::File(json json) : MailModel(json) {
+File::File(nlohmann::json json) : MailModel(json) {
 
 }
 
@@ -67,41 +67,41 @@ File::File(SQLite::Statement & query) :
 {
 }
 
-string File::constructorName() {
-    return _data["__cls"].get<string>();
+std::string File::constructorName() {
+    return _data["__cls"].get<std::string>();
 }
 
-string File::tableName() {
+std::string File::tableName() {
     return File::TABLE_NAME;
 }
 
-string File::filename() {
-    return _data["filename"].get<string>();
+std::string File::filename() {
+    return _data["filename"].get<std::string>();
 }
 
-string File::safeFilename() {
+std::string File::safeFilename() {
     regex e ("[\\/:|?*><\"#]");
     return regex_replace (filename(), e, "-");
 }
 
-string File::partId() {
-    return _data["partId"].get<string>();
+std::string File::partId() {
+    return _data["partId"].get<std::string>();
 }
 
-json & File::contentId() {
+nlohmann::json & File::contentId() {
     return _data["contentId"];
 }
 
-void File::setContentId(string s) {
+void File::setContentId(std::string s) {
     _data["contentId"] = s;
 }
 
-string File::contentType() {
-    return _data["contentType"].get<string>();
+std::string File::contentType() {
+    return _data["contentType"].get<std::string>();
 }
 
-vector<string> File::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "filename"};
+std::vector<std::string> File::columnsForQuery() {
+    return std::vector<std::string>{"id", "data", "accountId", "version", "filename"};
 }
 
 void File::bindToQuery(SQLite::Statement * query) {

@@ -40,7 +40,7 @@ static const std::string FS_PATH_SEP = "/";
 static const std::string MAILSPRING_FOLDER_PREFIX_V1 = "[Mailspring]";
 static const std::string MAILSPRING_FOLDER_PREFIX_V2 = "Mailspring";
 
-static vector<std::string> ACCOUNT_RESET_QUERIES = {
+static std::vector<std::string> ACCOUNT_RESET_QUERIES = {
     "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Folder` WHERE `accountId` = ?)",
     "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Label` WHERE `accountId` = ?)",
     "DELETE FROM `ThreadCategory` WHERE `id` IN (SELECT id FROM `Thread` WHERE `accountId` = ?)",
@@ -62,7 +62,7 @@ static vector<std::string> ACCOUNT_RESET_QUERIES = {
     "DELETE FROM `Account` WHERE `id` = ?",
 };
 
-static vector<std::string> V1_SETUP_QUERIES = {
+static std::vector<std::string> V1_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `_State` (id VARCHAR(40) PRIMARY KEY, value TEXT)",
 
     "CREATE TABLE IF NOT EXISTS `File` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), filename TEXT)",
@@ -190,32 +190,32 @@ static vector<std::string> V1_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `Task` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), status VARCHAR(255))",
 };
 
-static vector<std::string> V2_SETUP_QUERIES = {
+static std::vector<std::string> V2_SETUP_QUERIES = {
     "CREATE INDEX IF NOT EXISTS MessageUIDScanIndex ON Message(accountId, remoteFolderId, remoteUID)",
 };
 
-static vector<std::string> V3_SETUP_QUERIES = {
+static std::vector<std::string> V3_SETUP_QUERIES = {
     "ALTER TABLE `MessageBody` ADD COLUMN fetchedAt DATETIME",
     "UPDATE `MessageBody` SET fetchedAt = datetime('now')",
 };
 
-static vector<std::string> V4_SETUP_QUERIES = {
+static std::vector<std::string> V4_SETUP_QUERIES = {
     "DELETE FROM Task WHERE Task.status = \"complete\" OR Task.status = \"cancelled\"",
     "CREATE INDEX IF NOT EXISTS TaskByStatus ON Task(accountId, status)",
 };
 
-static vector<std::string> V6_SETUP_QUERIES = {
+static std::vector<std::string> V6_SETUP_QUERIES = {
     "DROP TABLE IF EXISTS `Event`",
     "CREATE TABLE IF NOT EXISTS `Event` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8), etag VARCHAR(40), calendarId VARCHAR(40), recurrenceStart INTEGER, recurrenceEnd INTEGER)",
     "CREATE INDEX IF NOT EXISTS EventETag ON Event(calendarId, etag)",
 };
 
-static vector<std::string> V7_SETUP_QUERIES = {
+static std::vector<std::string> V7_SETUP_QUERIES = {
     "ALTER TABLE `Event` ADD COLUMN icsuid VARCHAR(150)",
     "CREATE INDEX IF NOT EXISTS EventUID ON Event(accountId, icsuid)",
 };
 
-static vector<std::string> V8_SETUP_QUERIES = {
+static std::vector<std::string> V8_SETUP_QUERIES = {
     "DELETE FROM Contact WHERE refs = 0;",
     "ALTER TABLE `Contact` ADD COLUMN hidden TINYINT(1) DEFAULT 0",
     "ALTER TABLE `Contact` ADD COLUMN source VARCHAR(10) DEFAULT 'mail'",
@@ -329,58 +329,58 @@ static std::map<int, std::string> LibEtPanCodeToTypeMap = {
     {MAILSMTP_ERROR_SSL, "MAILSMTP_ERROR_SSL"},
 };
 
-static std::map<ErrorCode, std::string> ErrorCodeToTypeMap = {
-    {ErrorNone, "ErrorNone"}, // 0
-    {ErrorRename, "ErrorRename"},
-    {ErrorDelete, "ErrorDelete"},
-    {ErrorCreate, "ErrorCreate"},
-    {ErrorSubscribe, "ErrorSubscribe"},
-    {ErrorAppend, "ErrorAppend"},
-    {ErrorCopy, "ErrorCopy"},
-    {ErrorExpunge, "ErrorExpunge"},
-    {ErrorFetch, "ErrorFetch"},
-    {ErrorIdle, "ErrorIdle"}, // 20
-    {ErrorIdentity, "ErrorIdentity"},
-    {ErrorNamespace, "ErrorNamespace"},
-    {ErrorStore, "ErrorStore"},
-    {ErrorCapability, "ErrorCapability"},
-    {ErrorSendMessageIllegalAttachment, "ErrorSendMessageIllegalAttachment"},
-    {ErrorStorageLimit, "ErrorStorageLimit"},
-    {ErrorSendMessageNotAllowed, "ErrorSendMessageNotAllowed"},
-    {ErrorSendMessage, "ErrorSendMessage"}, // 30
-    {ErrorFetchMessageList, "ErrorFetchMessageList"},
-    {ErrorDeleteMessage, "ErrorDeleteMessage"},
-    {ErrorFile, "ErrorFile"},
-    {ErrorCompression, "ErrorCompression"},
-    {ErrorNoSender, "ErrorNoSender"},
-    {ErrorNoRecipient, "ErrorNoRecipient"},
-    {ErrorNoop, "ErrorNoop"},
-    {ErrorServerDate, "ErrorServerDate"},
-    {ErrorCustomCommand, "ErrorCustomCommand"},
-    {ErrorYahooSendMessageSpamSuspected, "ErrorYahooSendMessageSpamSuspected"},
-    {ErrorYahooSendMessageDailyLimitExceeded, "ErrorYahooSendMessageDailyLimitExceeded"},
-    {ErrorOutlookLoginViaWebBrowser, "ErrorOutlookLoginViaWebBrowser"},
-    {ErrorTiscaliSimplePassword, "ErrorTiscaliSimplePassword"},
-    {ErrorConnection, "ErrorConnection"},
-    {ErrorInvalidAccount, "ErrorInvalidAccount"},
-    {ErrorInvalidRelaySMTP, "ErrorInvalidRelaySMTP"},
-    {ErrorNoImplementedAuthMethods, "ErrorNoImplementedAuthMethods"},
-    {ErrorTLSNotAvailable, "ErrorTLSNotAvailable"},
-    {ErrorParse, "ErrorParse"},
-    {ErrorCertificate, "ErrorCertificate"},
-    {ErrorAuthentication, "ErrorAuthentication"},
-    {ErrorGmailIMAPNotEnabled, "ErrorGmailIMAPNotEnabled"},
-    {ErrorGmailExceededBandwidthLimit, "ErrorGmailExceededBandwidthLimit"},
-    {ErrorGmailTooManySimultaneousConnections, "ErrorGmailTooManySimultaneousConnections"},
-    {ErrorMobileMeMoved, "ErrorMobileMeMoved"},
-    {ErrorYahooUnavailable, "ErrorYahooUnavailable"},
-    {ErrorNonExistantFolder, "ErrorNonExistantFolder"},
-    {ErrorStartTLSNotAvailable, "ErrorStartTLSNotAvailable"},
-    {ErrorGmailApplicationSpecificPasswordRequired, "ErrorGmailApplicationSpecificPasswordRequired"},
-    {ErrorOutlookLoginViaWebBrowser, "ErrorOutlookLoginViaWebBrowser"},
-    {ErrorNeedsConnectToWebmail, "ErrorNeedsConnectToWebmail"},
-    {ErrorNoValidServerFound, "ErrorNoValidServerFound"},
-    {ErrorAuthenticationRequired, "ErrorAuthenticationRequired"},
+static std::map<mailcore::ErrorCode, std::string> ErrorCodeToTypeMap = {
+    {mailcore::ErrorNone, "ErrorNone"}, // 0
+    {mailcore::ErrorRename, "ErrorRename"},
+    {mailcore::ErrorDelete, "ErrorDelete"},
+    {mailcore::ErrorCreate, "ErrorCreate"},
+    {mailcore::ErrorSubscribe, "ErrorSubscribe"},
+    {mailcore::ErrorAppend, "ErrorAppend"},
+    {mailcore::ErrorCopy, "ErrorCopy"},
+    {mailcore::ErrorExpunge, "ErrorExpunge"},
+    {mailcore::ErrorFetch, "ErrorFetch"},
+    {mailcore::ErrorIdle, "ErrorIdle"}, // 20
+    {mailcore::ErrorIdentity, "ErrorIdentity"},
+    {mailcore::ErrorNamespace, "ErrorNamespace"},
+    {mailcore::ErrorStore, "ErrorStore"},
+    {mailcore::ErrorCapability, "ErrorCapability"},
+    {mailcore::ErrorSendMessageIllegalAttachment, "ErrorSendMessageIllegalAttachment"},
+    {mailcore::ErrorStorageLimit, "ErrorStorageLimit"},
+    {mailcore::ErrorSendMessageNotAllowed, "ErrorSendMessageNotAllowed"},
+    {mailcore::ErrorSendMessage, "ErrorSendMessage"}, // 30
+    {mailcore::ErrorFetchMessageList, "ErrorFetchMessageList"},
+    {mailcore::ErrorDeleteMessage, "ErrorDeleteMessage"},
+    {mailcore::ErrorFile, "ErrorFile"},
+    {mailcore::ErrorCompression, "ErrorCompression"},
+    {mailcore::ErrorNoSender, "ErrorNoSender"},
+    {mailcore::ErrorNoRecipient, "ErrorNoRecipient"},
+    {mailcore::ErrorNoop, "ErrorNoop"},
+    {mailcore::ErrorServerDate, "ErrorServerDate"},
+    {mailcore::ErrorCustomCommand, "ErrorCustomCommand"},
+    {mailcore::ErrorYahooSendMessageSpamSuspected, "ErrorYahooSendMessageSpamSuspected"},
+    {mailcore::ErrorYahooSendMessageDailyLimitExceeded, "ErrorYahooSendMessageDailyLimitExceeded"},
+    {mailcore::ErrorOutlookLoginViaWebBrowser, "ErrorOutlookLoginViaWebBrowser"},
+    {mailcore::ErrorTiscaliSimplePassword, "ErrorTiscaliSimplePassword"},
+    {mailcore::ErrorConnection, "ErrorConnection"},
+    {mailcore::ErrorInvalidAccount, "ErrorInvalidAccount"},
+    {mailcore::ErrorInvalidRelaySMTP, "ErrorInvalidRelaySMTP"},
+    {mailcore::ErrorNoImplementedAuthMethods, "ErrorNoImplementedAuthMethods"},
+    {mailcore::ErrorTLSNotAvailable, "ErrorTLSNotAvailable"},
+    {mailcore::ErrorParse, "ErrorParse"},
+    {mailcore::ErrorCertificate, "ErrorCertificate"},
+    {mailcore::ErrorAuthentication, "ErrorAuthentication"},
+    {mailcore::ErrorGmailIMAPNotEnabled, "ErrorGmailIMAPNotEnabled"},
+    {mailcore::ErrorGmailExceededBandwidthLimit, "ErrorGmailExceededBandwidthLimit"},
+    {mailcore::ErrorGmailTooManySimultaneousConnections, "ErrorGmailTooManySimultaneousConnections"},
+    {mailcore::ErrorMobileMeMoved, "ErrorMobileMeMoved"},
+    {mailcore::ErrorYahooUnavailable, "ErrorYahooUnavailable"},
+    {mailcore::ErrorNonExistantFolder, "ErrorNonExistantFolder"},
+    {mailcore::ErrorStartTLSNotAvailable, "ErrorStartTLSNotAvailable"},
+    {mailcore::ErrorGmailApplicationSpecificPasswordRequired, "ErrorGmailApplicationSpecificPasswordRequired"},
+    {mailcore::ErrorOutlookLoginViaWebBrowser, "ErrorOutlookLoginViaWebBrowser"},
+    {mailcore::ErrorNeedsConnectToWebmail, "ErrorNeedsConnectToWebmail"},
+    {mailcore::ErrorNoValidServerFound, "ErrorNoValidServerFound"},
+    {mailcore::ErrorAuthenticationRequired, "ErrorAuthenticationRequired"},
 };
 
 #endif // MAILSYNC_CONSTANTS_H
