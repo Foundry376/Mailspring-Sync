@@ -142,14 +142,14 @@ void MailStore::migrate() {
     // Update the version flag. Note that we don't want to go from v3 back to v2
     // if the user re-opens an older version of the app.
     if (version < CURRENT_VERSION) {
-        SQLite::Statement(_db, "PRAGMA user_version = " + to_string(CURRENT_VERSION)).exec();
+        SQLite::Statement(_db, "PRAGMA user_version = " + std::to_string(CURRENT_VERSION)).exec();
     }
 
     // Initialize VACUUM timer if we're on version 0, but make everyone coming
     // from old versions VACUUM for the first time.
-    if (version == 0) saveKeyValue(VACUUM_TIME_KEY, to_string(time(0)));
+    if (version == 0) saveKeyValue(VACUUM_TIME_KEY, std::to_string(time(0)));
     std::string vacuumTimeS = getKeyValue(VACUUM_TIME_KEY);
-    time_t vacuumTime = vacuumTimeS != "" ? stol(vacuumTimeS) : 0;
+    time_t vacuumTime = vacuumTimeS != "" ? std::stol(vacuumTimeS) : 0;
 
     // VACUUM if it's been a while
     if (time(0) - vacuumTime > VACUUM_INTERVAL) {
@@ -157,7 +157,7 @@ void MailStore::migrate() {
         std::cout.flush();
 
         // Update vacuum timer first so we don't re-attempt vacuuming if it fails
-        saveKeyValue(VACUUM_TIME_KEY, to_string(time(0)));
+        saveKeyValue(VACUUM_TIME_KEY, std::to_string(time(0)));
 
         try {
             SQLite::Statement(_db, "VACUUM").exec();

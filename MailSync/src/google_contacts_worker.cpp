@@ -126,7 +126,7 @@ void GoogleContactsWorker::run() {
 
             // whenever a group changes, we re-sync it's membership list
             if (memberCount > 0) {
-                auto json = PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + resourceName + "?maxMembers=" + to_string(memberCount), "GET", authorization));
+                auto json = PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + resourceName + "?maxMembers=" + std::to_string(memberCount), "GET", authorization));
                 for (const auto & memberResourceName : json["memberResourceNames"]) {
                     auto mrn = memberResourceName.get<std::string>();
                     auto c = contactsLocal[mrn];

@@ -60,7 +60,7 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
     _data["date"] = msg->header()->date() == -1 ? msg->header()->receivedDate() : msg->header()->date();
     _data["hMsgId"] = msg->header()->messageID() ? msg->header()->messageID()->UTF8Characters() : "no-header-message-id";
     _data["subject"] = msg->header()->subject() ? msg->header()->subject()->UTF8Characters() : "No Subject";
-    _data["gMsgId"] = to_string(msg->gmailMessageID());
+    _data["gMsgId"] = std::to_string(msg->gmailMessageID());
 
     mailcore::Array * irt = msg->header()->inReplyTo();
     if (irt && irt->count() && irt->lastObject()) {

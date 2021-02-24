@@ -18,7 +18,7 @@ Thread::Thread(std::string msgId, std::string accountId, std::string subject, ui
     _data["lmst"] = 0;
     _data["lmrt"] = 0;
     if (gThreadId) {
-        _data["gThrId"] = to_string(gThreadId);
+        _data["gThrId"] = std::to_string(gThreadId);
     } else {
         _data["gThrId"] = "";
     }

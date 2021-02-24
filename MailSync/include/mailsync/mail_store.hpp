@@ -148,7 +148,7 @@ public:
         assertCorrectThread();
         std::string sql = "SELECT data FROM " + ModelClass::TABLE_NAME + query.getSQL();
         if (query.getLimit() != 0) {
-            sql = sql + " LIMIT " + to_string(query.getLimit());
+            sql = sql + " LIMIT " + std::to_string(query.getLimit());
         }
         SQLite::Statement statement(this->_db, sql);
         query.bind(statement);

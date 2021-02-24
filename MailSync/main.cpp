@@ -48,7 +48,7 @@
 #include "mailsync/dav_worker.hpp"
 #include "mailsync/google_contacts_worker.hpp"
 #include "mailsync/sync_exception.hpp"
-#include "mailsync/task.hpp"
+#include "mailsync/models/task.hpp"
 #include "mailsync/task_processor.hpp"
 #include "mailsync/thread_utils.hpp"
 #include "mailsync/constants.hpp"
@@ -343,17 +343,17 @@ int runTestAuth(std::shared_ptr<Account> account) {
         alogger.log("\n\nSASL_PATH: " + MailUtils::getEnvUTF8("SASL_PATH"));
 
         if (smtp.lastSMTPResponse()) {
-            alogger.log("\n\nSMTP Last Response Code: " + to_string(smtp.lastSMTPResponseCode()));
+            alogger.log("\n\nSMTP Last Response Code: " + std::to_string(smtp.lastSMTPResponseCode()));
             alogger.log("\nSMTP Last Response: " + std::string(smtp.lastSMTPResponse()->UTF8Characters()));
         }
         if (smtp.lastLibetpanError()) {
             int e = smtp.lastLibetpanError();
             std::string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : "Unknown";
 
-            alogger.log("\n\nmailsmtp Last Error Code: " + to_string(e));
+            alogger.log("\n\nmailsmtp Last Error Code: " + std::to_string(e));
             alogger.log("\nmailsmtp Last Error Explanation: " + es);
-            alogger.log("\nmailsmtp Last Error Location: " + to_string(smtp.lastLibetpanErrorLocation()));
-            alogger.log("\nmailsmtp Last Auth Type: " + to_string(smtp.authType()));
+            alogger.log("\nmailsmtp Last Error Location: " + std::to_string(smtp.lastLibetpanErrorLocation()));
+            alogger.log("\nmailsmtp Last Auth Type: " + std::to_string(smtp.authType()));
         }
         goto done;
     }
@@ -412,10 +412,10 @@ void runListenOnMainThread(std::shared_ptr<Account> account) {
             continue;
         }
 
-        // cin is interrupted when the debugger attaches, and that's ok. If cin is
+        // std::cin is interrupted when the debugger attaches, and that's ok. If std::cin is
         // disconnected for more than 30 seconds, it means we have been oprhaned and
         // we should exit.
-        if (cin.good()) {
+        if (std::cin.good()) {
             lostCINAt = 0;
         } else {
             if (lostCINAt == 0) {
@@ -441,10 +441,10 @@ void runListenOnMainThread(std::shared_ptr<Account> account) {
                 // because we want tasks queued back to back to run ASAP and not fight for locks with remote
                 // syncback. This also mitigates any potential remote loads+saves that aren't inside transactions
                 // and could overwrite local changes.
-                static atomic<bool> queuedForegroundWake { false };
+                static std::atomic<bool> queuedForegroundWake { false };
                 if (!queuedForegroundWake) {
                     std::thread([]() {
-                        std::this_thread::sleep_for(chrono::milliseconds(300));
+                        std::this_thread::sleep_for(std::chrono::milliseconds(300));
                         if (fgWorker) {
                             fgWorker->idleInterrupt();
                         }
@@ -487,7 +487,7 @@ void runListenOnMainThread(std::shared_ptr<Account> account) {
             }
 
             if (type == "sync-calendar") {
-                static atomic<bool> runningCalendarSync { false };
+                static std::atomic<bool> runningCalendarSync { false };
                 if (!runningCalendarSync) {
                     std::thread([&]() {
                         SetThreadName("calendar");
@@ -500,7 +500,7 @@ void runListenOnMainThread(std::shared_ptr<Account> account) {
             }
 
             if (type == "test-crash") {
-                throw SyncException("test", "triggered via cin", false);
+                throw SyncException("test", "triggered via std::cin", false);
             }
             if (type == "test-segfault") {
                 raise(SIGSEGV);
@@ -580,7 +580,7 @@ std::string exectuablePath = argv[0];
         accountJSON = std::string(options[ACCOUNT].arg);
     } else {
         std::cout << "\nWaiting for Account JSON:\n";
-        getline(cin, accountJSON);
+        std::getline(std::cin, accountJSON);
     }
     std::shared_ptr<Account> account = nullptr;
     try {
@@ -612,7 +612,7 @@ std::string exectuablePath = argv[0];
 		identityJSON = std::string(options[IDENTITY].arg);
 	} else {
 		std::cout << "\nWaiting for Identity JSON:\n";
-        getline(cin, identityJSON);
+        std::getline(std::cin, identityJSON);
 	}
     try {
         Identity::SetGlobal(std::make_shared<Identity>(nlohmann::json::parse(identityJSON)));

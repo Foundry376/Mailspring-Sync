@@ -197,7 +197,7 @@ std::vector<std::shared_ptr<VCardProperty>> VCard::propertiesWithName(std::strin
 }
 
 std::string VCard::serialize() {
-    stringstream str;
+    std::stringstream str;
     str << "BEGIN:VCARD\r\n";
     for (auto prop : _properties) {
         if (prop->getValue() == "") {

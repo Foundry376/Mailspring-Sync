@@ -31,7 +31,7 @@ bool spdFlushExit = false;
 void runFlushLoop() {
     while (true) {
         std::chrono::system_clock::time_point desiredTime = std::chrono::system_clock::now();
-        desiredTime += chrono::milliseconds(30000);
+        desiredTime += std::chrono::milliseconds(30000);
         {
             // Wait for a message, or for 30 seconds, whichever happens first
             std::unique_lock<std::mutex> lck(spdFlushMtx);

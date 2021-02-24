@@ -588,7 +588,7 @@ std::string MailUtils::idForMessage(std::string accountId, std::string folderPat
         }
         if (date > 0) {
             // Use the unix timestamp, not a formatted (localized) date
-            src_str = src_str.append(to_string(date));
+            src_str = src_str.append(std::to_string(date));
         } else {
             // This message has no date information and subject + recipients alone are not enough
             // to build a stable ID across the mailbox.
@@ -597,7 +597,7 @@ std::string MailUtils::idForMessage(std::string accountId, std::string folderPat
             // occurs and if the message is moved to another folder, but seeing it as a delete +
             // create (and losing metadata) is better than sync thrashing caused by it thinking
             // many UIDs are all the same message.
-            src_str = src_str.append(folderPath + ":" + to_string(msg->uid()));
+            src_str = src_str.append(folderPath + ":" + std::to_string(msg->uid()));
         }
     } else {
         src_str = src_str.append(localTimestampForTime(msg->header()->date()));
@@ -770,7 +770,7 @@ std::condition_variable workerSleepCV;
 
 void MailUtils::sleepWorkerUntilWakeOrSec(int sec) {
     auto desiredTime = std::chrono::system_clock::now();
-    desiredTime += chrono::milliseconds(sec * 1000);
+    desiredTime += std::chrono::milliseconds(sec * 1000);
     std::unique_lock<std::mutex> lck(workerSleepMtx);
     workerSleepCV.wait_until(lck, desiredTime);
 }

@@ -192,7 +192,7 @@ void ValidateRequestResp(CURLcode res, CURL * curl_handle, std::string resp) {
         }
 
         std::string debuginfo = url + " RETURNED " + resp;
-        throw SyncException("Invalid Response Code: " + to_string(http_code), debuginfo, retryable);
+        throw SyncException("Invalid Response Code: " + std::to_string(http_code), debuginfo, retryable);
     }
 }
 

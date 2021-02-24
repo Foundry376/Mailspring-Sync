@@ -72,7 +72,7 @@ void MetadataWorker::run() {
 
 bool MetadataWorker::fetchMetadata(int page) {
     int pageSize = 500;
-    const nlohmann::json & metadata = PerformIdentityRequest("/metadata/" + account->id() + "?limit=" + to_string(pageSize) + "&offset=" + to_string(pageSize * page));
+    const nlohmann::json & metadata = PerformIdentityRequest("/metadata/" + account->id() + "?limit=" + std::to_string(pageSize) + "&offset=" + std::to_string(pageSize * page));
     for (const auto & metadatum : metadata) {
         applyMetadataJSON(metadatum);
     }
@@ -86,7 +86,7 @@ void MetadataWorker::fetchDeltaCursor() {
         throw SyncException("no-cursor", "/delta/head API did not return JSON with a cursor", true);
     }
     if (result["cursor"].is_number()) {
-        setDeltaCursor(to_string(result["cursor"].get<uint64_t>()));
+        setDeltaCursor(std::to_string(result["cursor"].get<uint64_t>()));
     } else {
         setDeltaCursor(result["cursor"]);
     }

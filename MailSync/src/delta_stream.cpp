@@ -104,9 +104,9 @@ DeltaStream::~DeltaStream() {
 nlohmann::json DeltaStream::waitForJSON() {
     try {
         std::string buffer;
-        cin.clear();
-        cin.sync();
-        getline(cin, buffer);
+        std::cin.clear();
+        std::cin.sync();
+        std::getline(std::cin, buffer);
         if (buffer.size() > 0) {
             nlohmann::json j = nlohmann::json::parse(buffer);
             return j;

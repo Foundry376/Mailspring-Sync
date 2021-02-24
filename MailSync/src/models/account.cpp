@@ -81,7 +81,7 @@ std::string Account::refreshClientId() {
 
 unsigned int Account::IMAPPort() {
     nlohmann::json & val = _data["settings"]["imap_port"];
-    return val.is_string() ? stoi(val.get<std::string>()) : val.get<unsigned int>();
+    return val.is_string() ? std::stoi(val.get<std::string>()) : val.get<unsigned int>();
 }
 
 std::string Account::IMAPHost() {
@@ -108,7 +108,7 @@ bool Account::IMAPAllowInsecureSSL() {
 
 unsigned int Account::SMTPPort() {
     nlohmann::json & val = _data["settings"]["smtp_port"];
-    return val.is_string() ? stoi(val.get<std::string>()) : val.get<unsigned int>();
+    return val.is_string() ? std::stoi(val.get<std::string>()) : val.get<unsigned int>();
 }
 
 std::string Account::SMTPHost() {

@@ -57,21 +57,21 @@ if(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   include_directories(Vendor/StanfordCPPLib)
 
   # Include Models
-  include_directories(MailSync MailSync/Models)
+  include_directories(MailSync/include)
 
   # Bundle Mailsync source and dependencies
   file(GLOB SOURCES
-    MailSync/include/*.hpp
-    MailSync/include/models/*.hpp
+    MailSync/include/mailsync/*.hpp
+    MailSync/include/mailsync/models/*.hpp
     MailSync/src/.cpp
     MailSync/src/models/*.cpp
 
     Vendor/icalendarlib/*.h
     Vendor/icalendarlib/*.cpp
 
-    Vendor/nlohmann/*.hpp
-    Vendor/optionparser/*.h
-    Vendor/PicoSHA2/*.h
+    #Vendor/nlohmann/*.hpp
+    #Vendor/optionparser/*.h
+    #Vendor/PicoSHA2/*.h
 
     Vendor/SQLiteCpp/sqlite3/*.[ch]
     Vendor/SQLiteCpp/src/*.[ch]pp

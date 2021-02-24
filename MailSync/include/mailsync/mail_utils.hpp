@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include "MailCore/MailCore.h"
 #include "SQLiteCpp/SQLiteCpp.h"
-#include "nlohmann/nlohmann::json.hpp"
+#include "nlohmannjson.hpp"
 #include "mailsync/xoauth2_token_manager.hpp"
 
 class File;
