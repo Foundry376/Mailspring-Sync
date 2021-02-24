@@ -2,6 +2,8 @@
 #include "mailsync/mail_utils.hpp"
 #include "mailsync/mail_store.hpp"
 
+#include <array>
+
 #define DEFAULT_SUBJECT "unassigned"
 
 
@@ -370,7 +372,7 @@ void Thread::afterSave(MailStore * store) {
         // update the thread counts table. We keep track of our initial / updated
         // unread count and category membership so that we can quickly compute changes
         // to these counters
-        std::map<std::string, array<int, 2>> diffs{};
+        std::map<std::string, std::array<int, 2>> diffs{};
         for (auto& it : _initialCategoryIds) {
             diffs[it.first] = {-it.second, -1};
         }

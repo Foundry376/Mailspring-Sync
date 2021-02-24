@@ -80,8 +80,8 @@ std::string File::filename() {
 }
 
 std::string File::safeFilename() {
-    regex e ("[\\/:|?*><\"#]");
-    return regex_replace (filename(), e, "-");
+    std::regex e ("[\\/:|?*><\"#]");
+    return std::regex_replace (filename(), e, "-");
 }
 
 std::string File::partId() {

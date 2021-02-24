@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 
 #include "mailsync/sync_worker.hpp"
 #include "mailsync/mail_utils.hpp"
@@ -244,7 +245,7 @@ bool SyncWorker::syncNow()
     // Identify folders to sync. On Gmail, labels are mapped to IMAP folders and
     // we only want to sync all, spam, and trash.
 
-    array<std::string, 7> roleOrder{"inbox", "sent", "drafts", "all", "archive", "trash", "spam"};
+    std::array<std::string, 7> roleOrder{"inbox", "sent", "drafts", "all", "archive", "trash", "spam"};
     std::sort(folders.begin(), folders.end(), [&roleOrder](const std::shared_ptr<Folder> lhs, const std::shared_ptr<Folder> rhs) {
         ptrdiff_t lhsRank = find(roleOrder.begin(), roleOrder.end(), lhs->role()) - roleOrder.begin();
         ptrdiff_t rhsRank = find(roleOrder.begin(), roleOrder.end(), rhs->role()) - roleOrder.begin();
