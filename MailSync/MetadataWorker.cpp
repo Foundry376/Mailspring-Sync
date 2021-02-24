@@ -44,6 +44,11 @@ void MetadataWorker::run() {
     deltasCursor = store->getKeyValue("cursor-" + account->id());
     backoffStep = 0;
 
+    if (Identity::GetGlobal() == nullptr) {
+        logger->info("Metadata sync disabled, not logged in.");
+        return;
+    }
+
     while(true) {
         try {
             // If we don't have a cursor (we're just starting for the first time),

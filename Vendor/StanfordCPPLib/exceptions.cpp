@@ -592,6 +592,9 @@ static void stanfordCppLibSignalHandler(int sig) {
     auto logger = spdlog::get("logger");
     if (logger) logger->flush();
 
+    // turn the signal handler off (should run only once; avoid infinite cycle)
+    signalHandlerDisable();
+
     // tailor the error message to the kind of signal that occurred
     std::string msg;
     std::string DEFAULT_EXCEPTION_KIND = "A fatal error";
