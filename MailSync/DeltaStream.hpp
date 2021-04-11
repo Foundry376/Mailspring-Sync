@@ -22,6 +22,7 @@
 #include <mutex>
 #include <condition_variable>
 #include "MailModel.hpp"
+#include "Account.hpp"
 #include "json.hpp"
 #include "spdlog/spdlog.h"
 
@@ -72,6 +73,8 @@ public:
     void emit(DeltaStreamItem item, int maxDeliveryDelay);
     void emit(vector<DeltaStreamItem> items, int maxDeliveryDelay);
     
+    void sendUpdatedSecrets(Account * account);
+
     void beginConnectionError(string accountId);
     void endConnectionError(string accountId);
 };

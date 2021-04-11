@@ -36,6 +36,8 @@ public:
     string valid();
 
     string refreshToken();
+    void setRefreshToken(string value);
+
     string refreshClientId();
     string provider();
     string emailAddress();

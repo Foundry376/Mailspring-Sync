@@ -189,6 +189,12 @@ void DeltaStream::emit(vector<DeltaStreamItem> items, int maxDeliveryDelay) {
     flushWithin(maxDeliveryDelay);
 }
 
+void DeltaStream::sendUpdatedSecrets(Account * account) {
+    vector<json> items {};
+    items.push_back(account->toJSON());
+    emit(DeltaStreamItem("persist", "ProcessAccountSecretsUpdated", items), 0);
+}
+
 void DeltaStream::beginConnectionError(string accountId) {
     connectionError = true;
     vector<json> items {};

@@ -83,6 +83,10 @@ string Account::refreshToken() {
     return _data["settings"]["refresh_token"].get<string>();
 }
 
+void Account::setRefreshToken(string value) {
+    _data["settings"]["refresh_token"] = value;
+}
+
 string Account::refreshClientId() {
     if (_data["settings"].count("refresh_client_id") == 0) {
         return "";

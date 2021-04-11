@@ -12,6 +12,7 @@
 #include "XOAuth2TokenManager.hpp"
 #include "NetworkRequestUtils.hpp"
 #include "SyncException.hpp"
+#include "DeltaStream.hpp"
 
 using namespace nlohmann;
 
@@ -58,6 +59,17 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
         updated["expiry_date"] = time(0) + updated["expires_in"].get<int>();
     } else {
         throw SyncException("invalid-xoauth2-resp", "XOAuth2 token expired and Mailspring no longer does server-side token refresh.", false);
+    }
+
+    if (updated.count("refresh_token")) {
+        auto updatedRefreshToken = updated["refresh_token"].get<string>();
+        if (updatedRefreshToken != account->refreshToken()) {
+            spdlog::get("logger")->info("Saving updated XOAuth2 refresh token ({}) for {}", account->provider(), account->id());
+            account->setRefreshToken(updatedRefreshToken);
+            SharedDeltaStream()->sendUpdatedSecrets(account.get());
+        } else {
+            spdlog::get("logger")->info("XOAuth2 refresh token was returned but matches existing one.");
+        }
     }
 
     XOAuth2Parts parts;
