@@ -288,6 +288,7 @@ int runTestAuth(shared_ptr<Account> account) {
     ErrorCode err = ErrorNone;
     Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
     string errorService = "imap";
+    string containerFolderPath = account->containerFolder();
     string mainPrefix = "";
     
     
@@ -310,7 +311,7 @@ int runTestAuth(shared_ptr<Account> account) {
     for (unsigned int i = 0; i < folders->count(); i ++) {
         // Gmail accounts must have "All Mail" enabled, IMAP accounts must have an Inbox.
         // Ensure we can find at least one folder matching the requirement.
-        string role = MailUtils::roleForFolder(mainPrefix, (IMAPFolder *)folders->objectAtIndex(i));
+        string role = MailUtils::roleForFolder(containerFolderPath, mainPrefix, (IMAPFolder *)folders->objectAtIndex(i));
         if (account->IMAPHost() == "imap.gmail.com") {
             if (role == "all") {
                 err = ErrorNone;

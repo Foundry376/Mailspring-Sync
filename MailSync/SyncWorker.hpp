@@ -69,7 +69,7 @@ public:
 
 private:
     
-    void ensureRootMailspringFolder(Array * remoteFolders);
+    void ensureRootMailspringFolder(vector<string> containerFolderComponents, Array * remoteFolders);
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
         

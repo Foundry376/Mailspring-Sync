@@ -59,9 +59,9 @@ public:
     static string namespacePrefixOrBlank(IMAPSession * session);
 
     static vector<string> roles();
-    static string roleForFolder(string mainPrefix, IMAPFolder * folder);
+    static string roleForFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);
-    static string roleForFolderViaPath(string mainPrefix, IMAPFolder * folder);
+    static string roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
 
     static void setBaseIDVersion(time_t identityCreationDate);
 

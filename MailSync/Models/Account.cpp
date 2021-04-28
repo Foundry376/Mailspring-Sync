@@ -167,3 +167,7 @@ vector<string> Account::columnsForQuery() {
 void Account::bindToQuery(SQLite::Statement * query) {
     assert(false);
 }
+
+string Account::containerFolder() {
+    return _data["containerFolder"].get<string>();
+}

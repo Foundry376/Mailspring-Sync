@@ -61,6 +61,8 @@ public:
 
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
+    
+    string containerFolder();
 };
 
 #endif /* Account_hpp */
