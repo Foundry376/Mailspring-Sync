@@ -347,17 +347,19 @@ string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPr
     if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
         return path.substr(mailspringPrefix.size());
     }
-    
+
            mailspringPrefix = MAILSPRING_FOLDER_PREFIX_V2 + delimiter;
     transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
     if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
         return path.substr(mailspringPrefix.size());
     }
-    
+
+    if (containerFolderPath != "") {
            mailspringPrefix = containerFolderPath + delimiter;
-    transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
-    if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
-        return path.substr(mailspringPrefix.size());
+      transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
+      if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
+         return path.substr(mailspringPrefix.size());
+      }
     }
 
     // Match against a lookup table of common names

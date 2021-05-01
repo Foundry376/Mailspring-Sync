@@ -169,5 +169,6 @@ void Account::bindToQuery(SQLite::Statement * query) {
 }
 
 string Account::containerFolder() {
-    return _data["containerFolder"].get<string>();
+    json & s = _data["settings"];
+    return s.count("container_folder") ? s["container_folder"].get<string>() : "";
 }
