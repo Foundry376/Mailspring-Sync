@@ -274,6 +274,14 @@ bool SyncWorker::syncNow()
             logger->warn("SyncNow: unable to get folder status for {} ({}), skipping...", folder->path(), ErrorCodeToTypeMap[err]);
             continue;
         }
+        
+        // On ProtonMail we use a container folder, all messages are duplicated into All Mail.
+        // They need to be skipped and added to that folder on the client side if necessary.
+        // Note: Check for containerFolder so Gmail "All Mail" is still synced.
+        if (account->containerFolder() != "" && folder->path() == "All Mail") {
+            logger->info("SyncNow: skipped ProtonMail global folder {}", folder->path());
+            continue;
+        }
 
         // Step 1: Check folder UIDValidity
         if (localStatus.empty() || localStatus[LS_UIDVALIDITY].is_null()) {
@@ -685,12 +693,6 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages)
 {
     std::string remotePath = folder.path();
-    // On ProtonMail, all messages are also in All Mail folder.
-    // They need to be skipped and added to that folder on the client side if necessary.
-    if (remotePath == "All Mail") {
-      logger->info("skipped syncFolderUIDRange on global folder {}", remotePath);
-      return;
-    }
     
     // Safety check: "0" is not a valid start and causes the server to return only the last item
     if (range.location == 0) {
