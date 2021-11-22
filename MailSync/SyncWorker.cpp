@@ -448,9 +448,13 @@ bool SyncWorker::syncNow()
     return syncAgainImmediately;
 }
 
-void SyncWorker::ensureRootMailspringFolder(Array * remoteFolders)
+void SyncWorker::ensureRootMailspringFolder(vector<string> containerFolderComponents, Array * remoteFolders)
 {
-    auto components = Array::arrayWithObject(AS_MCSTR(MAILSPRING_FOLDER_PREFIX_V2));
+    auto components = Array::array();
+    for (string containerFolderComponent : containerFolderComponents) {
+      components->addObject(AS_MCSTR(containerFolderComponent));
+    }
+    
     String * desiredPath = session.defaultNamespace()->pathForComponents(components);
     
     bool exists = false;
@@ -476,8 +480,23 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 {
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
-
-    logger->info("Syncing folder list...");
+    
+    string containerFolderPath = account->containerFolder();
+    vector<string> containerFolderComponents;
+    
+    if (containerFolderPath == "" || containerFolderPath == MAILSPRING_FOLDER_PREFIX_V2) {
+      logger->info("Syncing folder list...");
+      containerFolderComponents.push_back(MAILSPRING_FOLDER_PREFIX_V2);
+    } else {
+      logger->info("Syncing folder list on custom container folder {} ...", containerFolderPath);
+      
+      std::stringstream data(containerFolderPath);
+      std::string folder;
+      while(std::getline(data, folder, '/'))
+      {
+        containerFolderComponents.push_back(folder);
+      }
+    }
     
     ErrorCode err = ErrorCode::ErrorNone;
     Array * remoteFolders = session.fetchAllFolders(&err);
@@ -497,23 +516,25 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         string mailspringRole = mailspringFolder;
         transform(mailspringRole.begin(), mailspringRole.end(), mailspringRole.begin(), ::tolower);
 
-        bool found = false;
+        bool exists = false;
         for (int ii = ((int)remoteFolders->count()) - 1; ii >= 0; ii--) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-            string remoteRole = MailUtils::roleForFolder(mainPrefix, remote);
+            string remoteRole = MailUtils::roleForFolder(containerFolderPath, mainPrefix, remote);
             if (remoteRole == mailspringRole) {
-                found = true;
+                exists = true;
                 break;
             }
         }
-        if (!found) {
+        if (!exists) {
             if (!ensuredRoot) {
-                ensureRootMailspringFolder(remoteFolders);
+                ensureRootMailspringFolder(containerFolderComponents, remoteFolders);
                 ensuredRoot = true;
             }
             
             auto components = Array::array();
-            components->addObject(AS_MCSTR(MAILSPRING_FOLDER_PREFIX_V2));
+            for (string containerFolderComponent : containerFolderComponents) {
+              components->addObject(AS_MCSTR(containerFolderComponent));
+            }
             components->addObject(AS_MCSTR(mailspringFolder));
             String * desiredPath = session.defaultNamespace()->pathForComponents(components);
             session.createFolder(desiredPath, &err);
@@ -631,7 +652,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             // find a folder that matches the name
             for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
                 IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-                string cr = MailUtils::roleForFolderViaPath(mainPrefix, remote);
+                string cr = MailUtils::roleForFolderViaPath(containerFolderPath, mainPrefix, remote);
                 if (cr != role) {
                     continue;
                 }
@@ -663,6 +684,14 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 
 void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages)
 {
+    std::string remotePath = folder.path();
+    // On ProtonMail, all messages are also in All Mail folder.
+    // They need to be skipped and added to that folder on the client side if necessary.
+    if (remotePath == "All Mail") {
+      logger->info("skipped syncFolderUIDRange on global folder {}", remotePath);
+      return;
+    }
+    
     // Safety check: "0" is not a valid start and causes the server to return only the last item
     if (range.location == 0) {
         range.location = 1;
@@ -674,14 +703,14 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         heavyInitialRequest = false;
     }
 
-    logger->info("syncFolderUIDRange for {}, UIDs: {} - {}, Heavy: {}", folder.path(), range.location, range.location + range.length, heavyInitialRequest);
+    logger->info("syncFolderUIDRange for {}, UIDs: {} - {}, Heavy: {}", remotePath, range.location, range.location + range.length, heavyInitialRequest);
 
     AutoreleasePool pool;
     IndexSet * set = IndexSet::indexSetWithRange(range);
     IndexSet * heavyNeeded = new IndexSet();
     IMAPProgress cb;
     ErrorCode err(ErrorCode::ErrorNone);
-    String path(AS_MCSTR(folder.path()));
+    String path(AS_MCSTR(remotePath));
     int heavyNeededIdeal = 0;
     
     // Step 1: Fetch the local attributes (unread, starred, etc.)
@@ -701,7 +730,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
 
     clock_t lastSleepClock = clock();
 
-    logger->info("- remote={}, local={}", remote->count(), local.size());
+    logger->info("- {}: remote={}, local={}, remoteUID={}", remotePath, remote->count(), local.size(), folder.id());
 
     for (int ii = ((int)remote->count()) - 1; ii >= 0; ii--) {
         // Never sit in a hard loop inserting things into the database for more than 250ms.
