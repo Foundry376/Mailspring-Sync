@@ -275,14 +275,6 @@ bool SyncWorker::syncNow()
             continue;
         }
         
-        // On ProtonMail we use a container folder, all messages are duplicated into All Mail.
-        // They need to be skipped and added to that folder on the client side if necessary.
-        // Note: Check for containerFolder so Gmail "All Mail" is still synced.
-        if (account->containerFolder() != "" && folder->path() == "All Mail") {
-            logger->info("SyncNow: skipped ProtonMail global folder {}", folder->path());
-            continue;
-        }
-
         // Step 1: Check folder UIDValidity
         if (localStatus.empty() || localStatus[LS_UIDVALIDITY].is_null()) {
             // We're about to fetch the top N UIDs in the folder and start working backwards in time.
@@ -298,6 +290,21 @@ bool SyncWorker::syncNow()
             firstChunk = true;
         }
         
+        // Step 1.5: Should we skip this folder?
+        // On ProtonMail we use a container folder, all messages are duplicated into All Mail.
+        // They need to be skipped and added to that folder on the client side if necessary.
+        // Note: Check for containerFolder so Gmail "All Mail" is still synced.
+        if (account->containerFolder() != "" && folder->path() == "All Mail") {
+            logger->info("SyncNow: skipped ProtonMail global folder {}", folder->path());
+            localStatus[LS_LAST_SHALLOW] = time(0); // pretend we synced now
+            localStatus[LS_LAST_DEEP] = time(0);
+            localStatus[LS_BODIES_WANTED] = 0; // pretend we want no message contents
+            localStatus[LS_SYNCED_MIN_UID] = 1; // pretend we have scanned all the way to the oldest message
+            localStatus[LS_UIDNEXT] = remoteStatus.uidNext();
+            store->saveFolderStatus(folder.get(), initialLocalStatus);
+            continue;
+        }
+
         if (localStatus[LS_UIDVALIDITY].get<uint32_t>() != remoteStatus.uidValidity()) {
             // UID Invalidity means that the UIDs the server previously reported for messages
             // in this folder can no longer be used. To recover from this, we need to:
