@@ -1,0 +1,74 @@
+sudo: true
+
+git:
+  submodules: false
+
+language: cpp
+
+addons:
+  artifacts:
+    working_dir: ../app/dist
+    target_paths: mailsync/${TRAVIS_COMMIT:0:8}/${TRAVIS_OS_NAME}
+    permissions: public-read
+    paths:
+      - mailsync.tar.gz
+  apt:
+    sources:
+      - ubuntu-toolchain-r-test
+    packages:
+      - autoconf
+      - automake
+      - build-essential
+      - clang
+      - cmake
+      - execstack
+      - fakeroot
+      - g++-5
+      - git
+      - libc-ares-dev
+      - libctemplate-dev
+      - libcurl4-openssl-dev
+      - libglib2.0-dev
+      - libgnome-keyring-dev
+      - libicu-dev
+      - libsasl2-dev
+      - libsasl2-modules
+      - libsasl2-modules-gssapi-mit
+      - libsecret-1-dev
+      - libssl-dev
+      - libtidy-dev
+      - libtool
+      - libxext-dev
+      - libxkbfile-dev
+      - libxml2-dev
+      - libxtst-dev
+      - rpm
+      - uuid-dev
+      - xvfb
+
+branches:
+  only:
+    - master
+    - '/ci-.*/'
+    - '/stable.*/'
+
+matrix:
+  include:
+    - os: linux
+      env: CC=gcc-5 CXX=g++-5
+      dist: xenial
+    - os: osx
+      osx_image: xcode10.1
+      env: CC=clang CXX=clang++
+
+before_script:
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then Xvfb :99 & export DISPLAY=:99.0; fi
+
+script:
+  - mkdir ../app
+  - mkdir ../app/dist
+  - ./build.sh
+
+cache:
+  directories:
+    - /tmp/mailsync-build-deps-v2
