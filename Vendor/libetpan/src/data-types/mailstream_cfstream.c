@@ -223,7 +223,7 @@ mailstream * mailstream_cfstream_open_voip_timeout(const char * hostname, int16_
   if (low == NULL) {
     return NULL;
   }
-  s = mailstream_new(low, 8192);
+  s = mailstream_new(low, 4096);
   return s;
 #else
   return NULL;
