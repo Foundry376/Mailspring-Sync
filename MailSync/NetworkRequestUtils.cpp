@@ -80,13 +80,7 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Accept: application/json");
     headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
-    if (provider == "office365") {
-        // workaround "AADSTS9002327: Tokens issued for the 'Single-Page Application' client-type
-        // may only be redeemed via cross-origin requests"
-        headers = curl_slist_append(headers, "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Mailspring/1.7.8 Chrome/69.0.3497.128 Electron/4.2.12 Safari/537.36");
-        headers = curl_slist_append(headers, "Origin: null");
 
-    }
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, "POST");
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payload.c_str());
