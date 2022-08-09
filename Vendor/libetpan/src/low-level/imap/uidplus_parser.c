@@ -360,7 +360,6 @@ static int mailimap_uidplus_resp_code_parse(mailstream * fd, MMAPString * buffer
   cur_token = * indx;
   
   resp_code_apnd = NULL;
-  resp_code_copy = NULL;
   r = mailimap_resp_code_apnd_parse(fd, buffer, parser_ctx, &cur_token, &resp_code_apnd);
   if (r == MAILIMAP_NO_ERROR) {
     ext = mailimap_extension_data_new(&mailimap_extension_uidplus,
@@ -395,7 +394,7 @@ static int mailimap_uidplus_resp_code_parse(mailstream * fd, MMAPString * buffer
   r = mailimap_uidplus_uidnotsticky_parse(fd, buffer, parser_ctx, &cur_token);
   if (r == MAILIMAP_NO_ERROR) {
     ext = mailimap_extension_data_new(&mailimap_extension_uidplus,
-        MAILIMAP_UIDPLUS_RESP_CODE_UIDNOTSTICKY, resp_code_copy);
+        MAILIMAP_UIDPLUS_RESP_CODE_UIDNOTSTICKY, NULL);
     if (ext == NULL) {
       mailimap_uidplus_resp_code_copy_free(resp_code_copy);
       return MAILIMAP_ERROR_MEMORY;
