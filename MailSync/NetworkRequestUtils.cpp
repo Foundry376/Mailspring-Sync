@@ -77,6 +77,21 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
         // separately. The same refresh token will give you access tokens, but the access tokens are different.
         payload += "&scope=https%3A%2F%2Foutlook.office365.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office365.com%2FSMTP.Send";
     }
+
+    string gmailClientId = MailUtils::getEnvUTF8("GMAIL_CLIENT_ID");
+    string gmailClientSecret = MailUtils::getEnvUTF8("GMAIL_CLIENT_SECRET");
+    spdlog::get("logger")->info(gmailClientId);
+    spdlog::get("logger")->info(gmailClientSecret);
+    spdlog::get("logger")->info(clientId);
+    
+    if (provider == "gmail" && clientId == gmailClientId) {
+        // per https://stackoverflow.com/questions/59416326/safely-distribute-oauth-2-0-client-secret-in-desktop-applications-in-python,
+        // we really do need to embed this in the application and it's more an extension of the Client ID than a proper Client Secret.
+        // For a full explanation, see onboarding-helpers.ts in Mailspring. Please don't re-use this client id + secret in derivative
+        // works or other products.
+        payload += "&client_secret=" + gmailClientSecret;
+    }
+
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Accept: application/json");
     headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
