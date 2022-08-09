@@ -80,10 +80,6 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
 
     string gmailClientId = MailUtils::getEnvUTF8("GMAIL_CLIENT_ID");
     string gmailClientSecret = MailUtils::getEnvUTF8("GMAIL_CLIENT_SECRET");
-    spdlog::get("logger")->info(gmailClientId);
-    spdlog::get("logger")->info(gmailClientSecret);
-    spdlog::get("logger")->info(clientId);
-    
     if (provider == "gmail" && clientId == gmailClientId) {
         // per https://stackoverflow.com/questions/59416326/safely-distribute-oauth-2-0-client-secret-in-desktop-applications-in-python,
         // we really do need to embed this in the application and it's more an extension of the Client ID than a proper Client Secret.

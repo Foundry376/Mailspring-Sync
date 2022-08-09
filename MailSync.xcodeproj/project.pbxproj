@@ -857,6 +857,7 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Vendor/mailcore2/Externals/ctemplate-osx/lib",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 10.10;
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
 					"-Wno-ambiguous-macro",
@@ -898,6 +899,7 @@
 					"$(inherited)",
 					"$(PROJECT_DIR)/Vendor/mailcore2/Externals/ctemplate-osx/lib",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 10.10;
 				OTHER_CFLAGS = (
 					"-DHAVE_USLEEP=1",
 					"-Wno-ambiguous-macro",
