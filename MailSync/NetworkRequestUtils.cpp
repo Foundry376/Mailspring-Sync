@@ -77,16 +77,21 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
         // separately. The same refresh token will give you access tokens, but the access tokens are different.
         payload += "&scope=https%3A%2F%2Foutlook.office365.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office365.com%2FSMTP.Send";
     }
+
+    string gmailClientId = MailUtils::getEnvUTF8("GMAIL_CLIENT_ID");
+    string gmailClientSecret = MailUtils::getEnvUTF8("GMAIL_CLIENT_SECRET");
+    if (provider == "gmail" && clientId == gmailClientId) {
+        // per https://stackoverflow.com/questions/59416326/safely-distribute-oauth-2-0-client-secret-in-desktop-applications-in-python,
+        // we really do need to embed this in the application and it's more an extension of the Client ID than a proper Client Secret.
+        // For a full explanation, see onboarding-helpers.ts in Mailspring. Please don't re-use this client id + secret in derivative
+        // works or other products.
+        payload += "&client_secret=" + gmailClientSecret;
+    }
+
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Accept: application/json");
     headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
-    if (provider == "office365") {
-        // workaround "AADSTS9002327: Tokens issued for the 'Single-Page Application' client-type
-        // may only be redeemed via cross-origin requests"
-        headers = curl_slist_append(headers, "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Mailspring/1.7.8 Chrome/69.0.3497.128 Electron/4.2.12 Safari/537.36");
-        headers = curl_slist_append(headers, "Origin: null");
 
-    }
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, "POST");
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payload.c_str());

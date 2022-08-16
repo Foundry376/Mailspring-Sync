@@ -49,6 +49,12 @@
 #include "mail.h"
 #include "timeutils.h"
 
+#ifdef _WIN32
+#   ifdef _MSC_VER
+#   include "win_etpan.h"
+#   endif
+#endif
+
 #ifndef UNSTRICT_SYNTAX
 #define UNSTRICT_SYNTAX
 #endif
@@ -4509,11 +4515,13 @@ int mailimap_hack_date_time_parse(char * str,
   r = mailimap_date_time_no_quote_parse(fd, buffer, NULL, &cur_token, &date_time,
                                         progr_rate, progr_fun);
   if (r != MAILIMAP_NO_ERROR) {
+    mmap_string_free(buffer);
     return r;
   }
   
   * result = date_time;
   
+  mmap_string_free(buffer);
   return MAILIMAP_NO_ERROR;
 }
 
@@ -4854,6 +4862,7 @@ static int mailimap_envelope_parse_workaround_qq_mail(mailstream * fd, MMAPStrin
   message_id = NULL;
   first_string = NULL;
   second_string = NULL;
+  res = MAILIMAP_ERROR_PARSE;
 
   cur_token = * indx;
 
@@ -6015,11 +6024,11 @@ static int mailimap_literal_parse_progress(mailstream * fd, MMAPString * buffer,
 		mailimap_space_parse(fd, buffer, &cur_token);
 		mailimap_space_parse(fd, buffer, &cur_token);
 	}
-	else if (r != MAILIMAP_NO_ERROR) {
+  else if (r != MAILIMAP_NO_ERROR) {
     res = r;
     goto err;
   }
-  
+
   if (use_msg_body_handler) {
     literal = mmap_string_new("");
   }

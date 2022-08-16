@@ -1173,7 +1173,6 @@ int mailimf_atom_parse(const char * message, size_t length,
   return res;
 }
 
-
 static int mailimf_fws_atom_for_word_parse(const char * message, size_t length,
                                            size_t * indx, char ** result, int * p_missing_closing_quote)
 {
@@ -1416,8 +1415,8 @@ int mailimf_quoted_string_parse(const char * message, size_t length,
     r = mailimf_fws_parse(message, length, &cur_token);
     if (r == MAILIMF_NO_ERROR) {
       if (mmap_string_append_c(gstr, ' ') == NULL) {
-	res = MAILIMF_ERROR_MEMORY;
-	goto free_gstr;
+        res = MAILIMF_ERROR_MEMORY;
+        goto free_gstr;
       }
     }
     else if (r != MAILIMF_ERROR_PARSE) {
@@ -1428,8 +1427,8 @@ int mailimf_quoted_string_parse(const char * message, size_t length,
     r = mailimf_qcontent_parse(message, length, &cur_token, &ch);
     if (r == MAILIMF_NO_ERROR) {
       if (mmap_string_append_c(gstr, ch) == NULL) {
-	res = MAILIMF_ERROR_MEMORY;
-	goto free_gstr;
+        res = MAILIMF_ERROR_MEMORY;
+        goto free_gstr;
       }
     }
     else if (r == MAILIMF_ERROR_PARSE)
@@ -1513,8 +1512,8 @@ int mailimf_fws_quoted_string_parse(const char * message, size_t length,
     r = mailimf_fws_parse(message, length, &cur_token);
     if (r == MAILIMF_NO_ERROR) {
       if (mmap_string_append_c(gstr, ' ') == NULL) {
-	res = MAILIMF_ERROR_MEMORY;
-	goto free_gstr;
+        res = MAILIMF_ERROR_MEMORY;
+        goto free_gstr;
       }
     }
     else if (r != MAILIMF_ERROR_PARSE) {
@@ -1525,8 +1524,8 @@ int mailimf_fws_quoted_string_parse(const char * message, size_t length,
     r = mailimf_qcontent_parse(message, length, &cur_token, &ch);
     if (r == MAILIMF_NO_ERROR) {
       if (mmap_string_append_c(gstr, ch) == NULL) {
-	res = MAILIMF_ERROR_MEMORY;
-	goto free_gstr;
+        res = MAILIMF_ERROR_MEMORY;
+        goto free_gstr;
       }
     }
     else if (r == MAILIMF_ERROR_PARSE)
@@ -1535,12 +1534,12 @@ int mailimf_fws_quoted_string_parse(const char * message, size_t length,
       res = r;
       goto free_gstr;
     }
-  }
+    }
 
-  r = mailimf_dquote_parse(message, length, &cur_token);
-  if (r != MAILIMF_NO_ERROR) {
-    res = r;
-    goto free_gstr;
+    r = mailimf_dquote_parse(message, length, &cur_token);
+    if (r != MAILIMF_NO_ERROR) {
+      res = r;
+      goto free_gstr;
   }
 
 #if 0
@@ -6504,7 +6503,7 @@ mailimf_resent_bcc_parse(const char * message, size_t length,
   * result = bcc;
   * indx = cur_token;
 
-  return TRUE;
+  return MAILIMF_NO_ERROR;
 
  free_addr_list:
   mailimf_address_list_free(addr_list);

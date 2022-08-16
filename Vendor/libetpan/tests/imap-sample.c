@@ -6,9 +6,9 @@ static void check_error(int r, char * msg)
 {
 	if (r == MAILIMAP_NO_ERROR)
 		return;
-  if (r == MAILIMAP_NO_ERROR_AUTHENTICATED)
+	if (r == MAILIMAP_NO_ERROR_AUTHENTICATED)
 		return;
-  if (r == MAILIMAP_NO_ERROR_NON_AUTHENTICATED)
+	if (r == MAILIMAP_NO_ERROR_NON_AUTHENTICATED)
 		return;
 	
 	fprintf(stderr, "%s\n", msg);
@@ -43,7 +43,7 @@ static char * get_msg_content(clist * fetch_result, size_t * p_msg_size)
 {
 	clistiter * cur;
 	
-  /* for each message (there will be probably only on message) */
+  /* for each message (there will probably be only one message) */
 	for(cur = clist_begin(fetch_result) ; cur != NULL ; cur = clist_next(cur)) {
 		struct mailimap_msg_att * msg_att;
 		size_t msg_size;

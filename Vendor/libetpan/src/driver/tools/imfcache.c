@@ -412,7 +412,7 @@ static int mailimf_cache_field_write(MMAPString * mmapstr, size_t * indx,
         field->fld_data.fld_subject);
     break;
   default:
-    r = 0;
+    r = MAIL_NO_ERROR;
     break;
   }
 
