@@ -420,7 +420,7 @@ mailstream * mailstream_socket_open_timeout(int fd, time_t timeout)
     goto err;
 	mailstream_low_set_timeout(low, timeout);
 
-  s = mailstream_new(low, 8192);
+  s = mailstream_new(low, 4096);
   if (s == NULL)
     goto free_low;
 

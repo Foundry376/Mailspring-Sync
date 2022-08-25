@@ -1134,7 +1134,7 @@ mailstream * mailstream_ssl_open_with_callback_timeout(int fd, time_t timeout,
   if (low == NULL)
     goto err;
 
-  s = mailstream_new(low, 8192);
+  s = mailstream_new(low, 4096);
   if (s == NULL)
     goto free_low;
 
