@@ -710,7 +710,57 @@ void SMTPSession::checkAccount(Address * from, ErrorCode * pError)
         * pError = ErrorInvalidRelaySMTP;
         return;
     }
-    
+
+    // build the MIME message
+    MessageBuilder builder;
+    builder.header()->setSubject(MCSTR("Mailspring SMTP Test Email"));
+    builder.header()->setUserAgent(MCSTR("Mailspring"));
+    builder.header()->setDate(time(0));
+
+    Array* to = new Array();
+    to->addObject(Address::addressWithDisplayName(MCSTR("Mailspring Team"), from->mailbox()));
+    builder.header()->setTo(to);
+
+    Array* replyTo = new Array();
+    Address* me = Address::addressWithMailbox(from->mailbox());
+    replyTo->addObject(me);
+
+    builder.header()->setReplyTo(replyTo);
+    builder.header()->setFrom(me);
+    builder.setTextBody(MCSTR(
+        "This is an email sent by Mailspring while we were testing your account config.\r\n\r\n"
+        "As you've received it, everything must be a-ok.\r\n\r\n"
+        "Kind regards,\r\nThe Mailspring Team\r\n\r\n"
+        "P.S. a massive thank you for using Mailspring. We'll love you always!"
+    ));
+
+    // Save the message data / body we'll write to the sent folder
+    Data* messageData = builder.data();
+
+    r = mailsmtp_data(mSmtp);
+    saveLastResponse();
+    if (r == MAILSMTP_ERROR_STREAM) {
+        *pError = ErrorConnection;
+        mShouldDisconnect = true;
+        return;
+    }
+    else if (r != MAILSMTP_NO_ERROR) {
+        *pError = ErrorInvalidRelaySMTP;
+        return;
+    }
+
+    r = mailsmtp_data_message(mSmtp, messageData->bytes(), messageData->length());
+    saveLastResponse();
+    if (r == MAILSMTP_ERROR_STREAM) {
+        *pError = ErrorConnection;
+        mShouldDisconnect = true;
+        return;
+    }
+    else if (r != MAILSMTP_NO_ERROR) {
+        *pError = ErrorInvalidRelaySMTP;
+        return;
+    }
+
     * pError = ErrorNone;
 }
 
