@@ -717,16 +717,17 @@ void SMTPSession::checkAccount(Address * from, ErrorCode * pError)
     builder.header()->setUserAgent(MCSTR("Mailspring"));
     builder.header()->setDate(time(0));
 
+    Address* me = Address::addressWithMailbox(from->mailbox());
+
     Array* to = new Array();
-    to->addObject(Address::addressWithDisplayName(MCSTR("Mailspring Team"), from->mailbox()));
+    to->addObject(me);
     builder.header()->setTo(to);
 
     Array* replyTo = new Array();
-    Address* me = Address::addressWithMailbox(from->mailbox());
     replyTo->addObject(me);
 
     builder.header()->setReplyTo(replyTo);
-    builder.header()->setFrom(me);
+    builder.header()->setFrom(Address::addressWithDisplayName(MCSTR("Mailspring Team"), from->mailbox()));
     builder.setTextBody(MCSTR(
         "This is an email sent by Mailspring while we were testing your account config.\r\n\r\n"
         "As you've received it, everything must be a-ok.\r\n\r\n"
