@@ -1333,6 +1333,30 @@
             "trash": "Deleted Items"
         }
     },
+    "office365us": {
+        "servers": {
+            "imap": [
+                {
+                    "port": 993,
+                    "hostname": "outlook.office365.us",
+                    "ssl": true
+                }
+            ],
+            "smtp": [
+                {
+                    "port": 587,
+                    "hostname": "smtp.office365.us",
+                    "starttls": true
+                }
+            ]
+        },
+        "mailboxes": {
+            "drafts": "Drafts",
+            "spam": "Junk Email",
+            "sentmail": "Sent Items",
+            "trash": "Deleted Items"
+        }
+    },
     "wp.pl": {
         "servers": {
             "imap": [
