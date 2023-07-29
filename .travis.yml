@@ -36,6 +36,8 @@ addons:
       - libsasl2-modules-gssapi-mit
       - libsecret-1-dev
       - libssl-dev
+      - libnss3=2:3.28.4-0ubuntu0.16.04.14
+      - libnss3-dev
       - libtidy-dev
       - libtool
       - libxext-dev
