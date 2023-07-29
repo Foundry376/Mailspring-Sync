@@ -275,8 +275,11 @@ void GoogleContactsWorker::upsertContact(shared_ptr<Contact> contact) {
 }
 
 void GoogleContactsWorker::applyJSONToContact(shared_ptr<Contact> local, const json & conn) {
-    auto primaryName = conn.count("names") ? conn["names"][0].value("displayName", "").get<string>() : "";
-    auto primaryEmail = conn.count("emailAddresses") ? conn["emailAddresses"][0].value("value", "").get<string>() : "";
+    auto primaryName = (conn.count("names") && conn["names"][0].count("displayName"))
+        ? conn["names"][0]["displayName"].get<string>() : "";
+    auto primaryEmail = (conn.count("emailAddresses") && conn["emailAddresses"][0].count("value"))
+        ? conn["emailAddresses"][0]["value"].get<string>() : "";
+
     local->setEmail(primaryEmail);
     local->setName(primaryName);
     local->setInfo(conn);
