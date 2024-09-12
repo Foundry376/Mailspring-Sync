@@ -35,6 +35,7 @@
 #include <libetpan/mailstream.h>
 
 struct mailimap_extension_data;
+struct mailimap_parser_context;
 
 /*
   this is the list of known extensions with the purpose to
