@@ -41,7 +41,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   else
     echo "Building and installing openssl-1.1.0f"
     cd "$DEP_BUILDS_DIR"
-    wget -q https://ftp.openssl.org/source/old/1.1.0/openssl-1.1.0f.tar.gz
+    wget -q https://openssl.org/source/openssl-1.1.0f.tar.gz
     tar -xzf openssl-1.1.0f.tar.gz
     cd openssl-1.1.0f
     sudo ./config --prefix=/opt/openssl --openssldir=/opt/openssl shared
