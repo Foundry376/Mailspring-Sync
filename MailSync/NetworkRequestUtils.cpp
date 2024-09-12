@@ -64,6 +64,7 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
     const char * url =
           provider == "gmail" ? "https://www.googleapis.com/oauth2/v4/token"
         : provider == "office365" ? "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        : provider == "office365us" ? "https://login.microsoftonline.us/common/oauth2/v2.0/token"
         : "";
     curl_easy_setopt(curl_handle, CURLOPT_URL, url);
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
@@ -76,6 +77,10 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
         // have to get a separate token for outlook (email + IMAP) and contacts / calendar / Microsoft Graph APIs
         // separately. The same refresh token will give you access tokens, but the access tokens are different.
         payload += "&scope=https%3A%2F%2Foutlook.office.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send";
+    }
+    else if (provider == "office365us") {
+        // gcc cloud works similarly to above.
+        payload += "&scope=https%3A%2F%2Foutlook.office365.us%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office365.us%2FSMTP.Send";
     }
 
     string gmailClientId = MailUtils::getEnvUTF8("GMAIL_CLIENT_ID");
