@@ -64,6 +64,7 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
     const char * url =
           provider == "gmail" ? "https://www.googleapis.com/oauth2/v4/token"
         : provider == "office365" ? "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        : provider == "outlook" ? "https://login.microsoftonline.com/common/oauth2/v2.0/token"
         : "";
     curl_easy_setopt(curl_handle, CURLOPT_URL, url);
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
@@ -71,7 +72,7 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
     auto c = curl_easy_escape(curl_handle, clientId.c_str(), 0);
     auto r = curl_easy_escape(curl_handle, refreshToken.c_str(), 0);
     string payload = "grant_type=refresh_token&client_id=" + string(c) + "&refresh_token=" + string(r);
-    if (provider == "office365") {
+    if (provider == "office365" || provider == "outlook") {
         // workaround the fact that Microsoft's OAUTH flow allows you to authorize many scopes, but you
         // have to get a separate token for outlook (email + IMAP) and contacts / calendar / Microsoft Graph APIs
         // separately. The same refresh token will give you access tokens, but the access tokens are different.
