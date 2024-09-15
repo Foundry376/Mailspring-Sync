@@ -444,7 +444,7 @@ build_headers.bat
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>MAILCORE_DLL;ZLIB_DLL;_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MAILCORE_DLL;ZLIB_DLL;_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS;_WINDLL;HAVE_STRUCT_TIMESPEC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory);..\..\include;..\..\..\Externals\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\imap;..\..\..\src\core\pop;..\..\..\src\core\nntp;..\..\..\src\core\smtp</AdditionalIncludeDirectories>
     </ClCompile>
@@ -464,7 +464,7 @@ build_headers.bat
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <PreprocessorDefinitions>MAILCORE_DLL;ZLIB_DLL;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MAILCORE_DLL;ZLIB_DLL;_WINDLL;HAVE_STRUCT_TIMESPEC;_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory);..\..\include;..\..\..\Externals\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\imap;..\..\..\src\core\pop;..\..\..\src\core\nntp;..\..\..\src\core\smtp</AdditionalIncludeDirectories>
     </ClCompile>
