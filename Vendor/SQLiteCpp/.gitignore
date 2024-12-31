@@ -1,10 +1,14 @@
 Debug
 Release
 build
-example1
 *.a
 
-/SQLiteCpp.sln
+# ignore clangd cache directory
+.cache
+.vs/
+.vscode/
+.vsconfig
+*.sln
 *.ncb
 *.suo
 *.user
@@ -16,9 +20,10 @@ core
 *ipch
 .settings/
 
+# do not track Visual Studio CMake settings
+CMakeSettings.json
 CMakeCache.txt
 CMakeFiles
-*.cmake
 *.dir
 Testing
 Win32
