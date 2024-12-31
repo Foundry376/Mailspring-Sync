@@ -1,0 +1,73 @@
+name: Build and Upload Artifacts
+
+on:
+  push:
+    branches:
+      - master
+      - 'ci-*'
+      - 'stable*'
+  pull_request:
+    branches:
+      - master
+      - 'ci-*'
+      - 'stable*'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-13]
+        include:
+          - os: ubuntu-22.04
+            env: CC=gcc-5 CXX=g++-5
+          - os: macos-13
+            osx_image: xcode13.2
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            autoconf automake build-essential clang cmake execstack fakeroot \
+            g++-5 git libc-ares-dev libctemplate-dev libcurl4-openssl-dev \
+            libglib2.0-dev libgnome-keyring-dev libicu-dev libsasl2-dev \
+            libsasl2-modules libsasl2-modules-gssapi-mit libsecret-1-dev \
+            libssl-dev libnss3=2:3.28.4-0ubuntu0.16.04.14 libnss3-dev \
+            libtidy-dev libtool libxext-dev libxkbfile-dev libxml2-dev \
+            libxtst-dev rpm uuid-dev xvfb
+
+      - name: Start Xvfb for Linux
+        if: runner.os == 'Linux'
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            Xvfb :99 & export DISPLAY=:99.0
+          fi
+
+      - name: Create directories
+        run: |
+          mkdir -p ../app
+          mkdir -p ../app/dist
+
+      - name: Run build script
+        run: ./build.sh
+
+      - name: Upload artifact (Linux/macOS)
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: mailsync-${GITHUB_SHA:0:8}-${{ runner.os }}
+          path: ../app/dist/mailsync.tar.gz
+
+      - name: Cache build dependencies
+        uses: actions/cache@v3
+        with:
+          path: /tmp/mailsync-build-deps-v2
+          key: ${{ runner.os }}-mailsync-deps-${{ hashFiles('**/build.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-mailsync-deps-

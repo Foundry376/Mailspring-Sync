@@ -59,8 +59,6 @@ matrix:
     - os: linux
       env: CC=gcc-5 CXX=g++-5
       dist: xenial
-    - os: osx
-      osx_image: xcode13.2
 
 before_script:
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then Xvfb :99 & export DISPLAY=:99.0; fi
