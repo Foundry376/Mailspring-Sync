@@ -60,7 +60,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     # is too old. We need v7.46 or greater.
     echo "Building and installing curl-7.70.0..."
     cd "$DEP_BUILDS_DIR"
-    sudo apt-get build-dep curl
+    sudo apt-get -y build-dep curl
     wget -q http://curl.haxx.se/download/curl-7.70.0.tar.bz2
     tar -xjf curl-7.70.0.tar.bz2
     cd curl-7.70.0
