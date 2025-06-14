@@ -213,6 +213,60 @@ static vector<string> V8_SETUP_QUERIES = {
     "CREATE TABLE `ContactBook` (`id` varchar(40),`accountId` varchar(40), `data` BLOB, `version` INTEGER, PRIMARY KEY (id));",
 };
 
+static vector<string> V9_SETUP_QUERIES = {
+    // 创建 ThreadChatMessage 表
+    "CREATE TABLE IF NOT EXISTS `ThreadChatMessage` ("
+        "id VARCHAR(40) PRIMARY KEY,"
+        "threadId VARCHAR(40) NOT NULL,"
+        "accountId VARCHAR(8) NOT NULL,"
+        "version INTEGER NOT NULL DEFAULT 1,"
+        "messageType VARCHAR(20) NOT NULL,"
+        "content TEXT NOT NULL,"
+        "aiProvider VARCHAR(20) NOT NULL,"
+        "conversationId VARCHAR(100),"
+        "likeCount INTEGER DEFAULT 0,"
+        "unlikeCount INTEGER DEFAULT 0,"
+        "createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,"
+        "updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,"
+        "FOREIGN KEY (threadId) REFERENCES Thread(id) ON DELETE CASCADE,"
+        "FOREIGN KEY (accountId) REFERENCES Account(id) ON DELETE CASCADE"
+    ")",
+
+    // 创建 MessageChatMessage 表
+    "CREATE TABLE IF NOT EXISTS `MessageChatMessage` ("
+        "id VARCHAR(40) PRIMARY KEY,"
+        "messageId VARCHAR(40) NOT NULL,"
+        "accountId VARCHAR(8) NOT NULL,"
+        "version INTEGER NOT NULL DEFAULT 1,"
+        "messageType VARCHAR(20) NOT NULL,"
+        "content TEXT NOT NULL,"
+        "aiProvider VARCHAR(20) NOT NULL,"
+        "contextData TEXT,"
+        "likeCount INTEGER DEFAULT 0,"
+        "unlikeCount INTEGER DEFAULT 0,"
+        "createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,"
+        "updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,"
+        "FOREIGN KEY (messageId) REFERENCES Message(id) ON DELETE CASCADE,"
+        "FOREIGN KEY (accountId) REFERENCES Account(id) ON DELETE CASCADE"
+    ")",
+
+    // 创建 ChatMessageReaction 表
+    "CREATE TABLE IF NOT EXISTS `ChatMessageReaction` ("
+        "id VARCHAR(40) PRIMARY KEY,"
+        "chatMessageId VARCHAR(40) NOT NULL,"
+        "chatMessageType VARCHAR(20) NOT NULL,"
+        "accountId VARCHAR(8) NOT NULL,"
+        "reactionType VARCHAR(10) NOT NULL,"
+        "createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,"
+        "UNIQUE(chatMessageId, accountId),"
+        "FOREIGN KEY (accountId) REFERENCES Account(id) ON DELETE CASCADE"
+    ")",
+
+    // 创建索引
+    "CREATE INDEX IF NOT EXISTS idx_thread_chat_message ON ThreadChatMessage(threadId, accountId)",
+    "CREATE INDEX IF NOT EXISTS idx_message_chat_message ON MessageChatMessage(messageId, accountId)",
+    "CREATE INDEX IF NOT EXISTS idx_chat_reaction ON ChatMessageReaction(chatMessageId, reactionType)"
+};
 
 static map<string, string> COMMON_FOLDER_NAMES = {
     {"gel\xc3\xb6scht", "trash"},
