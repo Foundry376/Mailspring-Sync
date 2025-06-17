@@ -3,48 +3,54 @@
 
 #include <stdio.h>
 #include <string>
+#include <vector>
+
+#include <MailCore/MailCore.h>
+#include <SQLiteCpp/SQLiteCpp.h>
 #include "json.hpp"
-#include "spdlog/spdlog.h"
 
 #include "MailModel.hpp"
-#include "MailStore.hpp"
-#include <MailCore/MailCore.h>
+#include "Message.hpp"
 
-using namespace nlohmann;
 using namespace std;
-using namespace mailcore;
-
-class Message;
 
 class Summary : public MailModel {
+    static string TABLE_NAME;
     
 public:
-    static string TABLE_NAME;
-
+    Summary();
     Summary(Message * msg);
     Summary(json json);
     Summary(SQLite::Statement & query);
-  
+    
+    string constructorName() override;
+    string tableName() override;
+    
     string messageId();
     string threadId();
+    string accountId();
+    void setAccountId(string id);
+    
     string briefSummary();
     void setBriefSummary(string s);
+    
     string messageSummary();
     void setMessageSummary(string s);
+    
     string threadSummary();
     void setThreadSummary(string s);
+    
     bool isImportant();
     void setImportant(bool v);
+    
     bool isEmergency();
     void setEmergency(bool v);
+    
     string category();
     void setCategory(string s);
-
-    string tableName();
-    string constructorName();
-
-    vector<string> columnsForQuery();
-    void bindToQuery(SQLite::Statement * query);
+    
+    vector<string> columnsForQuery() override;
+    void bindToQuery(SQLite::Statement * query) override;
 };
 
 #endif /* Summary_hpp */ 

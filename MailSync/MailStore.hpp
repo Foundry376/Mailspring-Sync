@@ -26,6 +26,7 @@
 #include "Query.hpp"
 #include "DeltaStream.hpp"
 #include "MailUtils.hpp"
+#include "Summary.hpp"
 
 using namespace nlohmann;
 using namespace std;
@@ -105,6 +106,14 @@ public:
     vector<shared_ptr<Label>> allLabelsCache(string accountId);
 
     void setStreamDelay(int streamMaxDelay);
+    
+    // Summary queries
+    shared_ptr<Summary> findSummaryForThread(string threadId);
+    void updateSummaryForThread(string threadId, string accountId, string messageSummary, 
+                              string briefSummary = "", string threadSummary = "", 
+                              bool important = false, bool emergency = false, 
+                              string category = "");
+    void handleSummaryUpdate(json data);
     
     // Detatched plugin metadata storage
     

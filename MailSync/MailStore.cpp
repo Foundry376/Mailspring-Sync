@@ -531,4 +531,38 @@ void MailStore::setStreamDelay(int streamMaxDelay) {
     _streamMaxDelay = streamMaxDelay;
 }
 
+#pragma mark Summary Queries
+
+shared_ptr<Summary> MailStore::findSummaryForThread(string threadId) {
+    assertCorrectThread();
+    return find<Summary>(Query().equal("threadId", threadId));
+}
+
+void MailStore::updateSummaryForThread(string threadId, string accountId, string messageSummary,
+                                     string briefSummary, string threadSummary,
+                                     bool important, bool emergency, string category) {
+    assertCorrectThread();
+    auto existing = findSummaryForThread(threadId);
+    if (existing) {
+        existing->setMessageSummary(messageSummary);
+        existing->setBriefSummary(briefSummary);
+        existing->setThreadSummary(threadSummary);
+        existing->setImportant(important);
+        existing->setEmergency(emergency);
+        existing->setCategory(category);
+        save(existing.get());
+    } else {
+        auto newSummary = make_shared<Summary>();
+        newSummary->setThreadId(threadId);
+        newSummary->setAccountId(accountId);
+        newSummary->setMessageSummary(messageSummary);
+        newSummary->setBriefSummary(briefSummary);
+        newSummary->setThreadSummary(threadSummary);
+        newSummary->setImportant(important);
+        newSummary->setEmergency(emergency);
+        newSummary->setCategory(category);
+        save(newSummary.get());
+    }
+}
+
 

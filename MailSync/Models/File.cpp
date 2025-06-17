@@ -13,7 +13,7 @@
 #include "Thread.hpp"
 #include "Message.hpp"
 #include <nlohmann/json.hpp>
-#include <SQLiteCpp/SQLiteC++.h>
+#include <SQLiteCpp/SQLiteCpp.h>
 #include <regex>
 
 using namespace std;

@@ -10,6 +10,7 @@ Summary::Summary(Message * msg) :
     MailModel(msg->id(), msg->accountId(), 0)
 {
     _data["messageId"] = msg->id();
+    _data["accountId"] = msg->accountId();
     _data["threadId"] = msg->threadId();
     _data["briefSummary"] = "";
     _data["messageSummary"] = "";
@@ -42,6 +43,14 @@ string Summary::messageId() {
 
 string Summary::threadId() {
     return _data["threadId"].get<string>();
+}
+
+string Summary::accountId() {
+    return _data["accountId"].get<string>();
+}
+
+void Summary::setAccountId(string id) {
+    _data["accountId"] = id;
 }
 
 string Summary::briefSummary() {
@@ -93,12 +102,22 @@ void Summary::setCategory(string s) {
 }
 
 vector<string> Summary::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "messageId", "threadId", "briefSummary", "messageSummary", "threadSummary", "important", "emergency", "category"};
+    return {
+        "messageId",
+        "accountId",
+        "threadId",
+        "briefSummary",
+        "messageSummary",
+        "threadSummary",
+        "important",
+        "emergency",
+        "category"
+    };
 }
 
 void Summary::bindToQuery(SQLite::Statement * query) {
-    MailModel::bindToQuery(query);
     query->bind(":messageId", messageId());
+    query->bind(":accountId", accountId());
     query->bind(":threadId", threadId());
     query->bind(":briefSummary", briefSummary());
     query->bind(":messageSummary", messageSummary());
