@@ -508,8 +508,16 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 store.handleSummaryUpdate(packet["data"], account);
             }
 
+            if (type == "summary-delete") {
+                store.handleSummaryDelete(packet["data"], account);
+            }
+
             if (type == "contact-relation-update") {
                 store.handleContactRelationUpdate(packet["data"], account);
+            }
+
+            if (type == "contact-relation-delete") {
+                store.handleContactRelationDelete(packet["data"], account);
             }
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();

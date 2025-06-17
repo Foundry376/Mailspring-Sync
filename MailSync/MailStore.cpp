@@ -19,6 +19,9 @@
 #include "Message.hpp"
 #include "Thread.hpp"
 
+#include "Summary.hpp"
+#include "ContactRelation.hpp"
+
 using namespace mailcore;
 using namespace std;
 
@@ -580,6 +583,16 @@ void MailStore::handleSummaryUpdate(json data, shared_ptr<Account> account) {
                          important, emergency, category);
 }
 
+void MailStore::handleSummaryDelete(json data, shared_ptr<Account> account) {
+    assertCorrectThread();
+    string threadId = data["threadId"].get<string>();
+    
+    auto existing = findSummaryForThread(threadId);
+    if (existing) {
+        remove(existing.get());
+    }
+}
+
 shared_ptr<ContactRelation> MailStore::findContactRelation(string accountId, string email) {
     assertCorrectThread();
     return find<ContactRelation>(Query().equal("accountId", accountId).equal("email", email));
@@ -603,6 +616,16 @@ void MailStore::handleContactRelationUpdate(json data, shared_ptr<Account> accou
     string relation = data["relation"].get<string>();
     
     updateContactRelation(account->accountId(), email, relation);
+}
+
+void MailStore::handleContactRelationDelete(json data, shared_ptr<Account> account) {
+    assertCorrectThread();
+    string email = data["email"].get<string>();
+    
+    auto existing = findContactRelation(account->accountId(), email);
+    if (existing) {
+        remove(existing.get());
+    }
 }
 
 

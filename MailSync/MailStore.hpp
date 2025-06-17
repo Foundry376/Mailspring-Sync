@@ -26,7 +26,6 @@
 #include "Query.hpp"
 #include "DeltaStream.hpp"
 #include "MailUtils.hpp"
-#include "Summary.hpp"
 
 using namespace nlohmann;
 using namespace std;
@@ -108,18 +107,17 @@ public:
     void setStreamDelay(int streamMaxDelay);
     
     // Summary queries
-    shared_ptr<Summary> findSummaryForThread(string threadId);
     void updateSummaryForThread(string threadId, string accountId, string messageSummary, 
                               string briefSummary = "", string threadSummary = "", 
                               bool important = false, bool emergency = false, 
                               string category = "");
     void handleSummaryUpdate(json data, shared_ptr<Account> account);
-    void handlePipeData(const string& pipeData);
+    void handleSummaryDelete(json data, shared_ptr<Account> account);
     
     // Contact relation queries
-    shared_ptr<ContactRelation> findContactRelation(string accountId, string email);
     void updateContactRelation(string accountId, string email, string relation);
     void handleContactRelationUpdate(json data, shared_ptr<Account> account);
+    void handleContactRelationDelete(json data, shared_ptr<Account> account);
     
     // Detatched plugin metadata storage
     
