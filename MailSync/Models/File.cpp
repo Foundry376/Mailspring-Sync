@@ -68,7 +68,7 @@ File::File(Message * msg, Attachment * a) :
     
     _data["filename"] = name;
     _data["size"] = a->data()->length();
-    _data["updateTime"] = MailUtils::iso8601StringFromTime(msg->date());
+    //_data["updateTime"] = MailUtils::iso8601StringFromTime(msg->date());
 }
 
 File::File(json json) : MailModel(json) {

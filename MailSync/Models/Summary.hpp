@@ -15,15 +15,16 @@
 using namespace std;
 
 class Summary : public MailModel {
-    static string TABLE_NAME;
     
 public:
+    static string TABLE_NAME;
+
     Summary();
     Summary(Message * msg);
     Summary(json json);
     Summary(SQLite::Statement & query);
     
-    string constructorName() override;
+    string constructorName();
     string tableName() override;
     
     string messageId();

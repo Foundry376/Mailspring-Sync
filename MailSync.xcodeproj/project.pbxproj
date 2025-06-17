@@ -67,6 +67,8 @@
 		43EAFED61EFDAA7D0046589B /* TaskProcessor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED51EFDAA7D0046589B /* TaskProcessor.cpp */; };
 		43EAFEDA1EFEF7110046589B /* File.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFED91EFEF7110046589B /* File.cpp */; };
 		43EAFEDC1F001F110046589B /* Contact.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43EAFEDB1F001F100046589B /* Contact.cpp */; };
+		44BA62762E01922C0077084D /* ContactRelation.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 44BA62752E01922C0077084D /* ContactRelation.cpp */; };
+		44BA62852E01923C0077084D /* Summary.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 44BA62842E01923C0077084D /* Summary.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -273,6 +275,10 @@
 		43EAFED91EFEF7110046589B /* File.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = File.cpp; sourceTree = "<group>"; };
 		43EAFEDB1F001F100046589B /* Contact.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Contact.cpp; sourceTree = "<group>"; };
 		43EAFEDD1F001F160046589B /* Contact.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Contact.hpp; sourceTree = "<group>"; };
+		44BA62742E01922C0077084D /* ContactRelation.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = ContactRelation.hpp; sourceTree = "<group>"; };
+		44BA62752E01922C0077084D /* ContactRelation.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = ContactRelation.cpp; sourceTree = "<group>"; };
+		44BA62832E01923C0077084D /* Summary.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Summary.hpp; sourceTree = "<group>"; };
+		44BA62842E01923C0077084D /* Summary.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Summary.cpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -295,6 +301,10 @@
 		43167F0D1EF5F63700D8E282 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				44BA62832E01923C0077084D /* Summary.hpp */,
+				44BA62842E01923C0077084D /* Summary.cpp */,
+				44BA62742E01922C0077084D /* ContactRelation.hpp */,
+				44BA62752E01922C0077084D /* ContactRelation.cpp */,
 				43167EFE1EF5F57C00D8E282 /* MailModel.hpp */,
 				43167EFD1EF5F57C00D8E282 /* MailModel.cpp */,
 				43167F0B1EF5F5C100D8E282 /* Thread.hpp */,
@@ -706,9 +716,11 @@
 				4368DCCC1F43857D00F22FFD /* platform.cpp in Sources */,
 				43256B0621E7EEC900590F1B /* DAVWorker.cpp in Sources */,
 				4368DCC11F43851A00F22FFD /* call_stack_windows.cpp in Sources */,
+				44BA62852E01923C0077084D /* Summary.cpp in Sources */,
 				4378B8371F439FAD00C65630 /* GenericException.cpp in Sources */,
 				4364899B1EF335A9007816EC /* DeltaStream.cpp in Sources */,
 				436489A01EF35572007816EC /* SyncWorker.cpp in Sources */,
+				44BA62762E01922C0077084D /* ContactRelation.cpp in Sources */,
 				43EAFEDA1EFEF7110046589B /* File.cpp in Sources */,
 				436489951EF32866007816EC /* MailUtils.cpp in Sources */,
 				436489341EF2E905007816EC /* main.cpp in Sources */,

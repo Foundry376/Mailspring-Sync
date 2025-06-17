@@ -6,6 +6,18 @@ using namespace std;
 
 string Summary::TABLE_NAME = "Summary";
 
+Summary::Summary() : MailModel(json::object()) {
+    _data["messageId"] = "";
+    _data["accountId"] = "";
+    _data["threadId"] = "";
+    _data["briefSummary"] = "";
+    _data["messageSummary"] = "";
+    _data["threadSummary"] = "";
+    _data["important"] = false;
+    _data["emergency"] = false;
+    _data["category"] = "";
+}
+
 Summary::Summary(Message * msg) :
     MailModel(msg->id(), msg->accountId(), 0)
 {
@@ -21,7 +33,15 @@ Summary::Summary(Message * msg) :
 }
 
 Summary::Summary(json json) : MailModel(json) {
-    
+    if (json.contains("messageId")) _data["messageId"] = json["messageId"];
+    if (json.contains("accountId")) _data["accountId"] = json["accountId"];
+    if (json.contains("threadId")) _data["threadId"] = json["threadId"];
+    if (json.contains("briefSummary")) _data["briefSummary"] = json["briefSummary"];
+    if (json.contains("messageSummary")) _data["messageSummary"] = json["messageSummary"];
+    if (json.contains("threadSummary")) _data["threadSummary"] = json["threadSummary"];
+    if (json.contains("important")) _data["important"] = json["important"];
+    if (json.contains("emergency")) _data["emergency"] = json["emergency"];
+    if (json.contains("category")) _data["category"] = json["category"];
 }
 
 Summary::Summary(SQLite::Statement & query) :

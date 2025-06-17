@@ -7,7 +7,6 @@
 #include "spdlog/spdlog.h"
 
 #include "MailModel.hpp"
-#include "MailStore.hpp"
 #include <MailCore/MailCore.h>
 
 using namespace nlohmann;
@@ -19,6 +18,7 @@ class ContactRelation : public MailModel {
 public:
     static string TABLE_NAME;
 
+    ContactRelation();
     ContactRelation(string accountId, string email, string relation);
     ContactRelation(json json);
     ContactRelation(SQLite::Statement & query);

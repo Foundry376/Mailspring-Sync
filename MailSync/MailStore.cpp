@@ -19,9 +19,6 @@
 #include "Message.hpp"
 #include "Thread.hpp"
 
-#include "Summary.hpp"
-#include "ContactRelation.hpp"
-
 using namespace mailcore;
 using namespace std;
 
@@ -556,7 +553,7 @@ void MailStore::updateSummaryForThread(string threadId, string accountId, string
         save(existing.get());
     } else {
         auto newSummary = make_shared<Summary>();
-        newSummary->setThreadId(threadId);
+        //newSummary->setThreadId(threadId);
         newSummary->setAccountId(accountId);
         newSummary->setMessageSummary(messageSummary);
         newSummary->setBriefSummary(briefSummary);

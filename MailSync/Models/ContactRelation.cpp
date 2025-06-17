@@ -5,6 +5,11 @@ using namespace std;
 
 string ContactRelation::TABLE_NAME = "ContactRelation";
 
+ContactRelation::ContactRelation() : MailModel(json::object()) {
+    _data["email"] = "";
+    _data["relation"] = "";
+}
+
 ContactRelation::ContactRelation(string accountId, string email, string relation) :
     MailModel(MailUtils::idRandomlyGenerated(), accountId, 0)
 {
@@ -13,7 +18,8 @@ ContactRelation::ContactRelation(string accountId, string email, string relation
 }
 
 ContactRelation::ContactRelation(json json) : MailModel(json) {
-    
+    if (json.contains("email")) _data["email"] = json["email"];
+    if (json.contains("relation")) _data["relation"] = json["relation"];
 }
 
 ContactRelation::ContactRelation(SQLite::Statement & query) :
