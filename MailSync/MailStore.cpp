@@ -565,4 +565,44 @@ void MailStore::updateSummaryForThread(string threadId, string accountId, string
     }
 }
 
+void MailStore::handleSummaryUpdate(json data, shared_ptr<Account> account) {
+    assertCorrectThread();
+    string threadId = data["threadId"].get<string>();
+    string messageSummary = data["messageSummary"].get<string>();
+    string briefSummary = data.value("briefSummary", "");
+    string threadSummary = data.value("threadSummary", "");
+    bool important = data.value("important", false);
+    bool emergency = data.value("emergency", false);
+    string category = data.value("category", "");
+    
+    updateSummaryForThread(threadId, account->accountId(), messageSummary, 
+                         briefSummary, threadSummary,
+                         important, emergency, category);
+}
+
+shared_ptr<ContactRelation> MailStore::findContactRelation(string accountId, string email) {
+    assertCorrectThread();
+    return find<ContactRelation>(Query().equal("accountId", accountId).equal("email", email));
+}
+
+void MailStore::updateContactRelation(string accountId, string email, string relation) {
+    assertCorrectThread();
+    auto existing = findContactRelation(accountId, email);
+    if (existing) {
+        existing->setRelation(relation);
+        save(existing.get());
+    } else {
+        auto newRelation = make_shared<ContactRelation>(accountId, email, relation);
+        save(newRelation.get());
+    }
+}
+
+void MailStore::handleContactRelationUpdate(json data, shared_ptr<Account> account) {
+    assertCorrectThread();
+    string email = data["email"].get<string>();
+    string relation = data["relation"].get<string>();
+    
+    updateContactRelation(account->accountId(), email, relation);
+}
+
 

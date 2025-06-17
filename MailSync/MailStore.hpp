@@ -113,7 +113,13 @@ public:
                               string briefSummary = "", string threadSummary = "", 
                               bool important = false, bool emergency = false, 
                               string category = "");
-    void handleSummaryUpdate(json data);
+    void handleSummaryUpdate(json data, shared_ptr<Account> account);
+    void handlePipeData(const string& pipeData);
+    
+    // Contact relation queries
+    shared_ptr<ContactRelation> findContactRelation(string accountId, string email);
+    void updateContactRelation(string accountId, string email, string relation);
+    void handleContactRelationUpdate(json data, shared_ptr<Account> account);
     
     // Detatched plugin metadata storage
     
