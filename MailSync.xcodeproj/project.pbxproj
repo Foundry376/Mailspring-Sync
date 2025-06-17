@@ -671,7 +671,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# copy mailsync and it's DYSM into the ../app directory\ncp \"${BUILT_PRODUCTS_DIR}/mailsync\" \"${PROJECT_DIR}/../app\"\n\n# explicitly codesign the binary because the codesigning build\n# phase is /AFTER/ this script is run. WTF.\ncodesign -s \"Mac Developer:\" -f \"${PROJECT_DIR}/../app/mailsync\"\n\nif [ -e \"${BUILT_PRODUCTS_DIR}/mailsync.dSYM\" ]\n  then cd \"${BUILT_PRODUCTS_DIR}\" && /usr/bin/zip -r \"${PROJECT_DIR}/../app/mailsync.dSYM.zip\" \"mailsync.dSYM\"\nfi\n";
+			shellScript = "# copy mailsync and it's DYSM into the ../app directory\ncp \"${BUILT_PRODUCTS_DIR}/mailsync\" \"${PROJECT_DIR}/../app\"\n\n# explicitly codesign the binary because the codesigning build\n# phase is /AFTER/ this script is run. WTF.\n# codesign -s \"Mac Developer:\" -f \"${PROJECT_DIR}/../app/mailsync\"\n\nif [ -e \"${BUILT_PRODUCTS_DIR}/mailsync.dSYM\" ]\n  then cd \"${BUILT_PRODUCTS_DIR}\" && /usr/bin/zip -r \"${PROJECT_DIR}/../app/mailsync.dSYM.zip\" \"mailsync.dSYM\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
