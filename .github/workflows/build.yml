@@ -57,10 +57,10 @@ jobs:
 
       - name: Upload artifact (Linux/macOS)
         if: success()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: mailsync-${GITHUB_SHA:0:8}-${{ runner.os }}
-          path: ../app/dist/mailsync.tar.gz
+          name: mailsync-${{ github.sha }}-${{ runner.os }}.tar.gz
+          path: /Users/runner/work/Mailspring-Sync/app/dist/mailsync.tar.gz
 
       - name: Cache build dependencies
         uses: actions/cache@v3
