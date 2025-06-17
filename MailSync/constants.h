@@ -51,7 +51,33 @@ static vector<string> ACCOUNT_RESET_QUERIES = {
 static vector<string> V1_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `_State` (id VARCHAR(40) PRIMARY KEY, value TEXT)",
 
-    "CREATE TABLE IF NOT EXISTS `File` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), filename TEXT)",
+    "CREATE TABLE IF NOT EXISTS `File` ("
+        "id VARCHAR(40) PRIMARY KEY,"
+        "version INTEGER,"
+        "data BLOB,"
+        "accountId VARCHAR(8),"
+        "filename TEXT,"
+        "size INTEGER,"
+        "contentType TEXT,"
+        "messageId VARCHAR(40),"
+        "updateTime DATETIME)",
+    
+    "CREATE TABLE IF NOT EXISTS `Summary` ("
+        "messageId VARCHAR(40) PRIMARY KEY,"
+        "accountId VARCHAR(8) NOT NULL,"
+        "threadId VARCHAR(40) NOT NULL,"
+        "briefSummary TEXT,"
+        "messageSummary TEXT,"
+        "threadSummary TEXT,"
+        "important INTEGER DEFAULT 0,"
+        "emergency INTEGER DEFAULT 0,"
+        "category TEXT)",
+    
+    "CREATE TABLE IF NOT EXISTS `ContactRelation` ("
+        "id VARCHAR(40) PRIMARY KEY,"
+        "accountId VARCHAR(8) NOT NULL,"
+        "email TEXT NOT NULL,"
+        "relation TEXT)",
     
     "CREATE TABLE IF NOT EXISTS `Event` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8), calendarId VARCHAR(40), _start INTEGER, _end INTEGER, is_search_indexed INTEGER DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS EventIsSearchIndexedIndex ON `Event` (is_search_indexed, id)",
@@ -213,6 +239,21 @@ static vector<string> V8_SETUP_QUERIES = {
     "CREATE TABLE `ContactBook` (`id` varchar(40),`accountId` varchar(40), `data` BLOB, `version` INTEGER, PRIMARY KEY (id));",
 };
 
+static vector<string> V9_SETUP_QUERIES = {
+    "ALTER TABLE `File` ADD COLUMN size INTEGER DEFAULT 0",
+    "ALTER TABLE `File` ADD COLUMN contentType TEXT",
+    "ALTER TABLE `File` ADD COLUMN messageId VARCHAR(40)",
+    "ALTER TABLE `File` ADD COLUMN updateTime DATETIME",
+    
+    "CREATE INDEX IF NOT EXISTS FileMessageIdIndex ON File(messageId)",
+    "CREATE INDEX IF NOT EXISTS FileContentTypeIndex ON File(contentType)",
+    "CREATE INDEX IF NOT EXISTS FileUpdateTimeIndex ON File(updateTime)",
+    
+    "UPDATE File SET size = json_extract(data, '$.size') WHERE json_extract(data, '$.size') IS NOT NULL",
+    "UPDATE File SET contentType = json_extract(data, '$.contentType') WHERE json_extract(data, '$.contentType') IS NOT NULL",
+    "UPDATE File SET messageId = json_extract(data, '$.messageId') WHERE json_extract(data, '$.messageId') IS NOT NULL",
+    "UPDATE File SET updateTime = json_extract(data, '$.updateTime') WHERE json_extract(data, '$.updateTime') IS NOT NULL"
+};
 
 static map<string, string> COMMON_FOLDER_NAMES = {
     {"gel\xc3\xb6scht", "trash"},

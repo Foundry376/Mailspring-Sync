@@ -42,6 +42,12 @@ public:
     json & contentId();
     void setContentId(string s);
     string contentType();
+    int size();
+    void setSize(int s);
+    string messageId();
+    void setMessageId(string s);
+    string updateTime();
+    void setUpdateTime(string s);
 
     string tableName();
     string constructorName();

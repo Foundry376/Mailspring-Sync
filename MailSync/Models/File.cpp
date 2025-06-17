@@ -8,15 +8,17 @@
 //  Use of this file is subject to the terms and conditions defined
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
-#include <regex>
-
 #include "File.hpp"
 #include "MailUtils.hpp"
 #include "Thread.hpp"
 #include "Message.hpp"
+#include <nlohmann/json.hpp>
+#include <SQLiteCpp/SQLiteC++.h>
+#include <regex>
 
 using namespace std;
 using namespace mailcore;
+using json = nlohmann::json;
 
 string File::TABLE_NAME = "File";
 
@@ -66,6 +68,7 @@ File::File(Message * msg, Attachment * a) :
     
     _data["filename"] = name;
     _data["size"] = a->data()->length();
+    _data["updateTime"] = MailUtils::iso8601StringFromTime(msg->date());
 }
 
 File::File(json json) : MailModel(json) {
@@ -110,11 +113,39 @@ string File::contentType() {
     return _data["contentType"].get<string>();
 }
 
+int File::size() {
+    return _data["size"].get<int>();
+}
+
+void File::setSize(int s) {
+    _data["size"] = s;
+}
+
+string File::messageId() {
+    return _data["messageId"].get<string>();
+}
+
+void File::setMessageId(string s) {
+    _data["messageId"] = s;
+}
+
+string File::updateTime() {
+    return _data["updateTime"].get<string>();
+}
+
+void File::setUpdateTime(string s) {
+    _data["updateTime"] = s;
+}
+
 vector<string> File::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "filename"};
+    return vector<string>{"id", "data", "accountId", "version", "filename", "size", "contentType", "messageId", "updateTime"};
 }
 
 void File::bindToQuery(SQLite::Statement * query) {
     MailModel::bindToQuery(query);
     query->bind(":filename", filename());
+    query->bind(":size", size());
+    query->bind(":contentType", contentType());
+    query->bind(":messageId", messageId());
+    query->bind(":updateTime", updateTime());
 }
