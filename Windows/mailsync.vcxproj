@@ -14,19 +14,19 @@
     <ProjectGuid>{FD5B276A-CB56-4697-8C6F-C02FF68AB435}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>mailsync</RootNamespace>
-    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v140</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v140</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -85,7 +85,21 @@ _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;SPDLOG_WCHAR_FILENAMES;%(Pre
       <AdditionalDependencies>legacy_stdio_definitions.lib;libcurl_a.lib;libxml2.lib;zlib.lib;iconv_a.lib;dbghelp.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;Ws2_32.lib;Dnsapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>IF not exist ..\..\app\dist (mkdir ..\..\app\dist) &amp;&amp; COPY .\Release\mailsync.exe ..\..\app\dist\ /Y &amp;&amp; COPY .\Release\mailsync.pdb ..\..\app\dist\ /Y &amp;&amp; COPY .\Release\libetpan.dll ..\..\app\dist\ /Y &amp;&amp; COPY .\Release\mailcore2.dll ..\..\app\dist\ /Y &amp;&amp; COPY .\Release\mailcore2.pdb ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\libetpan\third-party\bin\libiconv2.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\bin\icudt54.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\bin\icuin54.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\bin\icuuc54.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\lib\libctemplate.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\bin\libcryptoMD.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\lib\sasl2.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\lib\libtidy.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\lib\libxml2.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\dll\x86\pthreadVC2.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\bin\libsslMD.dll ..\..\app\dist\ /Y &amp;&amp; COPY ..\Vendor\mailcore2\Externals\lib\zlib.dll ..\..\app\dist\ /Y &amp;&amp; COPY "C:\Windows\SysWOW64\msvcr100.dll" ..\..\app\dist\ /Y &amp;&amp; COPY "C:\Windows\SysWOW64\msvcr120.dll" ..\..\app\dist\ /Y &amp;&amp; COPY "C:\Windows\SysWOW64\msvcp100.dll" ..\..\app\dist\ /Y &amp;&amp; COPY "C:\Windows\SysWOW64\msvcp120.dll" ..\..\app\dist\ /Y &amp;&amp; COPY "C:\Windows\SysWOW64\msvcp140.dll" ..\..\app\dist\ /Y &amp;&amp; COPY "C:\Windows\SysWOW64\vcruntime140.dll" ..\..\app\dist\ /Y &amp;&amp; XCOPY /rhy "C:\Program Files (x86)\Windows Kits\10\Redist\ucrt\DLLs\x86" ..\..\app\dist\ &amp;&amp; CD ..\..\app\dist &amp;&amp; XCOPY *.* ..\</Command>
+      <Message>Copying project dependencies into the $(TargetDir) folder...</Message>
+      <Command>
+        COPY $(ProjectDir)..\Vendor\libetpan\third-party\bin\libiconv2.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\icudt54.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\icuin54.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\icuuc54.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\lib\libctemplate.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\libcryptoMD.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\lib\sasl2.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\lib\libtidy.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\lib\libxml2.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\dll\x86\pthreadVC2.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\libsslMD.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\lib\zlib.dll $(TargetDir) /Y
+      </Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

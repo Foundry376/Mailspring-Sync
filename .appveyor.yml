@@ -1,24 +1,37 @@
 version: '{build}'
 
-branches:
-  only:
-    - master
-    - /ci.*/
-    - /stable.*/
+skip_branch_with_pr: true
 
-skip_non_tags: true
-
-image: Visual Studio 2017
+image: Visual Studio 2022
 
 init:
   - ps: $env:commit = $env:appveyor_repo_commit.SubString(0,8)
 
-install:
-  - ps: npm config set msvs_version 2017
-
 build_script:
   - ps: mkdir ..\app
-  - cmd: .\build.cmd
+  - cmd: cd Windows && msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32
+  - cmd: |
+      IF not exist ..\..\app\dist (mkdir ..\..\app\dist)
+      XCOPY .\Release\*.* ..\..\app\dist
+      COPY "C:\Windows\SysWOW64\msvcr100.dll" ..\..\app\dist\ /Y
+      COPY "C:\Windows\SysWOW64\msvcr120.dll" ..\..\app\dist\ /Y
+      COPY "C:\Windows\SysWOW64\msvcp100.dll" ..\..\app\dist\ /Y
+      COPY "C:\Windows\SysWOW64\msvcp120.dll" ..\..\app\dist\ /Y
+      COPY "C:\Windows\SysWOW64\msvcp140.dll" ..\..\app\dist\ /Y
+      COPY "C:\Windows\SysWOW64\vcruntime140.dll" ..\..\app\dist\ /Y
+      XCOPY /rhy "C:\Program Files (x86)\Windows Kits\10\Redist\ucrt\DLLs\x86" ..\..\app\dist\
+  # Validate that the program exits with code 2 (missing arguments). If any DLLs are missing that
+  # prevent the application from starting, a code like -1073741515 will be returned.
+  - ps: |
+      $process = Start-Process -FilePath "..\..\app\dist\mailsync.exe" -PassThru -Wait -NoNewWindow
+      $exitCode = $process.ExitCode
+
+      if ($exitCode -ne 2) {
+        Write-Host "We expected mailsync.exe to exit with code 2, but we got $exitCode instead."
+        exit 1
+      } else {
+        Write-Host "Exit code was as expected: $exitCode"
+      }
 
 before_deploy:
   - ps: (Get-ChildItem -Force -Path ..\..\app).FullName
@@ -36,6 +49,9 @@ deploy:
     bucket: mailspring-builds
     folder: 'mailsync/$(commit)'
     set_public: true
+    # Deploy only when a new tag is created
+    on:
+      APPVEYOR_REPO_TAG: true
 
 # Stop Appveyor from "Discovering Tests" forever
 test: off
