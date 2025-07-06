@@ -33,52 +33,6 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
     mkdir "$DEP_BUILDS_DIR"
   fi
 
-  if [ -d "$DEP_BUILDS_DIR/openssl-1.1.0f" ]; then
-    echo "Installing openssl-1.1.0f"
-    cd "$DEP_BUILDS_DIR/openssl-1.1.0f"
-    sudo make install
-    sudo ldconfig
-  else
-    echo "Building and installing openssl-1.1.0f"
-    cd "$DEP_BUILDS_DIR"
-    wget -q https://openssl.org/source/openssl-1.1.0f.tar.gz
-    tar -xzf openssl-1.1.0f.tar.gz
-    cd openssl-1.1.0f
-    sudo ./config --prefix=/opt/openssl --openssldir=/opt/openssl shared
-    sudo make
-    sudo make install
-    sudo ldconfig
-  fi
-
-
-  if [ -d "$DEP_BUILDS_DIR/curl-7.70.0" ]; then
-    echo "Installing curl-7.70.0..."
-    cd "$DEP_BUILDS_DIR/curl-7.70.0"
-    sudo make install prefix=/usr >/dev/null
-  else
-    # Install curl from source because the Ubuntu trusty version
-    # is too old. We need v7.46 or greater.
-    echo "Building and installing curl-7.70.0..."
-    cd "$DEP_BUILDS_DIR"
-    sudo apt-get build-dep curl
-    wget -q http://curl.haxx.se/download/curl-7.70.0.tar.bz2
-    tar -xjf curl-7.70.0.tar.bz2
-    cd curl-7.70.0
-    ./configure --quiet --disable-cookies --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --enable-ares --without-libidn --without-librtmp --with-ssl=/opt/openssl
-    make >/dev/null
-    sudo make install prefix=/usr >/dev/null
-    sudo ldconfig
-  fi
-  
-
-  echo "OpenSSL files:"
-  ls /opt/openssl/include/openssl
-  ls /opt/openssl/lib
-
-  echo "Symbolic linking new libssl libs into /usr/lib to workaround weird libetpan autogen:"
-  sudo ln -s /opt/openssl/lib/libssl.so.1.1 /usr/lib/libssl.so.1.1
-  sudo ln -s /opt/openssl/lib/libcrypto.so.1.1 /usr/lib/libcrypto.so.1.1
-
   echo "Building and installing libetpan..."
   cd "$MAILSYNC_DIR/Vendor/libetpan"
   ./autogen.sh --with-openssl=/opt/openssl
