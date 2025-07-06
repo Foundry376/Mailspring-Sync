@@ -66,7 +66,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   find_library(Z_LIB NAMES libz.a libz)
   target_link_libraries(mailsync ${Z_LIB})
 
-  set(TIDY_LIB /usr/local/lib/libtidy.a)
+  find_library(TIDY_LIB tidy PATHS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib REQUIRED)
   target_link_libraries(mailsync ${TIDY_LIB})
 
   find_library(RESOLV_LIB NAMES libresolv.a libresolv)
@@ -87,19 +87,11 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   find_library(ICUDATA_LIB NAMES libicudata.a libicudata)
   target_link_libraries(mailsync ${ICUDATA_LIB})
 
-  target_link_libraries(mailsync libcurl.a libcurl)    
-
   find_library(C_ARES_LIB NAMES libcares.a libcares)
   target_link_libraries(mailsync ${C_ARES_LIB})
 
   #find_library(SASL2_LIB NAMES libsasl2.a libsasl2)
   #target_link_libraries(mailsync ${SASL2_LIB})
-
-  find_library(SSL_LIB NAMES libssl.a libssl)
-  target_link_libraries(mailsync ${SSL_LIB})
-
-  find_library(CRYPTO_LIB NAMES libcrypto.a libcrypto)
-  target_link_libraries(mailsync ${CRYPTO_LIB})
 
   #find_library(SASLEXTRA_LIB NAMES libgssapi.a libgssapi)
   #target_link_libraries(mailsync ${SASLEXTRA_LIB})
@@ -110,7 +102,6 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   #find_library(RT_LIB NAMES librt.a librt)
   #target_link_libraries(mailsync ${RT_LIB})
 
-  #target_link_libraries(mailsync pthread sasl2 ssl crypto dl)
-  target_link_libraries(mailsync pthread sasl2 dl)
+  target_link_libraries(mailsync pthread sasl2 ssl crypto curl dl)
 
 ENDIF()

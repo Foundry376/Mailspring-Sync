@@ -22,14 +22,18 @@ string Event::TABLE_NAME = "Event";
 
 static Date DISTANT_FUTURE;
 
-Date endOf(ICalendarEvent * event) {
-    if (event->RRule.IsEmpty()) {
+Date endOf(ICalendarEvent *event)
+{
+    if (event->RRule.IsEmpty())
+    {
         return !event->DtEnd.IsEmpty() ? event->DtEnd : event->DtStart;
     }
-    if (!event->RRule.Until.IsEmpty()) {
+    if (!event->RRule.Until.IsEmpty())
+    {
         return event->RRule.Until;
     }
-    if (event->RRule.Count > 0) {
+    if (event->RRule.Count > 0)
+    {
         // TODO BEN
     }
 
@@ -37,8 +41,9 @@ Date endOf(ICalendarEvent * event) {
     return DISTANT_FUTURE;
 }
 
-Event::Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent * event)
-: MailModel(MailUtils::idForEvent(accountId, calendarId, etag), accountId) {
+Event::Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent *event)
+    : MailModel(MailUtils::idForEvent(accountId, calendarId, etag), accountId)
+{
     _data["cid"] = calendarId;
     _data["ics"] = ics;
     _data["etag"] = etag;
@@ -46,52 +51,61 @@ Event::Event(string etag, string accountId, string calendarId, string ics, ICale
 
     // Build our start and end time from the ics data. These values represent the time range in which
     // the event needs to be considered for display, so we include the entire time the event is recurring.
-    _data["rs"] = event->DtStart.unix();
-    _data["re"] = endOf(event).unix();
+    _data["rs"] = event->DtStart.toUnix();
+    _data["re"] = endOf(event).toUnix();
 }
 
-Event::Event(SQLite::Statement & query) :
-    MailModel(query)
+Event::Event(SQLite::Statement &query) : MailModel(query)
 {
 }
 
-string Event::constructorName() {
+string Event::constructorName()
+{
     return _data["__cls"].get<string>();
 }
 
-string Event::tableName() {
+string Event::tableName()
+{
     return Event::TABLE_NAME;
 }
 
-string Event::calendarId() {
+string Event::calendarId()
+{
     return _data["cid"].get<string>();
 }
 
-string Event::icsData() {
+string Event::icsData()
+{
     return _data["ics"].get<string>();
 }
 
-string Event::icsUID() {
+string Event::icsUID()
+{
     return _data["icsuid"].get<string>();
 }
 
-string Event::etag() {
+string Event::etag()
+{
     return _data["etag"].get<string>();
 }
 
-int Event::recurrenceStart() {
+int Event::recurrenceStart()
+{
     return _data["rs"].get<int>();
 }
 
-int Event::recurrenceEnd() {
+int Event::recurrenceEnd()
+{
     return _data["re"].get<int>();
 }
 
-vector<string> Event::columnsForQuery() {
+vector<string> Event::columnsForQuery()
+{
     return vector<string>{"id", "data", "icsuid", "accountId", "etag", "calendarId", "recurrenceStart", "recurrenceEnd"};
 }
 
-void Event::bindToQuery(SQLite::Statement * query) {
+void Event::bindToQuery(SQLite::Statement *query)
+{
     query->bind(":id", id());
     query->bind(":data", this->toJSON().dump());
     query->bind(":icsuid", icsUID());

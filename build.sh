@@ -69,7 +69,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
 
   # Zip this stuff up so we can push it to S3 as a single artifacts
   cd "$APP_ROOT_DIR"
-  tar -czf "$APP_DIST_DIR/mailsync.tar.gz" *.so* mailsync mailsync.bin --wildcards
+  tar -czf "$APP_DIST_DIR/mailsync.tar.gz" --wildcards *.so* mailsync mailsync.bin
 else
   echo "Mailsync does not build on $OSTYPE yet.";
 fi

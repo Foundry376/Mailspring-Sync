@@ -24,6 +24,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set short SHA
+        id: vars
+        run: echo "short_sha=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+
       - name: Set up dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -56,8 +60,8 @@ jobs:
         if: success() && ((github.ref == 'refs/heads/master') || (github.event.pull_request.base.ref == 'master'))
         uses: actions/upload-artifact@v4
         with:
-          name: mailsync-${GITHUB_SHA:0:8}-${{ runner.os }}
-          path: ../app/dist/mailsync.tar.gz
+          name: mailsync-${{ steps.vars.outputs.short_sha }}-${{ runner.os }}
+          path: /home/runner/work/Mailspring-Sync/app/dist/mailsync.tar.gz
 
       - name: Cache build dependencies
         uses: actions/cache@v4
