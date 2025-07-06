@@ -53,7 +53,7 @@ jobs:
         run: ./build.sh
 
       - name: Upload artifact (Linux/macOS)
-        if: success()
+        if: success() && ((github.ref == 'refs/heads/master') || (github.event.pull_request.base.ref == 'master'))
         uses: actions/upload-artifact@v4
         with:
           name: mailsync-${GITHUB_SHA:0:8}-${{ runner.os }}
