@@ -7,10 +7,6 @@ on:
       - 'ci-*'
       - 'stable*'
   pull_request:
-    branches:
-      - master
-      - 'ci-*'
-      - 'stable*'
 
 jobs:
   build:
