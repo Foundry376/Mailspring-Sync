@@ -66,9 +66,6 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   find_library(Z_LIB NAMES libz.a libz)
   target_link_libraries(mailsync ${Z_LIB})
 
-  find_library(TIDY_LIB tidy PATHS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib REQUIRED)
-  target_link_libraries(mailsync ${TIDY_LIB})
-
   find_library(RESOLV_LIB NAMES libresolv.a libresolv)
   target_link_libraries(mailsync ${RESOLV_LIB})
 
@@ -102,6 +99,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   #find_library(RT_LIB NAMES librt.a librt)
   #target_link_libraries(mailsync ${RT_LIB})
 
-  target_link_libraries(mailsync pthread sasl2 ssl crypto curl dl)
+  # These dynamic links are the packages that must be on the host machine
+  target_link_libraries(mailsync pthread sasl2 ssl crypto tidy curl dl)
 
 ENDIF()
