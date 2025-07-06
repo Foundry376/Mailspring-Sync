@@ -160,3 +160,22 @@ The application does not seem to like being debugged in `Debug` mode. You need
 to use the `Release` configuration. This seems to be because there's a "Debug
 Heap" that is enabled in Debug configurations, and memory allocated by libetpan
 and de-allocated in mailcore2 isn't reference tracked properly.
+
+
+## Build with Docker (linux)
+
+To start docker env
+```bash
+docker build -t mailsync:1.0 .
+docker run -it mailsync:1.0
+```
+
+To start build
+```bash
+./build.sh
+```
+
+To use so lib in Mailspring repo
+```bash
+sh move_so_lib.sh
+```
