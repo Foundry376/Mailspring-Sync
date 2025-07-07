@@ -37,7 +37,7 @@ ELSEIF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     /opt/openssl/lib
   )
 
-  set(icu_libraries icudata icui18n icuio icule iculx icutest icutu icuuc)
+  set(icu_libraries icudata icui18n icuio icutest icutu icuuc)
   set(linux_libraries ${icu_libraries} pthread uuid)
 ENDIF()
 
@@ -62,7 +62,7 @@ if(NOT APPLE)
     PATHS ${additional_includes}
   )
   find_library(ICU4C_LIBRARY
-    NAMES icudata icui18n icuio icule iculx icutest icutu icuuc
+    NAMES icudata icui18n icuio icutest icutu icuuc
     PATHS ${additional_lib_searchpath}
   )
 

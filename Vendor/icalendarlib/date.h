@@ -33,7 +33,7 @@ public:
 		Clear();
 	}
 	
-    int unix() {
+    int toUnix() {
         struct tm timeinfo {};
         memset(&timeinfo, 0, sizeof(struct tm));
         char Temp[16];
