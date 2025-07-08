@@ -65,16 +65,64 @@ jobs:
         name: win-ia32-mailsync
         path: Windows/mailsync.tar.gz
 
+    - name: Debug DLL dependencies
+      shell: pwsh
+      run: |
+        Write-Host "=== Checking what DLLs are in the dist folder ==="
+        Get-ChildItem -Path "..\app\dist\*.dll" | Format-Table Name, Length
+        
+        Write-Host "=== Checking mailsync.exe dependencies with dumpbin ==="
+        & "dumpbin" /dependents "..\app\dist\mailsync.exe"
+        
+        Write-Host "=== Checking if dependencies exist in System32/SysWOW64 ==="
+        $dependencies = @("msvcr100.dll", "msvcr120.dll", "msvcp100.dll", "msvcp120.dll", "msvcp140.dll", "vcruntime140.dll")
+        foreach ($dll in $dependencies) {
+          $syswow64Path = "C:\Windows\SysWOW64\$dll"
+          $system32Path = "C:\Windows\System32\$dll"
+          $distPath = "..\app\dist\$dll"
+          
+          Write-Host "$dll:"
+          Write-Host "  SysWOW64: $(Test-Path $syswow64Path)"
+          Write-Host "  System32: $(Test-Path $system32Path)" 
+          Write-Host "  Dist folder: $(Test-Path $distPath)"
+        }
+
     # Validate that the program exits with code 2 (missing arguments). If any DLLs are missing that
     # prevent the application from starting, a code like -1073741515 will be returned.
     - name: Validate executable
       shell: pwsh
       run: |
-        $process = Start-Process -FilePath "..\app\dist\mailsync.exe" -PassThru -Wait -NoNewWindow
+        Write-Host "=== Attempting to run mailsync.exe ==="
+        $process = Start-Process -FilePath "..\app\dist\mailsync.exe" -PassThru -Wait -NoNewWindow -RedirectStandardError "error.txt" -RedirectStandardOutput "output.txt"
         $exitCode = $process.ExitCode
+        
+        Write-Host "Exit code: $exitCode (0x$($exitCode.ToString('X8')))"
+        
+        if (Test-Path "error.txt") {
+          Write-Host "=== Standard Error ==="
+          Get-Content "error.txt"
+        }
+        if (Test-Path "output.txt") {
+          Write-Host "=== Standard Output ==="  
+          Get-Content "output.txt"
+        }
 
         if ($exitCode -ne 2) {
           Write-Host "We expected mailsync.exe to exit with code 2, but we got $exitCode instead."
+          
+          # Check Windows Event Log for application errors
+          Write-Host "=== Checking Windows Event Log for recent application errors ==="
+          try {
+            Get-WinEvent -FilterHashtable @{LogName='Application'; Level=2; StartTime=(Get-Date).AddMinutes(-5)} -MaxEvents 10 -ErrorAction SilentlyContinue | Format-Table TimeCreated, Id, LevelDisplayName, Message -Wrap
+          } catch {
+            Write-Host "Could not read event log: $($_.Exception.Message)"
+          }
+          
+          # Try to get more detailed error using Windows API
+          Write-Host "=== Additional debugging info ==="
+          Write-Host "Error code -1073741515 (0xC0000135) = STATUS_DLL_NOT_FOUND"
+          Write-Host "This usually means a required DLL is missing from the system or dist folder"
+          
           exit 1
         } else {
           Write-Host "Exit code was as expected: $exitCode"
