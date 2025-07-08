@@ -71,8 +71,42 @@ jobs:
         Write-Host "=== Checking what DLLs are in the dist folder ==="
         Get-ChildItem -Path "..\app\dist\*.dll" | Format-Table Name, Length
         
-        Write-Host "=== Checking mailsync.exe dependencies with dumpbin ==="
-        & "dumpbin" /dependents "..\app\dist\mailsync.exe"
+        Write-Host "=== Setting up Developer Command Prompt environment ==="
+        # Find and import Visual Studio environment
+        $vsInstallPath = & "C:\ProgramData\Chocolatey\bin\vswhere.exe" -latest -property installationPath
+        Write-Host "VS Install Path: $vsInstallPath"
+        
+        # Import the developer environment
+        $vcvarsPath = Join-Path $vsInstallPath "VC\Auxiliary\Build\vcvars32.bat"
+        if (Test-Path $vcvarsPath) {
+          Write-Host "Found vcvars32.bat at: $vcvarsPath"
+          
+          # Run vcvars and capture environment variables
+          $output = cmd /c "\"$vcvarsPath\" && set" 
+          foreach ($line in $output) {
+            if ($line -match '^([^=]+)=(.*)$') {
+              [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2])
+            }
+          }
+          
+          Write-Host "=== Checking mailsync.exe dependencies with dumpbin ==="
+          try {
+            & dumpbin /dependents "..\app\dist\mailsync.exe"
+          } catch {
+            Write-Host "Failed to run dumpbin: $($_.Exception.Message)"
+            Write-Host "Attempting to find dumpbin manually..."
+            $dumpbinPath = Get-ChildItem -Path $vsInstallPath -Recurse -Name "dumpbin.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($dumpbinPath) {
+              $fullDumpbinPath = Join-Path $vsInstallPath $dumpbinPath
+              Write-Host "Found dumpbin at: $fullDumpbinPath"
+              & "$fullDumpbinPath" /dependents "..\app\dist\mailsync.exe"
+            } else {
+              Write-Host "Could not find dumpbin.exe"
+            }
+          }
+        } else {
+          Write-Host "Could not find vcvars32.bat, skipping dumpbin analysis"
+        }
         
         Write-Host "=== Checking if dependencies exist in System32/SysWOW64 ==="
         $dependencies = @("msvcr100.dll", "msvcr120.dll", "msvcp100.dll", "msvcp120.dll", "msvcp140.dll", "vcruntime140.dll")
