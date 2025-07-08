@@ -30,6 +30,10 @@ jobs:
       shell: pwsh
       run: mkdir ..\app
       
+    - name: Install VC2010 as we need msvcr100.dll
+      shell: cmd
+      run: choco install -y vcredist2010
+
     - name: Build with MSBuild
       shell: cmd
       run: cd Windows && msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32
@@ -82,7 +86,7 @@ jobs:
           Write-Host "Found vcvars32.bat at: $vcvarsPath"
           
           # Run vcvars and capture environment variables
-          $output = cmd /c "\"$vcvarsPath\" && set" 
+          $output = cmd /c "`"$vcvarsPath`" && set" 
           foreach ($line in $output) {
             if ($line -match '^([^=]+)=(.*)$') {
               [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2])
