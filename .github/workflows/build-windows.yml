@@ -81,7 +81,7 @@ jobs:
           $system32Path = "C:\Windows\System32\$dll"
           $distPath = "..\app\dist\$dll"
           
-          Write-Host "$dll:"
+          Write-Host "${dll}:"
           Write-Host "  SysWOW64: $(Test-Path $syswow64Path)"
           Write-Host "  System32: $(Test-Path $system32Path)" 
           Write-Host "  Dist folder: $(Test-Path $distPath)"
