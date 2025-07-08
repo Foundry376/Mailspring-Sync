@@ -53,6 +53,18 @@ jobs:
         (Get-ChildItem -Force -Path ..\app).FullName
         (Get-ChildItem -Force -Path ..\app\dist).FullName
 
+    - name: Create archive
+      shell: cmd
+      run: |
+        cd Windows
+        7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe -so | 7z -si -tgzip a .\mailsync.tar.gz
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-ia32-mailsync
+        path: Windows/mailsync.tar.gz
+
     # Validate that the program exits with code 2 (missing arguments). If any DLLs are missing that
     # prevent the application from starting, a code like -1073741515 will be returned.
     - name: Validate executable
@@ -67,18 +79,6 @@ jobs:
         } else {
           Write-Host "Exit code was as expected: $exitCode"
         }
-        
-    - name: Create archive
-      shell: cmd
-      run: |
-        cd Windows
-        7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe -so | 7z -si -tgzip a .\mailsync.tar.gz
-        
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: win-ia32-mailsync
-        path: Windows/mailsync.tar.gz
         
     - name: Deploy to S3
       if: startsWith(github.ref, 'refs/tags/')
