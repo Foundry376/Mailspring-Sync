@@ -37,22 +37,28 @@ jobs:
     - name: Copy build artifacts and dependencies
       shell: cmd
       run: |
-        IF not exist ..\..\app\dist (mkdir ..\..\app\dist)
-        XCOPY .\Windows\Release\*.* ..\..\app\dist
-        COPY "C:\Windows\SysWOW64\msvcr100.dll" ..\..\app\dist\ /Y
-        COPY "C:\Windows\SysWOW64\msvcr120.dll" ..\..\app\dist\ /Y
-        COPY "C:\Windows\SysWOW64\msvcp100.dll" ..\..\app\dist\ /Y
-        COPY "C:\Windows\SysWOW64\msvcp120.dll" ..\..\app\dist\ /Y
-        COPY "C:\Windows\SysWOW64\msvcp140.dll" ..\..\app\dist\ /Y
-        COPY "C:\Windows\SysWOW64\vcruntime140.dll" ..\..\app\dist\ /Y
-        XCOPY /rhy "C:\Program Files (x86)\Windows Kits\10\Redist\ucrt\DLLs\x86" ..\..\app\dist\
+        IF not exist ..\app\dist (mkdir ..\app\dist)
+        XCOPY .\Windows\Release\*.* ..\app\dist
+        COPY "C:\Windows\SysWOW64\msvcr100.dll" ..\app\dist\ /Y
+        COPY "C:\Windows\SysWOW64\msvcr120.dll" ..\app\dist\ /Y
+        COPY "C:\Windows\SysWOW64\msvcp100.dll" ..\app\dist\ /Y
+        COPY "C:\Windows\SysWOW64\msvcp120.dll" ..\app\dist\ /Y
+        COPY "C:\Windows\SysWOW64\msvcp140.dll" ..\app\dist\ /Y
+        COPY "C:\Windows\SysWOW64\vcruntime140.dll" ..\app\dist\ /Y
+        XCOPY /rhy "C:\Program Files (x86)\Windows Kits\10\Redist\ucrt\DLLs\x86" ..\app\dist\
         
+    - name: List build artifacts
+      shell: pwsh
+      run: |
+        (Get-ChildItem -Force -Path ..\app).FullName
+        (Get-ChildItem -Force -Path ..\app\dist).FullName
+
     # Validate that the program exits with code 2 (missing arguments). If any DLLs are missing that
     # prevent the application from starting, a code like -1073741515 will be returned.
     - name: Validate executable
       shell: pwsh
       run: |
-        $process = Start-Process -FilePath "..\..\app\dist\mailsync.exe" -PassThru -Wait -NoNewWindow
+        $process = Start-Process -FilePath "..\app\dist\mailsync.exe" -PassThru -Wait -NoNewWindow
         $exitCode = $process.ExitCode
 
         if ($exitCode -ne 2) {
@@ -61,12 +67,6 @@ jobs:
         } else {
           Write-Host "Exit code was as expected: $exitCode"
         }
-        
-    - name: List build artifacts
-      shell: pwsh
-      run: |
-        (Get-ChildItem -Force -Path ..\..\app).FullName
-        (Get-ChildItem -Force -Path ..\..\app\dist).FullName
         
     - name: Create archive
       shell: cmd
