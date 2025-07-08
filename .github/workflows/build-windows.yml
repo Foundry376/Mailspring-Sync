@@ -1,0 +1,95 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  create:
+    tags:
+      - '*'
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      
+    - name: Set commit hash
+      shell: pwsh
+      run: |
+        $commit = $env:GITHUB_SHA.Substring(0,8)
+        echo "COMMIT=$commit" >> $env:GITHUB_ENV
+        
+    - name: Create app directory
+      shell: pwsh
+      run: mkdir ..\app
+      
+    - name: Build with MSBuild
+      shell: cmd
+      run: cd Windows && msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32
+      
+    - name: Copy build artifacts and dependencies
+      shell: cmd
+      run: |
+        IF not exist ..\..\app\dist (mkdir ..\..\app\dist)
+        XCOPY .\Windows\Release\*.* ..\..\app\dist
+        COPY "C:\Windows\SysWOW64\msvcr100.dll" ..\..\app\dist\ /Y
+        COPY "C:\Windows\SysWOW64\msvcr120.dll" ..\..\app\dist\ /Y
+        COPY "C:\Windows\SysWOW64\msvcp100.dll" ..\..\app\dist\ /Y
+        COPY "C:\Windows\SysWOW64\msvcp120.dll" ..\..\app\dist\ /Y
+        COPY "C:\Windows\SysWOW64\msvcp140.dll" ..\..\app\dist\ /Y
+        COPY "C:\Windows\SysWOW64\vcruntime140.dll" ..\..\app\dist\ /Y
+        XCOPY /rhy "C:\Program Files (x86)\Windows Kits\10\Redist\ucrt\DLLs\x86" ..\..\app\dist\
+        
+    # Validate that the program exits with code 2 (missing arguments). If any DLLs are missing that
+    # prevent the application from starting, a code like -1073741515 will be returned.
+    - name: Validate executable
+      shell: pwsh
+      run: |
+        $process = Start-Process -FilePath "..\..\app\dist\mailsync.exe" -PassThru -Wait -NoNewWindow
+        $exitCode = $process.ExitCode
+
+        if ($exitCode -ne 2) {
+          Write-Host "We expected mailsync.exe to exit with code 2, but we got $exitCode instead."
+          exit 1
+        } else {
+          Write-Host "Exit code was as expected: $exitCode"
+        }
+        
+    - name: List build artifacts
+      shell: pwsh
+      run: |
+        (Get-ChildItem -Force -Path ..\..\app).FullName
+        (Get-ChildItem -Force -Path ..\..\app\dist).FullName
+        
+    - name: Create archive
+      shell: cmd
+      run: |
+        cd Windows
+        7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe -so | 7z -si -tgzip a .\mailsync.tar.gz
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: win-ia32-mailsync
+        path: Windows/mailsync.tar.gz
+        
+    - name: Deploy to S3
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: us-east-1
+      shell: pwsh
+      run: |
+        # Upload to S3
+        $archivePath = "Windows/mailsync.tar.gz"
+        $s3Key = "mailsync/$env:COMMIT/win-ia32/mailsync.tar.gz"
+        
+        aws s3 cp $archivePath s3://mailspring-builds/$s3Key --acl public-read
