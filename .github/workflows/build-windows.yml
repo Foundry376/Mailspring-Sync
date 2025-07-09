@@ -69,6 +69,9 @@ jobs:
         name: win-ia32-mailsync
         path: Windows/mailsync.tar.gz
 
+    - name: Setup tmate session
+      uses: mxschmitt/action-tmate@v3
+
     # Validate that the program exits with code 2 (missing arguments). If any DLLs are missing that
     # prevent the application from starting, a code like -1073741515 will be returned.
     - name: Validate executable
