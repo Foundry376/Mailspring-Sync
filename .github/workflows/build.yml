@@ -74,7 +74,7 @@ jobs:
           else
             OS_DIR="$RUNNER_OS"
           fi
-          aws s3 sync /home/runner/work/Mailspring-Sync/app/dist s3://mailspring-builds/mailsync/${GITHUB_SHA:0:8}/${OS_DIR}/ --delete
+          aws s3 sync ../app/dist s3://mailspring-builds/mailsync/${GITHUB_SHA:0:8}/${OS_DIR}/ --delete
 
       - name: Cache build dependencies
         uses: actions/cache@v4
