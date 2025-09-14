@@ -56,12 +56,18 @@ jobs:
       - name: Run build script
         run: ./build.sh
 
-      - name: Upload artifact (Linux/macOS)
-        if: success() && ((github.ref == 'refs/heads/master') || (github.event.pull_request.base.ref == 'master'))
-        uses: actions/upload-artifact@v4
+      - name: Setup AWS CLI
+        if: success() # && ((github.ref == 'refs/heads/master') || (github.event.pull_request.base.ref == 'master'))
+        uses: aws-actions/configure-aws-credentials@v1
         with:
-          name: mailsync-${{ steps.vars.outputs.short_sha }}-${{ runner.os }}
-          path: /home/runner/work/Mailspring-Sync/app/dist/mailsync.tar.gz
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload artifact
+        if: success() # && ((github.ref == 'refs/heads/master') || (github.event.pull_request.base.ref == 'master'))
+        run: |
+          aws s3 sync /home/runner/work/Mailspring-Sync/app/dist s3://mailspring-builds/mailsync/${GITHUB_SHA:0:8}/${{ runner.os }}/mailsync.tar.gz --delete
 
       - name: Cache build dependencies
         uses: actions/cache@v4

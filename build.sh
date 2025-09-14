@@ -6,7 +6,7 @@
 export MAILSYNC_DIR=$( cd $(dirname $0) ; pwd -P );
 export APP_ROOT_DIR="$MAILSYNC_DIR/../app"
 export APP_DIST_DIR="$APP_ROOT_DIR/dist"
-export DEP_BUILDS_DIR=/tmp/mailsync-build-deps-v2 # Note: also referenced in CMakeLists
+export CI="true"
 
 set -e
 mkdir -p "$APP_DIST_DIR"
@@ -26,13 +26,6 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   fi
 
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
-  # we cache this directory between builds to make CI faster.
-  # if it exists, just run make install again, otherwise pull
-  # the libraries down and build from source.
-  if [ ! -d "$DEP_BUILDS_DIR" ]; then
-    mkdir "$DEP_BUILDS_DIR"
-  fi
-
   echo "Building and installing libetpan..."
   cd "$MAILSYNC_DIR/Vendor/libetpan"
   ./autogen.sh --with-openssl=/opt/openssl
