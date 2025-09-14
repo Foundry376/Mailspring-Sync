@@ -182,6 +182,7 @@
 		4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MailStoreTransaction.cpp; sourceTree = "<group>"; };
 		4348E5DD1F560FDF004CFB15 /* MailStoreTransaction.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MailStoreTransaction.hpp; sourceTree = "<group>"; };
 		4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = SPDLogExtensions.hpp; sourceTree = "<group>"; };
+		4349AAD62E77874500512188 /* CODE_SIGN_STYLE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = CODE_SIGN_STYLE.txt; sourceTree = "<group>"; };
 		43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = mailcore2.xcodeproj; path = "Vendor/mailcore2/build-mac/mailcore2.xcodeproj"; sourceTree = "<group>"; };
 		436489301EF2E905007816EC /* mailsync */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = mailsync; sourceTree = BUILT_PRODUCTS_DIR; };
 		436489331EF2E905007816EC /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
@@ -355,6 +356,7 @@
 		436489271EF2E905007816EC = {
 			isa = PBXGroup;
 			children = (
+				4349AAD62E77874500512188 /* CODE_SIGN_STYLE.txt */,
 				43462D4C2175C5C8002BCBF5 /* libetpan.xcodeproj */,
 				43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */,
 				436489321EF2E905007816EC /* MailSync */,
@@ -546,18 +548,16 @@
 				TargetAttributes = {
 					4364892F1EF2E905007816EC = {
 						CreatedOnToolsVersion = 8.3.3;
-						DevelopmentTeam = X9RJ36K9D4;
-						ProvisioningStyle = Automatic;
 					};
 				};
 			};
 			buildConfigurationList = 4364892B1EF2E905007816EC /* Build configuration list for PBXProject "MailSync" */;
 			compatibilityVersion = "Xcode 3.2";
-			developmentRegion = English;
+			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				English,
 				en,
+				Base,
 			);
 			mainGroup = 436489271EF2E905007816EC;
 			productRefGroup = 436489311EF2E905007816EC /* Products */;
@@ -672,7 +672,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# copy mailsync and it's DYSM into the ../app directory\ncp \"${BUILT_PRODUCTS_DIR}/mailsync\" \"${PROJECT_DIR}/../app\"\n\n# explicitly codesign the binary because the codesigning build\n# phase is /AFTER/ this script is run. WTF.\ncodesign -s \"Mac Developer:\" -f \"${PROJECT_DIR}/../app/mailsync\"\n\nif [ -e \"${BUILT_PRODUCTS_DIR}/mailsync.dSYM\" ]\n  then cd \"${BUILT_PRODUCTS_DIR}\" && /usr/bin/zip -r \"${PROJECT_DIR}/../app/mailsync.dSYM.zip\" \"mailsync.dSYM\"\nfi\n";
+			shellScript = "# copy mailsync and it's DYSM into the ../app directory\ncp \"${BUILT_PRODUCTS_DIR}/mailsync\" \"${PROJECT_DIR}/../app\"\necho \"Copied to app dir\"\n\n# explicitly codesign the binary because the codesigning build\n# phase is /AFTER/ this script is run. WTF.\ncodesign -s \"Mac Developer:\" -f \"${PROJECT_DIR}/../app/mailsync\"\necho \"Codesigned\"\n\nif [ -e \"${BUILT_PRODUCTS_DIR}/mailsync.dSYM\" ]\n  then cd \"${BUILT_PRODUCTS_DIR}\" && /usr/bin/zip -r \"${PROJECT_DIR}/../app/mailsync.dSYM.zip\" \"mailsync.dSYM\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -841,6 +841,10 @@
 		436489381EF2E905007816EC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = X9RJ36K9D4;
 				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
@@ -881,12 +885,17 @@
 					"-Wl,-no_pie",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 			};
 			name = Debug;
 		};
 		436489391EF2E905007816EC /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = X9RJ36K9D4;
 				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = "SQLITE_ENABLE_FTS5=1";
 				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
@@ -923,6 +932,7 @@
 					"-Wl,-no_pie",
 				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 			};
 			name = Release;
 		};
