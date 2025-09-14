@@ -8,13 +8,14 @@ export APP_ROOT_DIR="$MAILSYNC_DIR/../app"
 export APP_DIST_DIR="$APP_ROOT_DIR/dist"
 export CI="true"
 
+
 set -e
 mkdir -p "$APP_DIST_DIR"
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
   cd "$MAILSYNC_DIR"
   gem install xcpretty;
-  set -o pipefail && xcodebuild -scheme mailsync -configuration Release | xcpretty;
+  set -o pipefail && xcodebuild -scheme mailsync -configuration Release -destination 'generic/platform=macOS' | xcpretty;
 
   # the xcodebuild copies the build products to the APP_ROOT_DIR and codesigns
   # them for us. We just need to tar them up and move them to the artifacts folder
@@ -66,3 +67,5 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
 else
   echo "Mailsync does not build on $OSTYPE yet.";
 fi
+
+echo "Build products compressed to $APP_DIST_DIR";

@@ -67,7 +67,14 @@ jobs:
       - name: Upload artifact
         if: success() # && ((github.ref == 'refs/heads/master') || (github.event.pull_request.base.ref == 'master'))
         run: |
-          aws s3 sync /home/runner/work/Mailspring-Sync/app/dist s3://mailspring-builds/mailsync/${GITHUB_SHA:0:8}/${{ runner.os }}/mailsync.tar.gz --delete
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            OS_DIR="linux"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            OS_DIR="osx"
+          else
+            OS_DIR="$RUNNER_OS"
+          fi
+          aws s3 sync /home/runner/work/Mailspring-Sync/app/dist s3://mailspring-builds/mailsync/${GITHUB_SHA:0:8}/${OS_DIR}/ --delete
 
       - name: Cache build dependencies
         uses: actions/cache@v4
