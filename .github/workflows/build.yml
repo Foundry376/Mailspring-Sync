@@ -7,10 +7,6 @@ on:
       - 'ci-*'
       - 'stable*'
   pull_request:
-    branches:
-      - master
-      - 'ci-*'
-      - 'stable*'
 
 jobs:
   build:
@@ -27,6 +23,17 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "short_sha=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+
+      - name: Set up codesigning (MacOS)
+        if: runner.os == 'macOS' # && (github.ref == 'refs/heads/master')
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CODESIGN_P12 }}
+          p12-password: ${{ secrets.APPLE_CODESIGN_KEY_PASSWORD }}
 
       - name: Set up dependencies (Linux)
         if: runner.os == 'Linux'
@@ -56,12 +63,25 @@ jobs:
       - name: Run build script
         run: ./build.sh
 
-      - name: Upload artifact (Linux/macOS)
-        if: success()
-        uses: actions/upload-artifact@v4
+      - name: Setup AWS CLI
+        if: success() # && (github.ref == 'refs/heads/master')
+        uses: aws-actions/configure-aws-credentials@v1
         with:
-          name: mailsync-${GITHUB_SHA:0:8}-${{ runner.os }}
-          path: ../app/dist/mailsync.tar.gz
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload artifact
+        if: success() # && (github.ref == 'refs/heads/master')
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            OS_DIR="linux"
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            OS_DIR="osx"
+          else
+            OS_DIR="$RUNNER_OS"
+          fi
+          aws s3 sync ../app/dist s3://mailspring-builds/mailsync/${GITHUB_SHA:0:8}/${OS_DIR}/ --delete
 
       - name: Cache build dependencies
         uses: actions/cache@v4

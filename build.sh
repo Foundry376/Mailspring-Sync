@@ -6,7 +6,8 @@
 export MAILSYNC_DIR=$( cd $(dirname $0) ; pwd -P );
 export APP_ROOT_DIR="$MAILSYNC_DIR/../app"
 export APP_DIST_DIR="$APP_ROOT_DIR/dist"
-export DEP_BUILDS_DIR=/tmp/mailsync-build-deps-v2 # Note: also referenced in CMakeLists
+export CI="true"
+
 
 set -e
 mkdir -p "$APP_DIST_DIR"
@@ -14,7 +15,7 @@ mkdir -p "$APP_DIST_DIR"
 if [[ "$OSTYPE" == "darwin"* ]]; then
   cd "$MAILSYNC_DIR"
   gem install xcpretty;
-  set -o pipefail && xcodebuild -scheme mailsync -configuration Release | xcpretty;
+  set -o pipefail && xcodebuild -scheme mailsync -configuration Release -destination 'generic/platform=macOS' | xcpretty;
 
   # the xcodebuild copies the build products to the APP_ROOT_DIR and codesigns
   # them for us. We just need to tar them up and move them to the artifacts folder
@@ -26,59 +27,6 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   fi
 
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
-  # we cache this directory between builds to make CI faster.
-  # if it exists, just run make install again, otherwise pull
-  # the libraries down and build from source.
-  if [ ! -d "$DEP_BUILDS_DIR" ]; then
-    mkdir "$DEP_BUILDS_DIR"
-  fi
-
-  if [ -d "$DEP_BUILDS_DIR/openssl-1.1.0f" ]; then
-    echo "Installing openssl-1.1.0f"
-    cd "$DEP_BUILDS_DIR/openssl-1.1.0f"
-    sudo make install
-    sudo ldconfig
-  else
-    echo "Building and installing openssl-1.1.0f"
-    cd "$DEP_BUILDS_DIR"
-    wget -q https://openssl.org/source/openssl-1.1.0f.tar.gz
-    tar -xzf openssl-1.1.0f.tar.gz
-    cd openssl-1.1.0f
-    sudo ./config --prefix=/opt/openssl --openssldir=/opt/openssl shared
-    sudo make
-    sudo make install
-    sudo ldconfig
-  fi
-
-
-  if [ -d "$DEP_BUILDS_DIR/curl-7.70.0" ]; then
-    echo "Installing curl-7.70.0..."
-    cd "$DEP_BUILDS_DIR/curl-7.70.0"
-    sudo make install prefix=/usr >/dev/null
-  else
-    # Install curl from source because the Ubuntu trusty version
-    # is too old. We need v7.46 or greater.
-    echo "Building and installing curl-7.70.0..."
-    cd "$DEP_BUILDS_DIR"
-    sudo apt-get build-dep curl
-    wget -q http://curl.haxx.se/download/curl-7.70.0.tar.bz2
-    tar -xjf curl-7.70.0.tar.bz2
-    cd curl-7.70.0
-    ./configure --quiet --disable-cookies --disable-ldaps --disable-ldap --disable-ftp --disable-ftps --disable-gopher --disable-dict --disable-imap --disable-imaps --disable-pop3 --disable-pop3s --disable-rtsp --disable-smb --disable-smtp --disable-smtps --disable-telnet --disable-tftp --disable-shared --enable-static --enable-ares --without-libidn --without-librtmp --with-ssl=/opt/openssl
-    make >/dev/null
-    sudo make install prefix=/usr >/dev/null
-    sudo ldconfig
-  fi
-  
-
-  echo "OpenSSL files:"
-  ls /opt/openssl/include/openssl
-  ls /opt/openssl/lib
-
-  echo "Symbolic linking new libssl libs into /usr/lib to workaround weird libetpan autogen:"
-  sudo ln -s /opt/openssl/lib/libssl.so.1.1 /usr/lib/libssl.so.1.1
-  sudo ln -s /opt/openssl/lib/libcrypto.so.1.1 /usr/lib/libcrypto.so.1.1
-
   echo "Building and installing libetpan..."
   cd "$MAILSYNC_DIR/Vendor/libetpan"
   ./autogen.sh --with-openssl=/opt/openssl
@@ -115,7 +63,9 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
 
   # Zip this stuff up so we can push it to S3 as a single artifacts
   cd "$APP_ROOT_DIR"
-  tar -czf "$APP_DIST_DIR/mailsync.tar.gz" *.so* mailsync mailsync.bin --wildcards
+  tar -czf "$APP_DIST_DIR/mailsync.tar.gz" --wildcards *.so* mailsync mailsync.bin
 else
   echo "Mailsync does not build on $OSTYPE yet.";
 fi
+
+echo "Build products compressed to $APP_DIST_DIR";
