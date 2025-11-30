@@ -5266,18 +5266,72 @@ static int mailimap_env_in_reply_to_parse(mailstream * fd,
 }
 
 /*
+   Workaround for iCloud issue where the ENVELOPE's messageid contains unescaped DQUOTE's
+*/
+
+static int mailimap_env_message_id_parse_icloud_workaround ( mailstream* fd,
+    MMAPString* buffer, struct mailimap_parser_context* parser_ctx,
+    size_t* indx, char** result,
+    size_t progr_rate,
+    progress_function* progr_fun )
+    {
+    int r;
+    size_t cur_token;
+
+    // Workaround for iCloud issue where the ENVELOPE's messageid contains DQUOTE's
+
+    cur_token = *indx;
+    r = mailimap_dquote_parse ( fd, buffer, parser_ctx, &cur_token );
+
+    if ( r != MAILIMAP_NO_ERROR )
+        return r;
+
+    r = mailimap_encapsulated_parse ( fd, buffer, parser_ctx,
+        &cur_token, result, progr_rate,
+        progr_fun, '<', '>', true );
+
+    if ( r != MAILIMAP_NO_ERROR )
+        return r;
+
+    r = mailimap_dquote_parse ( fd, buffer, parser_ctx, &cur_token );
+
+    if ( r != MAILIMAP_NO_ERROR )
+        return r;
+
+    *indx = cur_token;
+    return MAILIMAP_NO_ERROR;
+    }
+
+/*
    env-message-id  = nstring
 */
 
-static int mailimap_env_message_id_parse(mailstream * fd,
-					 MMAPString * buffer, struct mailimap_parser_context * parser_ctx,
-					 size_t * indx, char ** result,
-					 size_t progr_rate,
-					 progress_function * progr_fun)
-{
-  return mailimap_nstring_parse(fd, buffer, parser_ctx, indx, result, NULL,
-				progr_rate, progr_fun);
-}
+static int mailimap_env_message_id_parse ( mailstream* fd,
+    MMAPString* buffer, struct mailimap_parser_context* parser_ctx,
+    size_t* indx, char** result,
+    size_t progr_rate,
+    progress_function* progr_fun )
+    {
+    int r;
+    size_t cur_token;
+
+    cur_token = *indx;
+
+    r = mailimap_nstring_parse ( fd, buffer, parser_ctx, &cur_token, result, NULL,
+        progr_rate, progr_fun );
+
+    if ( r == MAILIMAP_NO_ERROR && *result != NULL && strlen ( *result ) == 1 && *result[0] == '<' )
+        {
+        return mailimap_env_message_id_parse_icloud_workaround ( fd, buffer, parser_ctx, indx, result,
+            progr_rate, progr_fun );
+        }
+    else if ( r == MAILIMAP_NO_ERROR )
+        {
+        *indx = cur_token;
+        }
+
+    return r;
+    }
 
 /*
    env-reply-to    = "(" 1*address ")" / nil
@@ -8699,6 +8753,130 @@ mailimap_nz_number_parse(mailstream * fd, MMAPString * buffer, struct mailimap_p
 */
 
 /*
+
+    generic encapsulated string parser
+
+*/
+
+static int
+mailimap_encapsulated_parse ( mailstream* fd, MMAPString* buffer, struct mailimap_parser_context* parser_ctx,
+    size_t* indx, char** result,
+    size_t progr_rate,
+    progress_function* progr_fun,
+    char open_token, char close_token, bool include_tokens )
+    {
+    char ch;
+    size_t cur_token;
+    MMAPString* gstr_quoted;
+    int r;
+    int res;
+    bool use_msg_body_handler;
+    bool is_quoted;
+
+    is_quoted = open_token == '\"' && close_token == '\"';
+    cur_token = *indx;
+
+    use_msg_body_handler = ( parser_ctx->msg_body_handler != NULL
+        && parser_ctx->msg_body_parse_in_progress );
+
+#ifdef UNSTRICT_SYNTAX
+    r = mailimap_space_parse ( fd, buffer, &cur_token );
+    if ( ( r != MAILIMAP_NO_ERROR ) && ( r != MAILIMAP_ERROR_PARSE ) )
+        return r;
+#endif
+
+    r = mailimap_char_parse ( fd, buffer, &cur_token, open_token );
+    if ( r != MAILIMAP_NO_ERROR ) {
+        res = r;
+        goto err;
+        }
+
+    gstr_quoted = mmap_string_new ( "" );
+
+    if ( gstr_quoted == NULL ) {
+        res = MAILIMAP_ERROR_MEMORY;
+        goto err;
+        }
+
+    if ( include_tokens && mmap_string_append_c ( gstr_quoted, open_token ) == NULL )
+        {
+        res = MAILIMAP_ERROR_MEMORY;
+        goto free;
+        }
+
+    while ( 1 ) {
+        if ( cur_token >= buffer->len ) {
+            if ( fd == NULL ) {
+                if ( !has_crlf ( buffer, cur_token ) ) {
+                    res = MAILIMAP_ERROR_NEEDS_MORE_DATA;
+                    goto free;
+                    }
+                }
+            else if ( mailstream_read_line_append ( fd, buffer ) == NULL ) {
+                res = MAILIMAP_ERROR_PARSE;
+                goto free;
+                }
+            }
+
+        if ( is_quoted )
+            r = mailimap_quoted_char_parse ( fd, buffer, parser_ctx, &cur_token, &ch );
+        else
+            r = mailimap_any_char_except_parse ( fd, buffer, parser_ctx, &cur_token, &ch, close_token );
+
+        if ( r == MAILIMAP_ERROR_PARSE )
+            break;
+        else if ( r == MAILIMAP_NO_ERROR ) {
+            if ( use_msg_body_handler ) {
+                if ( !parser_ctx->msg_body_handler ( parser_ctx->msg_body_att_type, parser_ctx->msg_body_section,
+                    &ch, 1,
+                    parser_ctx->msg_body_handler_context ) ) {
+                    res = MAILIMAP_ERROR_MEMORY;
+                    goto free;
+                    }
+                }
+            else {
+                if ( mmap_string_append_c ( gstr_quoted, ch ) == NULL ) {
+                    res = MAILIMAP_ERROR_MEMORY;
+                    goto free;
+                    }
+                }
+            }
+        else {
+            res = r;
+            goto free;
+            }
+        }
+
+    r = mailimap_char_parse ( fd, buffer, &cur_token, close_token );
+    
+    if ( r != MAILIMAP_NO_ERROR ) {
+        res = r;
+        goto free;
+        }
+
+    if ( include_tokens && mmap_string_append_c ( gstr_quoted, close_token ) == NULL )
+        {
+        res = MAILIMAP_ERROR_MEMORY;
+        goto free;
+        }
+
+    if ( mmap_string_ref ( gstr_quoted ) < 0 ) {
+        res = MAILIMAP_ERROR_MEMORY;
+        goto free;
+        }
+
+    *indx = cur_token;
+    *result = gstr_quoted->str;
+
+    return MAILIMAP_NO_ERROR;
+
+free:
+    mmap_string_free ( gstr_quoted );
+err:
+    return res;
+    }
+
+/*
    quoted          = DQUOTE *QUOTED-CHAR DQUOTE
 */
 
@@ -8708,95 +8886,9 @@ mailimap_quoted_parse(mailstream * fd, MMAPString * buffer, struct mailimap_pars
 		      size_t progr_rate,
 		      progress_function * progr_fun)
 {
-  char ch;
-  size_t cur_token;
-  MMAPString * gstr_quoted;
-  int r;
-  int res;
-  bool use_msg_body_handler;
-
-  cur_token = * indx;
-
-  use_msg_body_handler = (parser_ctx->msg_body_handler != NULL
-                          && parser_ctx->msg_body_parse_in_progress);
-
-#ifdef UNSTRICT_SYNTAX
-  r = mailimap_space_parse(fd, buffer, &cur_token);
-  if ((r != MAILIMAP_NO_ERROR) && (r != MAILIMAP_ERROR_PARSE))
-    return r;
-#endif
-
-  r = mailimap_dquote_parse(fd, buffer, parser_ctx, &cur_token);
-  if (r != MAILIMAP_NO_ERROR) {
-    res = r;
-    goto err;
-  }
-
-  gstr_quoted = mmap_string_new("");
-  if (gstr_quoted == NULL) {
-    res = MAILIMAP_ERROR_MEMORY;
-    goto err;
-  }
-
-  while (1) {
-    if (cur_token >= buffer->len) {
-      if (fd == NULL) {
-        if (!has_crlf(buffer, cur_token)) {
-          res = MAILIMAP_ERROR_NEEDS_MORE_DATA;
-          goto free;
-        }
-      }
-      else if (mailstream_read_line_append(fd, buffer) == NULL) {
-        res = MAILIMAP_ERROR_PARSE;
-        goto free;
-      }
-    }
-    
-    r = mailimap_quoted_char_parse(fd, buffer, parser_ctx, &cur_token, &ch);
-    if (r == MAILIMAP_ERROR_PARSE)
-      break;
-    else if (r == MAILIMAP_NO_ERROR) {
-      if (use_msg_body_handler) {
-        if (!parser_ctx->msg_body_handler(parser_ctx->msg_body_att_type, parser_ctx->msg_body_section,
-                                          &ch, 1,
-                                          parser_ctx->msg_body_handler_context)) {
-          res = MAILIMAP_ERROR_MEMORY;
-          goto free;
-        }
-      }
-      else {
-        if (mmap_string_append_c(gstr_quoted, ch) == NULL) {
-          res = MAILIMAP_ERROR_MEMORY;
-          goto free;
-        }
-      }
-    }
-    else {
-      res = r;
-      goto free;
-    }
-  }
-
-  r = mailimap_dquote_parse(fd, buffer, parser_ctx, &cur_token);
-  if (r != MAILIMAP_NO_ERROR) {
-    res = r;
-    goto free;
-  }
-
-  if (mmap_string_ref(gstr_quoted) < 0) {
-    res = MAILIMAP_ERROR_MEMORY;
-    goto free;
-  }
-
-  * indx = cur_token;
-  * result = gstr_quoted->str;
-
-  return MAILIMAP_NO_ERROR;
-
- free:
-  mmap_string_free(gstr_quoted);
- err:
-  return res;
+    return mailimap_encapsulated_parse ( fd, buffer, parser_ctx,
+                                        indx, result, progr_rate, 
+                                        progr_fun, '\"', '\"', false );
 }
 
 /*
@@ -8849,6 +8941,30 @@ mailimap_quoted_char_parse(mailstream * fd, MMAPString * buffer, struct mailimap
     return MAILIMAP_ERROR_PARSE;
   }
 }
+
+int
+mailimap_any_char_except_parse ( mailstream* fd, MMAPString* buffer, struct mailimap_parser_context* parser_ctx,
+    size_t* indx, char* result, char except_char )
+    {
+    size_t cur_token;
+    char cur_char;
+
+    cur_token = *indx;
+
+    if ( cur_token >= buffer->len )
+        return MAILIMAP_ERROR_PARSE;
+
+    cur_char = buffer->str[cur_token];
+
+    if ( is_text_char ( cur_char ) && cur_char != except_char ) {
+        *result = cur_char;
+        cur_token++;
+        *indx = cur_token;
+        return MAILIMAP_NO_ERROR;
+        }
+    else
+        return MAILIMAP_ERROR_PARSE;
+    }
 
 /*
    quoted-specials = DQUOTE / "\"
