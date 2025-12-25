@@ -44,9 +44,43 @@ For debugging in Xcode/Visual Studio, configure the debugger to pass `--identity
 
 ## Architecture
 
+### Reactive Data Flow (Core Path)
+
+All database changes flow through an entity layer and are emitted as a JSON event stream to stdout, enabling the Mailspring UI to reactively update.
+
+**Data Flow:**
+1. **Model modification** → Caller modifies a `MailModel` subclass (Message, Thread, Folder, etc.)
+2. **Save via MailStore** → `store->save(model)` increments version, calls `beforeSave()`, writes to SQLite, calls `afterSave()`
+3. **Delta creation** → Save/remove creates a `DeltaStreamItem` with type "persist" or "unpersist"
+4. **Delta emission** → `_emit()` queues the delta (immediately or within transaction)
+5. **Output to stdout** → `DeltaStream` flushes buffered deltas as newline-separated JSON
+
+**Transaction Behavior:**
+```cpp
+MailStoreTransaction transaction(store, "operationName");
+store->save(model1);  // Delta accumulated
+store->save(model2);  // Delta accumulated
+transaction.commit(); // All deltas emitted together
+// Destructor auto-rollbacks if commit() not called
+```
+
+**Delta Coalescing:** Multiple saves of the same object within a flush window are merged—only the final state is emitted, with keys merged to preserve conditionally-included fields (e.g., `message.body`).
+
+**Output Format:**
+```json
+{"type":"persist","modelClass":"Message","modelJSONs":[{...}]}
+{"type":"unpersist","modelClass":"Thread","modelJSONs":[{"id":"..."}]}
+```
+
+**Key Classes:**
+- `MailModel` (`MailSync/Models/MailModel.hpp`) - Base class with `_data` JSON, lifecycle hooks, version tracking
+- `MailStore` (`MailSync/MailStore.hpp`) - Database layer, emits deltas on save/remove
+- `MailStoreTransaction` - RAII transaction wrapper, batches deltas until commit
+- `DeltaStream` (`MailSync/DeltaStream.hpp`) - Singleton (`SharedDeltaStream()`) managing stdout output with buffering
+
 ### Process Model
 Each mailsync process handles a single email account. Mailspring runs one process per connected account. The process communicates via:
-- **stdout**: Emits newline-separated JSON for all model changes (reactive data pattern)
+- **stdout**: Emits newline-separated JSON for all model changes (see Reactive Data Flow above)
 - **stdin**: Accepts JSON task objects and commands (queue-task, cancel-task, wake-workers, need-bodies)
 
 ### Threading Model
@@ -57,9 +91,8 @@ Each mailsync process handles a single email account. Mailspring runs one proces
 - **Metadata threads** (`MetadataWorker`, `MetadataExpirationWorker`): Syncs plugin metadata to/from id.getmailspring.com
 
 ### Key Components
-- `MailStore`: SQLite database wrapper with template-based queries. Uses "fat" rows with a `data` JSON column plus indexed columns for queryable fields.
+- `MailStore`: SQLite database wrapper with template-based queries. Uses "fat" rows with a `data` JSON column plus indexed columns for queryable fields. See Reactive Data Flow above.
 - `TaskProcessor`: Handles local (immediate) and remote (network) task execution for operations like sending mail, modifying flags, etc.
-- `DeltaStream`: Broadcasts model changes to stdout for the Electron UI
 - `MailProcessor`: Parses IMAP messages, creates stable IDs from headers
 
 ### Models (in `MailSync/Models/`)
