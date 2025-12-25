@@ -672,18 +672,24 @@ void IMAPSession::connect(ErrorCode * pError)
             * pError = ErrorTLSNotAvailable;
             goto close;
         }
+        if (!checkCertificate()) {
+            MCLog("StartTLS ssl connect certificate ERROR %d", r);
+            * pError = ErrorCertificate;
+            goto close;
+        }
+
         break;
 
         case ConnectionTypeTLS:
         r = mailimap_ssl_connect_voip(mImap, MCUTF8(mHostname), mPort, isVoIPEnabled());
-        MCLog("ssl connect %s %u %u", MCUTF8(mHostname), mPort, r);
+        MCLog("TLS ssl connect %s %u %u", MCUTF8(mHostname), mPort, r);
         if (hasError(r)) {
             MCLog("connect error %i", r);
             * pError = ErrorConnection;
             goto close;
         }
         if (!checkCertificate()) {
-            MCLog("ssl connect certificate ERROR %d", r);
+            MCLog("TLS ssl connect certificate ERROR %d", r);
             * pError = ErrorCertificate;
             goto close;
         }
@@ -2611,7 +2617,17 @@ IMAPSyncResult * IMAPSession::fetchMessages(String * folder, IMAPMessagesRequest
         struct mailimap_section * section;
         
         imap_hdrlist = mailimap_header_list_new(hdrlist);
-        section = mailimap_section_new_header_fields(imap_hdrlist);
+        
+        /*
+         * If the IMAPRequestKindFullHeaders is set then we have to fetch the full headers 
+         * otherwise only the specified list of headers 
+         */
+        if ((requestKind & IMAPMessagesRequestKindAllHeaders) != 0) {
+           section = mailimap_section_new_header();
+        } else {
+           section = mailimap_section_new_header_fields(imap_hdrlist);
+        }
+
         fetch_att = mailimap_fetch_att_new_body_peek_section(section);
         mailimap_fetch_type_new_fetch_att_list_add(fetch_type, fetch_att);
         needsHeader = true;
