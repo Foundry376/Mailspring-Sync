@@ -183,12 +183,39 @@ int mailimap_capability_data_parse(mailstream * fd, MMAPString * buffer, struct 
 	size_t progr_rate,
 	progress_function * progr_fun);
 
+static int is_text_char(char ch);
+
 int mailimap_capability_list_parse(mailstream * fd,
   MMAPString * buffer, struct mailimap_parser_context * parser_ctx,
   size_t * indx,
   clist ** result,
   size_t progr_rate,
   progress_function * progr_fun);
+
+int
+mailimap_any_char_except_parse ( mailstream* fd, MMAPString* buffer, struct mailimap_parser_context* parser_ctx,
+	size_t* indx, char* result, char except_char );
+
+static int
+mailimap_env_message_id_parse_icloud_workaround ( mailstream* fd,
+	MMAPString* buffer, struct mailimap_parser_context* parser_ctx,
+	size_t* indx, char** result,
+	size_t progr_rate,
+	progress_function* progr_fun );
+
+static int
+mailimap_env_message_id_parse ( mailstream* fd,
+	MMAPString* buffer, struct mailimap_parser_context* parser_ctx,
+	size_t* indx, char** result,
+	size_t progr_rate,
+	progress_function* progr_fun );
+
+static int
+mailimap_encapsulated_parse ( mailstream* fd, MMAPString* buffer, struct mailimap_parser_context* parser_ctx,
+	size_t* indx, char** result,
+	size_t progr_rate,
+	progress_function* progr_fun,
+	char open_token, char close_token, bool include_tokens );
 
 int mailimap_status_att_parse(mailstream * fd, MMAPString * buffer, struct mailimap_parser_context * parser_ctx,
   size_t * indx, int * result);
