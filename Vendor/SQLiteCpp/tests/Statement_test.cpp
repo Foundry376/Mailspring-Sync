@@ -331,7 +331,7 @@ TEST(Statement, bindings)
         const int64_t       int64 = 12345678900000LL;
         const float         float32 = 0.234f;
         insert.bind(1, fourth);
-        insert.bind(2, int64);
+        insert.bind(2, static_cast<long long int>(int64));
         insert.bind(3, float32);
         EXPECT_EQ(1, insert.exec());
         EXPECT_EQ(SQLITE_DONE, db.getErrorCode());
@@ -376,7 +376,7 @@ TEST(Statement, bindings)
         const uint32_t  uint32 = 4294967295U;
         const int64_t   integer = -123;
         insert.bind(2, uint32);
-        insert.bind(3, integer);
+        insert.bind(3, static_cast<long long int>(integer));
         EXPECT_EQ(1, insert.exec());
         EXPECT_EQ(SQLITE_DONE, db.getErrorCode());
 
@@ -396,7 +396,7 @@ TEST(Statement, bindings)
     // Seventh row using another variant of int64 type
     {
         const int64_t   int64 = 12345678900000LL;
-        insert.bind(2, int64);
+        insert.bind(2, static_cast<long long int>(int64));
         EXPECT_EQ(1, insert.exec());
         EXPECT_EQ(SQLITE_DONE, db.getErrorCode());
 
@@ -497,7 +497,7 @@ TEST(Statement, bindByName)
         const float         float32 = 0.234f;
         insert.bind("@msg",      second);
         insert.bind("@int",      int32);
-        insert.bind("@long",     int64);
+        insert.bind("@long",     static_cast<long long int>(int64));
         insert.bind("@double",   float32);
         EXPECT_EQ(1, insert.exec());
         EXPECT_EQ(SQLITE_DONE, db.getErrorCode());
@@ -542,7 +542,7 @@ TEST(Statement, bindByName)
         const uint32_t  uint32 = 4294967295U;
         const int64_t   int64 = 12345678900000LL;
         insert.bind("@int", uint32);
-        insert.bind("@long", int64);
+        insert.bind("@long", static_cast<long long int>(int64));
         EXPECT_EQ(1, insert.exec());
         EXPECT_EQ(SQLITE_DONE, db.getErrorCode());
 
@@ -609,9 +609,9 @@ TEST(Statement, bindByNameString)
         const int64_t       integer = -123;
         const float         float32 = 0.234f;
         insert.bind(amsg, second);
-        insert.bind(aint, int64);
+        insert.bind(aint, static_cast<long long int>(int64));
         insert.bind(adouble, float32);
-        insert.bind(along, integer);
+        insert.bind(along, static_cast<long long int>(integer));
         EXPECT_EQ(1, insert.exec());
         EXPECT_EQ(SQLITE_DONE, db.getErrorCode());
 
@@ -655,7 +655,7 @@ TEST(Statement, bindByNameString)
         const uint32_t  uint32 = 4294967295U;
         const int64_t   int64 = 12345678900000LL;
         insert.bind(aint, uint32);
-        insert.bind(along, int64);
+        insert.bind(along, static_cast<long long int>(int64));
         EXPECT_EQ(1, insert.exec());
         EXPECT_EQ(SQLITE_DONE, db.getErrorCode());
 
