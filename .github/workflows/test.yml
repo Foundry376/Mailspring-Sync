@@ -1,0 +1,38 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            build-essential cmake \
+            libglib2.0-dev
+
+      - name: Configure CMake with tests
+        run: |
+          mkdir -p build
+          cd build
+          cmake .. -DMAILSYNC_BUILD_TESTS=ON -DMAILSYNC_TESTS_ONLY=ON
+
+      - name: Build tests
+        run: |
+          cd build
+          make -j$(nproc)
+
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure
