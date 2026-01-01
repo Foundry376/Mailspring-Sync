@@ -148,19 +148,32 @@ void DeltaStream::flushBuffer() {
 void DeltaStream::flushWithin(int ms) {
     std::chrono::system_clock::time_point desiredTime = std::chrono::system_clock::now();
     desiredTime += chrono::milliseconds(ms);
-    lock_guard<mutex> lock(bufferMtx);
 
-    if (!scheduled) {
-        scheduledTime = desiredTime;
-        scheduled = true;
+    bool shouldNotify = false;
 
-        std::thread([this]() {
-            SetThreadName("DeltaStreamFlush");
-            std::unique_lock<std::mutex> lck(bufferFlushMtx);
-            bufferFlushCv.wait_until(lck, this->scheduledTime);
-            this->flushBuffer();
-        }).detach();
-    } else if (scheduled && (desiredTime < scheduledTime)) {
+    {
+        lock_guard<mutex> lock(bufferMtx);
+
+        if (!scheduled) {
+            scheduledTime = desiredTime;
+            scheduled = true;
+
+            std::thread([this]() {
+                SetThreadName("DeltaStreamFlush");
+                std::unique_lock<std::mutex> lck(bufferFlushMtx);
+                bufferFlushCv.wait_until(lck, this->scheduledTime);
+                this->flushBuffer();
+            }).detach();
+        } else if (desiredTime < scheduledTime) {
+            shouldNotify = true;
+        }
+    }
+
+    // Notify outside bufferMtx to prevent deadlock: the background thread
+    // holds bufferFlushMtx while waiting, then acquires bufferMtx in flushBuffer().
+    // If we held bufferMtx while acquiring bufferFlushMtx here, we'd have
+    // opposite lock ordering and potential deadlock.
+    if (shouldNotify) {
         std::unique_lock<std::mutex> lck(bufferFlushMtx);
         bufferFlushCv.notify_one();
     }
