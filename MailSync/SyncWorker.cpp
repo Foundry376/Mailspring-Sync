@@ -219,6 +219,9 @@ void SyncWorker::idleCycleIteration()
         session.idle(&path, 0, &err);
         session.unsetupIdle();
         logger->info("Idle exited with code {}", err);
+        if (err != ErrorNone) {
+            throw SyncException(err, "idle");
+        }
     } else {
         logger->info("Connection does not support idling. Locking until more to do...");
         std::unique_lock<std::mutex> lck(idleMtx);
