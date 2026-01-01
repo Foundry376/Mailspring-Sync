@@ -100,6 +100,9 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   #target_link_libraries(mailsync ${RT_LIB})
 
   # These dynamic links are the packages that must be on the host machine
-  target_link_libraries(mailsync pthread sasl2 ssl crypto tidy curl dl)
+  # Note: libtidy is loaded dynamically at runtime via dlopen() to support
+  # different sonames across Linux distributions (Debian/Ubuntu use
+  # libtidy.so.5deb1, Fedora uses libtidy.so.5, etc.)
+  target_link_libraries(mailsync pthread sasl2 ssl crypto curl dl)
 
 ENDIF()
