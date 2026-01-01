@@ -139,11 +139,22 @@ jobs:
 
             # Install required runtime dependencies (from RPM spec)
             dnf install -y glibc libstdc++ libcurl openssl libicu libuuid cyrus-sasl-lib \
-              libXScrnSaver libsecret libtidy ca-certificates libappindicator-gtk3
+              libXScrnSaver libsecret libtidy ca-certificates libappindicator-gtk3 file
 
             # Extract and test mailsync
             cd /workspace
             tar -xzf mailsync.tar.gz
+
+            # Debug: show extracted files and binary info
+            echo 'Extracted files:'
+            ls -la
+            echo ''
+            echo 'Binary info:'
+            file ./mailsync.bin || true
+            echo ''
+            echo 'Checking for missing shared libraries:'
+            ldd ./mailsync.bin || true
+            echo ''
 
             # Run mailsync and capture output
             echo 'Running mailsync --help...'
@@ -154,7 +165,11 @@ jobs:
               echo '✓ mailsync runs successfully and prints help message on Fedora ${{ matrix.fedora_version }}'
             else
               echo '✗ mailsync failed to print expected help message'
+              echo 'Output was:'
               cat /tmp/output.txt
+              echo ''
+              echo 'Checking for missing libraries (not found):'
+              ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
             fi
           "
@@ -176,11 +191,22 @@ jobs:
 
             # Update package database and install required runtime dependencies
             pacman -Syu --noconfirm
-            pacman -S --noconfirm glibc gcc-libs curl openssl icu util-linux-libs cyrus-sasl
+            pacman -S --noconfirm glibc gcc-libs curl openssl icu util-linux-libs cyrus-sasl file
 
             # Extract and test mailsync
             cd /workspace
             tar -xzf mailsync.tar.gz
+
+            # Debug: show extracted files and binary info
+            echo 'Extracted files:'
+            ls -la
+            echo ''
+            echo 'Binary info:'
+            file ./mailsync.bin || true
+            echo ''
+            echo 'Checking for missing shared libraries:'
+            ldd ./mailsync.bin || true
+            echo ''
 
             # Run mailsync and capture output
             echo 'Running mailsync --help...'
@@ -191,7 +217,11 @@ jobs:
               echo '✓ mailsync runs successfully and prints help message on Arch Linux'
             else
               echo '✗ mailsync failed to print expected help message'
+              echo 'Output was:'
               cat /tmp/output.txt
+              echo ''
+              echo 'Checking for missing libraries (not found):'
+              ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
             fi
           "
@@ -218,11 +248,22 @@ jobs:
             apt-get update
             apt-get install -y libcurl4 libssl3 libicu-dev uuid-runtime libsasl2-2 \
               libsecret-1-dev libgtk2.0-0 libudev1 libgcrypt20 libnotify4 libxtst6 \
-              libnss3 libglib2.0-bin xdg-utils libtidy-dev
+              libnss3 libglib2.0-bin xdg-utils libtidy-dev file
 
             # Extract and test mailsync
             cd /workspace
             tar -xzf mailsync.tar.gz
+
+            # Debug: show extracted files and binary info
+            echo 'Extracted files:'
+            ls -la
+            echo ''
+            echo 'Binary info:'
+            file ./mailsync.bin || true
+            echo ''
+            echo 'Checking for missing shared libraries:'
+            ldd ./mailsync.bin || true
+            echo ''
 
             # Run mailsync and capture output
             echo 'Running mailsync --help...'
@@ -233,7 +274,11 @@ jobs:
               echo '✓ mailsync runs successfully and prints help message on Ubuntu ${{ matrix.ubuntu_version }}'
             else
               echo '✗ mailsync failed to print expected help message'
+              echo 'Output was:'
               cat /tmp/output.txt
+              echo ''
+              echo 'Checking for missing libraries (not found):'
+              ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
             fi
           "
