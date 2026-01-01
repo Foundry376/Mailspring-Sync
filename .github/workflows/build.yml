@@ -15,11 +15,10 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-22.04, macos-13]
+        os: [ubuntu-22.04, macos-latest]
         include:
           - os: ubuntu-22.04
-          - os: macos-13
-            osx_image: xcode13.2
+          - os: macos-latest
 
     steps:
       - name: Checkout code
@@ -59,6 +58,26 @@ jobs:
 
       - name: Run build script
         run: ./build.sh
+
+      - name: Verify universal binary architectures (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "Verifying mailsync binary architectures..."
+          ARCHS=$(lipo -archs ../app/mailsync)
+          echo "Architectures found: $ARCHS"
+
+          if [[ "$ARCHS" != *"arm64"* ]]; then
+            echo "ERROR: arm64 architecture not found in binary"
+            exit 1
+          fi
+
+          if [[ "$ARCHS" != *"x86_64"* ]]; then
+            echo "ERROR: x86_64 architecture not found in binary"
+            exit 1
+          fi
+
+          echo "Universal binary verification passed: $ARCHS"
+          lipo -info ../app/mailsync
 
       - name: Setup AWS CLI
         if: success() && (github.ref == 'refs/heads/master')
