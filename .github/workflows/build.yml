@@ -149,10 +149,22 @@ jobs:
             echo 'Extracted files:'
             ls -la
             echo ''
+            echo 'Wrapper script contents:'
+            cat ./mailsync || true
+            echo ''
+            echo ''
             echo 'Binary info:'
             file ./mailsync.bin || true
             echo ''
-            echo 'Checking for missing shared libraries:'
+
+            # Set up library paths (same as wrapper script does)
+            export LD_LIBRARY_PATH=\"\$(pwd):\$LD_LIBRARY_PATH\"
+            export SASL_PATH=\"\$(pwd)\"
+            echo \"LD_LIBRARY_PATH=\$LD_LIBRARY_PATH\"
+            echo \"SASL_PATH=\$SASL_PATH\"
+            echo ''
+
+            echo 'Checking for missing shared libraries (with LD_LIBRARY_PATH set):'
             ldd ./mailsync.bin || true
             echo ''
 
@@ -201,10 +213,22 @@ jobs:
             echo 'Extracted files:'
             ls -la
             echo ''
+            echo 'Wrapper script contents:'
+            cat ./mailsync || true
+            echo ''
+            echo ''
             echo 'Binary info:'
             file ./mailsync.bin || true
             echo ''
-            echo 'Checking for missing shared libraries:'
+
+            # Set up library paths (same as wrapper script does)
+            export LD_LIBRARY_PATH=\"\$(pwd):\$LD_LIBRARY_PATH\"
+            export SASL_PATH=\"\$(pwd)\"
+            echo \"LD_LIBRARY_PATH=\$LD_LIBRARY_PATH\"
+            echo \"SASL_PATH=\$SASL_PATH\"
+            echo ''
+
+            echo 'Checking for missing shared libraries (with LD_LIBRARY_PATH set):'
             ldd ./mailsync.bin || true
             echo ''
 
@@ -258,10 +282,22 @@ jobs:
             echo 'Extracted files:'
             ls -la
             echo ''
+            echo 'Wrapper script contents:'
+            cat ./mailsync || true
+            echo ''
+            echo ''
             echo 'Binary info:'
             file ./mailsync.bin || true
             echo ''
-            echo 'Checking for missing shared libraries:'
+
+            # Set up library paths (same as wrapper script does)
+            export LD_LIBRARY_PATH=\"\$(pwd):\$LD_LIBRARY_PATH\"
+            export SASL_PATH=\"\$(pwd)\"
+            echo \"LD_LIBRARY_PATH=\$LD_LIBRARY_PATH\"
+            echo \"SASL_PATH=\$SASL_PATH\"
+            echo ''
+
+            echo 'Checking for missing shared libraries (with LD_LIBRARY_PATH set):'
             ldd ./mailsync.bin || true
             echo ''
 
