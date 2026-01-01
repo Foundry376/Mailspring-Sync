@@ -82,6 +82,7 @@ void SyncWorker::idleInterrupt()
 
 void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
     // called on main thread
+    std::unique_lock<std::mutex> lck(idleMtx);
     for (string & id : ids) {
         idleFetchBodyIDs.push_back(id);
     }
@@ -90,9 +91,16 @@ void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
 void SyncWorker::idleCycleIteration()
 {
     // Run body requests from the client
-    while (idleFetchBodyIDs.size() > 0) {
-        string id = idleFetchBodyIDs.back();
-        idleFetchBodyIDs.pop_back();
+    while (true) {
+        string id;
+        {
+            std::unique_lock<std::mutex> lck(idleMtx);
+            if (idleFetchBodyIDs.empty()) {
+                break;
+            }
+            id = idleFetchBodyIDs.back();
+            idleFetchBodyIDs.pop_back();
+        }
         Query byId = Query().equal("id", id);
         auto msg = store->find<Message>(byId);
         if (msg.get() != nullptr) {
