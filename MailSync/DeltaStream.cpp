@@ -108,7 +108,7 @@ string DeltaStreamItem::dump() const {
 
 // Class
 
-DeltaStream::DeltaStream() : scheduled(false) {
+DeltaStream::DeltaStream() : scheduled(false), connectionError(false) {
 }
 
 
