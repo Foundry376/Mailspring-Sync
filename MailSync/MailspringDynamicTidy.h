@@ -40,10 +40,8 @@ typedef enum {
     MSTidyShowErrors = 163
 } MSTidyOptionId;
 
-// Doctype mode values
-typedef enum {
-    MSTidyDoctypeUser = 249
-} MSTidyDoctypeMode;
+// Doctype mode value passed to MSTidyDoctypeMode option
+#define MSTidyDoctypeUser 249
 
 // Initialize libtidy dynamic loading - called automatically at startup
 void mailspring_tidy_init(void);
