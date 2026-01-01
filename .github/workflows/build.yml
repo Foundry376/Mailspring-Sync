@@ -99,6 +99,14 @@ jobs:
           fi
           aws s3 sync ../app/dist s3://mailspring-builds/mailsync/${GITHUB_SHA:0:8}/${OS_DIR}/ --delete
 
+      - name: Upload Linux artifact for distribution testing
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mailsync-linux
+          path: ../app/dist/mailsync.tar.gz
+          retention-days: 1
+
       - name: Cache build dependencies
         uses: actions/cache@v4
         with:
@@ -106,3 +114,119 @@ jobs:
           key: ${{ runner.os }}-mailsync-deps-${{ hashFiles('**/build.sh') }}
           restore-keys: |
             ${{ runner.os }}-mailsync-deps-
+
+  test-fedora:
+    needs: build
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        fedora_version: ['40', '41']
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mailsync-linux
+
+      - name: Test on Fedora ${{ matrix.fedora_version }}
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace fedora:${{ matrix.fedora_version }} bash -c "
+            set -e
+            echo '=== Testing mailsync on Fedora ${{ matrix.fedora_version }} ==='
+
+            # Install required runtime dependencies
+            dnf install -y glibc libstdc++ libcurl openssl libicu libuuid cyrus-sasl-lib
+
+            # Extract and test mailsync
+            cd /workspace
+            tar -xzf mailsync.tar.gz
+
+            # Run mailsync and capture output
+            echo 'Running mailsync --help...'
+            ./mailsync --help 2>&1 | tee /tmp/output.txt || true
+
+            # Verify help message is printed
+            if grep -q 'USAGE:' /tmp/output.txt && grep -q 'CONFIG_DIR_PATH' /tmp/output.txt; then
+              echo '✓ mailsync runs successfully and prints help message on Fedora ${{ matrix.fedora_version }}'
+            else
+              echo '✗ mailsync failed to print expected help message'
+              cat /tmp/output.txt
+              exit 1
+            fi
+          "
+
+  test-arch:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mailsync-linux
+
+      - name: Test on Arch Linux
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace archlinux:latest bash -c "
+            set -e
+            echo '=== Testing mailsync on Arch Linux ==='
+
+            # Update package database and install required runtime dependencies
+            pacman -Syu --noconfirm
+            pacman -S --noconfirm glibc gcc-libs curl openssl icu util-linux-libs cyrus-sasl
+
+            # Extract and test mailsync
+            cd /workspace
+            tar -xzf mailsync.tar.gz
+
+            # Run mailsync and capture output
+            echo 'Running mailsync --help...'
+            ./mailsync --help 2>&1 | tee /tmp/output.txt || true
+
+            # Verify help message is printed
+            if grep -q 'USAGE:' /tmp/output.txt && grep -q 'CONFIG_DIR_PATH' /tmp/output.txt; then
+              echo '✓ mailsync runs successfully and prints help message on Arch Linux'
+            else
+              echo '✗ mailsync failed to print expected help message'
+              cat /tmp/output.txt
+              exit 1
+            fi
+          "
+
+  test-ubuntu:
+    needs: build
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        ubuntu_version: ['22.04', '24.04']
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mailsync-linux
+
+      - name: Test on Ubuntu ${{ matrix.ubuntu_version }}
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace ubuntu:${{ matrix.ubuntu_version }} bash -c "
+            set -e
+            echo '=== Testing mailsync on Ubuntu ${{ matrix.ubuntu_version }} ==='
+
+            # Install required runtime dependencies
+            apt-get update
+            apt-get install -y libcurl4 libssl3 libicu-dev uuid-runtime libsasl2-2
+
+            # Extract and test mailsync
+            cd /workspace
+            tar -xzf mailsync.tar.gz
+
+            # Run mailsync and capture output
+            echo 'Running mailsync --help...'
+            ./mailsync --help 2>&1 | tee /tmp/output.txt || true
+
+            # Verify help message is printed
+            if grep -q 'USAGE:' /tmp/output.txt && grep -q 'CONFIG_DIR_PATH' /tmp/output.txt; then
+              echo '✓ mailsync runs successfully and prints help message on Ubuntu ${{ matrix.ubuntu_version }}'
+            else
+              echo '✗ mailsync failed to print expected help message'
+              cat /tmp/output.txt
+              exit 1
+            fi
+          "
