@@ -401,6 +401,7 @@ void IMAPSession::init()
     mRamblerRuServer = false;
     mHermesServer = false;
     mQipServer = false;
+    mOutlookServer = false;
     mLastFetchedSequenceNumber = 0;
     mCurrentFolder = NULL;
     pthread_mutex_init(&mIdleLock, NULL);
@@ -733,6 +734,7 @@ void IMAPSession::connect(ErrorCode * pError)
         mRamblerRuServer = (mHostname->locationOfString(MCSTR(".rambler.ru")) != -1);
         mHermesServer = (mWelcomeString->locationOfString(MCSTR("Hermes")) != -1);
         mQipServer = (mWelcomeString->locationOfString(MCSTR("QIP IMAP server")) != -1);
+        mOutlookServer = (mHostname->locationOfString(MCSTR(".outlook.com")) != -1);
     }
     
     mState = STATE_CONNECTED;
@@ -2066,10 +2068,9 @@ void IMAPSession::expunge(String * folder, ErrorCode * pError)
     * pError = ErrorNone;
 }
 
-static int
-fetch_imap(mailimap * imap, bool identifier_is_uid, uint32_t identifier,
-           struct mailimap_fetch_type * fetch_type,
-           char ** result, size_t * result_len)
+int IMAPSession::fetch_imap(mailimap * imap, bool identifier_is_uid, uint32_t identifier,
+                            struct mailimap_fetch_type * fetch_type,
+                            char ** result, size_t * result_len)
 {
     int r;
     struct mailimap_msg_att * msg_att;
@@ -2126,13 +2127,21 @@ fetch_imap(mailimap * imap, bool identifier_is_uid, uint32_t identifier,
     }
     
     mailimap_fetch_list_free(fetch_result);
-    
-    if (text == NULL)
-        return MAILIMAP_ERROR_FETCH;
-    
+
+    if (text == NULL) {
+        if (mOutlookServer) {
+            // Outlook.com IMAP server omits some parts and returns them as
+            // zero-length when there is a vCalendar part in the message
+            text_length = 0;
+        }
+        else {
+            return MAILIMAP_ERROR_FETCH;
+        }
+    }
+
     * result = text;
     * result_len = text_length;
-    
+
     return MAILIMAP_NO_ERROR;
 }
 
@@ -2803,8 +2812,8 @@ Array * IMAPSession::fetchMessagesByNumberWithExtraHeaders(String * folder, IMAP
     return result;
 }
 
-static int fetch_rfc822(mailimap * session, bool identifier_is_uid,
-                        uint32_t identifier, char ** result, size_t * result_len)
+int IMAPSession::fetch_rfc822(mailimap * session, bool identifier_is_uid,
+                              uint32_t identifier, char ** result, size_t * result_len)
 {
     struct mailimap_section * section;
     struct mailimap_fetch_att * fetch_att;
