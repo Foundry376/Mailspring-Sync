@@ -84,8 +84,12 @@ void _moveMessagesResilient(IMAPSession * session, String * path, Folder * destF
         IMAPMessagesRequestKind kind = MailUtils::messagesRequestKindFor(session->storedCapabilities(), true);
         
         if (status != nullptr) {
-            uint32_t min = status->uidNext() - (uint32_t)messages.size() * 2;
-            if (min < 1) min = 1;
+            // Calculate a safe lower bound to avoid underflow with unsigned arithmetic.
+            // We search from (uidNext - messages.size() * 2) to find the moved messages,
+            // using a multiplier of 2 to account for potential gaps in UID assignment.
+            uint32_t uidNext = status->uidNext();
+            uint32_t searchRange = (uint32_t)messages.size() * 2;
+            uint32_t min = (uidNext > searchRange) ? (uidNext - searchRange) : 1;
             IndexSet * set = IndexSet::indexSetWithRange(RangeMake(min, UINT64_MAX));
             Array * movedMessages = session->fetchMessagesByUID(destPath, kind, set, nullptr, &err);
             for (auto msg : messages) {
