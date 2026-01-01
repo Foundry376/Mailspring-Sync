@@ -30,7 +30,7 @@
 #		undef  PropVariantInit
 #	endif
 
-#	if !defined(snprintf)
+#	if !defined(snprintf) && _MSC_VER < 1900
 #		define snprintf _snprintf
 #	endif
 #	if !defined(strncasecmp)
