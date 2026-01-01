@@ -1331,25 +1331,25 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         builder.header()->setReferences(Array::arrayWithObject(AS_MCSTR(draft.forwardedHeaderMessageId())));
     }
 
-    Array * to = new Array();
+    Array * to = Array::array();
     for (json & p : draft.to()) {
         to->addObject(MailUtils::addressFromContactJSON(p));
     }
     builder.header()->setTo(to);
-    
-    Array * cc = new Array();
+
+    Array * cc = Array::array();
     for (json & p : draft.cc()) {
         cc->addObject(MailUtils::addressFromContactJSON(p));
     }
     builder.header()->setCc(cc);
-    
-    Array * bcc = new Array();
+
+    Array * bcc = Array::array();
     for (json & p : draft.bcc()) {
         bcc->addObject(MailUtils::addressFromContactJSON(p));
     }
     builder.header()->setBcc(bcc);
 
-    Array * replyTo = new Array();
+    Array * replyTo = Array::array();
     for (json & p : draft.replyTo()) {
         replyTo->addObject(MailUtils::addressFromContactJSON(p));
     }
@@ -1515,7 +1515,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             if (draft.threadId() != "") {
                 auto thread = store->find<Thread>(Query().equal("id", draft.threadId()));
                 if (thread) {
-                    Array * xgmValues = new Array();
+                    Array * xgmValues = Array::array();
                     for (auto & l : thread->labels()) {
                         string role = l["role"].get<string>();
                         if (role == "inbox" || role == "sent" || role == "drafts") { continue; }
@@ -1738,11 +1738,11 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     builder.header()->setUserAgent(MCSTR("Mailspring"));
     builder.header()->setDate(time(0));
 
-    Array * to = new Array();
+    Array * to = Array::array();
     to->addObject(Address::addressWithMailbox(AS_MCSTR(organizer)));
     builder.header()->setTo(to);
-    
-    Array * replyTo = new Array();
+
+    Array * replyTo = Array::array();
     Address * me = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
     replyTo->addObject(me);
 
