@@ -1441,9 +1441,7 @@ int mailimf_quoted_string_parse(const char * message, size_t length,
         goto free_gstr;
       }
     }
-    else if (r == MAILIMF_ERROR_PARSE)
-      break;
-    else {
+    else if (r != MAILIMF_ERROR_PARSE) {
       res = r;
       goto free_gstr;
     }
@@ -1538,15 +1536,13 @@ int mailimf_fws_quoted_string_parse(const char * message, size_t length,
         goto free_gstr;
       }
     }
-    else if (r == MAILIMF_ERROR_PARSE)
-      break;
-    else {
+    else if (r != MAILIMF_ERROR_PARSE) {
       res = r;
       goto free_gstr;
     }
-    }
+  }
 
-    r = mailimf_dquote_parse(message, length, &cur_token);
+  r = mailimf_dquote_parse(message, length, &cur_token);
     if (r != MAILIMF_NO_ERROR) {
       res = r;
       goto free_gstr;
