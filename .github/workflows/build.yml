@@ -99,12 +99,16 @@ jobs:
           fi
           aws s3 sync ../app/dist s3://mailspring-builds/mailsync/${GITHUB_SHA:0:8}/${OS_DIR}/ --delete
 
+      - name: Copy Linux artifact for upload
+        if: runner.os == 'Linux'
+        run: cp ../app/dist/mailsync.tar.gz ./mailsync.tar.gz
+
       - name: Upload Linux artifact for distribution testing
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: mailsync-linux
-          path: ../app/dist/mailsync.tar.gz
+          path: mailsync.tar.gz
           retention-days: 1
 
       - name: Cache build dependencies
