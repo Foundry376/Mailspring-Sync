@@ -197,7 +197,10 @@ void SyncWorker::idleCycleIteration()
             uint32_t syncedMinUID = inbox->localStatus()[LS_SYNCED_MIN_UID].get<uint32_t>();
             uint32_t bottomUID = store->fetchMessageUIDAtDepth(*inbox, 100, uidnext);
             if (bottomUID < syncedMinUID) { bottomUID = syncedMinUID; }
-            syncFolderUIDRange(*inbox, RangeMake(bottomUID, uidnext - bottomUID), false);
+            // Guard against underflow if uidnext <= bottomUID (server inconsistency)
+            if (uidnext > bottomUID) {
+                syncFolderUIDRange(*inbox, RangeMake(bottomUID, uidnext - bottomUID), false);
+            }
             inbox->localStatus()[LS_LAST_SHALLOW] = time(0);
             inbox->localStatus()[LS_UIDNEXT] = uidnext;
         }
@@ -407,7 +410,10 @@ bool SyncWorker::syncNow()
                 if (bottomUID < syncedMinUID) {
                     bottomUID = syncedMinUID;
                 }
-                syncFolderUIDRange(*folder, RangeMake(bottomUID, remoteUidnext - bottomUID), false);
+                // Guard against underflow if remoteUidnext <= bottomUID (server inconsistency)
+                if (remoteUidnext > bottomUID) {
+                    syncFolderUIDRange(*folder, RangeMake(bottomUID, remoteUidnext - bottomUID), false);
+                }
                 localStatus[LS_LAST_SHALLOW] = time(0);
                 localStatus[LS_UIDNEXT] = remoteUidnext;
             }
