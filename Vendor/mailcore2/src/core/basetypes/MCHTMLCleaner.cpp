@@ -15,8 +15,14 @@
 typedef unsigned long ulong;
 #endif
 
+// On Linux, use Mailspring's dynamic tidy loader to support different
+// libtidy sonames across distributions. On other platforms, link directly.
+#if defined(__linux__)
+#include "MailspringDynamicTidy.h"
+#else
 #include <tidy.h>
 #include <buffio.h>
+#endif
 
 #include "MCUtils.h"
 #include "MCLog.h"
@@ -29,26 +35,67 @@ using namespace mailcore;
 
 String * HTMLCleaner::cleanHTML(String * input)
 {
+#if defined(__linux__)
+    // Linux: use Mailspring's dynamic tidy wrapper
+    if (!mailspring_tidy_available()) {
+        return input;
+    }
+
+    MSTidyBuffer output;
+    MSTidyBuffer errbuf;
+    MSTidyBuffer docbuf;
+
+    MSTidyDoc tdoc = mailspring_tidyCreate();
+    mailspring_tidyBufInit(&output);
+    mailspring_tidyBufInit(&errbuf);
+    mailspring_tidyBufInit(&docbuf);
+
+    Data * data = input->dataUsingEncoding("utf-8");
+    mailspring_tidyBufAppend(&docbuf, data->bytes(), data->length());
+
+    mailspring_tidyOptSetBool(tdoc, MSTidyXhtmlOut, MSTidyYes);
+    mailspring_tidyOptSetInt(tdoc, MSTidyDoctypeMode, MSTidyDoctypeUser);
+    mailspring_tidyOptSetBool(tdoc, MSTidyMark, MSTidyNo);
+    mailspring_tidySetCharEncoding(tdoc, "utf8");
+    mailspring_tidyOptSetBool(tdoc, MSTidyForceOutput, MSTidyYes);
+    mailspring_tidyOptSetBool(tdoc, MSTidyShowWarnings, MSTidyNo);
+    mailspring_tidyOptSetInt(tdoc, MSTidyShowErrors, 0);
+    mailspring_tidySetErrorBuffer(tdoc, &errbuf);
+    mailspring_tidyParseBuffer(tdoc, &docbuf);
+    mailspring_tidyCleanAndRepair(tdoc);
+    mailspring_tidySaveBuffer(tdoc, &output);
+
+    String * result = String::stringWithUTF8Characters((const char *) output.bp);
+
+    mailspring_tidyBufFree(&docbuf);
+    mailspring_tidyBufFree(&output);
+    mailspring_tidyBufFree(&errbuf);
+    mailspring_tidyRelease(tdoc);
+
+    return result;
+
+#else
+    // Non-Linux: use direct tidy linking
     TidyBuffer output;
     TidyBuffer errbuf;
     TidyBuffer docbuf;
     int rc;
-    
+
     TidyDoc tdoc = tidyCreate();
     tidyBufInit(&output);
     tidyBufInit(&errbuf);
     tidyBufInit(&docbuf);
-    
+
     Data * data = input->dataUsingEncoding("utf-8");
     tidyBufAppend(&docbuf, data->bytes(), data->length());
-    
+
 #if TARGET_IPHONE_SIMULATOR || TARGET_OS_IPHONE
     // This option is not available on the Mac.
     tidyOptSetBool(tdoc, TidyDropEmptyElems, no);
 #endif
     tidyOptSetBool(tdoc, TidyXhtmlOut, yes);
     tidyOptSetInt(tdoc, TidyDoctypeMode, TidyDoctypeUser);
-    
+
     tidyOptSetBool(tdoc, TidyMark, no);
     tidySetCharEncoding(tdoc, "utf8");
     tidyOptSetBool(tdoc, TidyForceOutput, yes);
@@ -80,50 +127,14 @@ String * HTMLCleaner::cleanHTML(String * input)
         //fprintf(stderr, "error tidySaveBuffer: %i\n", rc);
         //fprintf(stderr, "1:%s", errbuf.bp);
     }
-    
+
     String * result = String::stringWithUTF8Characters((const char *) output.bp);
-    
+
     tidyBufFree(&docbuf);
     tidyBufFree(&output);
     tidyBufFree(&errbuf);
     tidyRelease(tdoc);
-    
+
     return result;
-    
-    /*
-    if ( ok ) {
-        rc = tidySetErrorBuffer( tdoc, &errbuf );      // Capture diagnostics
-    }
-    if ( rc &gt;= 0 ) {
-        rc = tidyParseString( tdoc, input );           // Parse the input
-    }
-    if ( rc &gt;= 0 ) {
-        rc = tidyCleanAndRepair( tdoc );               // Tidy it up!
-    }
-    if ( rc &gt;= 0 ) {
-        rc = tidyRunDiagnostics( tdoc );               // Kvetch
-    }
-    if ( rc &gt; 1 ) {                                    // If error, force output.
-        rc = ( tidyOptSetBool(tdoc, TidyForceOutput, yes) ? rc : -1 );
-    }
-    if ( rc &gt;= 0 ) {
-        rc = tidySaveBuffer( tdoc, &output );          // Pretty Print
-    }
-     */
-    
-    /*
-    if ( rc &gt;= 0 )
-    {
-        if ( rc &gt; 0 )
-            printf( "\\nDiagnostics:\\n\\n\%s", errbuf.bp );
-            printf( "\\nAnd here is the result:\\n\\n\%s", output.bp );
-            }
-    else
-        printf( "A severe error (\%d) occurred.\\n", rc );
-        
-        tidyBufFree( &amp;output );
-        tidyBufFree( &amp;errbuf );
-        tidyRelease( tdoc );
-        return rc;
-     */
+#endif
 }

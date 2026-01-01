@@ -37,6 +37,7 @@ include_directories("${CMAKE_CURRENT_BINARY_DIR}/include"
   ${objc_includes}
   ${additional_includes}
   ${GLIB2_INCLUDE_DIRS}
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../../MailSync"  # For MailspringDynamicTidy.h
 )
 
 add_library(MailCore
