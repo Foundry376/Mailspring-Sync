@@ -1112,6 +1112,9 @@ void TaskProcessor::performLocalSyncbackContact(Task * task) {
 void TaskProcessor::performRemoteSyncbackContact(Task * task) {
     string id = task->data()["contact"]["id"].get<string>();
     auto contact = store->find<Contact>(Query().equal("id", id).equal("accountId", account->id()));
+    if (contact == nullptr) {
+        throw SyncException("not-found", "Contact not found for syncback", false);
+    }
 
     if (contact->source() == CONTACT_SOURCE_MAIL) {
         return;
@@ -1702,6 +1705,9 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
     const auto filepath = task->data()["filepath"].get<string>();
     
     auto msg = store->find<Message>(Query().equal("id", id));
+    if (msg == nullptr) {
+        throw SyncException("not-found", "Message not found for RFC2822 fetch", false);
+    }
 
     Data * data = session->fetchMessageByUID(AS_MCSTR(msg->remoteFolder()["path"].get<string>()), msg->remoteUID(), &cb, &err);
     if (err != ErrorNone) {
