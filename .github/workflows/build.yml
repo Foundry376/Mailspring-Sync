@@ -162,7 +162,11 @@ jobs:
 
             # Run mailsync via wrapper (wrapper sets LD_LIBRARY_PATH and SASL_PATH)
             echo 'Running mailsync --help...'
-            ./mailsync --help 2>&1 | tee /tmp/output.txt || true
+            ./mailsync --help > /tmp/output.txt 2>&1; EXIT_CODE=\$?
+            cat /tmp/output.txt
+            echo ''
+            echo \"Exit code: \$EXIT_CODE\"
+            echo ''
 
             # Verify help message is printed
             if grep -q 'USAGE:' /tmp/output.txt && grep -q 'CONFIG_DIR_PATH' /tmp/output.txt; then
@@ -221,7 +225,11 @@ jobs:
 
             # Run mailsync via wrapper (wrapper sets LD_LIBRARY_PATH and SASL_PATH)
             echo 'Running mailsync --help...'
-            ./mailsync --help 2>&1 | tee /tmp/output.txt || true
+            ./mailsync --help > /tmp/output.txt 2>&1; EXIT_CODE=\$?
+            cat /tmp/output.txt
+            echo ''
+            echo \"Exit code: \$EXIT_CODE\"
+            echo ''
 
             # Verify help message is printed
             if grep -q 'USAGE:' /tmp/output.txt && grep -q 'CONFIG_DIR_PATH' /tmp/output.txt; then
@@ -282,7 +290,11 @@ jobs:
 
             # Run mailsync via wrapper (wrapper sets LD_LIBRARY_PATH and SASL_PATH)
             echo 'Running mailsync --help...'
-            ./mailsync --help 2>&1 | tee /tmp/output.txt || true
+            ./mailsync --help > /tmp/output.txt 2>&1; EXIT_CODE=\$?
+            cat /tmp/output.txt
+            echo ''
+            echo \"Exit code: \$EXIT_CODE\"
+            echo ''
 
             # Verify help message is printed
             if grep -q 'USAGE:' /tmp/output.txt && grep -q 'CONFIG_DIR_PATH' /tmp/output.txt; then
