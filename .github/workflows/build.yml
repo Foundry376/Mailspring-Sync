@@ -201,11 +201,10 @@ jobs:
             echo '=== Testing mailsync on Arch Linux ==='
 
             # Update package database and install required runtime dependencies
-            # (Arch equivalents of Fedora/Ubuntu dependencies)
+            # Only install what mailsync CLI actually needs (not GUI dependencies)
             pacman -Syu --noconfirm
             pacman -S --noconfirm glibc gcc-libs curl openssl icu util-linux-libs cyrus-sasl file \
-              libxss libsecret tidy ca-certificates libappindicator-gtk3 \
-              gtk2 libgcrypt libnotify libxtst nss glib2 xdg-utils
+              libsecret tidy ca-certificates libgcrypt nss glib2
 
             # Extract to a directory containing 'mailspring' in the path
             # (required by branding check in main.cpp that exits with code 2)
