@@ -1447,13 +1447,17 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
      /* Next, scan the sent folder for the message(s) we just sent through the SMTP
      gateway and clean them up. Some mail servers automatically place messages in the sent
      folder, others don't.
+
+     Note: This loop intentionally blocks the foreground thread (up to 3 seconds max) while
+     waiting for server-placed messages to appear. This is necessary to avoid creating
+     duplicate messages in the Sent folder when the server auto-places sent mail.
      */
     uint32_t sentFolderMessageUID = 0;
     {
         // grab the last few items in the sent folder... we know we don't need more than 10
         // because multisend is capped.
         int tries = 0;
-        int delay[] = {0, 1, 1, 2, 2};
+        int delay[] = {0, 1, 1, 1};
         IndexSet * uids = new IndexSet();
         
         while (tries < 4 && uids->count() == 0) {
@@ -1491,11 +1495,9 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         } else {
             logger->info("-- No messages matching the message-id were found in the Sent folder.", uids->count());
         }
-        
-        if (err != ErrorNone) {
-            logger->error("-X IMAP Error: {}. This may result in duplicate messages in the Sent folder.", ErrorCodeToTypeMap[err]);
-            err = ErrorNone;
-        }
+        // Note: findUIDsOfRecentHeaderMessageID handles IMAP errors internally by returning
+        // early with an empty result set. If the lookup fails, we proceed to append
+        // a new message, which may result in duplicates if the server also auto-placed one.
     }
 
     if (sentFolderMessageUID == 0) {
