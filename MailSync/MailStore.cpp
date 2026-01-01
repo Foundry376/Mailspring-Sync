@@ -225,10 +225,16 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
     
     // Range is uint64_t, and "*" is represented by UINT64_MAX.
     // SQLite doesn't support UINT64 and the conversion /can/ fail.
+    // Additionally, clamp to LLONG_MAX if the sum would overflow.
     if (range.length == UINT64_MAX) {
         query.bind(4, LLONG_MAX);
     } else {
-        query.bind(4, (long long)(range.location + range.length));
+        uint64_t rangeEnd = range.location + range.length;
+        if (rangeEnd > static_cast<uint64_t>(LLONG_MAX)) {
+            query.bind(4, LLONG_MAX);
+        } else {
+            query.bind(4, static_cast<long long>(rangeEnd));
+        }
     }
 
     map<uint32_t, MessageAttributes> results {};
