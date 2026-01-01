@@ -5,6 +5,7 @@
 #include <MailCore/MCBaseTypes.h>
 #include <MailCore/MCMessageConstants.h>
 #include <MailCore/MCIMAPMessage.h>
+#include <libetpan/libetpan.h>
 
 #ifdef __cplusplus
 
@@ -327,8 +328,8 @@ namespace mailcore {
                                       bool wholePart, uint32_t offset, uint32_t length,
                                       Encoding encoding, IMAPProgressCallback * progressCallback, ErrorCode * pError);
         void storeLabels(String * folder, bool identifier_is_uid, IndexSet * identifiers, IMAPStoreFlagsRequestKind kind, Array * labels, ErrorCode * pError);
-        int fetch_imap(struct mailimap * imap, bool identifier_is_uid, uint32_t identifier,
-                       struct mailimap_fetch_type * fetch_type, char ** result, size_t * result_len);
+        int fetch_imap(struct ::mailimap * imap, bool identifier_is_uid, uint32_t identifier,
+                       struct ::mailimap_fetch_type * fetch_type, char ** result, size_t * result_len);
         int fetch_rfc822(struct mailimap * session, bool identifier_is_uid,
                          uint32_t identifier, char ** result, size_t * result_len);
     };
