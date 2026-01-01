@@ -149,8 +149,19 @@ jobs:
             echo 'Extracted files:'
             ls -la
             echo ''
-            echo 'Binary info:'
-            file ./mailsync || true
+
+            # Determine which binary to use (mailsync.bin if wrapper exists, otherwise mailsync)
+            if [ -f ./mailsync.bin ]; then
+              BINARY=./mailsync.bin
+              echo 'Wrapper script (mailsync):'
+              cat ./mailsync || true
+              echo ''
+            else
+              BINARY=./mailsync
+            fi
+
+            echo \"Binary info (\$BINARY):\"
+            file \$BINARY || true
             echo ''
 
             # Set up library paths for bundled .so files
@@ -161,7 +172,7 @@ jobs:
             echo ''
 
             echo 'Checking for missing shared libraries (with LD_LIBRARY_PATH set):'
-            ldd ./mailsync || true
+            ldd \$BINARY || true
             echo ''
 
             # Run mailsync and capture output
@@ -177,7 +188,7 @@ jobs:
               cat /tmp/output.txt
               echo ''
               echo 'Checking for missing libraries (not found):'
-              ldd ./mailsync 2>&1 | grep 'not found' || echo 'No missing libraries detected'
+              ldd \$BINARY 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
             fi
           "
@@ -212,8 +223,19 @@ jobs:
             echo 'Extracted files:'
             ls -la
             echo ''
-            echo 'Binary info:'
-            file ./mailsync || true
+
+            # Determine which binary to use (mailsync.bin if wrapper exists, otherwise mailsync)
+            if [ -f ./mailsync.bin ]; then
+              BINARY=./mailsync.bin
+              echo 'Wrapper script (mailsync):'
+              cat ./mailsync || true
+              echo ''
+            else
+              BINARY=./mailsync
+            fi
+
+            echo \"Binary info (\$BINARY):\"
+            file \$BINARY || true
             echo ''
 
             # Set up library paths for bundled .so files
@@ -224,7 +246,7 @@ jobs:
             echo ''
 
             echo 'Checking for missing shared libraries (with LD_LIBRARY_PATH set):'
-            ldd ./mailsync || true
+            ldd \$BINARY || true
             echo ''
 
             # Run mailsync and capture output
@@ -240,7 +262,7 @@ jobs:
               cat /tmp/output.txt
               echo ''
               echo 'Checking for missing libraries (not found):'
-              ldd ./mailsync 2>&1 | grep 'not found' || echo 'No missing libraries detected'
+              ldd \$BINARY 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
             fi
           "
@@ -277,8 +299,19 @@ jobs:
             echo 'Extracted files:'
             ls -la
             echo ''
-            echo 'Binary info:'
-            file ./mailsync || true
+
+            # Determine which binary to use (mailsync.bin if wrapper exists, otherwise mailsync)
+            if [ -f ./mailsync.bin ]; then
+              BINARY=./mailsync.bin
+              echo 'Wrapper script (mailsync):'
+              cat ./mailsync || true
+              echo ''
+            else
+              BINARY=./mailsync
+            fi
+
+            echo \"Binary info (\$BINARY):\"
+            file \$BINARY || true
             echo ''
 
             # Set up library paths for bundled .so files
@@ -289,7 +322,7 @@ jobs:
             echo ''
 
             echo 'Checking for missing shared libraries (with LD_LIBRARY_PATH set):'
-            ldd ./mailsync || true
+            ldd \$BINARY || true
             echo ''
 
             # Run mailsync and capture output
@@ -305,7 +338,7 @@ jobs:
               cat /tmp/output.txt
               echo ''
               echo 'Checking for missing libraries (not found):'
-              ldd ./mailsync 2>&1 | grep 'not found' || echo 'No missing libraries detected'
+              ldd \$BINARY 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
             fi
           "
