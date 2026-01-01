@@ -127,6 +127,11 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
             tQuery.bind(2, msg->headerMessageId());
             for (int i = 0; i < refcount; i ++) {
                 String * ref = (String *)references->objectAtIndex(i);
+                // Skip null entries that could arise from malformed reference headers
+                if (ref == nullptr) {
+                    tQuery.bind(3 + i, "");
+                    continue;
+                }
                 tQuery.bind(3 + i, ref->UTF8Characters());
             }
             if (tQuery.executeStep()) {
@@ -509,6 +514,10 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
     // rarely seen more than 100 items.
     for (int i = 0; i < min(100, (int)references->count()); i ++) {
         String * address = (String*)references->objectAtIndex(i);
+        // Skip null entries that could arise from malformed reference headers
+        if (address == nullptr) {
+            continue;
+        }
         query.bind(3, address->UTF8Characters());
         query.exec();
         query.reset(); // does not clear bindings 1 and 2! https://sqlite.org/c3ref/reset.html
