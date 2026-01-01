@@ -86,8 +86,17 @@ void DeltaStreamItem::upsertModelJSON(const json & item) {
         // If we already have a delta for object X, merge the keys of `item` into X, replacing
         // existing keys. This ensures that if a previous delta included something extra (for
         // ex. message.body is conditionally emitted), we don't overwrite and remove it.
+        //
+        // To maintain consistent merge semantics, we treat explicit null values the same as
+        // absent keys: they don't overwrite existing non-null values. This prevents subtle
+        // bugs where code might set a field to null (thinking "no change") when it should
+        // have omitted the key entirely.
         auto existing = modelJSONs[idIndexes[id]];
         for (const auto &e : item.items()) {
+            // Skip null values if the existing value is non-null, treating them like absent keys
+            if (e.value().is_null() && existing.count(e.key()) && !existing[e.key()].is_null()) {
+                continue;
+            }
             existing[e.key()] = e.value();
         }
         modelJSONs[idIndexes[id]] = existing;
