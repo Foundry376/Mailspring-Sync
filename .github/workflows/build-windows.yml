@@ -69,7 +69,7 @@ jobs:
           name: win-ia32-mailsync
           path: Windows/mailsync.tar.gz
 
-      # Validate that the program exits with code 1 (missing arguments). If any DLLs are missing that
+      # Validate that the program exits with code 0 (help/usage shown). If any DLLs are missing that
       # prevent the application from starting, a code like -1073741515 will be returned.
       - name: Validate executable
         shell: pwsh
@@ -77,8 +77,8 @@ jobs:
           $process = Start-Process -FilePath "..\app\dist\mailsync.exe" -PassThru -Wait -NoNewWindow
           $exitCode = $process.ExitCode
 
-          if ($exitCode -ne 1) {
-            Write-Host "We expected mailsync.exe to exit with code 1, but we got $exitCode instead."
+          if ($exitCode -ne 0) {
+            Write-Host "We expected mailsync.exe to exit with code 0, but we got $exitCode instead."
             exit 1
           } else {
             Write-Host "Exit code was as expected: $exitCode"
