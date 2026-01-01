@@ -246,8 +246,13 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
     // times to retrieve attachments, relatedAttachments, message HTML separately. The code seems to build
     // and discard things you don't ask for.
     String * html = parser->htmlRenderingAndAttachments(htmlCallback, partAttachments, htmlInlineAttachments);
+    if (html == NULL) {
+        logger->warn("Failed to render message body for message {}: parser returned null", message->id());
+        MC_SAFE_RELEASE(htmlCallback);
+        return;
+    }
     String * text = html;
-    
+
     if (html->hasPrefix(MCSTR("PLAINTEXT:"))) {
         text = html->substringFromIndex(10);
         bodyRepresentation = text->UTF8Characters();
