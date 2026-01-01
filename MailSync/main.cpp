@@ -542,7 +542,7 @@ string exectuablePath = argv[0];
     
     if (options[HELP] || argc == 0) {
         option::printUsage(std::cout, usage);
-        return 1;
+        return 0;
     }
     
     // check required environment
