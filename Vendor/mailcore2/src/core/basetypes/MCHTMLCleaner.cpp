@@ -60,9 +60,8 @@ typedef int (*tidyParseBuffer_t)(TidyDoc, TidyBuffer*);
 typedef int (*tidyCleanAndRepair_t)(TidyDoc);
 typedef int (*tidySaveBuffer_t)(TidyDoc, TidyBuffer*);
 
-// Global function pointers - loaded once at startup
+// Global function pointers - loaded at startup via constructor attribute
 static void* s_tidyLib = nullptr;
-static bool s_tidyLoadAttempted = false;
 static tidyCreate_t s_tidyCreate = nullptr;
 static tidyRelease_t s_tidyRelease = nullptr;
 static tidyBufInit_t s_tidyBufInit = nullptr;
@@ -76,12 +75,7 @@ static tidyParseBuffer_t s_tidyParseBuffer = nullptr;
 static tidyCleanAndRepair_t s_tidyCleanAndRepair = nullptr;
 static tidySaveBuffer_t s_tidySaveBuffer = nullptr;
 
-static bool loadTidyLibrary() {
-    if (s_tidyLoadAttempted) {
-        return s_tidyLib != nullptr;
-    }
-    s_tidyLoadAttempted = true;
-
+static void loadTidyLibrary() {
     // Try different library names used by various Linux distributions
     const char* libraryNames[] = {
         "libtidy.so.5",      // Fedora, Arch, generic
@@ -100,9 +94,9 @@ static bool loadTidyLibrary() {
     }
 
     if (s_tidyLib == nullptr) {
-        fprintf(stderr, "Warning: Could not load libtidy. HTML cleaning will be unavailable.\n");
+        fprintf(stderr, "Error: Could not load libtidy. HTML cleaning will be unavailable.\n");
         fprintf(stderr, "Install libtidy on your system (e.g., 'apt install libtidy-dev' or 'dnf install libtidy-devel')\n");
-        return false;
+        return;
     }
 
     // Load all required function pointers
@@ -124,13 +118,18 @@ static bool loadTidyLibrary() {
         !s_tidyBufAppend || !s_tidyOptSetBool || !s_tidyOptSetInt ||
         !s_tidySetCharEncoding || !s_tidySetErrorBuffer || !s_tidyParseBuffer ||
         !s_tidyCleanAndRepair || !s_tidySaveBuffer) {
-        fprintf(stderr, "Warning: libtidy loaded but missing required functions.\n");
+        fprintf(stderr, "Error: libtidy loaded but missing required functions.\n");
         dlclose(s_tidyLib);
         s_tidyLib = nullptr;
-        return false;
+        return;
     }
+}
 
-    return true;
+// GCC/Clang constructor attribute: this function runs automatically at program startup
+// before main() is called, ensuring we detect missing libtidy immediately.
+__attribute__((constructor))
+static void initTidyLibrary() {
+    loadTidyLibrary();
 }
 
 #else
@@ -152,8 +151,8 @@ String * HTMLCleaner::cleanHTML(String * input)
 {
 #if defined(USE_DYNAMIC_TIDY_LOADING)
     // Linux: use dynamically loaded functions
-    if (!loadTidyLibrary()) {
-        // If tidy isn't available, return input unchanged
+    if (s_tidyLib == nullptr) {
+        // libtidy wasn't available at startup, return input unchanged
         return input;
     }
 
