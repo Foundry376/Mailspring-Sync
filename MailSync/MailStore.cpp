@@ -382,6 +382,7 @@ void MailStore::save(MailModel * model) {
         }
         auto query = _saveUpdateQueries[tableName];
         query->reset();
+        query->clearBindings();
         model->bindToQuery(query.get());
         query->exec();
         
@@ -402,6 +403,7 @@ void MailStore::save(MailModel * model) {
         
         auto query = _saveInsertQueries[tableName];
         query->reset();
+        query->clearBindings();
         model->bindToQuery(query.get());
         query->exec();
     }
@@ -446,6 +448,7 @@ void MailStore::remove(MailModel * model) {
     }
     auto query = _removeQueries[tableName];
     query->reset();
+    query->clearBindings();
     query->bind(1, model->id());
     query->exec();
 
@@ -511,6 +514,7 @@ vector<Metadata> MailStore::findAndDeleteDetatchedPluginMetadata(string accountI
     vector<Metadata> results;
     auto st = _saveInsertQueries["metadata"];
     st->reset();
+    st->clearBindings();
     st->bind(1, objectId);
     st->bind(2, accountId);
     while (st->executeStep()) {
