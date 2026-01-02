@@ -196,7 +196,7 @@ void DeltaStream::emit(DeltaStreamItem item, int maxDeliveryDelay) {
 }
 
 void DeltaStream::emit(vector<DeltaStreamItem> items, int maxDeliveryDelay) {
-    for (const auto item : items) {
+    for (const auto & item : items) {
         queueDeltaForDelivery(item);
     }
     flushWithin(maxDeliveryDelay);
