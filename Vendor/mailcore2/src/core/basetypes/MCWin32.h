@@ -36,7 +36,9 @@
 #define localtime_r mailcore::win32_localtime_r
 #define gettimeofday mailcore::win32_gettimeofday
 #define getpid mailcore::win32_getpid
+#if _MSC_VER < 1900
 #define snprintf mailcore::win32_snprintf
+#endif
 #define vasprintf mailcore::win32_vasprintf
 #define timegm mailcore::win32_timegm
 #define random mailcore::win32_random
