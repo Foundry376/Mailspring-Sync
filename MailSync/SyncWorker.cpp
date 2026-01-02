@@ -559,6 +559,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             }
             logger->error("Created required Mailspring folder: {}.", desiredPath->UTF8Characters());
             IMAPFolder * fake = new IMAPFolder();
+            fake->autorelease();
             fake->setPath(desiredPath);
             fake->setDelimiter(session.defaultNamespace()->mainDelimiter());
             remoteFolders->addObject(fake);
