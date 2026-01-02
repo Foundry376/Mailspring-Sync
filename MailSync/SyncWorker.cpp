@@ -181,7 +181,10 @@ void SyncWorker::idleCycleIteration()
     }
     
     // Check for mail in the preferred idle folder (inbox / all)
-    bool hasStartedSyncingFolder = inbox->localStatus().count(LS_SYNCED_MIN_UID) > 0;
+    // Must verify both key presence AND that value is a number (not null) to prevent
+    // JSON type_error exception when calling .get<uint32_t>() below
+    bool hasStartedSyncingFolder = inbox->localStatus().count(LS_SYNCED_MIN_UID) > 0 &&
+                                   inbox->localStatus()[LS_SYNCED_MIN_UID].is_number();
 
     if (hasStartedSyncingFolder) {
         String path = AS_MCSTR(inbox->path());
