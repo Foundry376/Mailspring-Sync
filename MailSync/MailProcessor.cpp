@@ -514,10 +514,24 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
     query.exec();
     query.reset();
 
-    // todo: technically, we should look at the first reference (Start of thread)
-    // and then the last N, where N is some number we give a shit about, but we've
-    // rarely seen more than 100 items.
-    for (int i = 0; i < min(100, (int)references->count()); i ++) {
+    // Index the first reference (thread root) and last N-1 references (most recent).
+    // This ensures thread continuity through the root while keeping recent messages connected.
+    // If count <= MAX_REFS, all references are indexed.
+    const int MAX_REFS = 100;
+    int count = (int)references->count();
+    int lastNCount = min(MAX_REFS - 1, count - 1);
+    int lastNStart = count - lastNCount;
+
+    // Index first reference (thread root)
+    if (count > 0) {
+        String * firstRef = (String*)references->objectAtIndex(0);
+        query.bind(3, firstRef->UTF8Characters());
+        query.exec();
+        query.reset(); // does not clear bindings 1 and 2! https://sqlite.org/c3ref/reset.html
+    }
+
+    // Index last N-1 references (most recent), skipping index 0 to avoid duplicate
+    for (int i = max(1, lastNStart); i < count; i++) {
         String * address = (String*)references->objectAtIndex(i);
         // Skip null entries that could arise from malformed reference headers
         if (address == nullptr) {
@@ -525,7 +539,7 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
         }
         query.bind(3, address->UTF8Characters());
         query.exec();
-        query.reset(); // does not clear bindings 1 and 2! https://sqlite.org/c3ref/reset.html
+        query.reset();
     }
 }
 
