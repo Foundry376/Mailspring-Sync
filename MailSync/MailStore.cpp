@@ -296,9 +296,16 @@ vector<shared_ptr<Label>> MailStore::allLabelsCache(string accountId) {
 
 void MailStore::beginTransaction() {
     assertCorrectThread();
-    _stmtBeginTransaction.exec();
-    _stmtBeginTransaction.reset();
-    _transactionOpen = true;
+    try {
+        _stmtBeginTransaction.exec();
+        _stmtBeginTransaction.reset();
+        _transactionOpen = true;
+    } catch (...) {
+        // Always reset the statement so it can be reused, even if exec() failed.
+        // This ensures the statement's internal state is consistent for future calls.
+        _stmtBeginTransaction.reset();
+        throw;
+    }
 }
 
 
@@ -308,9 +315,18 @@ void MailStore::rollbackTransaction() {
     _saveUpdateQueries = {};
     _saveInsertQueries = {};
     _removeQueries = {};
-    _stmtRollbackTransaction.exec();
-    _stmtRollbackTransaction.reset();
-    _transactionOpen = false;
+    try {
+        _stmtRollbackTransaction.exec();
+        _stmtRollbackTransaction.reset();
+        _transactionOpen = false;
+    } catch (...) {
+        // Always reset the statement so it can be reused, even if exec() failed.
+        // Also clear transaction state since the transaction is no longer valid
+        // after a failed rollback attempt.
+        _stmtRollbackTransaction.reset();
+        _transactionOpen = false;
+        throw;
+    }
 }
 
 // This method allows you to perform work in a transaction and then prevent the
@@ -323,16 +339,23 @@ void MailStore::unsafeEraseTransactionDeltas() {
 }
 
 void MailStore::commitTransaction() {
-    _stmtCommitTransaction.exec();
-    _stmtCommitTransaction.reset();
-    
+    try {
+        _stmtCommitTransaction.exec();
+        _stmtCommitTransaction.reset();
+    } catch (...) {
+        // Always reset the statement so it can be reused, even if exec() failed.
+        // Note: We do NOT clear _transactionOpen here because a failed commit
+        // may leave the transaction still active (e.g., SQLITE_BUSY allows retry).
+        _stmtCommitTransaction.reset();
+        throw;
+    }
+
     // emit all of the deltas
     if (_transactionDeltas.size()) {
         SharedDeltaStream()->emit(_transactionDeltas, _streamMaxDelay);
         _transactionDeltas = {};
     }
     _transactionOpen = false;
-
 }
 
 void MailStore::save(MailModel * model) {
