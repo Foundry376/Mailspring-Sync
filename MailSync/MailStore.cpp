@@ -150,7 +150,7 @@ void MailStore::migrate() {
             SQLite::Statement(_db, sql).exec();
         }
     }
-    
+
     // Update the version flag. Note that we don't want to go from v3 back to v2
     // if the user re-opens an older version of the app.
     if (version < CURRENT_VERSION) {
@@ -510,13 +510,13 @@ vector<shared_ptr<MailModel>> MailStore::findAllGeneric(string type, Query query
     assert(false);
 }
 
-vector<Metadata> MailStore::findAndDeleteDetatchedPluginMetadata(string accountId, string objectId) {
+vector<Metadata> MailStore::findAndDeleteDetachedPluginMetadata(string accountId, string objectId) {
     assertCorrectThread();
     if (!_saveInsertQueries.count("metadata")) {
         auto stmt = make_shared<SQLite::Statement>(db(), "SELECT version, value, pluginId, objectType FROM DetatchedPluginMetadata WHERE objectId = ? AND accountId = ?");
         _saveInsertQueries["metadata"] = stmt;
     }
-    
+
     vector<Metadata> results;
     auto st = _saveInsertQueries["metadata"];
     st->reset();
@@ -542,7 +542,7 @@ vector<Metadata> MailStore::findAndDeleteDetatchedPluginMetadata(string accountI
     return results;
 }
 
-void MailStore::saveDetatchedPluginMetadata(Metadata & m) {
+void MailStore::saveDetachedPluginMetadata(Metadata & m) {
     assertCorrectThread();
     SQLite::Statement st(db(), "REPLACE INTO DetatchedPluginMetadata (objectId, objectType, accountId, pluginId, value, version) VALUES (?,?,?,?,?,?)");
     st.bind(1, m.objectId);

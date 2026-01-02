@@ -139,7 +139,7 @@ void MailModel::bindToQuery(SQLite::Statement * query) {
 void MailModel::beforeSave(MailStore * store) {
     if (version() == 1 && supportsMetadata()) {
         // look for any pending metadata we need to attach to ourselves
-        vector<Metadata> metadatas = store->findAndDeleteDetatchedPluginMetadata(accountId(), id());
+        vector<Metadata> metadatas = store->findAndDeleteDetachedPluginMetadata(accountId(), id());
 
         for (auto & m : metadatas) {
             spdlog::get("logger")->info("-- Attaching waiting metadata for {}", m.pluginId);

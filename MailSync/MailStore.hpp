@@ -106,11 +106,11 @@ public:
 
     void setStreamDelay(int streamMaxDelay);
     
-    // Detatched plugin metadata storage
-    
-    vector<Metadata> findAndDeleteDetatchedPluginMetadata(string accountId, string objectId);
-    
-    void saveDetatchedPluginMetadata(Metadata & m);
+    // Detached plugin metadata storage
+
+    vector<Metadata> findAndDeleteDetachedPluginMetadata(string accountId, string objectId);
+
+    void saveDetachedPluginMetadata(Metadata & m);
 
     // Find - Not templated
 

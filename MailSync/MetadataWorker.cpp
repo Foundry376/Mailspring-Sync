@@ -209,7 +209,7 @@ void MetadataWorker::applyMetadataJSON(const json & metadataJSON) {
             // save to waiting table - when mailsync saves this model, it will attach
             // and remove the metadata if it's available
             logger->info(" -- Local model is not present. Saving to waiting table.");
-            store->saveDetatchedPluginMetadata(m);
+            store->saveDetachedPluginMetadata(m);
         }
         
         transaction.commit();
