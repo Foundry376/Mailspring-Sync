@@ -1712,6 +1712,10 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
         logger->error("Unable to fetch rfc2822 for message (UID {}). Error {}", msg->remoteUID(), ErrorCodeToTypeMap[err]);
         throw SyncException(err, "performRemoteGetMessageRFC2822");
     }
+    if (data == nullptr) {
+        logger->error("fetchMessageByUID returned null data for message (UID {})", msg->remoteUID());
+        throw SyncException(ErrorFetch, "performRemoteGetMessageRFC2822 - null data");
+    }
 #ifdef _MSC_VER
     wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
     data->writeToFile(AS_WIDE_MCSTR(convert.from_bytes(filepath)));
