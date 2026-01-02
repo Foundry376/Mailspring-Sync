@@ -1174,19 +1174,13 @@ void TaskProcessor::performRemoteSyncbackCategory(Task * task) {
     shared_ptr<Folder> localModel = nullptr;
     
     if (existingPath != "") {
-        if (isGmail) {
-            localModel = store->find<Label>(Query().equal("accountId", accountId).equal("id", MailUtils::idForFolder(accountId, existingPath)));
-        } else {
-            localModel = store->find<Folder>(Query().equal("accountId", accountId).equal("id", MailUtils::idForFolder(accountId, existingPath)));
-        }
+        auto query = Query().equal("accountId", accountId).equal("id", MailUtils::idForFolder(accountId, existingPath));
+        localModel = isGmail ? store->find<Label>(query) : store->find<Folder>(query);
     }
 
     if (!localModel) {
-        if (isGmail) {
-            localModel = make_shared<Label>(MailUtils::idForFolder(accountId, path), accountId, 0);
-        } else {
-            localModel = make_shared<Folder>(MailUtils::idForFolder(accountId, path), accountId, 0);
-        }
+        string id = MailUtils::idForFolder(accountId, path);
+        localModel = isGmail ? make_shared<Label>(id, accountId, 0) : make_shared<Folder>(id, accountId, 0);
     }
 
     localModel->setPath(path);
