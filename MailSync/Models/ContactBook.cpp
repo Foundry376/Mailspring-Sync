@@ -55,6 +55,14 @@ void ContactBook::setSource(string source) {
     _data["source"] = source;
 }
 
+string ContactBook::ctag() {
+    return _data.count("ctag") ? _data["ctag"].get<string>() : "";
+}
+
+void ContactBook::setCtag(string ctag) {
+    _data["ctag"] = ctag;
+}
+
 vector<string> ContactBook::columnsForQuery() {
     return vector<string>{"id", "accountId", "version", "data"};
 }

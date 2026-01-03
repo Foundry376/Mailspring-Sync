@@ -103,10 +103,31 @@ void DAVWorker::runContacts() {
         // Gmail sync uses a separate GoogleContactsWorker
         return;
     }
+
+    // Save the old ctag before resolveAddressBook() updates it with the server's current ctag
+    shared_ptr<ContactBook> existingAb = store->find<ContactBook>(Query().equal("accountId", account->id()));
+    string oldCtag = existingAb ? existingAb->ctag() : "";
+
     auto ab = resolveAddressBook();
-    if (ab != nullptr) {
-        runForAddressBook(ab);
+    if (ab == nullptr) {
+        return;
     }
+
+    string newCtag = ab->ctag();
+
+    // Compare old ctag with new ctag from server
+    if (oldCtag == newCtag && newCtag != "") {
+        logger->info("Address book unchanged (ctag: {}), skipping sync", newCtag);
+        return;
+    }
+
+    if (newCtag != "") {
+        logger->info("Syncing address book (ctag: {} -> {})", oldCtag, newCtag);
+    } else {
+        logger->info("Syncing address book (server doesn't provide ctag)");
+    }
+
+    runForAddressBook(ab);
 }
 
 /*
@@ -170,23 +191,25 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
         abSetURL = replacePath(cardRoot, abSetURL);
     }
     
-    // Hit the home address book set to retrieve the individual address books
-    auto abSetContentsDoc = performXMLRequest(abSetURL, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\"><d:prop><d:resourcetype /></d:prop></d:propfind>");
-                                              
+    // Hit the home address book set to retrieve the individual address books (including ctag)
+    auto abSetContentsDoc = performXMLRequest(abSetURL, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\"><d:prop><d:resourcetype /><d:displayname /><cs:getctag /></d:prop></d:propfind>");
+
     // Iterate over the address books and run a sync on each one
     // TODO: Pick the primary one somehow!
-    
+
     abSetContentsDoc->evaluateXPath("//D:response[.//carddav:addressbook]", ([&](xmlNodePtr node) {
         string abHREF = abSetContentsDoc->nodeContentAtXPath(".//D:href/text()", node);
         string abURL = (abHREF.find("://") == string::npos) ? replacePath(abSetURL, abHREF) : abHREF;
+        string ctag = abSetContentsDoc->nodeContentAtXPath(".//cs:getctag/text()", node);
         if (!existing) {
             existing = make_shared<ContactBook>(account->id() + "-default", account->id());
         }
         existing->setSource("carddav");
         existing->setURL(abURL);
+        existing->setCtag(ctag);
         store->save(existing.get());
     }));
-    
+
     return existing;
 }
 
@@ -497,25 +520,48 @@ void DAVWorker::runCalendars() {
         // to retrieve the attributes we're interested in.
         auto name = calendarSetDoc->nodeContentAtXPath(".//D:displayname/text()", node);
         auto path = calendarSetDoc->nodeContentAtXPath(".//D:href/text()", node);
+        auto ctag = calendarSetDoc->nodeContentAtXPath(".//cs:getctag/text()", node);
         auto id = MailUtils::idForCalendar(account->id(), path);
-        
+
+        shared_ptr<Calendar> calendar = local[id];
+        bool needsSync = true;
+
         // upsert the Calendar object
-        {
-            if (local[id]) {
-                if (local[id]->name() != name) {
-                    local[id]->setName(name);
-                    store->save(local[id].get());
-                }
+        if (calendar) {
+            // Existing calendar - check if ctag changed
+            if (calendar->ctag() == ctag && ctag != "") {
+                logger->info("Calendar '{}' unchanged (ctag: {}), skipping sync", name, ctag);
+                needsSync = false;
+            }
+            // Update name if changed
+            if (calendar->name() != name) {
+                calendar->setName(name);
+                store->save(calendar.get());
+            }
+        } else {
+            // New calendar
+            calendar = make_shared<Calendar>(id, account->id());
+            calendar->setPath(path);
+            calendar->setName(name);
+            store->save(calendar.get());
+        }
+
+        // sync if needed
+        if (needsSync) {
+            if (ctag != "") {
+                logger->info("Syncing calendar '{}' (ctag: {} -> {})", name, calendar->ctag(), ctag);
             } else {
-                Calendar cal = Calendar(id, account->id());
-                cal.setPath(path);
-                cal.setName(name);
-                store->save(&cal);
+                logger->info("Syncing calendar '{}' (server doesn't provide ctag)", name);
+            }
+
+            runForCalendar(id, name, calHost + path);
+
+            // Update ctag after successful sync
+            if (ctag != "" && calendar->ctag() != ctag) {
+                calendar->setCtag(ctag);
+                store->save(calendar.get());
             }
         }
-        
-        // sync
-        runForCalendar(id, name, calHost + path);
     }));
 }
 

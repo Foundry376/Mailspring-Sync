@@ -38,7 +38,9 @@ public:
     void setURL(string url);
     string source();
     void setSource(string source);
-                          
+    string ctag();
+    void setCtag(string ctag);
+
     string tableName();
     string constructorName();
 

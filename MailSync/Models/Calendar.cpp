@@ -48,6 +48,14 @@ void Calendar::setName(string name) {
     _data["name"] = name;
 }
 
+string Calendar::ctag() {
+    return _data.count("ctag") ? _data["ctag"].get<string>() : "";
+}
+
+void Calendar::setCtag(string ctag) {
+    _data["ctag"] = ctag;
+}
+
 string Calendar::tableName() {
     return Calendar::TABLE_NAME;
 }
