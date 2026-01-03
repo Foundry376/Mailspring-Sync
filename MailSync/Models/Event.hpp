@@ -27,18 +27,28 @@ using namespace std;
 using namespace mailcore;
 
 class Event : public MailModel {
-    
+
 public:
     static string TABLE_NAME;
 
-Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent * event);
+    Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent * event);
+    Event(json & data);
     Event(SQLite::Statement & query);
-    
+
     string etag();
+    void setEtag(string etag);
+
     string calendarId();
+    void setCalendarId(string calendarId);
+
     string icsData();
+    void setIcsData(string ics);
+
     string icsUID();
-    
+
+    string href();
+    void setHref(string href);
+
     int recurrenceStart();
     int recurrenceEnd();
 
@@ -48,5 +58,8 @@ Event(string etag, string accountId, string calendarId, string ics, ICalendarEve
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 };
+
+// Helper function to calculate event end time (handles recurrence)
+Date endOf(ICalendarEvent *event);
 
 #endif /* Event_hpp */

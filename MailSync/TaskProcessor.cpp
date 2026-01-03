@@ -21,6 +21,8 @@
 #include "GoogleContactsWorker.hpp"
 #include "File.hpp"
 #include "ContactGroup.hpp"
+#include "Event.hpp"
+#include "icalendar.h"
 #include "constants.h"
 #include "ProgressCollectors.hpp"
 #include "SyncException.hpp"
@@ -447,6 +449,12 @@ void TaskProcessor::performLocal(Task * task) {
         } else if (cname == "DestroyContactGroupTask") {
             performLocalDestroyContactGroup(task);
 
+        } else if (cname == "SyncbackEventTask") {
+            performLocalSyncbackEvent(task);
+
+        } else if (cname == "DestroyEventTask") {
+            performLocalDestroyEvent(task);
+
         } else {
             logger->error("Unsure of how to process this task type {}", cname);
         }
@@ -537,6 +545,12 @@ void TaskProcessor::performRemote(Task * task) {
 
             } else if (cname == "DestroyContactGroupTask") {
                 performRemoteDestroyContactGroup(task);
+
+            } else if (cname == "SyncbackEventTask") {
+                performRemoteSyncbackEvent(task);
+
+            } else if (cname == "DestroyEventTask") {
+                performRemoteDestroyEvent(task);
 
             } else {
                 logger->error("Unsure of how to process this task type {}", cname);
@@ -1130,6 +1144,92 @@ void TaskProcessor::performRemoteSyncbackContact(Task * task) {
     } else {
         auto dav = make_shared<DAVWorker>(account);
         dav->writeAndResyncContact(contact);
+    }
+}
+
+
+void TaskProcessor::performLocalSyncbackEvent(Task * task) {
+    json & eventJSON = task->data()["event"];
+    string calendarId = task->data()["calendarId"].get<string>();
+
+    // Check if event already exists
+    string eventId = eventJSON.count("id") ? eventJSON["id"].get<string>() : "";
+    shared_ptr<Event> existing = nullptr;
+
+    if (eventId != "") {
+        existing = store->find<Event>(Query().equal("id", eventId));
+    }
+
+    if (existing) {
+        // UPDATE: Merge client changes into existing event
+        if (eventJSON.count("ics")) {
+            existing->setIcsData(eventJSON["ics"].get<string>());
+            // Re-parse ICS to update recurrence fields
+            ICalendar cal(existing->icsData());
+            if (!cal.Events.empty()) {
+                auto icsEvent = cal.Events.front();
+                existing->_data["rs"] = icsEvent->DtStart.toUnix();
+                existing->_data["re"] = endOf(icsEvent).toUnix();
+                existing->_data["icsuid"] = icsEvent->UID;
+            }
+        }
+        store->save(existing.get());
+        task->data()["event"]["id"] = existing->id();
+    } else {
+        // CREATE: Generate new event with temporary ID
+        string tempId = MailUtils::idRandomlyGenerated();
+        string icsData = eventJSON["ics"].get<string>();
+        ICalendar cal(icsData);
+
+        if (cal.Events.empty()) {
+            throw SyncException("invalid-ics", "ICS data does not contain any events", false);
+        }
+
+        auto icsEvent = cal.Events.front();
+        Event event("", account->id(), calendarId, icsData, icsEvent);
+        event._data["id"] = tempId;  // Temporary ID until server assigns etag
+        store->save(&event);
+
+        task->data()["event"]["id"] = tempId;
+    }
+
+    store->save(task);
+}
+
+void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
+    string eventId = task->data()["event"]["id"].get<string>();
+    auto event = store->find<Event>(Query().equal("id", eventId).equal("accountId", account->id()));
+
+    if (event == nullptr) {
+        throw SyncException("not-found", "Event not found for syncback", false);
+    }
+
+    auto dav = make_shared<DAVWorker>(account);
+    dav->writeAndResyncEvent(event);
+}
+
+void TaskProcessor::performLocalDestroyEvent(Task * task) {
+    vector<string> eventIds {};
+    for (json & e : task->data()["events"]) {
+        eventIds.push_back(e["id"].get<string>());
+    }
+
+    // Mark events as hidden locally (they'll be fully removed after remote delete succeeds)
+    // Note: Unlike contacts, we don't have a "hidden" field on events, so we just
+    // leave them in place until performRemote completes.
+}
+
+void TaskProcessor::performRemoteDestroyEvent(Task * task) {
+    vector<string> eventIds {};
+    for (json & e : task->data()["events"]) {
+        eventIds.push_back(e["id"].get<string>());
+    }
+
+    auto events = store->findLargeSet<Event>("id", eventIds);
+    auto dav = make_shared<DAVWorker>(account);
+
+    for (auto & event : events) {
+        dav->deleteEvent(event);
     }
 }
 

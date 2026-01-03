@@ -22,6 +22,7 @@
 #include "Event.hpp"
 #include "Calendar.hpp"
 #include "NetworkRequestUtils.hpp"
+#include "icalendar.h"
 
 #include <string>
 #include <curl/curl.h>
@@ -593,13 +594,15 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
                 auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
                 if (etag != "" && local.count(etag) == 0) {
                     auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
+                    auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
                     if (icsData != "") {
                         local[etag] = true;
                         ICalendar cal(icsData);
-                        
+
                         auto icsEvent = cal.Events.front();
                         if (!icsEvent->DtStart.IsEmpty()) {
                             auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                            event.setHref(href);
                             store->save(&event);
                         } else {
                             logger->info("Received calendar event but it has no start time?\n\n{}\n\n", icsData);
@@ -609,7 +612,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
                     }
                 } else {
                     // we didn't ask for this, or we already received it in this session.
-                    
+
                     // Note: occasionally (with Google Cal at least), the initial "index" query returns etag+href pairs,
                     // but then requesting them individually returns etag="", icsdata="". It seems like some data consistency
                     // issue on their side and for now we just ignore them. There are two in bengotow@gmail.com.
@@ -701,5 +704,148 @@ string DAVWorker::performVCardRequest(string _url, string method, string vcard, 
     logger->info("{}: {} {}", _url, vcard, existingEtag);
     string result = PerformRequest(curl_handle);
     return result;
+}
+
+string DAVWorker::performICSRequest(string _url, string method, string icsData, ETAG existingEtag) {
+    string url = _url.find("http") != 0 ? "https://" + _url : _url;
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
+    headers = curl_slist_append(headers, "Content-Type: text/calendar; charset=utf-8");
+
+    if (existingEtag != "") {
+        // For updates, use If-Match to ensure we don't overwrite concurrent changes
+        string etagHeader = "If-Match: " + existingEtag;
+        headers = curl_slist_append(headers, etagHeader.c_str());
+    }
+
+    CURL * curl_handle = curl_easy_init();
+    const char * payloadChars = icsData.c_str();
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 40);
+    curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
+
+    logger->info("performICSRequest: {} {} etag:{}", method, _url, existingEtag);
+    string result = PerformRequest(curl_handle);
+    return result;
+}
+
+void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
+    // 1. Find the calendar to get its URL
+    auto calendar = store->find<Calendar>(Query().equal("id", event->calendarId()));
+    if (!calendar) {
+        throw SyncException("no-calendar", "Calendar not found for event syncback", false);
+    }
+
+    string calendarUrl = calHost + calendar->path();
+    string icsData = event->icsData();
+    string href = event->href();
+    string existingEtag = event->etag();
+
+    // 2. Determine the href for the event
+    if (href == "") {
+        // No href stored - either a new event or a legacy event synced before we stored hrefs.
+        // Generate the href from the UID (most CalDAV servers use {uid}.ics as the resource name)
+        string uid = event->icsUID();
+        if (uid == "") {
+            uid = MailUtils::idRandomlyGenerated();
+        }
+        href = calendar->path() + uid + ".ics";
+    }
+
+    string fullUrl = replacePath(calendarUrl, href);
+
+    // 3. Perform PUT request (create or update)
+    try {
+        performICSRequest(fullUrl, "PUT", icsData, existingEtag);
+    } catch (SyncException & e) {
+        if (e.key.find("412") != string::npos) {
+            // Precondition failed - etag conflict, throw a more descriptive error
+            throw SyncException("etag-conflict", "Event was modified by another client. Please refresh and try again.", false);
+        }
+        throw;
+    }
+
+    // 4. Read back the event to get the server's version (with new etag)
+    auto icsDoc = performXMLRequest(calendarUrl, "REPORT",
+        "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
+        "<d:prop><d:getetag /><c:calendar-data /></d:prop>"
+        "<d:href>" + href + "</d:href>"
+        "</c:calendar-multiget>");
+
+    // 5. Parse response and update local event
+    bool wasNewEvent = (existingEtag == "");
+    string oldId = event->id();
+
+    icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+        auto newEtag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+        auto icsResponse = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
+        auto hrefResponse = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
+
+        if (icsResponse != "" && newEtag != "") {
+            ICalendar cal(icsResponse);
+            if (!cal.Events.empty()) {
+                auto icsEvent = cal.Events.front();
+
+                // Update local event with server data
+                event->setEtag(newEtag);
+                event->setHref(hrefResponse);
+                event->setIcsData(icsResponse);
+
+                // Update recurrence times from parsed ICS
+                event->_data["rs"] = icsEvent->DtStart.toUnix();
+                event->_data["re"] = endOf(icsEvent).toUnix();
+                event->_data["icsuid"] = icsEvent->UID;
+
+                // If this was a new event, we need to regenerate the ID based on the server's etag
+                if (wasNewEvent) {
+                    string newId = MailUtils::idForEvent(account->id(), event->calendarId(), newEtag);
+                    event->_data["id"] = newId;
+
+                    // Delete the old temporary entry
+                    auto oldEvent = store->find<Event>(Query().equal("id", oldId));
+                    if (oldEvent) {
+                        store->remove(oldEvent.get());
+                    }
+                }
+
+                store->save(event.get());
+                logger->info("Event syncback complete. New etag: {}", newEtag);
+            }
+        } else {
+            logger->warn("Event syncback: received empty response from server");
+        }
+    }));
+}
+
+void DAVWorker::deleteEvent(shared_ptr<Event> event) {
+    // 1. Find the calendar to get its URL
+    auto calendar = store->find<Calendar>(Query().equal("id", event->calendarId()));
+    if (!calendar) {
+        throw SyncException("no-calendar", "Calendar not found for event deletion", false);
+    }
+
+    string href = event->href();
+
+    // 2. If no href stored, try to reconstruct from UID
+    if (href == "") {
+        string uid = event->icsUID();
+        if (uid == "") {
+            throw SyncException("no-href", "Cannot delete event without href or icsUID", false);
+        }
+        href = calendar->path() + uid + ".ics";
+    }
+
+    string fullUrl = replacePath(calHost + calendar->path(), href);
+
+    // 3. Perform DELETE request with If-Match header if we have an etag
+    string existingEtag = event->etag();
+    performICSRequest(fullUrl, "DELETE", "", existingEtag);
+
+    // 4. Remove from local database
+    store->remove(event.get());
+    logger->info("Event deleted successfully: {}", href);
 }
 

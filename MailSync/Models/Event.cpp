@@ -55,6 +55,11 @@ Event::Event(string etag, string accountId, string calendarId, string ics, ICale
     _data["re"] = endOf(event).toUnix();
 }
 
+Event::Event(json & data) : MailModel(data)
+{
+    // Event constructed from client JSON - already has all fields
+}
+
 Event::Event(SQLite::Statement &query) : MailModel(query)
 {
 }
@@ -74,9 +79,29 @@ string Event::calendarId()
     return _data["cid"].get<string>();
 }
 
+void Event::setCalendarId(string calendarId)
+{
+    _data["cid"] = calendarId;
+}
+
+string Event::href()
+{
+    return _data.count("href") ? _data["href"].get<string>() : "";
+}
+
+void Event::setHref(string href)
+{
+    _data["href"] = href;
+}
+
 string Event::icsData()
 {
     return _data["ics"].get<string>();
+}
+
+void Event::setIcsData(string ics)
+{
+    _data["ics"] = ics;
 }
 
 string Event::icsUID()
@@ -87,6 +112,11 @@ string Event::icsUID()
 string Event::etag()
 {
     return _data["etag"].get<string>();
+}
+
+void Event::setEtag(string etag)
+{
+    _data["etag"] = etag;
 }
 
 int Event::recurrenceStart()

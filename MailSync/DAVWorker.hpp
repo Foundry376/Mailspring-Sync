@@ -17,6 +17,8 @@
 #include "ContactBook.hpp"
 #include "MailStore.hpp"
 #include "DavXML.hpp"
+#include "Event.hpp"
+#include "Calendar.hpp"
 
 #include <stdio.h>
 
@@ -59,10 +61,14 @@ public:
     void runCalendars();
     void runForCalendar(string id, string name, string path);
 
+    void writeAndResyncEvent(shared_ptr<Event> event);
+    void deleteEvent(shared_ptr<Event> event);
+
     const string getAuthorizationHeader();
-    
+
     shared_ptr<DavXML> performXMLRequest(string path, string method, string payload = "");
     string performVCardRequest(string _url, string method, string vcard = "", ETAG existingEtag = "");
+    string performICSRequest(string url, string method, string icsData, ETAG existingEtag = "");
     
 };
 
