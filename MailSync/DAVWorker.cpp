@@ -1150,6 +1150,23 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     // Get time range for filtering events (RFC 4791 section 7.8)
     auto range = getCalendarSyncRange();
 
+    // NOTE: Provider quirk documentation for future VTODO support
+    // ============================================================
+    // The CalDAV `is-not-defined` filter (RFC 4791) is poorly supported across providers.
+    // It should identify calendar objects lacking specific properties, but:
+    // - Zimbra, SOGo, Robur: completely ignore this filter
+    // - Radicale: inconsistent (works for CATEGORIES, fails for DTEND)
+    // - Nextcloud, Baikal: return incorrect results for negated TextMatch queries
+    //
+    // The python-caldav library works around this by:
+    // 1. Using a triple-query approach (standard query + explicit undefined check + fallback)
+    // 2. Client-side filtering as a fallback when server support is absent
+    //
+    // This implementation currently only syncs VEVENTs using time-range filters,
+    // which are well-supported. If VTODO support is added in the future, avoid
+    // relying on `is-not-defined` for finding tasks with undefined STATUS.
+    // See: https://github.com/python-caldav/caldav for reference workarounds.
+
     // Remote: href -> etag (from server)
     map<string, string> remote {};
     {
