@@ -32,7 +32,7 @@ public:
     
     string path();
     void setPath(string path);
-  
+
     string name();
     void setName(string name);
 
@@ -41,6 +41,19 @@ public:
 
     string syncToken();
     void setSyncToken(string token);
+
+    // Calendar metadata (synced from CalDAV server)
+    string color();
+    void setColor(string color);
+
+    string description();
+    void setDescription(string description);
+
+    bool readOnly();
+    void setReadOnly(bool readOnly);
+
+    int order();
+    void setOrder(int order);
 
     string tableName();
     vector<string> columnsForQuery();
