@@ -549,9 +549,12 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
     }
     
     if (href != "") {
-        // read the card back to ingest server-side changes and the new etag
+        // Read the card back to ingest server-side changes and the new etag.
         // IMPORTANT: We receive a new copy of this contact with possibly new data.
         // DO NOT SAVE the one in the outer scope!
+        //
+        // We use multiget REPORT instead of a direct GET request for Zimbra compatibility.
+        // See comments in runForAddressBook for details on the "event_by_url_is_broken" provider quirk.
         auto abDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop><d:href>"+href+"</d:href></c:addressbook-multiget>");
         abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             bool isGroup = false;
@@ -663,8 +666,19 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
         for (auto & href : chunk) {
             payload += "<d:href>" + href + "</d:href>";
         }
-        
-        // Fetch the data
+
+        // Fetch contact data using REPORT addressbook-multiget (RFC 6352 section 8.7).
+        //
+        // Important: We always use multiget instead of direct GET requests. This is a deliberate
+        // design decision that ensures compatibility with servers like Zimbra that have broken
+        // GET implementations. Zimbra returns 404 errors for direct GET requests to valid vCard
+        // URLs, but the same URLs work correctly when requested via multiget REPORT.
+        //
+        // The Python caldav library implements a fallback strategy (try GET, fallback to multiget),
+        // but we skip straight to multiget for reliability. The multiget approach also has
+        // performance benefits by fetching multiple items in a single HTTP request.
+        //
+        // See: python-caldav compatibility hints for "event_by_url_is_broken" flag.
         auto abDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop>" + payload + "</c:addressbook-multiget>");
         
         // Insert the event objects and remove deleted events within the same transaction.
@@ -847,7 +861,8 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
     logger->info("sync-collection complete ({} pages) for contacts: {} needed, {} deleted",
                  pageCount, neededHrefs.size(), deletedHrefs.size());
 
-    // Fetch needed items (from initial sync) using multiget in chunks
+    // Fetch needed items (from initial sync) using multiget in chunks.
+    // See comments in runForAddressBook for why we use multiget instead of direct GET requests.
     if (!neededHrefs.empty()) {
         std::reverse(neededHrefs.begin(), neededHrefs.end());
 
@@ -1235,7 +1250,18 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
             payload += "<D:href>" + href + "</D:href>";
         }
 
-        // Fetch the data (rate limiting is now handled in performXMLRequest)
+        // Fetch calendar data using REPORT calendar-multiget (RFC 4791 section 7.9).
+        //
+        // Important: We always use multiget instead of direct GET requests. This is a deliberate
+        // design decision that ensures compatibility with servers like Zimbra that have broken
+        // GET implementations. Zimbra returns 404 errors for direct GET requests to valid ICS
+        // URLs, but the same URLs work correctly when requested via multiget REPORT.
+        //
+        // The Python caldav library implements a fallback strategy (try GET, fallback to multiget),
+        // but we skip straight to multiget for reliability. The multiget approach also has
+        // performance benefits by fetching multiple items in a single HTTP request.
+        //
+        // See: python-caldav compatibility hints for "event_by_url_is_broken" flag.
         auto icsDoc = performXMLRequest(url, "REPORT", "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
 
         // Insert/update events and remove deleted events within the same transaction.
@@ -1510,7 +1536,8 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         transaction.commit();
     }
 
-    // Fetch needed items (from initial sync) using multiget in chunks
+    // Fetch needed items (from initial sync) using multiget in chunks.
+    // See comments in runForCalendar for why we use multiget instead of direct GET requests.
     if (!neededHrefs.empty()) {
         std::reverse(neededHrefs.begin(), neededHrefs.end());
 
@@ -1779,6 +1806,8 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
     }
 
     // 4. Read back the event to get the server's version (with new etag)
+    // We use multiget REPORT instead of a direct GET request for Zimbra compatibility.
+    // See comments in runForCalendar for details on the "event_by_url_is_broken" provider quirk.
     auto icsDoc = performXMLRequest(calendarUrl, "REPORT",
         "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
         "<d:prop><d:getetag /><c:calendar-data /></d:prop>"
