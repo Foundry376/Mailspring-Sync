@@ -850,61 +850,77 @@ void DAVWorker::runCalendars() {
 }
 
 void DAVWorker::runForCalendar(string calendarId, string name, string url) {
-    map<ETAG, string> remote {};
+    // Remote: href -> etag (from server)
+    map<string, string> remote {};
     {
-        // Request the ETAG value of every event in the calendar. We should compare these
-        // values against a set in the database. Any event we don't have should be added
-        // and any event in the database absent from the response should be deleted.
+        // Request the ETAG and href of every event in the calendar. Compare by href
+        // to handle updates properly - etags change on modification but href is stable.
         auto eventEtagsDoc = performXMLRequest(url, "REPORT", "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /></d:prop></c:calendar-query>");
 
         eventEtagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             auto etag = eventEtagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-            auto icsHref = eventEtagsDoc->nodeContentAtXPath(".//D:href/text()", node);
-            remote[string(etag.c_str())] = string(icsHref.c_str());
+            auto href = eventEtagsDoc->nodeContentAtXPath(".//D:href/text()", node);
+            remote[normalizeHref(href)] = string(etag.c_str());
         }));
     }
-    
 
-    // Because etags change when the event content changes, we only need to ADD new events
-    // and DELETE missing events. To do this we query just the index for IDs and go from there.
-    map<ETAG, bool> local {};
+    // Local: href -> (icsUID, etag) - for comparison and stable ID lookup
+    map<string, pair<string, string>> local {};
     {
-        SQLite::Statement findEtags(store->db(), "SELECT etag FROM Event WHERE calendarId = ?");
-        findEtags.bind(1, calendarId);
-        while (findEtags.executeStep()) {
-            local[findEtags.getColumn("etag")] = true;
+        SQLite::Statement findEvents(store->db(), "SELECT data, icsuid, etag FROM Event WHERE calendarId = ?");
+        findEvents.bind(1, calendarId);
+        while (findEvents.executeStep()) {
+            string dataStr = findEvents.getColumn("data").getString();
+            json data = json::parse(dataStr);
+            string href = data.count("href") ? data["href"].get<string>() : "";
+            string icsuid = findEvents.getColumn("icsuid").getString();
+            string etag = findEvents.getColumn("etag").getString();
+            if (href != "") {
+                local[normalizeHref(href)] = make_pair(icsuid, etag);
+            }
         }
     }
 
-    // identify new and deleted events
-    vector<ETAG> deleted {};
-    vector<string> needed {};
+    // Identify new, updated, and deleted events by comparing hrefs
+    vector<string> deletedIcsUIDs {};
+    vector<string> neededHrefs {};
     for (auto & pair : remote) {
-        if (local.count(pair.first)) continue;
-        needed.push_back(pair.second);
+        string href = pair.first;
+        string remoteEtag = pair.second;
+        auto it = local.find(href);
+        if (it == local.end()) {
+            // New event - need to fetch
+            neededHrefs.push_back(href);
+            continue;
+        }
+        if (it->second.second != remoteEtag) {
+            // Updated event - etag changed, need to re-fetch
+            neededHrefs.push_back(href);
+        }
     }
     for (auto & pair : local) {
-        if (remote.count(pair.first)) continue;
-        deleted.push_back(pair.first);
+        if (remote.count(pair.first) == 0) {
+            // Deleted on server - remove by icsUID
+            deletedIcsUIDs.push_back(pair.second.first);
+        }
     }
-    
-    // request the last (newest) events first. Technically this should be unordered
-    // by now, but it appears to work for me.
-    std::reverse(needed.begin(), needed.end());
-    if (deleted.size() || needed.size()) {
+
+    // Request newest events first
+    std::reverse(neededHrefs.begin(), neededHrefs.end());
+    if (!deletedIcsUIDs.empty() || !neededHrefs.empty()) {
         logger->info("{}", url);
-        logger->info("  remote: {} etags", remote.size());
-        logger->info("   local: {} etags", local.size());
-        logger->info(" deleted: {}", deleted.size());
-        logger->info("  needed: {}", needed.size());
+        logger->info("  remote: {} hrefs", remote.size());
+        logger->info("   local: {} hrefs", local.size());
+        logger->info(" deleted: {}", deletedIcsUIDs.size());
+        logger->info("  needed: {}", neededHrefs.size());
     }
-    
-    auto deletionChunks = MailUtils::chunksOfVector(deleted, 100);
-    
-    for (auto chunk : MailUtils::chunksOfVector(needed, 90)) {
+
+    auto deletionChunks = MailUtils::chunksOfVector(deletedIcsUIDs, 100);
+
+    for (auto chunk : MailUtils::chunksOfVector(neededHrefs, 90)) {
         string payload = "";
-        for (auto & icsHref : chunk) {
-            payload += "<D:href>" + icsHref + "</D:href>";
+        for (auto & href : chunk) {
+            payload += "<D:href>" + href + "</D:href>";
         }
 
         // Debounce 1sec on each request because Google has a cap on total queries
@@ -914,29 +930,25 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
 
         // Fetch the data
         auto icsDoc = performXMLRequest(url, "REPORT", "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
-        
-        // Insert the event objects and remove deleted events within the same transaction.
-        // Most of the time, this results in an event being replaced within a single transaction.
+
+        // Insert/update events and remove deleted events within the same transaction.
         {
             MailStoreTransaction transaction {store, "runForCalendar:insertions"};
-            
+
             icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
                 auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-
-                // Skip if we didn't ask for this or already received it
-                // Note: occasionally (with Google Cal at least), the initial "index" query returns etag+href pairs,
-                // but then requesting them individually returns etag="", icsdata="". It seems like some data consistency
-                // issue on their side and for now we just ignore them.
-                if (etag == "" || local.count(etag) != 0) return;
-
                 auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
-                if (icsData == "") {
-                    logger->info("Received calendar event {} with an empty body", etag);
+
+                // Skip empty responses (Google sometimes returns empty data)
+                if (etag == "" || icsData == "") {
+                    if (etag != "") {
+                        logger->info("Received calendar event {} with an empty body", etag);
+                    }
                     return;
                 }
 
-                local[etag] = true;
                 ICalendar cal(icsData);
+                if (cal.Events.empty()) return;
                 auto icsEvent = cal.Events.front();
 
                 if (icsEvent->DtStart.IsEmpty()) {
@@ -945,15 +957,30 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
                 }
 
                 auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
-                auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                event.setHref(href);
-                store->save(&event);
+                string icsUID = icsEvent->UID;
+
+                // Look up existing event by icsUID to update in place
+                auto existing = store->find<Event>(Query().equal("calendarId", calendarId).equal("icsuid", icsUID));
+                if (existing) {
+                    // Update existing event - preserves stable ID
+                    existing->setEtag(etag);
+                    existing->setHref(href);
+                    existing->setIcsData(icsData);
+                    existing->_data["rs"] = icsEvent->DtStart.toUnix();
+                    existing->_data["re"] = endOf(icsEvent).toUnix();
+                    store->save(existing.get());
+                } else {
+                    // Create new event - ID based on icsUID
+                    auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                    event.setHref(href);
+                    store->save(&event);
+                }
             }));
-            
+
             if (!deletionChunks.empty()) {
                 auto deletionChunk = deletionChunks.back();
                 deletionChunks.pop_back();
-                auto deletionEvents = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("etag", deletionChunk));
+                auto deletionEvents = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("icsuid", deletionChunk));
                 for (auto & e : deletionEvents) {
                     store->remove(e.get());
                 }
@@ -966,7 +993,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     {
         MailStoreTransaction transaction {store, "runForCalendar:deletions"};
         for (auto & deletionChunk : deletionChunks) {
-            auto deletionEvents = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("etag", deletionChunk));
+            auto deletionEvents = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("icsuid", deletionChunk));
             for (auto & e : deletionEvents) {
                 store->remove(e.get());
             }
@@ -1108,14 +1135,6 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
     if (!directData.empty()) {
         MailStoreTransaction transaction{store, "syncToken:direct"};
 
-        // Load all events once and build href->event map (href is in JSON data column, can't query directly)
-        auto allEvents = store->findAll<Event>(Query().equal("calendarId", calendarId));
-        map<string, shared_ptr<Event>> eventsByHref;
-        for (auto & e : allEvents) {
-            string eventHref = normalizeHref(e->href());
-            eventsByHref[eventHref] = e;
-        }
-
         for (auto & pair : directData) {
             string href = pair.first;
             string icsData = pair.second.second;
@@ -1127,14 +1146,14 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
             auto icsEvent = cal.Events.front();
             if (icsEvent->DtStart.IsEmpty()) continue;
 
-            string normalizedHref = normalizeHref(href);
             string etag = pair.second.first;
+            string icsUID = icsEvent->UID;
 
-            // Check if event already exists (update) or is new
-            auto it = eventsByHref.find(normalizedHref);
-            if (it != eventsByHref.end()) {
-                auto existing = it->second;
+            // Look up existing event by icsUID to update in place (preserves stable ID)
+            auto existing = store->find<Event>(Query().equal("calendarId", calendarId).equal("icsuid", icsUID));
+            if (existing) {
                 existing->setEtag(etag);
+                existing->setHref(href);
                 existing->setIcsData(icsData);
                 existing->_data["rs"] = icsEvent->DtStart.toUnix();
                 existing->_data["re"] = endOf(icsEvent).toUnix();
@@ -1177,9 +1196,22 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 if (icsEvent->DtStart.IsEmpty()) return;
 
                 auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
-                auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                event.setHref(href);
-                store->save(&event);
+                string icsUID = icsEvent->UID;
+
+                // Look up existing event by icsUID to update in place (preserves stable ID)
+                auto existing = store->find<Event>(Query().equal("calendarId", calendarId).equal("icsuid", icsUID));
+                if (existing) {
+                    existing->setEtag(etag);
+                    existing->setHref(href);
+                    existing->setIcsData(icsData);
+                    existing->_data["rs"] = icsEvent->DtStart.toUnix();
+                    existing->_data["re"] = endOf(icsEvent).toUnix();
+                    store->save(existing.get());
+                } else {
+                    auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                    event.setHref(href);
+                    store->save(&event);
+                }
             }));
             transaction.commit();
         }
@@ -1351,9 +1383,7 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
         "</c:calendar-multiget>");
 
     // 5. Parse response and update local event
-    bool wasNewEvent = (existingEtag == "");
-    string oldId = event->id();
-
+    // Note: Event ID is now based on icsUID (stable), so no ID regeneration is needed
     icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
         auto newEtag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
         auto icsResponse = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
@@ -1373,18 +1403,6 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
                 event->_data["rs"] = icsEvent->DtStart.toUnix();
                 event->_data["re"] = endOf(icsEvent).toUnix();
                 event->_data["icsuid"] = icsEvent->UID;
-
-                // If this was a new event, we need to regenerate the ID based on the server's etag
-                if (wasNewEvent) {
-                    string newId = MailUtils::idForEvent(account->id(), event->calendarId(), newEtag);
-                    event->_data["id"] = newId;
-
-                    // Delete the old temporary entry
-                    auto oldEvent = store->find<Event>(Query().equal("id", oldId));
-                    if (oldEvent) {
-                        store->remove(oldEvent.get());
-                    }
-                }
 
                 store->save(event.get());
                 logger->info("Event syncback complete. New etag: {}", newEtag);

@@ -66,7 +66,7 @@ public:
     static void setBaseIDVersion(time_t identityCreationDate);
 
     static string idRandomlyGenerated();
-    static string idForEvent(string accountId, string calendarId, string etag);
+    static string idForEvent(string accountId, string calendarId, string icsUID);
     static string idForCalendar(string accountId, string url);
     static string idForMessage(string accountId, string folderPath, IMAPMessage * msg);
     static string idForFolder(string accountId, string folderPath);

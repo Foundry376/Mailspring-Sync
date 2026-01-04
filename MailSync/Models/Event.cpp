@@ -42,7 +42,7 @@ Date endOf(ICalendarEvent *event)
 }
 
 Event::Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent *event)
-    : MailModel(MailUtils::idForEvent(accountId, calendarId, etag), accountId)
+    : MailModel(MailUtils::idForEvent(accountId, calendarId, event->UID), accountId)
 {
     _data["cid"] = calendarId;
     _data["ics"] = ics;
