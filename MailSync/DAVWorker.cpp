@@ -1030,6 +1030,26 @@ void DAVWorker::runCalendars() {
         return;
     }
 
+    // NOTE: Calendar Creation (MKCALENDAR) is intentionally NOT implemented.
+    //
+    // This implementation discovers and syncs existing calendars only. Creating new
+    // calendars via CalDAV has significant provider compatibility issues documented
+    // by the Python CalDAV library (https://github.com/python-caldav/caldav):
+    //
+    // - RFC 4791 states MKCALENDAR support is RECOMMENDED, not REQUIRED
+    // - Google Calendar, Posteo, GMX.de: No MKCALENDAR support (pre-provisioned only)
+    // - Baikal: Requires MKCOL instead of MKCALENDAR with explicit resourcetype
+    // - DAViCal, Zimbra: Display names ignored during creation (need PROPPATCH after)
+    // - Nextcloud, eCloud, Cyrus: Fragile deletion (fails immediately after creation)
+    // - Synology: Calendar deletion not supported at all
+    // - Purelymail: Auto-creates calendars when accessing non-existent paths
+    //
+    // If calendar creation is added in the future, consider:
+    // 1. Feature detection to choose between MKCALENDAR and MKCOL
+    // 2. Fallback PROPPATCH for setting displayname after creation
+    // 3. Retry logic with delays for deletion operations
+    // 4. UUID-based suffixes for namespace conflict handling
+
     // Fetch the list of calendars from the principal URL
     // Request calendar metadata: color, description, read-only status, order
     string propfindQuery =
