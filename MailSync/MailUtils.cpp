@@ -256,7 +256,7 @@ string MailUtils::localTimestampForTime(time_t time) {
     if (time == -1) {
         time = 1;
     }
-    
+
     char buffer[32];
 #if defined(_MSC_VER)
     tm ptm;
@@ -265,6 +265,21 @@ string MailUtils::localTimestampForTime(time_t time) {
 #else
     tm * ptm = localtime(&time);
     strftime(buffer, 32, "%Y-%m-%d %H:%M:%S", ptm);
+#endif
+    return string(buffer);
+}
+
+string MailUtils::formatDateTimeUTC(time_t time) {
+    // Format time as iCalendar UTC date-time for CalDAV time-range filters
+    // Format: YYYYMMDDTHHMMSSZ (per RFC 4791 section 9.9)
+    char buffer[20];
+#if defined(_MSC_VER)
+    tm ptm;
+    gmtime_s(&ptm, &time);
+    strftime(buffer, sizeof(buffer), "%Y%m%dT%H%M%SZ", &ptm);
+#else
+    tm * ptm = gmtime(&time);
+    strftime(buffer, sizeof(buffer), "%Y%m%dT%H%M%SZ", ptm);
 #endif
     return string(buffer);
 }

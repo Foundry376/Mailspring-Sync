@@ -33,7 +33,34 @@ struct EventResult {
     ETAG etag;
 };
 
+// Calendar sync time range configuration
+// Events outside this range are not synced to reduce storage and improve performance
+static const int CALENDAR_SYNC_PAST_MONTHS = 12;
+static const int CALENDAR_SYNC_FUTURE_MONTHS = 18;
 
+struct CalendarSyncRange {
+    time_t start;
+    time_t end;
+    string startStr;  // Formatted for CalDAV time-range filter
+    string endStr;
+};
+
+CalendarSyncRange getCalendarSyncRange() {
+    time_t now = time(nullptr);
+    time_t start = now - (CALENDAR_SYNC_PAST_MONTHS * 30 * 24 * 60 * 60);
+    time_t end = now + (CALENDAR_SYNC_FUTURE_MONTHS * 30 * 24 * 60 * 60);
+    return {
+        start,
+        end,
+        MailUtils::formatDateTimeUTC(start),
+        MailUtils::formatDateTimeUTC(end)
+    };
+}
+
+bool eventOverlapsRange(time_t eventStart, time_t eventEnd, const CalendarSyncRange& range) {
+    // Event overlaps range if it ends after range start AND starts before range end
+    return eventEnd >= range.start && eventStart <= range.end;
+}
 
 string firstPropVal(json attrs, string key, string fallback = "") {
     if (!attrs.count(key)) return fallback;
@@ -932,12 +959,27 @@ void DAVWorker::runCalendars() {
 }
 
 void DAVWorker::runForCalendar(string calendarId, string name, string url) {
+    // Get time range for filtering events (RFC 4791 section 7.8)
+    auto range = getCalendarSyncRange();
+
     // Remote: href -> etag (from server)
     map<string, string> remote {};
     {
-        // Request the ETAG and href of every event in the calendar. Compare by href
-        // to handle updates properly - etags change on modification but href is stable.
-        auto eventEtagsDoc = performXMLRequest(url, "REPORT", "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /></d:prop></c:calendar-query>");
+        // Request events within the time range. The server expands recurring events
+        // and returns any event where at least one instance falls within the range.
+        string query =
+            "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
+            "<d:prop><d:getetag /></d:prop>"
+            "<c:filter>"
+            "<c:comp-filter name=\"VCALENDAR\">"
+            "<c:comp-filter name=\"VEVENT\">"
+            "<c:time-range start=\"" + range.startStr + "\" end=\"" + range.endStr + "\"/>"
+            "</c:comp-filter>"
+            "</c:comp-filter>"
+            "</c:filter>"
+            "</c:calendar-query>";
+
+        auto eventEtagsDoc = performXMLRequest(url, "REPORT", query);
 
         eventEtagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             auto etag = eventEtagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
@@ -982,7 +1024,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     }
     for (auto & pair : local) {
         if (remote.count(pair.first) == 0) {
-            // Deleted on server - remove by icsUID
+            // Not in server response - either deleted or outside time range
             deletedIcsUIDs.push_back(pair.second.first);
         }
     }
@@ -990,10 +1032,10 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     // Request newest events first
     std::reverse(neededHrefs.begin(), neededHrefs.end());
     if (!deletedIcsUIDs.empty() || !neededHrefs.empty()) {
-        logger->info("{}", url);
-        logger->info("  remote: {} hrefs", remote.size());
-        logger->info("   local: {} hrefs", local.size());
-        logger->info(" deleted: {}", deletedIcsUIDs.size());
+        logger->info("{} (time range: {} to {})", url, range.startStr, range.endStr);
+        logger->info("  remote: {} events in range", remote.size());
+        logger->info("   local: {} events", local.size());
+        logger->info(" removed: {} (deleted or out of range)", deletedIcsUIDs.size());
         logger->info("  needed: {}", neededHrefs.size());
     }
 
@@ -1241,9 +1283,18 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 existing->_data["re"] = endOf(icsEvent).toUnix();
                 store->save(existing.get());
             } else {
-                auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                event.setHref(href);
-                store->save(&event);
+                // New event from sync-token - only create if within our time range
+                // This prevents accumulating events outside the range when they're modified
+                auto range = getCalendarSyncRange();
+                time_t eventStart = icsEvent->DtStart.toUnix();
+                time_t eventEnd = endOf(icsEvent).toUnix();
+
+                if (eventOverlapsRange(eventStart, eventEnd, range)) {
+                    auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                    event.setHref(href);
+                    store->save(&event);
+                }
+                // else: quietly ignore - event is outside our sync window
             }
         }
         transaction.commit();
@@ -1290,9 +1341,16 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                     existing->_data["re"] = endOf(icsEvent).toUnix();
                     store->save(existing.get());
                 } else {
-                    auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                    event.setHref(href);
-                    store->save(&event);
+                    // New event - only create if within our time range
+                    auto range = getCalendarSyncRange();
+                    time_t eventStart = icsEvent->DtStart.toUnix();
+                    time_t eventEnd = endOf(icsEvent).toUnix();
+
+                    if (eventOverlapsRange(eventStart, eventEnd, range)) {
+                        auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                        event.setHref(href);
+                        store->save(&event);
+                    }
                 }
             }));
             transaction.commit();

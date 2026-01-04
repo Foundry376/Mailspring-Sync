@@ -49,6 +49,7 @@ public:
     static string contactKeyForEmail(string email);
 
     static string localTimestampForTime(time_t time);
+    static string formatDateTimeUTC(time_t time);
 
     static vector<uint32_t> uidsOfArray(Array * array);
     
