@@ -38,7 +38,15 @@ class DAVWorker {
 
     string calHost;
     string calPrincipal;
-    
+
+    // In-memory discovery cache for CardDAV
+    // Persists for lifetime of worker (days), reset on process restart
+    bool contactsDiscoveryComplete = false;
+    shared_ptr<ContactBook> cachedAddressBook = nullptr;
+    int contactsValidationFailures = 0;
+
+    bool validateCachedAddressBook();
+
 public:
     shared_ptr<Account> account;
 

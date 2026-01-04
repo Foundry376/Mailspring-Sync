@@ -165,16 +165,36 @@ void DAVWorker::runContacts() {
         return;
     }
 
-    // Save the old ctag before resolveAddressBook() updates it with the server's current ctag
-    shared_ptr<ContactBook> existingAb = store->find<ContactBook>(Query().equal("accountId", account->id()));
-    string oldCtag = existingAb ? existingAb->ctag() : "";
-
-    auto ab = resolveAddressBook();
-    if (ab == nullptr) {
+    // Discovery already completed but no address book found - nothing to sync
+    if (contactsDiscoveryComplete && cachedAddressBook == nullptr) {
         return;
     }
 
-    string newCtag = ab->ctag();
+    // First sync or after cache invalidation: perform full discovery
+    if (!contactsDiscoveryComplete) {
+        logger->info("Performing full CardDAV address book discovery");
+        cachedAddressBook = resolveAddressBook();
+        contactsDiscoveryComplete = true;
+        contactsValidationFailures = 0;
+
+        if (cachedAddressBook == nullptr) {
+            return;
+        }
+    }
+
+    // Subsequent syncs: validate cached URL with lightweight request
+    if (!validateCachedAddressBook()) {
+        // Cache invalid, clear and re-discover next cycle
+        logger->info("Cached address book URL invalid, will rediscover on next sync");
+        cachedAddressBook = nullptr;
+        contactsDiscoveryComplete = false;
+        return;
+    }
+
+    // Get the old ctag from the database for comparison
+    shared_ptr<ContactBook> existingAb = store->find<ContactBook>(Query().equal("accountId", account->id()));
+    string oldCtag = existingAb ? existingAb->ctag() : "";
+    string newCtag = cachedAddressBook->ctag();
 
     // Compare old ctag with new ctag from server
     if (oldCtag == newCtag && newCtag != "") {
@@ -189,13 +209,75 @@ void DAVWorker::runContacts() {
     }
 
     // Try sync-token first (RFC 6578), fall back to legacy etag-based sync
-    bool usedSyncToken = runForAddressBookWithSyncToken(ab);
+    bool usedSyncToken = runForAddressBookWithSyncToken(cachedAddressBook);
     if (!usedSyncToken) {
-        runForAddressBook(ab);
+        runForAddressBook(cachedAddressBook);
     }
 }
 
 /*
+ Validates that the cached address book URL is still accessible.
+ Uses a lightweight PROPFIND with Depth: 0 to check URL validity and fetch current ctag.
+ Returns true if URL is valid, false if cache should be invalidated.
+ Throws on transient errors (network issues) to retry next cycle.
+*/
+bool DAVWorker::validateCachedAddressBook() {
+    if (cachedAddressBook == nullptr) {
+        return false;
+    }
+
+    try {
+        // Lightweight PROPFIND for ctag only (depth 0 = single resource)
+        // This validates the URL is still accessible without fetching all contacts
+        auto doc = performXMLRequest(
+            cachedAddressBook->url(),
+            "PROPFIND",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\">"
+            "<d:prop><cs:getctag/></d:prop>"
+            "</d:propfind>",
+            "0"
+        );
+
+        // Extract and update ctag from validation response
+        string ctag = doc->nodeContentAtXPath("//cs:getctag/text()");
+        if (ctag != "") {
+            cachedAddressBook->setCtag(ctag);
+        }
+
+        // Success - reset failure counter
+        contactsValidationFailures = 0;
+        return true;
+
+    } catch (const SyncException& e) {
+        contactsValidationFailures++;
+
+        // URL definitively invalid (deleted, moved, etc.)
+        if (e.key.find("404") != string::npos ||
+            e.key.find("410") != string::npos) {
+            logger->info("Address book URL returned {}, invalidating cache", e.key);
+            return false;
+        }
+
+        // Auth failures - retry a few times before giving up
+        if (e.key.find("401") != string::npos ||
+            e.key.find("403") != string::npos) {
+            if (contactsValidationFailures >= 3) {
+                logger->warn("Multiple auth failures ({}), invalidating discovery cache",
+                    contactsValidationFailures);
+                return false;
+            }
+            // Propagate error to retry next cycle, keep cache for now
+            throw;
+        }
+
+        // Network errors - propagate, don't invalidate cache
+        throw;
+    }
+}
+
+/*
+ Performs full address book discovery via DNS SRV + .well-known + PROPFIND chain.
  Currently we load whatever contact book we have saved locally, but still re-run the DNS + well-known
  search to see if we need to update it's URL since users have no way to do this manually.
 */
