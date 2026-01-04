@@ -121,11 +121,34 @@ static string urlDecode(const string & encoded) {
     return result;
 }
 
-// Normalize href for comparison - extracts path portion and handles encoding differences
+/*
+ * Normalize href for comparison - extracts path portion and handles encoding differences.
+ *
+ * This implements URL canonicalization following the pattern used by the python-caldav library
+ * (https://github.com/python-caldav/caldav) to handle inconsistent URL encoding across CalDAV/
+ * CardDAV servers:
+ *
+ * Provider quirks handled:
+ * - Encoding inconsistency: Some servers return percent-encoded URLs ("%40" for "@"), others
+ *   return unencoded. We decode to canonical form for comparison.
+ * - Double-encoding (Confluence, others): Some servers encode special characters twice, e.g.,
+ *   "%2540" instead of "%40". We repeatedly decode until stable to handle this.
+ * - URL format variation: WebDAV spec allows absolute URLs, absolute paths, or relative paths.
+ *   We extract just the path component from absolute URLs.
+ * - Trailing slash inconsistency: Collections may be returned with or without trailing slashes.
+ *   We strip trailing slashes for consistent comparison.
+ *
+ * The fundamental insight from python-caldav: normalize everything to a fully decoded form
+ * first, then comparisons work regardless of how the server originally encoded the URL.
+ *
+ * Note: When constructing requests (like multiget), we use the original href from the server
+ * response unchanged - this function is only for comparison/matching purposes.
+ */
 static string normalizeHref(const string & href) {
     string result = href;
 
     // Strip scheme and host if present (e.g., "https://server.com/path" -> "/path")
+    // Servers may return full URLs, absolute paths, or relative paths per WebDAV spec
     size_t schemeEnd = result.find("://");
     if (schemeEnd != string::npos) {
         size_t pathStart = result.find("/", schemeEnd + 3);
@@ -134,10 +157,23 @@ static string normalizeHref(const string & href) {
         }
     }
 
-    // URL decode the path to handle %XX encoding differences
-    result = urlDecode(result);
+    // URL decode the path repeatedly until stable to handle double-encoding.
+    // Some servers like Confluence encode URLs twice (e.g., "@" -> "%40" -> "%2540").
+    // A single decode of "%2540" yields "%40" which is still encoded.
+    // The python-caldav library uses quote(unquote(path)) pattern; we achieve the same
+    // by decoding until the result stops changing.
+    string prev;
+    int maxIterations = 5; // Safety limit to prevent infinite loops on malformed URLs
+    int iteration = 0;
+    do {
+        prev = result;
+        result = urlDecode(result);
+        iteration++;
+    } while (result != prev && iteration < maxIterations);
 
-    // Remove trailing slashes for consistency
+    // Remove trailing slashes for consistency.
+    // Different servers return collection hrefs with or without trailing slashes,
+    // causing path comparison failures if not normalized.
     while (result.length() > 1 && result.back() == '/') {
         result.pop_back();
     }
