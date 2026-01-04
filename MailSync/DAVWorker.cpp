@@ -57,6 +57,11 @@ CalendarSyncRange getCalendarSyncRange() {
     };
 }
 
+// RFC 4791 compliant overlap check: event overlaps range if (eventStart < rangeEnd) AND (eventEnd > rangeStart).
+// Used for client-side validation of server results. Some CalDAV servers (notably Bedework
+// and SOGo, per python-caldav project documentation) return events outside the requested
+// time-range, so we validate overlap client-side when processing sync-token responses
+// to avoid accumulating events outside our sync window.
 bool eventOverlapsRange(time_t eventStart, time_t eventEnd, const CalendarSyncRange& range) {
     // Event overlaps range if it ends after range start AND starts before range end
     return eventEnd >= range.start && eventStart <= range.end;
@@ -1155,6 +1160,20 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     {
         // Request events within the time range. The server expands recurring events
         // and returns any event where at least one instance falls within the range.
+        //
+        // Provider quirks (documented by python-caldav project):
+        // - Radicale and GMX: Fail on open-ended searches. We always provide both
+        //   start AND end bounds, so this is handled correctly.
+        // - Bedework: May return recurring events whose future instances fall outside
+        //   the search interval. We accept these extra results without issue.
+        // - SOGo: Has fundamentally broken time-range searches that may return
+        //   incorrect results. The sync-token path (runForCalendarWithSyncToken)
+        //   uses client-side eventOverlapsRange() validation for new events.
+        // - Xandikos: Ignores DURATION properties and treats events as zero-duration.
+        //   May affect edge cases for events specified with DURATION instead of DTEND.
+        // - We only sync VEVENT components, not VTODO, so todo-related quirks in
+        //   Zimbra, DAViCal, Synology, and Xandikos (missing DTSTART handling) do
+        //   not apply to this implementation.
         string query =
             "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
             "<d:prop><d:getetag /></d:prop>"
