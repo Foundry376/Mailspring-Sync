@@ -1076,5 +1076,10 @@ void SyncWorker::syncMessageBody(Message * message) {
         return;
     }
     MessageParser * messageParser = MessageParser::messageParserWithData(data);
+    if (messageParser == nullptr) {
+        logger->error("MessageParser::messageParserWithData returned null for message \"{}\" ({} UID {})",
+                      message->subject(), folderPath, message->remoteUID());
+        return;
+    }
     processor->retrievedMessageBody(message, messageParser);
 }
