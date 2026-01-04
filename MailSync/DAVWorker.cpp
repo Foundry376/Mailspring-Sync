@@ -612,6 +612,20 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
     map<ETAG, string> remote {};
 
     {
+        // Note: We intentionally do NOT use server-side text search (text-match, prop-filter)
+        // in our CardDAV queries. RFC 4791 requires substring matching with specific collation
+        // support, but many servers implement this incorrectly:
+        //
+        // - Xandikos: Requires exact matches; substring searches return nothing
+        // - Radicale: Ignores collation parameters; all searches become case-insensitive
+        // - Zimbra: Only exact matches work; category searches throw 500 errors
+        // - Bedework: Text filters ignored entirely; returns all objects
+        // - SOGo: General text search unsupported; only UID-based searches work
+        // - Robur: Accepts filters but ignores them, returning complete contents
+        //
+        // Instead, we fetch all contacts by etag and perform text filtering client-side
+        // in the Mailspring UI. This approach is more reliable across all providers.
+        // See: python-caldav library's documentation on provider compatibility issues.
         auto etagsDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /></d:prop></c:addressbook-query>");
 
         etagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
@@ -1153,6 +1167,21 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     // Remote: href -> etag (from server)
     map<string, string> remote {};
     {
+        // Note: We use ONLY time-range filters for CalDAV queries, avoiding text-match filters.
+        // RFC 4791 requires substring matching for text search with collation support, but
+        // many servers implement this incorrectly or not at all:
+        //
+        // - Xandikos: Requires exact matches; substring searches return nothing
+        // - Radicale: Ignores collation parameters; all searches case-insensitive
+        // - Zimbra: Only exact matches work; CATEGORIES searches throw 500 errors
+        // - Bedework: Text filters ignored entirely; returns all objects
+        // - SOGo: General text search unsupported
+        // - Nextcloud/Baikal: Cannot combine text and time-range filters with AND logic
+        //
+        // Time-range filtering is the most reliable server-side filter across providers.
+        // Text-based event searching is handled client-side in the Mailspring UI.
+        // See: python-caldav library's documentation on provider compatibility issues.
+        //
         // Request events within the time range. The server expands recurring events
         // and returns any event where at least one instance falls within the range.
         string query =
