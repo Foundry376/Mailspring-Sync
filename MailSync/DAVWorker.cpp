@@ -1147,14 +1147,38 @@ void DAVWorker::runCalendars() {
 }
 
 void DAVWorker::runForCalendar(string calendarId, string name, string url) {
+    // CalDAV Recurrence Strategy: Client-Side Expansion
+    //
+    // We intentionally do NOT use RFC 4791's <expand> element for server-side recurrence
+    // expansion. Instead, we fetch raw ICS data with RRULE/RDATE/EXDATE intact and let
+    // the client (Mailspring UI) expand recurring events for display.
+    //
+    // This approach is recommended by the Python caldav library and avoids widespread
+    // server implementation issues:
+    //
+    // - Xandikos, SOGo, GMX: No expansion support - return master events with RRULE intact
+    // - Radicale, Baikal, Nextcloud: Attempt expansion but fail to include RECURRENCE-ID
+    //   properties, making it impossible to identify individual occurrences
+    // - Robur: Exhibits a bug where yearly recurring events expand as monthly occurrences
+    // - Many servers: Treat VEVENT expansion differently from VTODO, with inconsistent results
+    //
+    // By fetching raw ICS data, we guarantee consistent behavior across all CalDAV servers
+    // and ensure RECURRENCE-ID properties are preserved for exception handling.
+    //
+    // See: https://github.com/python-caldav/caldav - recurring_ical_events dependency
+
     // Get time range for filtering events (RFC 4791 section 7.8)
     auto range = getCalendarSyncRange();
 
     // Remote: href -> etag (from server)
     map<string, string> remote {};
     {
-        // Request events within the time range. The server expands recurring events
-        // and returns any event where at least one instance falls within the range.
+        // Request events within the time range using <time-range> filter (RFC 4791 section 7.8).
+        // Note: This is a FILTER, not an expansion request. The server identifies which ICS
+        // resources have at least one occurrence (including recurrence instances) that falls
+        // within our time range, but returns the raw ICS data with RRULE intact.
+        // This differs from <expand>, which would ask the server to generate individual
+        // VEVENT instances for each occurrence - a feature that is broken on many servers.
         string query =
             "<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
             "<d:prop><d:getetag /></d:prop>"
@@ -1259,7 +1283,18 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
 
                 auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
 
-                // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions)
+                // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions).
+                //
+                // A single ICS resource may contain:
+                // 1. A master VEVENT with RRULE defining the recurrence pattern
+                // 2. Zero or more exception VEVENTs with RECURRENCE-ID identifying which
+                //    occurrence they replace (e.g., a meeting moved to a different time)
+                //
+                // We store each VEVENT as a separate Event record, using icsUID + recurrenceId
+                // as the composite key. This is critical because many CalDAV servers fail to
+                // include RECURRENCE-ID when asked to expand recurrences (Radicale, Baikal,
+                // Nextcloud), making it impossible to identify or modify individual instances.
+                // By parsing client-side, we always have correct RECURRENCE-ID data.
                 for (auto icsEvent : cal.Events) {
                     if (icsEvent->DtStart.IsEmpty()) {
                         logger->info("Received calendar event but it has no start time?\n\n{}\n\n", icsData);
@@ -1324,6 +1359,9 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
 }
 
 bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, shared_ptr<Calendar> calendar, int retryCount) {
+    // Uses the same client-side recurrence expansion strategy as runForCalendar.
+    // See runForCalendar for detailed comments on why we avoid server-side expansion.
+
     const int maxRetries = 1; // Allow one retry for token expiration
 
     string syncToken = calendar->syncToken();
