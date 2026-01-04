@@ -47,6 +47,17 @@ class DAVWorker {
 
     bool validateCachedAddressBook();
 
+    // Rate limiting state (shared for CalDAV and CardDAV)
+    // Implements RFC 6585 (429) and RFC 7231 (Retry-After) compliance
+    int backoffMs = 0;                      // Current backoff delay in milliseconds
+    int consecutiveSuccesses = 0;           // Used to gradually reduce backoff
+    time_t rateLimitedUntil = 0;            // Blocked until this time (from Retry-After)
+
+    void applyRateLimitDelay();
+    void recordRequestSuccess();
+    void recordRateLimitResponse(int httpCode, const string& retryAfter);
+    int parseRetryAfter(const string& retryAfter);
+
 public:
     shared_ptr<Account> account;
 

@@ -62,13 +62,13 @@ bool eventOverlapsRange(time_t eventStart, time_t eventEnd, const CalendarSyncRa
     return eventEnd >= range.start && eventStart <= range.end;
 }
 
-string firstPropVal(json attrs, string key, string fallback = "") {
+static string firstPropVal(json attrs, string key, string fallback = "") {
     if (!attrs.count(key)) return fallback;
     if (!attrs[key].size()) return fallback;
     return attrs[key][0].get<string>();
 }
 
-string replacePath(string url, string path) {
+static string replacePath(string url, string path) {
     unsigned long hostStart = url.find("://");
     unsigned long hostEnd = 0;
     if (hostStart == string::npos) {
@@ -86,7 +86,7 @@ string replacePath(string url, string path) {
 }
 
 // URL decode a percent-encoded string (e.g., "%20" -> " ", "%2F" -> "/")
-string urlDecode(const string & encoded) {
+static string urlDecode(const string & encoded) {
     string result;
     result.reserve(encoded.length());
 
@@ -122,7 +122,7 @@ string urlDecode(const string & encoded) {
 }
 
 // Normalize href for comparison - extracts path portion and handles encoding differences
-string normalizeHref(const string & href) {
+static string normalizeHref(const string & href) {
     string result = href;
 
     // Strip scheme and host if present (e.g., "https://server.com/path" -> "/path")
@@ -143,6 +143,138 @@ string normalizeHref(const string & href) {
     }
 
     return result;
+}
+
+// Rate limiting constants (RFC 6585/7231 compliance)
+static const int MAX_BACKOFF_MS = 60000;  // 1 minute max backoff
+static const int MIN_BACKOFF_MS = 100;    // 100ms minimum when backing off
+
+// Thread-local storage for capturing response headers during curl requests
+// Used to extract Retry-After header for rate limiting
+thread_local string capturedHeaders;
+
+size_t headerCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
+    size_t totalSize = size * nitems;
+    capturedHeaders.append(buffer, totalSize);
+    return totalSize;
+}
+
+// Extract a header value from captured headers (case-insensitive)
+static string extractHeader(const string& headers, const string& headerName) {
+    string searchFor = headerName + ":";
+    size_t pos = 0;
+
+    // Case-insensitive search
+    string headersLower = headers;
+    string searchLower = searchFor;
+    transform(headersLower.begin(), headersLower.end(), headersLower.begin(), ::tolower);
+    transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::tolower);
+
+    pos = headersLower.find(searchLower);
+    if (pos == string::npos) {
+        return "";
+    }
+
+    // Find the value after the colon
+    size_t valueStart = pos + searchFor.length();
+    size_t valueEnd = headers.find("\r\n", valueStart);
+    if (valueEnd == string::npos) {
+        valueEnd = headers.find("\n", valueStart);
+    }
+    if (valueEnd == string::npos) {
+        valueEnd = headers.length();
+    }
+
+    string value = headers.substr(valueStart, valueEnd - valueStart);
+
+    // Trim whitespace
+    size_t start = value.find_first_not_of(" \t");
+    size_t end = value.find_last_not_of(" \t\r\n");
+    if (start == string::npos) return "";
+    return value.substr(start, end - start + 1);
+}
+
+// Parse Retry-After header value (RFC 7231)
+// Supports both delay-seconds (integer) and HTTP-date formats
+int DAVWorker::parseRetryAfter(const string& retryAfter) {
+    if (retryAfter.empty()) {
+        return 0;
+    }
+
+    // Try parsing as integer (delay-seconds format)
+    try {
+        int seconds = stoi(retryAfter);
+        if (seconds > 0) {
+            return seconds;
+        }
+    } catch (...) {
+        // Not an integer, try parsing as HTTP-date
+    }
+
+    // Try parsing as HTTP-date (e.g., "Fri, 31 Dec 2024 23:59:59 GMT")
+    struct tm tm = {};
+    if (strptime(retryAfter.c_str(), "%a, %d %b %Y %H:%M:%S", &tm) != nullptr) {
+        time_t targetTime = timegm(&tm);
+        time_t now = time(nullptr);
+        if (targetTime > now) {
+            return static_cast<int>(targetTime - now);
+        }
+    }
+
+    return 0;
+}
+
+void DAVWorker::applyRateLimitDelay() {
+    time_t now = time(nullptr);
+
+    // If we're blocked by Retry-After, wait until that time
+    if (rateLimitedUntil > now) {
+        int waitSeconds = static_cast<int>(rateLimitedUntil - now);
+        logger->info("Rate limited: waiting {} seconds (Retry-After)", waitSeconds);
+        this_thread::sleep_for(chrono::seconds(waitSeconds));
+    }
+
+    // Apply exponential backoff delay if any
+    if (backoffMs > 0) {
+        logger->info("Rate limit backoff: waiting {}ms", backoffMs);
+        this_thread::sleep_for(chrono::milliseconds(backoffMs));
+    }
+}
+
+void DAVWorker::recordRequestSuccess() {
+    consecutiveSuccesses++;
+
+    // After 3 consecutive successes, reduce backoff by half
+    if (consecutiveSuccesses >= 3 && backoffMs > 0) {
+        backoffMs = backoffMs / 2;
+        consecutiveSuccesses = 0;
+
+        if (backoffMs < MIN_BACKOFF_MS) {
+            backoffMs = 0;
+            logger->info("Rate limit backoff cleared");
+        }
+    }
+}
+
+void DAVWorker::recordRateLimitResponse(int httpCode, const string& retryAfter) {
+    consecutiveSuccesses = 0;
+
+    // Parse Retry-After header if present
+    int retrySeconds = parseRetryAfter(retryAfter);
+
+    if (retrySeconds > 0) {
+        // Server specified a wait time
+        rateLimitedUntil = time(nullptr) + retrySeconds;
+        logger->warn("Rate limited ({}): server requested {} second wait", httpCode, retrySeconds);
+    } else {
+        // No Retry-After header, use exponential backoff
+        if (backoffMs == 0) {
+            backoffMs = MIN_BACKOFF_MS;
+        } else {
+            backoffMs = min(backoffMs * 2, MAX_BACKOFF_MS);
+        }
+        logger->warn("Rate limited ({}): using exponential backoff ({}ms)", httpCode, backoffMs);
+    }
 }
 
 DAVWorker::DAVWorker(shared_ptr<Account> account) :
@@ -899,7 +1031,22 @@ void DAVWorker::runCalendars() {
     }
 
     // Fetch the list of calendars from the principal URL
-    auto calendarSetDoc = performXMLRequest(calHost + calPrincipal, "PROPFIND", "<d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:resourcetype /><d:displayname /><cs:getctag /><c:supported-calendar-component-set /></d:prop></d:propfind>");
+    // Request calendar metadata: color, description, read-only status, order
+    string propfindQuery =
+        "<d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\" "
+        "xmlns:c=\"urn:ietf:params:xml:ns:caldav\" xmlns:ical=\"http://apple.com/ns/ical/\">"
+        "<d:prop>"
+        "<d:resourcetype />"
+        "<d:displayname />"
+        "<cs:getctag />"
+        "<c:supported-calendar-component-set />"
+        "<ical:calendar-color />"
+        "<c:calendar-description />"
+        "<d:current-user-privilege-set />"
+        "<ical:calendar-order />"
+        "</d:prop>"
+        "</d:propfind>";
+    auto calendarSetDoc = performXMLRequest(calHost + calPrincipal, "PROPFIND", propfindQuery);
 
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
     
@@ -912,8 +1059,19 @@ void DAVWorker::runCalendars() {
         auto ctag = calendarSetDoc->nodeContentAtXPath(".//cs:getctag/text()", node);
         auto id = MailUtils::idForCalendar(account->id(), path);
 
+        // Extract calendar metadata
+        auto color = calendarSetDoc->nodeContentAtXPath(".//ical:calendar-color/text()", node);
+        auto description = calendarSetDoc->nodeContentAtXPath(".//caldav:calendar-description/text()", node);
+        auto orderStr = calendarSetDoc->nodeContentAtXPath(".//ical:calendar-order/text()", node);
+
+        // Check for write privilege to determine read-only status
+        // Look for <D:write/> in current-user-privilege-set
+        auto privileges = calendarSetDoc->nodeContentAtXPath(".//D:current-user-privilege-set", node);
+        bool readOnly = (privileges.find("<write") == string::npos && privileges.find(":write") == string::npos);
+
         shared_ptr<Calendar> calendar = local[id];
         bool needsSync = true;
+        bool metadataChanged = false;
 
         // upsert the Calendar object
         if (calendar) {
@@ -922,9 +1080,31 @@ void DAVWorker::runCalendars() {
                 logger->info("Calendar '{}' unchanged (ctag: {}), skipping sync", name, ctag);
                 needsSync = false;
             }
-            // Update name if changed
+            // Check if metadata changed
             if (calendar->name() != name) {
                 calendar->setName(name);
+                metadataChanged = true;
+            }
+            if (color != "" && calendar->color() != color) {
+                calendar->setColor(color);
+                metadataChanged = true;
+            }
+            if (calendar->description() != description) {
+                calendar->setDescription(description);
+                metadataChanged = true;
+            }
+            if (calendar->readOnly() != readOnly) {
+                calendar->setReadOnly(readOnly);
+                metadataChanged = true;
+            }
+            if (!orderStr.empty()) {
+                int order = std::stoi(orderStr);
+                if (calendar->order() != order) {
+                    calendar->setOrder(order);
+                    metadataChanged = true;
+                }
+            }
+            if (metadataChanged) {
                 store->save(calendar.get());
             }
         } else {
@@ -932,6 +1112,14 @@ void DAVWorker::runCalendars() {
             calendar = make_shared<Calendar>(id, account->id());
             calendar->setPath(path);
             calendar->setName(name);
+            if (color != "") {
+                calendar->setColor(color);
+            }
+            calendar->setDescription(description);
+            calendar->setReadOnly(readOnly);
+            if (!orderStr.empty()) {
+                calendar->setOrder(std::stoi(orderStr));
+            }
             store->save(calendar.get());
         }
 
@@ -1047,12 +1235,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
             payload += "<D:href>" + href + "</D:href>";
         }
 
-        // Debounce 1sec on each request because Google has a cap on total queries
-        // per day and we want to avoid somehow allowing one client to make low-latency
-        // requests so fast that it blows through the limit in a short time.
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
-        // Fetch the data
+        // Fetch the data (rate limiting is now handled in performXMLRequest)
         auto icsDoc = performXMLRequest(url, "REPORT", "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
 
         // Insert/update events and remove deleted events within the same transaction.
@@ -1310,8 +1493,6 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 payload += "<D:href>" + icsHref + "</D:href>";
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
             auto icsDoc = performXMLRequest(url, "REPORT",
                 "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
                 "<d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
@@ -1402,6 +1583,9 @@ const string DAVWorker::getAuthorizationHeader() {
 }
 
 shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, string payload, string depth) {
+    // Apply rate limiting delay before making request (RFC 6585/7231 compliance)
+    applyRateLimitDelay();
+
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
 
     struct curl_slist *headers = NULL;
@@ -1423,9 +1607,25 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
-    
-    string result = PerformRequest(curl_handle);
-    return make_shared<DavXML>(result, url);
+
+    // Capture response headers for Retry-After extraction
+    capturedHeaders.clear();
+    curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, headerCallback);
+
+    try {
+        string result = PerformRequest(curl_handle);
+        recordRequestSuccess();
+        return make_shared<DavXML>(result, url);
+    } catch (const SyncException& e) {
+        // Check if this is a rate limit response (429 or 503)
+        // The exception key format is "Invalid Response Code: XXX"
+        if (e.key.find("429") != string::npos || e.key.find("503") != string::npos) {
+            int httpCode = (e.key.find("429") != string::npos) ? 429 : 503;
+            string retryAfter = extractHeader(capturedHeaders, "Retry-After");
+            recordRateLimitResponse(httpCode, retryAfter);
+        }
+        throw;
+    }
 }
 
 string DAVWorker::performVCardRequest(string _url, string method, string vcard, ETAG existingEtag) {
