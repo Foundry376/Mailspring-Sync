@@ -105,6 +105,23 @@ void SyncWorker::idleCycleIteration()
         auto msg = store->find<Message>(byId);
         if (msg.get() != nullptr) {
             logger->info("Fetching body for message ID {}", msg->id());
+
+            // Check if session is connected before attempting fetch
+            if (session.isDisconnected()) {
+                logger->warn("IMAP session not connected, connecting before body fetch");
+                ErrorCode connectErr = ErrorCode::ErrorNone;
+                session.connectIfNeeded(&connectErr);
+                if (connectErr != ErrorCode::ErrorNone) {
+                    logger->error("Failed to connect for body fetch: {}", ErrorCodeToTypeMap[connectErr]);
+                    continue;
+                }
+                session.loginIfNeeded(&connectErr);
+                if (connectErr != ErrorCode::ErrorNone) {
+                    logger->error("Failed to login for body fetch: {}", ErrorCodeToTypeMap[connectErr]);
+                    continue;
+                }
+            }
+
             syncMessageBody(msg.get());
         }
     }
