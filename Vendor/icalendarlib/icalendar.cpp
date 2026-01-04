@@ -54,6 +54,13 @@ void ICalendar::LoadFromString(string icsData) {
 						NewEvent->RRule.Interval = 1;
 					NewEvent->RRule.Count = atoi(GetSubProperty(Line, "COUNT").c_str());
 					NewEvent->RRule.Until = GetSubProperty(Line, "UNTIL");
+				} else if (Line.find("RECURRENCE-ID") == 0) {
+					// RECURRENCE-ID identifies which occurrence of a recurring event is being modified
+					// Format: RECURRENCE-ID:20240115T100000Z or RECURRENCE-ID;TZID=...:20240115T100000
+					NewEvent->RecurrenceId = GetProperty(Line);
+				} else if (Line.find("STATUS") == 0) {
+					// STATUS can be TENTATIVE, CONFIRMED, or CANCELLED
+					NewEvent->Status = GetProperty(Line);
 				} else if (Line.find("BEGIN:VALARM") == 0) {
 					NewAlarm.Clear();
 					PrevComponent = CurrentComponent;

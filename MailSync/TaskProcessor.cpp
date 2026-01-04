@@ -1167,10 +1167,27 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
             // Re-parse ICS to update recurrence fields
             ICalendar cal(existing->icsData());
             if (!cal.Events.empty()) {
-                auto icsEvent = cal.Events.front();
-                existing->_data["rs"] = icsEvent->DtStart.toUnix();
-                existing->_data["re"] = endOf(icsEvent).toUnix();
-                existing->_data["icsuid"] = icsEvent->UID;
+                // Find the VEVENT matching our event's recurrenceId
+                string eventRecurrenceId = existing->recurrenceId();
+                ICalendarEvent* matchingEvent = nullptr;
+
+                for (auto icsEvent : cal.Events) {
+                    if (icsEvent->RecurrenceId == eventRecurrenceId) {
+                        matchingEvent = icsEvent;
+                        break;
+                    }
+                }
+
+                // Fall back to first event if no match
+                if (!matchingEvent) {
+                    matchingEvent = cal.Events.front();
+                }
+
+                existing->_data["rs"] = matchingEvent->DtStart.toUnix();
+                existing->_data["re"] = endOf(matchingEvent).toUnix();
+                existing->_data["icsuid"] = matchingEvent->UID;
+                existing->setRecurrenceId(matchingEvent->RecurrenceId);
+                existing->setStatus(matchingEvent->Status.empty() ? "CONFIRMED" : matchingEvent->Status);
             }
         }
         store->save(existing.get());
@@ -1185,6 +1202,8 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
             throw SyncException("invalid-ics", "ICS data does not contain any events", false);
         }
 
+        // For new event creation, use the first VEVENT (typically only one)
+        // The Event constructor now handles recurrenceId from the ICalendarEvent
         auto icsEvent = cal.Events.front();
         Event event("", account->id(), calendarId, icsData, icsEvent);
         event._data["id"] = tempId;  // Temporary ID until server assigns etag

@@ -1256,31 +1256,45 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
 
                 ICalendar cal(icsData);
                 if (cal.Events.empty()) return;
-                auto icsEvent = cal.Events.front();
-
-                if (icsEvent->DtStart.IsEmpty()) {
-                    logger->info("Received calendar event but it has no start time?\n\n{}\n\n", icsData);
-                    return;
-                }
 
                 auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
-                string icsUID = icsEvent->UID;
 
-                // Look up existing event by icsUID to update in place
-                auto existing = store->find<Event>(Query().equal("calendarId", calendarId).equal("icsuid", icsUID));
-                if (existing) {
-                    // Update existing event - preserves stable ID
-                    existing->setEtag(etag);
-                    existing->setHref(href);
-                    existing->setIcsData(icsData);
-                    existing->_data["rs"] = icsEvent->DtStart.toUnix();
-                    existing->_data["re"] = endOf(icsEvent).toUnix();
-                    store->save(existing.get());
-                } else {
-                    // Create new event - ID based on icsUID
-                    auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                    event.setHref(href);
-                    store->save(&event);
+                // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions)
+                for (auto icsEvent : cal.Events) {
+                    if (icsEvent->DtStart.IsEmpty()) {
+                        logger->info("Received calendar event but it has no start time?\n\n{}\n\n", icsData);
+                        continue;
+                    }
+
+                    string icsUID = icsEvent->UID;
+                    string recurrenceId = icsEvent->RecurrenceId;
+
+                    // Look up existing event by icsUID + recurrenceId to update in place
+                    // Master events have empty recurrenceId, exceptions have the occurrence date
+                    auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
+                    if (!recurrenceId.empty()) {
+                        query.equal("recurrenceId", recurrenceId);
+                    } else {
+                        query.equal("recurrenceId", "");
+                    }
+                    auto existing = store->find<Event>(query);
+
+                    if (existing) {
+                        // Update existing event - preserves stable ID
+                        existing->setEtag(etag);
+                        existing->setHref(href);
+                        existing->setIcsData(icsData);
+                        existing->setRecurrenceId(recurrenceId);
+                        existing->setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
+                        existing->_data["rs"] = icsEvent->DtStart.toUnix();
+                        existing->_data["re"] = endOf(icsEvent).toUnix();
+                        store->save(existing.get());
+                    } else {
+                        // Create new event - ID based on icsUID + recurrenceId
+                        auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                        event.setHref(href);
+                        store->save(&event);
+                    }
                 }
             }));
 
@@ -1450,34 +1464,47 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
             ICalendar cal(icsData);
             if (cal.Events.empty()) continue;
 
-            auto icsEvent = cal.Events.front();
-            if (icsEvent->DtStart.IsEmpty()) continue;
-
             string etag = pair.second.first;
-            string icsUID = icsEvent->UID;
 
-            // Look up existing event by icsUID to update in place (preserves stable ID)
-            auto existing = store->find<Event>(Query().equal("calendarId", calendarId).equal("icsuid", icsUID));
-            if (existing) {
-                existing->setEtag(etag);
-                existing->setHref(href);
-                existing->setIcsData(icsData);
-                existing->_data["rs"] = icsEvent->DtStart.toUnix();
-                existing->_data["re"] = endOf(icsEvent).toUnix();
-                store->save(existing.get());
-            } else {
-                // New event from sync-token - only create if within our time range
-                // This prevents accumulating events outside the range when they're modified
-                auto range = getCalendarSyncRange();
-                time_t eventStart = icsEvent->DtStart.toUnix();
-                time_t eventEnd = endOf(icsEvent).toUnix();
+            // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions)
+            for (auto icsEvent : cal.Events) {
+                if (icsEvent->DtStart.IsEmpty()) continue;
 
-                if (eventOverlapsRange(eventStart, eventEnd, range)) {
-                    auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                    event.setHref(href);
-                    store->save(&event);
+                string icsUID = icsEvent->UID;
+                string recurrenceId = icsEvent->RecurrenceId;
+
+                // Look up existing event by icsUID + recurrenceId to update in place (preserves stable ID)
+                auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
+                if (!recurrenceId.empty()) {
+                    query.equal("recurrenceId", recurrenceId);
+                } else {
+                    query.equal("recurrenceId", "");
                 }
-                // else: quietly ignore - event is outside our sync window
+                auto existing = store->find<Event>(query);
+
+                if (existing) {
+                    existing->setEtag(etag);
+                    existing->setHref(href);
+                    existing->setIcsData(icsData);
+                    existing->setRecurrenceId(recurrenceId);
+                    existing->setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
+                    existing->_data["rs"] = icsEvent->DtStart.toUnix();
+                    existing->_data["re"] = endOf(icsEvent).toUnix();
+                    store->save(existing.get());
+                } else {
+                    // New event from sync-token - only create if within our time range
+                    // This prevents accumulating events outside the range when they're modified
+                    auto range = getCalendarSyncRange();
+                    time_t eventStart = icsEvent->DtStart.toUnix();
+                    time_t eventEnd = endOf(icsEvent).toUnix();
+
+                    if (eventOverlapsRange(eventStart, eventEnd, range)) {
+                        auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                        event.setHref(href);
+                        store->save(&event);
+                    }
+                    // else: quietly ignore - event is outside our sync window
+                }
             }
         }
         transaction.commit();
@@ -1506,31 +1533,44 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 ICalendar cal(icsData);
                 if (cal.Events.empty()) return;
 
-                auto icsEvent = cal.Events.front();
-                if (icsEvent->DtStart.IsEmpty()) return;
-
                 auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
-                string icsUID = icsEvent->UID;
 
-                // Look up existing event by icsUID to update in place (preserves stable ID)
-                auto existing = store->find<Event>(Query().equal("calendarId", calendarId).equal("icsuid", icsUID));
-                if (existing) {
-                    existing->setEtag(etag);
-                    existing->setHref(href);
-                    existing->setIcsData(icsData);
-                    existing->_data["rs"] = icsEvent->DtStart.toUnix();
-                    existing->_data["re"] = endOf(icsEvent).toUnix();
-                    store->save(existing.get());
-                } else {
-                    // New event - only create if within our time range
-                    auto range = getCalendarSyncRange();
-                    time_t eventStart = icsEvent->DtStart.toUnix();
-                    time_t eventEnd = endOf(icsEvent).toUnix();
+                // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions)
+                for (auto icsEvent : cal.Events) {
+                    if (icsEvent->DtStart.IsEmpty()) continue;
 
-                    if (eventOverlapsRange(eventStart, eventEnd, range)) {
-                        auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                        event.setHref(href);
-                        store->save(&event);
+                    string icsUID = icsEvent->UID;
+                    string recurrenceId = icsEvent->RecurrenceId;
+
+                    // Look up existing event by icsUID + recurrenceId to update in place (preserves stable ID)
+                    auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
+                    if (!recurrenceId.empty()) {
+                        query.equal("recurrenceId", recurrenceId);
+                    } else {
+                        query.equal("recurrenceId", "");
+                    }
+                    auto existing = store->find<Event>(query);
+
+                    if (existing) {
+                        existing->setEtag(etag);
+                        existing->setHref(href);
+                        existing->setIcsData(icsData);
+                        existing->setRecurrenceId(recurrenceId);
+                        existing->setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
+                        existing->_data["rs"] = icsEvent->DtStart.toUnix();
+                        existing->_data["re"] = endOf(icsEvent).toUnix();
+                        store->save(existing.get());
+                    } else {
+                        // New event - only create if within our time range
+                        auto range = getCalendarSyncRange();
+                        time_t eventStart = icsEvent->DtStart.toUnix();
+                        time_t eventEnd = endOf(icsEvent).toUnix();
+
+                        if (eventOverlapsRange(eventStart, eventEnd, range)) {
+                            auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                            event.setHref(href);
+                            store->save(&event);
+                        }
                     }
                 }
             }));
@@ -1551,13 +1591,36 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
             deletedHrefSet.insert(normalizeHref(href));
         }
 
+        // Track master event icsUIDs for cascade deletion of exceptions
+        set<string> deletedMasterUIDs;
+
         // Find and delete matching events
         for (auto & e : allEvents) {
             string eventHref = normalizeHref(e->href());
             if (deletedHrefSet.count(eventHref)) {
+                // If this is a master event (no recurrenceId), track its icsUID
+                // so we can cascade delete any exceptions
+                if (e->recurrenceId().empty()) {
+                    deletedMasterUIDs.insert(e->icsUID());
+                }
                 store->remove(e.get());
             }
         }
+
+        // Cascade delete: remove any exceptions whose master was deleted
+        // (exceptions may be in separate ICS files with different hrefs)
+        if (!deletedMasterUIDs.empty()) {
+            for (auto & e : allEvents) {
+                // Skip if already deleted (href matched above)
+                if (deletedHrefSet.count(normalizeHref(e->href()))) continue;
+
+                // If this is an exception and its master was deleted, delete it too
+                if (!e->recurrenceId().empty() && deletedMasterUIDs.count(e->icsUID())) {
+                    store->remove(e.get());
+                }
+            }
+        }
+
         transaction.commit();
     }
 
@@ -1723,7 +1786,7 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
         "</c:calendar-multiget>");
 
     // 5. Parse response and update local event
-    // Note: Event ID is now based on icsUID (stable), so no ID regeneration is needed
+    // Note: Event ID is now based on icsUID + recurrenceId (stable), so no ID regeneration is needed
     icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
         auto newEtag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
         auto icsResponse = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
@@ -1732,17 +1795,34 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
         if (icsResponse != "" && newEtag != "") {
             ICalendar cal(icsResponse);
             if (!cal.Events.empty()) {
-                auto icsEvent = cal.Events.front();
+                // Find the VEVENT that matches the event we're syncing (by recurrenceId)
+                // Server response may contain master + exceptions in one ICS file
+                string eventRecurrenceId = event->recurrenceId();
+                ICalendarEvent* matchingEvent = nullptr;
+
+                for (auto icsEvent : cal.Events) {
+                    if (icsEvent->RecurrenceId == eventRecurrenceId) {
+                        matchingEvent = icsEvent;
+                        break;
+                    }
+                }
+
+                // Fall back to first event if no match (e.g., new master event)
+                if (!matchingEvent) {
+                    matchingEvent = cal.Events.front();
+                }
 
                 // Update local event with server data
                 event->setEtag(newEtag);
                 event->setHref(hrefResponse);
                 event->setIcsData(icsResponse);
+                event->setRecurrenceId(matchingEvent->RecurrenceId);
+                event->setStatus(matchingEvent->Status.empty() ? "CONFIRMED" : matchingEvent->Status);
 
                 // Update recurrence times from parsed ICS
-                event->_data["rs"] = icsEvent->DtStart.toUnix();
-                event->_data["re"] = endOf(icsEvent).toUnix();
-                event->_data["icsuid"] = icsEvent->UID;
+                event->_data["rs"] = matchingEvent->DtStart.toUnix();
+                event->_data["re"] = endOf(matchingEvent).toUnix();
+                event->_data["icsuid"] = matchingEvent->UID;
 
                 store->save(event.get());
                 logger->info("Event syncback complete. New etag: {}", newEtag);

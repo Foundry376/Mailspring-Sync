@@ -49,6 +49,14 @@ public:
     string href();
     void setHref(string href);
 
+    string recurrenceId();
+    void setRecurrenceId(string recurrenceId);
+
+    string status();
+    void setStatus(string status);
+
+    bool isRecurrenceException();
+
     int recurrenceStart();
     int recurrenceEnd();
 

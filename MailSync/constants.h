@@ -213,6 +213,12 @@ static vector<string> V8_SETUP_QUERIES = {
     "CREATE TABLE `ContactBook` (`id` varchar(40),`accountId` varchar(40), `data` BLOB, `version` INTEGER, PRIMARY KEY (id));",
 };
 
+// V9: Add recurrenceId column for recurring event exception support
+static vector<string> V9_SETUP_QUERIES = {
+    "ALTER TABLE `Event` ADD COLUMN recurrenceId VARCHAR(50) DEFAULT ''",
+    "CREATE INDEX IF NOT EXISTS EventRecurrenceId ON Event(calendarId, icsuid, recurrenceId)",
+};
+
 static map<string, string> COMMON_FOLDER_NAMES = {
     {"gel\xc3\xb6scht", "trash"},
     {"papierkorb", "trash"},

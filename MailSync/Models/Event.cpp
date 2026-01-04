@@ -42,12 +42,17 @@ Date endOf(ICalendarEvent *event)
 }
 
 Event::Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent *event)
-    : MailModel(MailUtils::idForEvent(accountId, calendarId, event->UID), accountId)
+    : MailModel(MailUtils::idForEvent(accountId, calendarId, event->UID, event->RecurrenceId), accountId)
 {
     _data["cid"] = calendarId;
     _data["ics"] = ics;
     _data["etag"] = etag;
     _data["icsuid"] = event->UID;
+
+    // Store recurrence exception info - RecurrenceId identifies which occurrence is modified
+    _data["rid"] = event->RecurrenceId;
+    // Status can be TENTATIVE, CONFIRMED, or CANCELLED
+    _data["status"] = event->Status.empty() ? "CONFIRMED" : event->Status;
 
     // Build our start and end time from the ics data. These values represent the time range in which
     // the event needs to be considered for display, so we include the entire time the event is recurring.
@@ -119,6 +124,31 @@ void Event::setEtag(string etag)
     _data["etag"] = etag;
 }
 
+string Event::recurrenceId()
+{
+    return _data.count("rid") ? _data["rid"].get<string>() : "";
+}
+
+void Event::setRecurrenceId(string recurrenceId)
+{
+    _data["rid"] = recurrenceId;
+}
+
+string Event::status()
+{
+    return _data.count("status") ? _data["status"].get<string>() : "CONFIRMED";
+}
+
+void Event::setStatus(string status)
+{
+    _data["status"] = status;
+}
+
+bool Event::isRecurrenceException()
+{
+    return !recurrenceId().empty();
+}
+
 int Event::recurrenceStart()
 {
     return _data["rs"].get<int>();
@@ -131,7 +161,7 @@ int Event::recurrenceEnd()
 
 vector<string> Event::columnsForQuery()
 {
-    return vector<string>{"id", "data", "icsuid", "accountId", "etag", "calendarId", "recurrenceStart", "recurrenceEnd"};
+    return vector<string>{"id", "data", "icsuid", "recurrenceId", "accountId", "etag", "calendarId", "recurrenceStart", "recurrenceEnd"};
 }
 
 void Event::bindToQuery(SQLite::Statement *query)
@@ -139,6 +169,7 @@ void Event::bindToQuery(SQLite::Statement *query)
     query->bind(":id", id());
     query->bind(":data", this->toJSON().dump());
     query->bind(":icsuid", icsUID());
+    query->bind(":recurrenceId", recurrenceId());
     query->bind(":accountId", accountId());
     query->bind(":etag", etag());
     query->bind(":calendarId", calendarId());

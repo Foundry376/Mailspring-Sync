@@ -556,14 +556,19 @@ void MailUtils::setBaseIDVersion(time_t identityCreationDate) {
     spdlog::get("logger")->info("Identity created at {} - using ID Schema {}", identityCreationDate, _baseIDSchemaVersion);
 }
 
-string MailUtils::idForEvent(string accountId, string calendarId, string icsUID) {
+string MailUtils::idForEvent(string accountId, string calendarId, string icsUID, string recurrenceId) {
     // Use icsUID (iCalendar UID) for stable IDs across event modifications.
     // The etag changes on every modification, but icsUID is the stable identifier.
+    // For recurring event exceptions, include recurrenceId to distinguish from master.
     string src_str = accountId;
     src_str = src_str.append("-");
     src_str = src_str.append(calendarId);
     src_str = src_str.append("-");
     src_str = src_str.append(icsUID);
+    if (!recurrenceId.empty()) {
+        src_str = src_str.append("-");
+        src_str = src_str.append(recurrenceId);
+    }
     vector<unsigned char> hash(32);
     picosha2::hash256(src_str.begin(), src_str.end(), hash.begin(), hash.end());
     return toBase58(hash.data(), 30);

@@ -58,6 +58,8 @@ struct ICalendarEvent {
 		Summary(Base.Summary),
 		Description(Base.Description),
 		Categories(Base.Categories),
+		RecurrenceId(Base.RecurrenceId),
+		Status(Base.Status),
 		DtStamp(Base.DtStamp),
 		DtStart(Base.DtStart),
 		DtEnd(Base.DtEnd),
@@ -75,6 +77,8 @@ struct ICalendarEvent {
 	bool HasAlarm(const Date &From, const Date &To);
 
 	string UID, Summary, Description, Categories;
+	string RecurrenceId;  // RECURRENCE-ID for exception instances (e.g., "20240115T100000Z")
+	string Status;        // STATUS: TENTATIVE, CONFIRMED, CANCELLED
 	Date DtStamp, DtStart, DtEnd;
 	Recurrence RRule;
 	list<Alarm> *Alarms;
