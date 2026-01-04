@@ -600,8 +600,17 @@ void MailProcessor::upsertContacts(Message * message) {
 
     // insert remaining items
     for (auto & result : byEmail) {
+        string name = result.second.count("name") ? result.second["name"].get<string>() : "";
+        string email = result.second.count("email") ? result.second["email"].get<string>() : "";
+
+        // "Mailspring Team" is used in the welcome email sent from the user's own address.
+        // Skip creating the contact to avoid saving the wrong display name.
+        if (name == "Mailspring Team" && email.find("@getmailspring.com") == string::npos) {
+            continue;
+        }
+
         auto c = make_shared<Contact>(result.first, message->accountId(), result.first, 0, CONTACT_SOURCE_MAIL);
-        c->setName(result.second.count("name") ? result.second["name"].get<string>() : "");
+        c->setName(name);
         c->incrementRefs();
         store->save(c.get());
     }
