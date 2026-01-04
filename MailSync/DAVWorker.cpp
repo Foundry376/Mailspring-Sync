@@ -159,12 +159,16 @@ size_t headerCallback(char* buffer, size_t size, size_t nitems, void* userdata) 
     return totalSize;
 }
 
-// Extract a header value from captured headers (case-insensitive)
+// HTTP Protocol Quirk: Header Case Sensitivity
+// While HTTP specifications (RFC 7230) require case-insensitive header handling, some
+// server implementations or proxies treat headers as case-sensitive. The Python caldav
+// library uses CaseInsensitiveDict for all header operations. We achieve the same effect
+// by normalizing both the headers and search term to lowercase before matching.
 static string extractHeader(const string& headers, const string& headerName) {
     string searchFor = headerName + ":";
     size_t pos = 0;
 
-    // Case-insensitive search
+    // Case-insensitive search (handles server inconsistencies)
     string headersLower = headers;
     string searchLower = searchFor;
     transform(headersLower.begin(), headersLower.end(), headersLower.begin(), ::tolower);
@@ -1634,12 +1638,20 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
     return true;
 }
 
+// HTTP Protocol Quirk: WWW-Authenticate Header Parsing
+// Many servers format WWW-Authenticate headers inconsistently with variations in comma
+// placement, case (Basic vs BASIC vs basic), newlines, and parameter formatting. The
+// Python caldav library handles this with robust parsing that normalizes headers.
+// We bypass this issue entirely by using pre-authentication - we send the Authorization
+// header with every request rather than waiting for a 401 challenge and parsing
+// WWW-Authenticate. This is more efficient (avoids an extra round-trip) and sidesteps
+// all server-specific header formatting quirks.
 const string DAVWorker::getAuthorizationHeader() {
     if (account->refreshToken() != "") {
         auto parts = SharedXOAuth2TokenManager()->partsForAccount(account);
         return "Authorization: Bearer " + parts.accessToken;
     }
-    
+
     string plain = account->IMAPUsername() + ":" + account->IMAPPassword();
     string encoded = MailUtils::toBase64(plain.c_str(), strlen(plain.c_str()));
     return "Authorization: Basic " + encoded;
@@ -1650,6 +1662,16 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     applyRateLimitDelay();
 
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
+
+    // HTTP Protocol Quirk: HTTP/2 Multiplexing Authentication Failures
+    // The Baikal server (specifically the chulka/baikal:nginx Docker image) can fail
+    // authentication when HTTP/2 connection multiplexing is enabled, returning 401
+    // Unauthorized despite correct credentials. The Python caldav library handles this
+    // by disabling multiplexing for Baikal or retrying with HTTP/1.1 on auth failures.
+    // Currently, we rely on CURL's default HTTP version negotiation. If Baikal users
+    // report persistent 401 errors, consider adding:
+    //   curl_easy_setopt(curl_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    // for detected Baikal servers (hostname containing "baikal").
 
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
