@@ -53,6 +53,7 @@ public:
     
     void runContacts();
     void runForAddressBook(shared_ptr<ContactBook> ab);
+    bool runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int retryCount = 0);
 
     void ingestContactDeletions(shared_ptr<ContactBook> ab, vector<ETAG> deleted);
     shared_ptr<Contact> ingestAddressDataNode(shared_ptr<DavXML> doc, xmlNodePtr node, bool & isGroup);
@@ -60,13 +61,14 @@ public:
 
     void runCalendars();
     void runForCalendar(string id, string name, string path);
+    bool runForCalendarWithSyncToken(string calendarId, string url, shared_ptr<Calendar> calendar, int retryCount = 0);
 
     void writeAndResyncEvent(shared_ptr<Event> event);
     void deleteEvent(shared_ptr<Event> event);
 
     const string getAuthorizationHeader();
 
-    shared_ptr<DavXML> performXMLRequest(string path, string method, string payload = "");
+    shared_ptr<DavXML> performXMLRequest(string path, string method, string payload = "", string depth = "1");
     string performVCardRequest(string _url, string method, string vcard = "", ETAG existingEtag = "");
     string performICSRequest(string url, string method, string icsData, ETAG existingEtag = "");
     

@@ -25,6 +25,7 @@
 #include "icalendar.h"
 
 #include <string>
+#include <set>
 #include <curl/curl.h>
 
 struct EventResult {
@@ -55,6 +56,66 @@ string replacePath(string url, string path) {
         path = "/" + path;
     }
     return url.substr(0, hostEnd) + path;
+}
+
+// URL decode a percent-encoded string (e.g., "%20" -> " ", "%2F" -> "/")
+string urlDecode(const string & encoded) {
+    string result;
+    result.reserve(encoded.length());
+
+    for (size_t i = 0; i < encoded.length(); i++) {
+        if (encoded[i] == '%' && i + 2 < encoded.length()) {
+            // Check if next two chars are valid hex digits
+            char h1 = encoded[i + 1];
+            char h2 = encoded[i + 2];
+            if (isxdigit(h1) && isxdigit(h2)) {
+                // Convert hex to char
+                int val = 0;
+                if (h1 >= '0' && h1 <= '9') val = (h1 - '0') << 4;
+                else if (h1 >= 'a' && h1 <= 'f') val = (h1 - 'a' + 10) << 4;
+                else if (h1 >= 'A' && h1 <= 'F') val = (h1 - 'A' + 10) << 4;
+
+                if (h2 >= '0' && h2 <= '9') val |= (h2 - '0');
+                else if (h2 >= 'a' && h2 <= 'f') val |= (h2 - 'a' + 10);
+                else if (h2 >= 'A' && h2 <= 'F') val |= (h2 - 'A' + 10);
+
+                result += static_cast<char>(val);
+                i += 2;
+                continue;
+            }
+        }
+        // Handle '+' as space (common in query strings, though rare in DAV)
+        if (encoded[i] == '+') {
+            result += ' ';
+        } else {
+            result += encoded[i];
+        }
+    }
+    return result;
+}
+
+// Normalize href for comparison - extracts path portion and handles encoding differences
+string normalizeHref(const string & href) {
+    string result = href;
+
+    // Strip scheme and host if present (e.g., "https://server.com/path" -> "/path")
+    size_t schemeEnd = result.find("://");
+    if (schemeEnd != string::npos) {
+        size_t pathStart = result.find("/", schemeEnd + 3);
+        if (pathStart != string::npos) {
+            result = result.substr(pathStart);
+        }
+    }
+
+    // URL decode the path to handle %XX encoding differences
+    result = urlDecode(result);
+
+    // Remove trailing slashes for consistency
+    while (result.length() > 1 && result.back() == '/') {
+        result.pop_back();
+    }
+
+    return result;
 }
 
 DAVWorker::DAVWorker(shared_ptr<Account> account) :
@@ -127,7 +188,11 @@ void DAVWorker::runContacts() {
         logger->info("Syncing address book (server doesn't provide ctag)");
     }
 
-    runForAddressBook(ab);
+    // Try sync-token first (RFC 6578), fall back to legacy etag-based sync
+    bool usedSyncToken = runForAddressBookWithSyncToken(ab);
+    if (!usedSyncToken) {
+        runForAddressBook(ab);
+    }
 }
 
 /*
@@ -403,6 +468,221 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
     }
 }
 
+bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int retryCount) {
+    const int maxRetries = 1; // Allow one retry for token expiration
+
+    string syncToken = ab->syncToken();
+    bool isInitialSync = syncToken.empty();
+
+    // Accumulated data across pagination requests
+    vector<string> neededHrefs;
+    vector<string> deletedHrefs;
+    vector<shared_ptr<Contact>> updatedGroups;
+
+    // RFC 6578 pagination: loop until we get all results
+    // Server returns 507 status when results are truncated
+    bool hasMorePages = true;
+    int pageCount = 0;
+    const int maxPages = 100; // Safety limit to prevent infinite loops
+
+    while (hasMorePages && pageCount < maxPages) {
+        pageCount++;
+
+        // Build sync-collection request per RFC 6578
+        string tokenElement = syncToken.empty() ? "<D:sync-token/>" : "<D:sync-token>" + syncToken + "</D:sync-token>";
+
+        // For incremental sync (with token), request full data since changeset is expected to be small
+        // For initial sync (empty token), request only etags, then use multiget for data in chunks
+        string props = isInitialSync
+            ? "<D:getetag/>"
+            : "<D:getetag/><C:address-data/>";
+
+        string query = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            "<D:sync-collection xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:carddav\">"
+            + tokenElement +
+            "<D:sync-level>1</D:sync-level>"
+            "<D:prop>" + props + "</D:prop>"
+            "</D:sync-collection>";
+
+        shared_ptr<DavXML> syncDoc;
+        bool http507Received = false;
+        try {
+            // RFC 6578 requires Depth: 0 for sync-collection
+            syncDoc = performXMLRequest(ab->url(), "REPORT", query, "0");
+        } catch (SyncException & e) {
+            // Check for HTTP 507 (Insufficient Storage) - some servers return this as HTTP status
+            // instead of embedding it in the 207 Multi-Status response per RFC 6578
+            if (e.key.find("507") != string::npos) {
+                size_t returnedPos = e.debuginfo.find(" RETURNED ");
+                if (returnedPos != string::npos) {
+                    string responseBody = e.debuginfo.substr(returnedPos + 10);
+                    try {
+                        syncDoc = make_shared<DavXML>(responseBody, ab->url());
+                        http507Received = true;
+                        logger->info("Received HTTP 507, parsing truncated response");
+                    } catch (...) {
+                        logger->warn("Failed to parse HTTP 507 response body");
+                    }
+                }
+            }
+
+            // If we successfully parsed HTTP 507 response, continue processing
+            if (syncDoc) {
+                // Fall through to normal processing below
+            } else if (e.key.find("403") != string::npos ||
+                       e.key.find("409") != string::npos ||
+                       e.key.find("410") != string::npos ||
+                       e.debuginfo.find("valid-sync-token") != string::npos) {
+                // Token expiration - retry with empty token if we haven't exceeded retries
+                if (syncToken.empty() || retryCount >= maxRetries) {
+                    if (retryCount >= maxRetries) {
+                        logger->warn("Max retries ({}) exceeded for address book sync token, falling back to legacy sync", maxRetries);
+                    }
+                    logger->info("sync-collection not supported or failed for contacts, using legacy sync");
+                    return false;
+                }
+                logger->info("Sync token expired for address book, retrying with full sync (attempt {})", retryCount + 1);
+                ab->setSyncToken("");
+                store->save(ab.get());
+                return runForAddressBookWithSyncToken(ab, retryCount + 1);
+            } else {
+                // Server doesn't support sync-collection or other error
+                logger->info("sync-collection not supported or failed for contacts, using legacy sync");
+                return false;
+            }
+        }
+
+        // Extract new sync-token from response
+        string newSyncToken = syncDoc->nodeContentAtXPath("//D:sync-token/text()");
+
+        // Check for 507 (Insufficient Storage) status indicating truncated results
+        // RFC 6578 section 3.6: server returns 507 when it can't return all results
+        // This can come either as HTTP 507 (handled above) or embedded in 207 response
+        hasMorePages = http507Received;
+        syncDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+            auto href = syncDoc->nodeContentAtXPath(".//D:href/text()", node);
+            auto status = syncDoc->nodeContentAtXPath(".//D:status/text()", node);
+
+            if (status.find("507") != string::npos) {
+                // Truncated response - more pages available (embedded in 207 Multi-Status per RFC 6578)
+                hasMorePages = true;
+                logger->info("sync-collection page {} truncated (507 in response), continuing...", pageCount);
+            } else if (status.find("404") != string::npos) {
+                // Item was deleted on server (RFC 6578 section 3.5)
+                deletedHrefs.push_back(href);
+            } else {
+                auto etag = syncDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+                auto vcardData = syncDoc->nodeContentAtXPath(".//carddav:address-data/text()", node);
+
+                if (vcardData != "") {
+                    // Have full data (incremental sync response) - process directly
+                    bool isGroup = false;
+                    auto contact = ingestAddressDataNode(syncDoc, node, isGroup);
+                    if (contact) {
+                        contact->setBookId(ab->id());
+                        if (isGroup) {
+                            updatedGroups.push_back(contact);
+                        } else {
+                            store->save(contact.get());
+                        }
+                    }
+                } else if (etag != "") {
+                    // Need to fetch data (initial sync response with etags only)
+                    neededHrefs.push_back(href);
+                }
+            }
+        }));
+
+        // Update sync token for next iteration (or final storage)
+        if (newSyncToken != "") {
+            syncToken = newSyncToken;
+        }
+    }
+
+    if (pageCount >= maxPages) {
+        logger->warn("sync-collection hit max pages limit ({}), sync may be incomplete", maxPages);
+    }
+
+    logger->info("sync-collection complete ({} pages) for contacts: {} needed, {} deleted",
+                 pageCount, neededHrefs.size(), deletedHrefs.size());
+
+    // Fetch needed items (from initial sync) using multiget in chunks
+    if (!neededHrefs.empty()) {
+        std::reverse(neededHrefs.begin(), neededHrefs.end());
+
+        for (auto chunk : MailUtils::chunksOfVector(neededHrefs, 90)) {
+            string payload = "";
+            for (auto & href : chunk) {
+                payload += "<d:href>" + href + "</d:href>";
+            }
+
+            auto abDoc = performXMLRequest(ab->url(), "REPORT",
+                "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\">"
+                "<d:prop><d:getetag /><c:address-data /></d:prop>" + payload + "</c:addressbook-multiget>");
+
+            MailStoreTransaction transaction{store, "syncToken:contacts:multiget"};
+            abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+                bool isGroup = false;
+                auto contact = ingestAddressDataNode(abDoc, node, isGroup);
+                if (contact) {
+                    contact->setBookId(ab->id());
+                    if (isGroup) {
+                        updatedGroups.push_back(contact);
+                    } else {
+                        store->save(contact.get());
+                    }
+                }
+            }));
+            transaction.commit();
+        }
+    }
+
+    // Delete removed items by href - load all contacts once, then find matches
+    if (!deletedHrefs.empty()) {
+        MailStoreTransaction transaction{store, "syncToken:contacts:deletions"};
+
+        // Load all contacts from this address book once (href is in JSON data column, can't query directly)
+        auto allContacts = store->findAll<Contact>(Query().equal("bookId", ab->id()));
+
+        // Build a set of normalized hrefs for O(1) lookup
+        set<string> deletedHrefSet;
+        for (auto & href : deletedHrefs) {
+            deletedHrefSet.insert(normalizeHref(href));
+        }
+
+        // Find and delete matching contacts
+        for (auto & c : allContacts) {
+            if (c->info().count("href")) {
+                string contactHref = normalizeHref(c->info()["href"].get<string>());
+                if (deletedHrefSet.count(contactHref)) {
+                    // Also delete associated group if exists
+                    auto group = store->find<ContactGroup>(Query().equal("id", c->id()));
+                    if (group) {
+                        store->remove(group.get());
+                    }
+                    store->remove(c.get());
+                }
+            }
+        }
+        transaction.commit();
+    }
+
+    // Process groups after all contacts are saved
+    for (auto contact : updatedGroups) {
+        rebuildContactGroup(contact);
+        store->save(contact.get());
+    }
+
+    // Store final sync-token for next sync
+    if (syncToken != "" && syncToken != ab->syncToken()) {
+        ab->setSyncToken(syncToken);
+        store->save(ab.get());
+        logger->info("Stored new sync-token for address book");
+    }
+
+    return true;
+}
+
 void DAVWorker::ingestContactDeletions(shared_ptr<ContactBook> ab, vector<string> deleted) {
     if (deleted.size() == 0) {
         return;
@@ -554,7 +834,11 @@ void DAVWorker::runCalendars() {
                 logger->info("Syncing calendar '{}' (server doesn't provide ctag)", name);
             }
 
-            runForCalendar(id, name, calHost + path);
+            // Try sync-token first (RFC 6578), fall back to legacy etag-based sync
+            bool usedSyncToken = runForCalendarWithSyncToken(id, calHost + path, calendar);
+            if (!usedSyncToken) {
+                runForCalendar(id, name, calHost + path);
+            }
 
             // Update ctag after successful sync
             if (ctag != "" && calendar->ctag() != ctag) {
@@ -638,31 +922,32 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
             
             icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
                 auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-                if (etag != "" && local.count(etag) == 0) {
-                    auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
-                    auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
-                    if (icsData != "") {
-                        local[etag] = true;
-                        ICalendar cal(icsData);
 
-                        auto icsEvent = cal.Events.front();
-                        if (!icsEvent->DtStart.IsEmpty()) {
-                            auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                            event.setHref(href);
-                            store->save(&event);
-                        } else {
-                            logger->info("Received calendar event but it has no start time?\n\n{}\n\n", icsData);
-                        }
-                    } else {
-                        logger->info("Received calendar event {} with an empty body", etag);
-                    }
-                } else {
-                    // we didn't ask for this, or we already received it in this session.
+                // Skip if we didn't ask for this or already received it
+                // Note: occasionally (with Google Cal at least), the initial "index" query returns etag+href pairs,
+                // but then requesting them individually returns etag="", icsdata="". It seems like some data consistency
+                // issue on their side and for now we just ignore them.
+                if (etag == "" || local.count(etag) != 0) return;
 
-                    // Note: occasionally (with Google Cal at least), the initial "index" query returns etag+href pairs,
-                    // but then requesting them individually returns etag="", icsdata="". It seems like some data consistency
-                    // issue on their side and for now we just ignore them. There are two in bengotow@gmail.com.
+                auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
+                if (icsData == "") {
+                    logger->info("Received calendar event {} with an empty body", etag);
+                    return;
                 }
+
+                local[etag] = true;
+                ICalendar cal(icsData);
+                auto icsEvent = cal.Events.front();
+
+                if (icsEvent->DtStart.IsEmpty()) {
+                    logger->info("Received calendar event but it has no start time?\n\n{}\n\n", icsData);
+                    return;
+                }
+
+                auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
+                auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                event.setHref(href);
+                store->save(&event);
             }));
             
             if (!deletionChunks.empty()) {
@@ -690,6 +975,248 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     }
 }
 
+bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, shared_ptr<Calendar> calendar, int retryCount) {
+    const int maxRetries = 1; // Allow one retry for token expiration
+
+    string syncToken = calendar->syncToken();
+    bool isInitialSync = syncToken.empty();
+
+    // Accumulated data across pagination requests
+    vector<string> neededHrefs;
+    vector<string> deletedHrefs;
+    map<string, pair<string, string>> directData; // href -> (etag, icsData)
+
+    // RFC 6578 pagination: loop until we get all results
+    // Server returns 507 status when results are truncated
+    bool hasMorePages = true;
+    int pageCount = 0;
+    const int maxPages = 100; // Safety limit to prevent infinite loops
+
+    while (hasMorePages && pageCount < maxPages) {
+        pageCount++;
+
+        // Build sync-collection request per RFC 6578
+        string tokenElement = syncToken.empty() ? "<D:sync-token/>" : "<D:sync-token>" + syncToken + "</D:sync-token>";
+
+        // For incremental sync (with token), request full data since changeset is expected to be small
+        // For initial sync (empty token), request only etags, then use multiget for data in chunks
+        string props = isInitialSync
+            ? "<D:getetag/>"
+            : "<D:getetag/><C:calendar-data/>";
+
+        string query = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            "<D:sync-collection xmlns:D=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\">"
+            + tokenElement +
+            "<D:sync-level>1</D:sync-level>"
+            "<D:prop>" + props + "</D:prop>"
+            "</D:sync-collection>";
+
+        shared_ptr<DavXML> syncDoc;
+        bool http507Received = false;
+        try {
+            // RFC 6578 requires Depth: 0 for sync-collection
+            syncDoc = performXMLRequest(url, "REPORT", query, "0");
+        } catch (SyncException & e) {
+            // Check for HTTP 507 (Insufficient Storage) - some servers return this as HTTP status
+            // instead of embedding it in the 207 Multi-Status response per RFC 6578
+            if (e.key.find("507") != string::npos) {
+                size_t returnedPos = e.debuginfo.find(" RETURNED ");
+                if (returnedPos != string::npos) {
+                    string responseBody = e.debuginfo.substr(returnedPos + 10);
+                    try {
+                        syncDoc = make_shared<DavXML>(responseBody, url);
+                        http507Received = true;
+                        logger->info("Received HTTP 507, parsing truncated response");
+                    } catch (...) {
+                        logger->warn("Failed to parse HTTP 507 response body");
+                    }
+                }
+            }
+
+            // If we successfully parsed HTTP 507 response, continue processing
+            if (syncDoc) {
+                // Fall through to normal processing below
+            } else if (e.key.find("403") != string::npos ||
+                       e.key.find("409") != string::npos ||
+                       e.key.find("410") != string::npos ||
+                       e.debuginfo.find("valid-sync-token") != string::npos) {
+                // Token expiration - retry with empty token if we haven't exceeded retries
+                if (syncToken.empty() || retryCount >= maxRetries) {
+                    if (retryCount >= maxRetries) {
+                        logger->warn("Max retries ({}) exceeded for calendar sync token, falling back to legacy sync", maxRetries);
+                    }
+                    logger->info("sync-collection not supported or failed, using legacy sync");
+                    return false;
+                }
+                logger->info("Sync token expired for calendar, retrying with full sync (attempt {})", retryCount + 1);
+                calendar->setSyncToken("");
+                store->save(calendar.get());
+                return runForCalendarWithSyncToken(calendarId, url, calendar, retryCount + 1);
+            } else {
+                // Server doesn't support sync-collection or other error
+                logger->info("sync-collection not supported or failed, using legacy sync");
+                return false;
+            }
+        }
+
+        // Extract new sync-token from response
+        string newSyncToken = syncDoc->nodeContentAtXPath("//D:sync-token/text()");
+
+        // Check for 507 (Insufficient Storage) status indicating truncated results
+        // RFC 6578 section 3.6: server returns 507 when it can't return all results
+        // This can come either as HTTP 507 (handled above) or embedded in 207 response
+        hasMorePages = http507Received;
+        syncDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+            auto href = syncDoc->nodeContentAtXPath(".//D:href/text()", node);
+            auto status = syncDoc->nodeContentAtXPath(".//D:status/text()", node);
+
+            if (status.find("507") != string::npos) {
+                // Truncated response - more pages available (embedded in 207 Multi-Status per RFC 6578)
+                hasMorePages = true;
+                logger->info("sync-collection page {} truncated (507 in response), continuing...", pageCount);
+            } else if (status.find("404") != string::npos) {
+                // Item was deleted on server (RFC 6578 section 3.5)
+                deletedHrefs.push_back(href);
+            } else {
+                auto etag = syncDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+                auto icsData = syncDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
+
+                if (icsData != "") {
+                    // Have full data (incremental sync response)
+                    directData[href] = make_pair(etag, icsData);
+                } else if (etag != "") {
+                    // Need to fetch data (initial sync response with etags only)
+                    neededHrefs.push_back(href);
+                }
+            }
+        }));
+
+        // Update sync token for next iteration (or final storage)
+        if (newSyncToken != "") {
+            syncToken = newSyncToken;
+        }
+    }
+
+    if (pageCount >= maxPages) {
+        logger->warn("sync-collection hit max pages limit ({}), sync may be incomplete", maxPages);
+    }
+
+    logger->info("sync-collection complete ({} pages): {} direct, {} needed, {} deleted",
+                 pageCount, directData.size(), neededHrefs.size(), deletedHrefs.size());
+
+    // Process direct data (from incremental sync with full calendar-data)
+    if (!directData.empty()) {
+        MailStoreTransaction transaction{store, "syncToken:direct"};
+
+        // Load all events once and build href->event map (href is in JSON data column, can't query directly)
+        auto allEvents = store->findAll<Event>(Query().equal("calendarId", calendarId));
+        map<string, shared_ptr<Event>> eventsByHref;
+        for (auto & e : allEvents) {
+            string eventHref = normalizeHref(e->href());
+            eventsByHref[eventHref] = e;
+        }
+
+        for (auto & pair : directData) {
+            string href = pair.first;
+            string icsData = pair.second.second;
+            if (icsData == "") continue;
+
+            ICalendar cal(icsData);
+            if (cal.Events.empty()) continue;
+
+            auto icsEvent = cal.Events.front();
+            if (icsEvent->DtStart.IsEmpty()) continue;
+
+            string normalizedHref = normalizeHref(href);
+            string etag = pair.second.first;
+
+            // Check if event already exists (update) or is new
+            auto it = eventsByHref.find(normalizedHref);
+            if (it != eventsByHref.end()) {
+                auto existing = it->second;
+                existing->setEtag(etag);
+                existing->setIcsData(icsData);
+                existing->_data["rs"] = icsEvent->DtStart.toUnix();
+                existing->_data["re"] = endOf(icsEvent).toUnix();
+                store->save(existing.get());
+            } else {
+                auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                event.setHref(href);
+                store->save(&event);
+            }
+        }
+        transaction.commit();
+    }
+
+    // Fetch needed items (from initial sync) using multiget in chunks
+    if (!neededHrefs.empty()) {
+        std::reverse(neededHrefs.begin(), neededHrefs.end());
+
+        for (auto chunk : MailUtils::chunksOfVector(neededHrefs, 90)) {
+            string payload = "";
+            for (auto & icsHref : chunk) {
+                payload += "<D:href>" + icsHref + "</D:href>";
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+            auto icsDoc = performXMLRequest(url, "REPORT",
+                "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
+                "<d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
+
+            MailStoreTransaction transaction{store, "syncToken:multiget"};
+            icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+                auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+                auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
+                if (icsData == "" || etag == "") return;
+
+                ICalendar cal(icsData);
+                if (cal.Events.empty()) return;
+
+                auto icsEvent = cal.Events.front();
+                if (icsEvent->DtStart.IsEmpty()) return;
+
+                auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
+                auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
+                event.setHref(href);
+                store->save(&event);
+            }));
+            transaction.commit();
+        }
+    }
+
+    // Delete removed items - load all events once, then find matches
+    if (!deletedHrefs.empty()) {
+        MailStoreTransaction transaction{store, "syncToken:deletions"};
+
+        // Load all events from this calendar once (href is in JSON data column, can't query directly)
+        auto allEvents = store->findAll<Event>(Query().equal("calendarId", calendarId));
+
+        // Build a set of normalized hrefs for O(1) lookup
+        set<string> deletedHrefSet;
+        for (auto & href : deletedHrefs) {
+            deletedHrefSet.insert(normalizeHref(href));
+        }
+
+        // Find and delete matching events
+        for (auto & e : allEvents) {
+            string eventHref = normalizeHref(e->href());
+            if (deletedHrefSet.count(eventHref)) {
+                store->remove(e.get());
+            }
+        }
+        transaction.commit();
+    }
+
+    // Store final sync-token for next sync
+    if (syncToken != "" && syncToken != calendar->syncToken()) {
+        calendar->setSyncToken(syncToken);
+        store->save(calendar.get());
+        logger->info("Stored new sync-token for calendar");
+    }
+
+    return true;
+}
 
 const string DAVWorker::getAuthorizationHeader() {
     if (account->refreshToken() != "") {
@@ -702,19 +1229,21 @@ const string DAVWorker::getAuthorizationHeader() {
     return "Authorization: Basic " + encoded;
 }
 
-shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, string payload) {
+shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, string payload, string depth) {
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
-    
+
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
     headers = curl_slist_append(headers, "Prefer: return-minimal");
     headers = curl_slist_append(headers, "Content-Type: application/xml; charset=utf-8");
-    
-    if (payload.find("xml:ns:carddav") != string::npos) {
+
+    // Check for CardDAV namespace to set vCard Accept header
+    if (payload.find("urn:ietf:params:xml:ns:carddav") != string::npos) {
         headers = curl_slist_append(headers, "Accept: text/vcard; version=4.0");
     }
-    headers = curl_slist_append(headers, "Depth: 1");
-    
+    string depthHeader = "Depth: " + depth;
+    headers = curl_slist_append(headers, depthHeader.c_str());
+
     CURL * curl_handle = curl_easy_init();
     const char * payloadChars = payload.c_str();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());

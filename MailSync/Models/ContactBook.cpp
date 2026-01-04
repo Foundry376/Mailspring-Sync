@@ -63,6 +63,14 @@ void ContactBook::setCtag(string ctag) {
     _data["ctag"] = ctag;
 }
 
+string ContactBook::syncToken() {
+    return _data.count("syncToken") ? _data["syncToken"].get<string>() : "";
+}
+
+void ContactBook::setSyncToken(string token) {
+    _data["syncToken"] = token;
+}
+
 vector<string> ContactBook::columnsForQuery() {
     return vector<string>{"id", "accountId", "version", "data"};
 }

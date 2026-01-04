@@ -41,6 +41,9 @@ public:
     string ctag();
     void setCtag(string ctag);
 
+    string syncToken();
+    void setSyncToken(string token);
+
     string tableName();
     string constructorName();
 

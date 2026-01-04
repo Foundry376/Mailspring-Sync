@@ -39,6 +39,9 @@ public:
     string ctag();
     void setCtag(string ctag);
 
+    string syncToken();
+    void setSyncToken(string token);
+
     string tableName();
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);

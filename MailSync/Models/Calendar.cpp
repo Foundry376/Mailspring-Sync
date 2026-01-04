@@ -56,6 +56,14 @@ void Calendar::setCtag(string ctag) {
     _data["ctag"] = ctag;
 }
 
+string Calendar::syncToken() {
+    return _data.count("syncToken") ? _data["syncToken"].get<string>() : "";
+}
+
+void Calendar::setSyncToken(string token) {
+    _data["syncToken"] = token;
+}
+
 string Calendar::tableName() {
     return Calendar::TABLE_NAME;
 }
