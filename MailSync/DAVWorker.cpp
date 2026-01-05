@@ -412,7 +412,10 @@ void DAVWorker::runContacts() {
         logger->info("Syncing address book (server doesn't provide ctag)");
     }
 
-    // Try sync-token first (RFC 6578), fall back to legacy etag-based sync
+    // Try sync-token first (RFC 6578), fall back to legacy ETag-based sync.
+    // This fallback handles servers that don't support sync-collection (Robur, GMX),
+    // return errors instead of graceful decline (Zimbra, Posteo), or have unreliable
+    // implementations (Synology, DAViCal, Bedework). See function comments for details.
     bool usedSyncToken = runForAddressBookWithSyncToken(cachedAddressBook);
     if (!usedSyncToken) {
         runForAddressBook(cachedAddressBook);
@@ -754,6 +757,24 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
     }
 }
 
+/*
+ * RFC 6578 sync-collection implementation with automatic fallback for non-compliant servers.
+ *
+ * PROVIDER QUIRKS (from python-caldav project research):
+ * - Robur, GMX: No sync-token support at all
+ * - Zimbra, Posteo: Return HTTP errors instead of gracefully declining sync-collection
+ * - Bedework: Occasionally returns excess content in sync responses
+ * - Synology, DAViCal: Unpredictable/unreliable sync-token behavior
+ * - SOGo: Uses time-based tokens with second precision, which can miss rapid changes
+ *   within the same second (not a concern for our periodic sync model)
+ *
+ * Our approach: Attempt sync-collection first, then fall back to legacy ETag-based sync
+ * (runForAddressBook) if the server doesn't support it or returns errors. This provides
+ * efficient sync for compliant servers while maintaining compatibility with all providers.
+ *
+ * Token expiration is detected via 403/409/410 responses or "valid-sync-token" error,
+ * triggering a retry with empty token before falling back to legacy sync.
+ */
 bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int retryCount) {
     const int maxRetries = 1; // Allow one retry for token expiration
 
@@ -1176,7 +1197,10 @@ void DAVWorker::runCalendars() {
                 logger->info("Syncing calendar '{}' (server doesn't provide ctag)", name);
             }
 
-            // Try sync-token first (RFC 6578), fall back to legacy etag-based sync
+            // Try sync-token first (RFC 6578), fall back to legacy ETag-based sync.
+            // This fallback handles servers that don't support sync-collection (Robur, GMX),
+            // return errors instead of graceful decline (Zimbra, Posteo), or have unreliable
+            // implementations (Synology, DAViCal, Bedework, Nextcloud). See function comments.
             bool usedSyncToken = runForCalendarWithSyncToken(id, calHost + path, calendar);
             if (!usedSyncToken) {
                 runForCalendar(id, name, calHost + path);
@@ -1382,6 +1406,26 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     }
 }
 
+/*
+ * RFC 6578 sync-collection implementation for CalDAV with automatic fallback.
+ *
+ * PROVIDER QUIRKS (from python-caldav project research):
+ * - Robur, GMX: No sync-token support at all
+ * - Zimbra, Posteo: Return HTTP errors instead of gracefully declining sync-collection
+ * - Bedework: Occasionally returns excess content in sync responses
+ * - Synology, DAViCal: Unpredictable/unreliable sync-token behavior
+ * - SOGo: Uses time-based tokens with second precision, which can miss rapid changes
+ *   within the same second (not a concern for our periodic sync model)
+ * - Nextcloud: Historically had bugs with deleted objects in sync reports (fixed in PR #44130)
+ *
+ * Our approach: Attempt sync-collection first, then fall back to legacy ETag-based sync
+ * (runForCalendar) if the server doesn't support it or returns errors. This provides
+ * efficient sync for compliant servers (200-500x bandwidth reduction per python-caldav)
+ * while maintaining compatibility with all providers.
+ *
+ * Token expiration is detected via 403/409/410 responses or "valid-sync-token" error,
+ * triggering a retry with empty token before falling back to legacy sync.
+ */
 bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, shared_ptr<Calendar> calendar, int retryCount) {
     const int maxRetries = 1; // Allow one retry for token expiration
 
