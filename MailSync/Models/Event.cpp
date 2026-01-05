@@ -45,19 +45,8 @@ Event::Event(string etag, string accountId, string calendarId, string ics, ICale
     : MailModel(MailUtils::idForEvent(accountId, calendarId, event->UID, event->RecurrenceId), accountId)
 {
     _data["cid"] = calendarId;
-    _data["ics"] = ics;
-    _data["etag"] = etag;
     _data["icsuid"] = event->UID;
-
-    // Store recurrence exception info - RecurrenceId identifies which occurrence is modified
-    _data["rid"] = event->RecurrenceId;
-    // Status can be TENTATIVE, CONFIRMED, or CANCELLED
-    _data["status"] = event->Status.empty() ? "CONFIRMED" : event->Status;
-
-    // Build our start and end time from the ics data. These values represent the time range in which
-    // the event needs to be considered for display, so we include the entire time the event is recurring.
-    _data["rs"] = event->DtStart.toUnix();
-    _data["re"] = endOf(event).toUnix();
+    applyICSEventData(etag, "", ics, event);
 }
 
 Event::Event(json & data) : MailModel(data)
@@ -142,6 +131,20 @@ string Event::status()
 void Event::setStatus(string status)
 {
     _data["status"] = status;
+}
+
+void Event::applyICSEventData(const string& etag, const string& href,
+                              const string& icsData, ICalendarEvent* icsEvent)
+{
+    setEtag(etag);
+    if (!href.empty()) {
+        setHref(href);
+    }
+    setIcsData(icsData);
+    setRecurrenceId(icsEvent->RecurrenceId);
+    setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
+    _data["rs"] = icsEvent->DtStart.toUnix();
+    _data["re"] = endOf(icsEvent).toUnix();
 }
 
 bool Event::isRecurrenceException()
