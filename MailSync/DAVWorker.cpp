@@ -1115,8 +1115,13 @@ void DAVWorker::runCalendars() {
     auto calendarSetDoc = performXMLRequest(calHost + calPrincipal, "PROPFIND", propfindQuery);
 
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
-    
-    // Iterate over the calendars that expose "VEVENT" components
+
+    // Filter calendars by supported-calendar-component-set to only sync those with VEVENT.
+    // This is the RFC 4791 compliant way to discover event calendars, as opposed to
+    // task lists (VTODO) or journal calendars (VJOURNAL). By filtering at discovery time,
+    // we ensure our subsequent calendar-query requests with <comp-filter name="VEVENT">
+    // will succeed. See comment in runForCalendar() for details on server compatibility
+    // issues when comp-filter is omitted.
     calendarSetDoc->evaluateXPath("//D:response[./D:propstat/D:prop/caldav:supported-calendar-component-set/caldav:comp[@name='VEVENT']]", ([&](xmlNodePtr node) {
         // Make a few xpath queries relative to the "D:response" calendar node (using "./")
         // to retrieve the attributes we're interested in.
@@ -1225,7 +1230,18 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
         // Request events within the time range. The server expands recurring events
         // and returns any event where at least one instance falls within the range.
         //
-        // Provider quirks (documented by python-caldav project):
+        // IMPORTANT: We always include <c:comp-filter name="VEVENT"> in the query.
+        // RFC 4791 permits but doesn't require component type filtering, but many CalDAV
+        // server implementations fail when the comp-type is omitted:
+        //   - SOGo, Xandikos v0.3+: return empty results
+        //   - Nextcloud, Cyrus, Posteo, Robur: throw errors (404, 500, etc.)
+        //   - Zimbra, DAViCal, Synology, GMX: inconsistent/fragile behavior
+        // The Python caldav library (github.com/python-caldav/caldav) implements a
+        // three-search fallback for VEVENT/VTODO/VJOURNAL when comp-type is omitted,
+        // but since we only sync VEVENT data, we simply always include the filter
+        // to ensure compatibility with all known CalDAV providers.
+        //
+        // Time-range search provider quirks (documented by python-caldav project):
         // - Radicale and GMX: Fail on open-ended searches. We always provide both
         //   start AND end bounds, so this is handled correctly.
         // - Bedework: May return recurring events whose future instances fall outside
