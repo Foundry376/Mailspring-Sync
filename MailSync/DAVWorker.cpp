@@ -1379,17 +1379,9 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
                     auto existing = store->find<Event>(query);
 
                     if (existing) {
-                        // Update existing event - preserves stable ID
-                        existing->setEtag(etag);
-                        existing->setHref(href);
-                        existing->setIcsData(icsData);
-                        existing->setRecurrenceId(recurrenceId);
-                        existing->setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
-                        existing->_data["rs"] = icsEvent->DtStart.toUnix();
-                        existing->_data["re"] = endOf(icsEvent).toUnix();
+                        existing->applyICSEventData(etag, href, icsData, icsEvent);
                         store->save(existing.get());
                     } else {
-                        // Create new event - ID based on icsUID + recurrenceId
                         auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
                         event.setHref(href);
                         store->save(&event);
@@ -1602,13 +1594,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 auto existing = store->find<Event>(query);
 
                 if (existing) {
-                    existing->setEtag(etag);
-                    existing->setHref(href);
-                    existing->setIcsData(icsData);
-                    existing->setRecurrenceId(recurrenceId);
-                    existing->setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
-                    existing->_data["rs"] = icsEvent->DtStart.toUnix();
-                    existing->_data["re"] = endOf(icsEvent).toUnix();
+                    existing->applyICSEventData(etag, href, icsData, icsEvent);
                     store->save(existing.get());
                 } else {
                     // New event from sync-token - only create if within our time range
@@ -1671,13 +1657,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                     auto existing = store->find<Event>(query);
 
                     if (existing) {
-                        existing->setEtag(etag);
-                        existing->setHref(href);
-                        existing->setIcsData(icsData);
-                        existing->setRecurrenceId(recurrenceId);
-                        existing->setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
-                        existing->_data["rs"] = icsEvent->DtStart.toUnix();
-                        existing->_data["re"] = endOf(icsEvent).toUnix();
+                        existing->applyICSEventData(etag, href, icsData, icsEvent);
                         store->save(existing.get());
                     } else {
                         // New event - only create if within our time range
@@ -1950,15 +1930,7 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
                 }
 
                 // Update local event with server data
-                event->setEtag(newEtag);
-                event->setHref(hrefResponse);
-                event->setIcsData(icsResponse);
-                event->setRecurrenceId(matchingEvent->RecurrenceId);
-                event->setStatus(matchingEvent->Status.empty() ? "CONFIRMED" : matchingEvent->Status);
-
-                // Update recurrence times from parsed ICS
-                event->_data["rs"] = matchingEvent->DtStart.toUnix();
-                event->_data["re"] = endOf(matchingEvent).toUnix();
+                event->applyICSEventData(newEtag, hrefResponse, icsResponse, matchingEvent);
                 event->_data["icsuid"] = matchingEvent->UID;
 
                 store->save(event.get());

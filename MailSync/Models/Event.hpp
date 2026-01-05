@@ -55,6 +55,10 @@ public:
     string status();
     void setStatus(string status);
 
+    // Apply ICS event data to this event (used by constructor and when updating existing events)
+    void applyICSEventData(const string& etag, const string& href,
+                           const string& icsData, ICalendarEvent* icsEvent);
+
     bool isRecurrenceException();
 
     int recurrenceStart();
