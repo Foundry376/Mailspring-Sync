@@ -1136,9 +1136,13 @@ void DAVWorker::runCalendars() {
         auto orderStr = calendarSetDoc->nodeContentAtXPath(".//ical:calendar-order/text()", node);
 
         // Check for write privilege to determine read-only status
-        // Look for <D:write/> in current-user-privilege-set
-        auto privileges = calendarSetDoc->nodeContentAtXPath(".//D:current-user-privilege-set", node);
-        bool readOnly = (privileges.find("<write") == string::npos && privileges.find(":write") == string::npos);
+        // Use XPath to look for write elements within current-user-privilege-set
+        // RFC 3744 defines <D:write/> nested within <D:privilege> elements
+        bool hasWritePrivilege = false;
+        calendarSetDoc->evaluateXPath(".//D:current-user-privilege-set//D:write", ([&](xmlNodePtr) {
+            hasWritePrivilege = true;
+        }), node);
+        bool readOnly = !hasWritePrivilege;
 
         shared_ptr<Calendar> calendar = local[id];
         bool needsSync = true;
