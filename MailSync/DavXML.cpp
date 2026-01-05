@@ -90,7 +90,11 @@ void DavXML::evaluateXPath(string expr, std::function<void(xmlNodePtr)> yieldBlo
 string DavXML::nodeContentAtXPath(string expr, xmlNodePtr withinNode) {
     string result = "";
     evaluateXPath(expr, ([&](xmlNodePtr cur) {
-        result = string((char *)cur->content);
+        // Handle null content gracefully - can occur when querying for element nodes
+        // (which have child nodes, not direct text content) rather than text() nodes
+        if (cur->content != nullptr) {
+            result = string((char *)cur->content);
+        }
         return;
     }), withinNode);
     return result;
