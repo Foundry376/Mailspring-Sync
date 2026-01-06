@@ -145,6 +145,10 @@ void Event::applyICSEventData(const string& etag, const string& href,
     setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
     _data["rs"] = icsEvent->DtStart.toUnix();
     _data["re"] = endOf(icsEvent).toUnix();
+
+    // Store searchable fields for EventSearch indexing
+    _data["title"] = icsEvent->Summary;
+    _data["description"] = icsEvent->Description;
 }
 
 bool Event::isRecurrenceException()
@@ -178,4 +182,40 @@ void Event::bindToQuery(SQLite::Statement *query)
     query->bind(":calendarId", calendarId());
     query->bind(":recurrenceStart", recurrenceStart());
     query->bind(":recurrenceEnd", recurrenceEnd());
+}
+
+void Event::afterSave(MailStore * store) {
+    MailModel::afterSave(store);
+
+    string title = _data.count("title") ? _data["title"].get<string>() : "";
+    string description = _data.count("description") ? _data["description"].get<string>() : "";
+    // TODO: Parse location and participants from ICS data (separate workstream)
+    string location = "";
+    string participants = "";
+
+    if (version() == 1) {
+        SQLite::Statement insert(store->db(), "INSERT INTO EventSearch (content_id, title, description, location, participants) VALUES (?, ?, ?, ?, ?)");
+        insert.bind(1, id());
+        insert.bind(2, title);
+        insert.bind(3, description);
+        insert.bind(4, location);
+        insert.bind(5, participants);
+        insert.exec();
+    } else {
+        SQLite::Statement update(store->db(), "UPDATE EventSearch SET title = ?, description = ?, location = ?, participants = ? WHERE content_id = ?");
+        update.bind(1, title);
+        update.bind(2, description);
+        update.bind(3, location);
+        update.bind(4, participants);
+        update.bind(5, id());
+        update.exec();
+    }
+}
+
+void Event::afterRemove(MailStore * store) {
+    MailModel::afterRemove(store);
+
+    SQLite::Statement remove(store->db(), "DELETE FROM EventSearch WHERE content_id = ?");
+    remove.bind(1, id());
+    remove.exec();
 }

@@ -69,6 +69,9 @@ public:
 
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
+
+    void afterSave(MailStore * store);
+    void afterRemove(MailStore * store);
 };
 
 // Helper function to calculate event end time (handles recurrence)
