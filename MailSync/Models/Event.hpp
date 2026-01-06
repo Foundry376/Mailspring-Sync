@@ -27,6 +27,12 @@ using namespace std;
 using namespace mailcore;
 
 class Event : public MailModel {
+    // Transient search content populated from ICalendarEvent during construction/update.
+    // Not persisted - only used during the save lifecycle for EventSearch indexing.
+    string _searchTitle;
+    string _searchDescription;
+    string _searchLocation;
+    string _searchParticipants;
 
 public:
     static string TABLE_NAME;
@@ -69,6 +75,9 @@ public:
 
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
+
+    void afterSave(MailStore * store);
+    void afterRemove(MailStore * store);
 };
 
 // Helper function to calculate event end time (handles recurrence)

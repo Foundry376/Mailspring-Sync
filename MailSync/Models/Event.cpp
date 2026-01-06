@@ -145,6 +145,20 @@ void Event::applyICSEventData(const string& etag, const string& href,
     setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
     _data["rs"] = icsEvent->DtStart.toUnix();
     _data["re"] = endOf(icsEvent).toUnix();
+
+    // Populate transient search fields from the ICalendarEvent
+    _searchTitle = icsEvent->Summary;
+    _searchDescription = icsEvent->Description;
+    _searchLocation = icsEvent->Location;
+
+    // Join attendees list into a single searchable string
+    _searchParticipants = "";
+    for (const auto& attendee : icsEvent->Attendees) {
+        if (!_searchParticipants.empty()) {
+            _searchParticipants += " ";
+        }
+        _searchParticipants += attendee;
+    }
 }
 
 bool Event::isRecurrenceException()
@@ -178,4 +192,41 @@ void Event::bindToQuery(SQLite::Statement *query)
     query->bind(":calendarId", calendarId());
     query->bind(":recurrenceStart", recurrenceStart());
     query->bind(":recurrenceEnd", recurrenceEnd());
+}
+
+void Event::afterSave(MailStore * store) {
+    MailModel::afterSave(store);
+
+    // Only update EventSearch if search content was populated via applyICSEventData.
+    // Events loaded from DB or client JSON won't have search content set.
+    if (_searchTitle.empty() && _searchDescription.empty() &&
+        _searchLocation.empty() && _searchParticipants.empty()) {
+        return;
+    }
+
+    if (version() == 1) {
+        SQLite::Statement insert(store->db(), "INSERT INTO EventSearch (content_id, title, description, location, participants) VALUES (?, ?, ?, ?, ?)");
+        insert.bind(1, id());
+        insert.bind(2, _searchTitle);
+        insert.bind(3, _searchDescription);
+        insert.bind(4, _searchLocation);
+        insert.bind(5, _searchParticipants);
+        insert.exec();
+    } else {
+        SQLite::Statement update(store->db(), "UPDATE EventSearch SET title = ?, description = ?, location = ?, participants = ? WHERE content_id = ?");
+        update.bind(1, _searchTitle);
+        update.bind(2, _searchDescription);
+        update.bind(3, _searchLocation);
+        update.bind(4, _searchParticipants);
+        update.bind(5, id());
+        update.exec();
+    }
+}
+
+void Event::afterRemove(MailStore * store) {
+    MailModel::afterRemove(store);
+
+    SQLite::Statement remove(store->db(), "DELETE FROM EventSearch WHERE content_id = ?");
+    remove.bind(1, id());
+    remove.exec();
 }
