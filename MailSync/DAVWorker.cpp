@@ -868,7 +868,11 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
         hasMorePages = http507Received;
         syncDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             auto href = syncDoc->nodeContentAtXPath(".//D:href/text()", node);
-            auto status = syncDoc->nodeContentAtXPath(".//D:status/text()", node);
+            // RFC 6578 Section 3.5: Deleted resources have <D:status> as DIRECT child of <D:response>
+            // (not inside <D:propstat>). Using "./D:status" (direct child) instead of ".//D:status"
+            // (any descendant) to avoid misinterpreting propstat-level 404s (property not available)
+            // as resource deletions.
+            auto status = syncDoc->nodeContentAtXPath("./D:status/text()", node);
 
             if (status.find("507") != string::npos) {
                 // Truncated response - more pages available (embedded in 207 Multi-Status per RFC 6578)
@@ -1531,7 +1535,12 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         hasMorePages = http507Received;
         syncDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             auto href = syncDoc->nodeContentAtXPath(".//D:href/text()", node);
-            auto status = syncDoc->nodeContentAtXPath(".//D:status/text()", node);
+            // RFC 6578 Section 3.5: Deleted resources have <D:status> as DIRECT child of <D:response>
+            // (not inside <D:propstat>). Using "./D:status" (direct child) instead of ".//D:status"
+            // (any descendant) to avoid misinterpreting propstat-level 404s (property not available)
+            // as resource deletions. This fixes sync issues with Google Calendar where moved/created
+            // events were incorrectly marked as deleted.
+            auto status = syncDoc->nodeContentAtXPath("./D:status/text()", node);
 
             if (status.find("507") != string::npos) {
                 // Truncated response - more pages available (embedded in 207 Multi-Status per RFC 6578)
