@@ -145,6 +145,10 @@ void Event::applyICSEventData(const string& etag, const string& href,
     setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
     _data["rs"] = icsEvent->DtStart.toUnix();
     _data["re"] = endOf(icsEvent).toUnix();
+
+    // Populate transient search fields from the ICalendarEvent
+    _searchTitle = icsEvent->Summary;
+    _searchDescription = icsEvent->Description;
 }
 
 bool Event::isRecurrenceException()
@@ -183,35 +187,28 @@ void Event::bindToQuery(SQLite::Statement *query)
 void Event::afterSave(MailStore * store) {
     MailModel::afterSave(store);
 
-    // Parse searchable fields from raw ICS data
-    string title = "";
-    string description = "";
+    // Only update EventSearch if search content was populated via applyICSEventData.
+    // Events loaded from DB or client JSON won't have search content set.
+    if (_searchTitle.empty() && _searchDescription.empty()) {
+        return;
+    }
+
     // TODO: Parse location and participants from ICS data (separate workstream)
     string location = "";
     string participants = "";
 
-    string ics = icsData();
-    if (!ics.empty()) {
-        ICalendar cal(ics);
-        if (!cal.Events.empty()) {
-            ICalendarEvent * icsEvent = cal.Events.front();
-            title = icsEvent->Summary;
-            description = icsEvent->Description;
-        }
-    }
-
     if (version() == 1) {
         SQLite::Statement insert(store->db(), "INSERT INTO EventSearch (content_id, title, description, location, participants) VALUES (?, ?, ?, ?, ?)");
         insert.bind(1, id());
-        insert.bind(2, title);
-        insert.bind(3, description);
+        insert.bind(2, _searchTitle);
+        insert.bind(3, _searchDescription);
         insert.bind(4, location);
         insert.bind(5, participants);
         insert.exec();
     } else {
         SQLite::Statement update(store->db(), "UPDATE EventSearch SET title = ?, description = ?, location = ?, participants = ? WHERE content_id = ?");
-        update.bind(1, title);
-        update.bind(2, description);
+        update.bind(1, _searchTitle);
+        update.bind(2, _searchDescription);
         update.bind(3, location);
         update.bind(4, participants);
         update.bind(5, id());

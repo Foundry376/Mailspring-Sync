@@ -27,6 +27,10 @@ using namespace std;
 using namespace mailcore;
 
 class Event : public MailModel {
+    // Transient search content populated from ICalendarEvent during construction/update.
+    // Not persisted - only used during the save lifecycle for EventSearch indexing.
+    string _searchTitle;
+    string _searchDescription;
 
 public:
     static string TABLE_NAME;
