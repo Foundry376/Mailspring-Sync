@@ -61,6 +61,11 @@ void ICalendar::LoadFromString(string icsData) {
 				} else if (Line.find("STATUS") == 0) {
 					// STATUS can be TENTATIVE, CONFIRMED, or CANCELLED
 					NewEvent->Status = GetProperty(Line);
+				} else if (Line.find("LOCATION") == 0) {
+					// LOCATION is a TEXT value that may contain escaped characters
+					NewEvent->Location = UnescapeICSText(GetProperty(Line));
+				} else if (Line.find("ATTENDEE") == 0) {
+					NewEvent->Attendees.push_back(ParseAttendee(Line, GetProperty(Line)));
 				} else if (Line.find("BEGIN:VALARM") == 0) {
 					NewAlarm.Clear();
 					PrevComponent = CurrentComponent;

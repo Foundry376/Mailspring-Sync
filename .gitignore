@@ -14,3 +14,9 @@ MailSync.xcodeproj/xcuserdata
 /MailSync.xcodeproj/project.xcworkspace/xcuserdata/bengotow.xcuserdatad/IDEFindNavigatorScopes.plist
 /Vendor/libetpan/build-mac/DerivedData
 /DerivedData
+
+# CMake build artifacts (Linux)
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
