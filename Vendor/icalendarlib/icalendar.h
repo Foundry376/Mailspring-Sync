@@ -96,8 +96,40 @@ inline AlarmAction ConvertAlarmAction(string Name) {
 		return PROCEDURE;
 	if (Name == "EMAIL")
 		return EMAIL;
-	
+
 	return DISPLAY;
+}
+
+// Unescape iCalendar TEXT values per RFC 5545 Section 3.3.11
+// Handles: \n/\N -> newline, \\ -> backslash, \, -> comma, \; -> semicolon
+inline string UnescapeICSText(const string &text) {
+	string result;
+	result.reserve(text.length());
+
+	for (size_t i = 0; i < text.length(); ++i) {
+		if (text[i] == '\\' && i + 1 < text.length()) {
+			char next = text[i + 1];
+			if (next == 'n' || next == 'N') {
+				result += '\n';
+				++i;
+			} else if (next == '\\') {
+				result += '\\';
+				++i;
+			} else if (next == ',') {
+				result += ',';
+				++i;
+			} else if (next == ';') {
+				result += ';';
+				++i;
+			} else {
+				// Unknown escape sequence, keep as-is
+				result += text[i];
+			}
+		} else {
+			result += text[i];
+		}
+	}
+	return result;
 }
 
 #endif // _ICALENDAR_H

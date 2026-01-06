@@ -145,6 +145,24 @@ void Event::applyICSEventData(const string& etag, const string& href,
     setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
     _data["rs"] = icsEvent->DtStart.toUnix();
     _data["re"] = endOf(icsEvent).toUnix();
+
+    // Store location if present
+    if (!icsEvent->Location.empty()) {
+        _data["location"] = icsEvent->Location;
+    } else {
+        _data.erase("location");
+    }
+
+    // Store participants list if present
+    if (!icsEvent->Attendees.empty()) {
+        json participants = json::array();
+        for (const auto& attendee : icsEvent->Attendees) {
+            participants.push_back(attendee);
+        }
+        _data["participants"] = participants;
+    } else {
+        _data.erase("participants");
+    }
 }
 
 bool Event::isRecurrenceException()
