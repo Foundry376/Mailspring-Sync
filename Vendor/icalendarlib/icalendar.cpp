@@ -65,49 +65,7 @@ void ICalendar::LoadFromString(string icsData) {
 					// LOCATION is a TEXT value that may contain escaped characters
 					NewEvent->Location = UnescapeICSText(GetProperty(Line));
 				} else if (Line.find("ATTENDEE") == 0) {
-					// ATTENDEE format: ATTENDEE;CN="Name";ROLE=...:mailto:email@example.com
-					// Extract the cal-address (after colon) and optional CN parameter
-					string calAddress = GetProperty(Line);
-					string email = calAddress;
-
-					// Strip mailto: prefix if present
-					if (email.find("mailto:") == 0) {
-						email = email.substr(7);
-					} else if (email.find("MAILTO:") == 0) {
-						email = email.substr(7);
-					}
-
-					// Try to extract CN (common name) parameter
-					// CN can be quoted: CN="John Smith" or unquoted: CN=John
-					string cn;
-					size_t cnPos = Line.find("CN=");
-					if (cnPos != string::npos) {
-						size_t valueStart = cnPos + 3;
-						if (valueStart < Line.length()) {
-							if (Line[valueStart] == '"') {
-								// Quoted value - find closing quote
-								size_t endQuote = Line.find('"', valueStart + 1);
-								if (endQuote != string::npos) {
-									cn = Line.substr(valueStart + 1, endQuote - valueStart - 1);
-								}
-							} else {
-								// Unquoted value - ends at ; or :
-								size_t endPos = Line.find_first_of(";:", valueStart);
-								if (endPos != string::npos) {
-									cn = Line.substr(valueStart, endPos - valueStart);
-								}
-							}
-						}
-					}
-
-					// Format as "Name <email>" if CN present, otherwise just email
-					string attendee;
-					if (!cn.empty()) {
-						attendee = cn + " <" + email + ">";
-					} else {
-						attendee = email;
-					}
-					NewEvent->Attendees.push_back(attendee);
+					NewEvent->Attendees.push_back(ParseAttendee(Line, GetProperty(Line)));
 				} else if (Line.find("BEGIN:VALARM") == 0) {
 					NewAlarm.Clear();
 					PrevComponent = CurrentComponent;

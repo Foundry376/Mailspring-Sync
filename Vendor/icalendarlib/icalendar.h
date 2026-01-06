@@ -132,4 +132,48 @@ inline string UnescapeICSText(const string &text) {
 	return result;
 }
 
+// Parse an ATTENDEE line per RFC 5545 Section 3.8.4.1
+// Format: ATTENDEE;CN="Name";ROLE=...:mailto:email@example.com
+// Returns formatted string: "Name <email>" if CN present, otherwise just email
+inline string ParseAttendee(const string &line, const string &calAddress) {
+	string email = calAddress;
+
+	// Strip mailto: prefix if present (case-insensitive)
+	if (email.length() >= 7) {
+		string prefix = email.substr(0, 7);
+		if (prefix == "mailto:" || prefix == "MAILTO:") {
+			email = email.substr(7);
+		}
+	}
+
+	// Extract CN (common name) parameter if present
+	// CN can be quoted: CN="John Smith" or unquoted: CN=John
+	string cn;
+	size_t cnPos = line.find("CN=");
+	if (cnPos != string::npos) {
+		size_t valueStart = cnPos + 3;
+		if (valueStart < line.length()) {
+			if (line[valueStart] == '"') {
+				// Quoted value - find closing quote
+				size_t endQuote = line.find('"', valueStart + 1);
+				if (endQuote != string::npos) {
+					cn = line.substr(valueStart + 1, endQuote - valueStart - 1);
+				}
+			} else {
+				// Unquoted value - ends at ; or :
+				size_t endPos = line.find_first_of(";:", valueStart);
+				if (endPos != string::npos) {
+					cn = line.substr(valueStart, endPos - valueStart);
+				}
+			}
+		}
+	}
+
+	// Format as "Name <email>" if CN present, otherwise just email
+	if (!cn.empty()) {
+		return cn + " <" + email + ">";
+	}
+	return email;
+}
+
 #endif // _ICALENDAR_H
