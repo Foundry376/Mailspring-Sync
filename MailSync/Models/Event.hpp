@@ -31,6 +31,8 @@ class Event : public MailModel {
     // Not persisted - only used during the save lifecycle for EventSearch indexing.
     string _searchTitle;
     string _searchDescription;
+    string _searchLocation;
+    string _searchParticipants;
 
 public:
     static string TABLE_NAME;

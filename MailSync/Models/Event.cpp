@@ -149,6 +149,16 @@ void Event::applyICSEventData(const string& etag, const string& href,
     // Populate transient search fields from the ICalendarEvent
     _searchTitle = icsEvent->Summary;
     _searchDescription = icsEvent->Description;
+    _searchLocation = icsEvent->Location;
+
+    // Join attendees list into a single searchable string
+    _searchParticipants = "";
+    for (const auto& attendee : icsEvent->Attendees) {
+        if (!_searchParticipants.empty()) {
+            _searchParticipants += " ";
+        }
+        _searchParticipants += attendee;
+    }
 }
 
 bool Event::isRecurrenceException()
@@ -189,28 +199,25 @@ void Event::afterSave(MailStore * store) {
 
     // Only update EventSearch if search content was populated via applyICSEventData.
     // Events loaded from DB or client JSON won't have search content set.
-    if (_searchTitle.empty() && _searchDescription.empty()) {
+    if (_searchTitle.empty() && _searchDescription.empty() &&
+        _searchLocation.empty() && _searchParticipants.empty()) {
         return;
     }
-
-    // TODO: Parse location and participants from ICS data (separate workstream)
-    string location = "";
-    string participants = "";
 
     if (version() == 1) {
         SQLite::Statement insert(store->db(), "INSERT INTO EventSearch (content_id, title, description, location, participants) VALUES (?, ?, ?, ?, ?)");
         insert.bind(1, id());
         insert.bind(2, _searchTitle);
         insert.bind(3, _searchDescription);
-        insert.bind(4, location);
-        insert.bind(5, participants);
+        insert.bind(4, _searchLocation);
+        insert.bind(5, _searchParticipants);
         insert.exec();
     } else {
         SQLite::Statement update(store->db(), "UPDATE EventSearch SET title = ?, description = ?, location = ?, participants = ? WHERE content_id = ?");
         update.bind(1, _searchTitle);
         update.bind(2, _searchDescription);
-        update.bind(3, location);
-        update.bind(4, participants);
+        update.bind(3, _searchLocation);
+        update.bind(4, _searchParticipants);
         update.bind(5, id());
         update.exec();
     }
