@@ -145,10 +145,6 @@ void Event::applyICSEventData(const string& etag, const string& href,
     setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
     _data["rs"] = icsEvent->DtStart.toUnix();
     _data["re"] = endOf(icsEvent).toUnix();
-
-    // Store searchable fields for EventSearch indexing
-    _data["title"] = icsEvent->Summary;
-    _data["description"] = icsEvent->Description;
 }
 
 bool Event::isRecurrenceException()
@@ -187,11 +183,22 @@ void Event::bindToQuery(SQLite::Statement *query)
 void Event::afterSave(MailStore * store) {
     MailModel::afterSave(store);
 
-    string title = _data.count("title") ? _data["title"].get<string>() : "";
-    string description = _data.count("description") ? _data["description"].get<string>() : "";
+    // Parse searchable fields from raw ICS data
+    string title = "";
+    string description = "";
     // TODO: Parse location and participants from ICS data (separate workstream)
     string location = "";
     string participants = "";
+
+    string ics = icsData();
+    if (!ics.empty()) {
+        ICalendar cal(ics);
+        if (!cal.Events.empty()) {
+            ICalendarEvent * icsEvent = cal.Events.front();
+            title = icsEvent->Summary;
+            description = icsEvent->Description;
+        }
+    }
 
     if (version() == 1) {
         SQLite::Statement insert(store->db(), "INSERT INTO EventSearch (content_id, title, description, location, participants) VALUES (?, ?, ?, ?, ?)");
