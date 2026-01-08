@@ -28,6 +28,46 @@
 #include <set>
 #include <curl/curl.h>
 
+#ifdef _MSC_VER
+// Windows doesn't have strptime, provide a minimal implementation for HTTP-date parsing
+static char* win32_strptime(const char* s, const char* format, struct tm* tm) {
+    // Only supports the HTTP-date format: "%a, %d %b %Y %H:%M:%S"
+    static const char* months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    char weekday[4], month[4];
+    int day, year, hour, min, sec;
+
+    if (sscanf_s(s, "%3s, %d %3s %d %d:%d:%d",
+                 weekday, (unsigned)sizeof(weekday),
+                 &day,
+                 month, (unsigned)sizeof(month),
+                 &year, &hour, &min, &sec) != 7) {
+        return nullptr;
+    }
+
+    int mon = -1;
+    for (int i = 0; i < 12; i++) {
+        if (_stricmp(month, months[i]) == 0) {
+            mon = i;
+            break;
+        }
+    }
+    if (mon < 0) return nullptr;
+
+    tm->tm_mday = day;
+    tm->tm_mon = mon;
+    tm->tm_year = year - 1900;
+    tm->tm_hour = hour;
+    tm->tm_min = min;
+    tm->tm_sec = sec;
+
+    // Return pointer past the parsed portion (approximate)
+    return const_cast<char*>(s + strlen(s));
+}
+#define strptime win32_strptime
+#define timegm _mkgmtime
+#endif
+
 struct EventResult {
     std::string icsHref;
     ETAG etag;
