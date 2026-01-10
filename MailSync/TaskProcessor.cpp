@@ -894,13 +894,13 @@ void TaskProcessor::performLocalDestroyContact(Task * task) {
     }
 
     {
-        store->beginTransaction();
+        MailStoreTransaction transaction{store, "performLocalDestroyContact"};
         auto deleted = store->findLargeSet<Contact>("id", contactIds);
         for (auto & c : deleted) {
             c->setHidden(true);
             store->save(c.get());
         }
-        store->commitTransaction();
+        transaction.commit();
     }
 }
 
