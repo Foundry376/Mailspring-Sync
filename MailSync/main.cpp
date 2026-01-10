@@ -9,6 +9,7 @@
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
 
+#include <atomic>
 #include <iostream>
 #include <string>
 #include <time.h>
@@ -59,7 +60,7 @@ shared_ptr<GoogleContactsWorker> contactsWorker = nullptr;
 shared_ptr<MetadataWorker> metadataWorker = nullptr;
 shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
 
-bool bgWorkerShouldMarkAll = true;
+std::atomic<bool> bgWorkerShouldMarkAll{true};
 
 std::thread * fgThread = nullptr;
 std::thread * bgThread = nullptr;
