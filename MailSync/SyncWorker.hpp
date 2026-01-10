@@ -14,6 +14,7 @@
 
 #include <stdio.h>
 
+#include <atomic>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -35,7 +36,7 @@ class SyncWorker {
     shared_ptr<spdlog::logger> logger;
 
     int unlinkPhase;
-    bool idleShouldReloop;
+    std::atomic<bool> idleShouldReloop{false};
     int iterationsSinceLaunch;
     vector<string> idleFetchBodyIDs;
     std::mutex idleMtx;
