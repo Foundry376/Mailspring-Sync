@@ -419,7 +419,11 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             }
             if (time(0) - lostCINAt > 30) {
                 // note: don't run termination / stack trace handlers,
-                // just exit.
+                // just exit. Cancel the metadata worker to abort its
+                // streaming connection promptly.
+                if (metadataWorker) {
+                    metadataWorker->cancel();
+                }
                 std::exit(141);
             }
 			std::this_thread::sleep_for(std::chrono::microseconds(1000));
