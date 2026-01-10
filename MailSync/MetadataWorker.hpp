@@ -18,6 +18,7 @@
 
 #include <stdio.h>
 
+#include <atomic>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -30,14 +31,17 @@ class MetadataWorker {
     MailStore * store;
     shared_ptr<spdlog::logger> logger;
     shared_ptr<Account> account;
-    
+
     string deltasBuffer;
     string deltasCursor;
     int backoffStep;
+    std::atomic<bool> _cancelled{false};
 
 public:
+    void cancel();
+    bool isCancelled() const;
     MetadataWorker(shared_ptr<Account> account);
-    
+
     void run();
 
     bool fetchMetadata(int page);

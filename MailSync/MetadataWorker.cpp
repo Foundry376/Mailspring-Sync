@@ -32,12 +32,26 @@ static size_t _onDeltaData(void *contents, size_t length, size_t nmemb, void *us
     return real_size;
 }
 
+static int _onProgress(void *userp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
+    MetadataWorker * worker = (MetadataWorker *)userp;
+    // Return non-zero to abort the transfer if cancellation is requested
+    return worker->isCancelled() ? 1 : 0;
+}
+
 
 MetadataWorker::MetadataWorker(shared_ptr<Account> account) :
     store(new MailStore()),
     account(account),
     logger(spdlog::get("logger"))
 {
+}
+
+void MetadataWorker::cancel() {
+    _cancelled.store(true);
+}
+
+bool MetadataWorker::isCancelled() const {
+    return _cancelled.load();
 }
 
 void MetadataWorker::run() {
@@ -49,7 +63,7 @@ void MetadataWorker::run() {
         return;
     }
 
-    while(true) {
+    while(!isCancelled()) {
         try {
             // If we don't have a cursor (we're just starting for the first time),
             // obtain a cursor for "now" and paginate through all existing metadata.
@@ -57,19 +71,24 @@ void MetadataWorker::run() {
             // changes since we started.
             if (deltasCursor == "") {
                 fetchDeltaCursor();
-                
+
                 int page = 0;
                 bool more = true;
-                while (more == true) {
+                while (more == true && !isCancelled()) {
                     more = fetchMetadata(page++);
                 }
             }
 
             // Open the streaming connection and block until the connection is broken
-            fetchDeltasBlocking();
+            if (!isCancelled()) {
+                fetchDeltasBlocking();
+            }
             backoffStep = 0;
 
         } catch (SyncException & ex) {
+            if (isCancelled()) {
+                break;
+            }
             if (!ex.isRetryable()) {
                 exceptions::logCurrentExceptionWithStackTrace();
                 abort();
@@ -83,6 +102,7 @@ void MetadataWorker::run() {
             abort();
         }
     }
+    logger->info("Metadata worker cancelled, exiting.");
     
 }
 
@@ -129,18 +149,26 @@ void MetadataWorker::fetchDeltasBlocking() {
     curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_TIME, 30L);
     curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_LIMIT, 1L);
 
-    // todo - potentially switch to a mode like this example that
-    // would allow us to control how often the thread wakes:
-    // https://curl.haxx.se/libcurl/c/multi-single.html
+    // Enable progress callback for graceful cancellation. The callback is
+    // invoked periodically and can return non-zero to abort the transfer.
+    curl_easy_setopt(curl_handle, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl_handle, CURLOPT_XFERINFOFUNCTION, _onProgress);
+    curl_easy_setopt(curl_handle, CURLOPT_XFERINFODATA, (void *)this);
+
     logger->info("Metadata delta stream starting...");
     CURLcode res = curl_easy_perform(curl_handle);
-    if (res == CURLE_OPERATION_TIMEDOUT) {
+    if (res == CURLE_ABORTED_BY_CALLBACK) {
+        logger->info("Metadata delta stream cancelled.");
+    } else if (res == CURLE_OPERATION_TIMEDOUT) {
         logger->info("Metadata delta stream timed out.");
     } else {
         logger->info("Metadata delta stream closed.");
     }
 
-    ValidateRequestResp(res, curl_handle, "");
+    // Don't validate response if cancelled - this is an intentional abort
+    if (res != CURLE_ABORTED_BY_CALLBACK) {
+        ValidateRequestResp(res, curl_handle, "");
+    }
     curl_easy_cleanup(curl_handle);
 }
 
