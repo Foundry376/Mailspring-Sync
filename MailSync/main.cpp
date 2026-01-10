@@ -438,7 +438,8 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 // syncback. This also mitigates any potential remote loads+saves that aren't inside transactions
                 // and could overwrite local changes.
                 static atomic<bool> queuedForegroundWake { false };
-                if (!queuedForegroundWake) {
+                bool expected = false;
+                if (queuedForegroundWake.compare_exchange_strong(expected, true)) {
                     std::thread([]() {
                         std::this_thread::sleep_for(chrono::milliseconds(300));
                         if (fgWorker) {
@@ -446,7 +447,6 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                         }
                         queuedForegroundWake = false;
                     }).detach();
-                    queuedForegroundWake = true;
                 }
             }
             
