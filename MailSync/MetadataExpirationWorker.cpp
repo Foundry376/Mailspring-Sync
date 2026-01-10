@@ -38,10 +38,12 @@ MetadataExpirationWorker::MetadataExpirationWorker(string accountId) :
 void MetadataExpirationWorker::isSavingMetadataWithExpiration(long e) {
     std::chrono::system_clock::time_point eTime = std::chrono::system_clock::from_time_t(e);
 
+    // Lock before checking _wakeTime to avoid TOCTOU race condition.
+    // The run() thread also holds this lock when modifying _wakeTime.
+    std::unique_lock<std::mutex> lck(_wakeMtx);
     if (eTime < _wakeTime) {
         // wake the expiration watcher - it will process expired metadata, find this new
         // expiration value, and sleep until that time instead of the old wakeTime.
-        std::unique_lock<std::mutex> lck(_wakeMtx);
         _wakeCv.notify_all();
     } else {
         spdlog::get("logger")->info("Metadata expiration {} is further in future than wake time {}", e, std::chrono::system_clock::to_time_t(_wakeTime));
@@ -61,6 +63,7 @@ void MetadataExpirationWorker::run() {
     std::this_thread::sleep_for(std::chrono::seconds(15));
     
     while (true) {
+        std::chrono::system_clock::time_point nextWakeTime;
         {
             MailStore store;
             
@@ -119,10 +122,11 @@ void MetadataExpirationWorker::run() {
             
             // sleep until then, or we're woken to lower the delay
             logger->info("-- Will wake for next expiration in {}sec", next - now);
-            _wakeTime = std::chrono::system_clock::from_time_t((time_t)next);
+            nextWakeTime = std::chrono::system_clock::from_time_t((time_t)next);
         }
 
         std::unique_lock<std::mutex> lck(_wakeMtx);
+        _wakeTime = nextWakeTime;
         _wakeCv.wait_until(lck, _wakeTime);
         
         // we've been woken up! Wait one second before processing.
