@@ -754,7 +754,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
 
     AutoreleasePool pool;
     IndexSet * set = IndexSet::indexSetWithRange(range);
-    IndexSet * heavyNeeded = new IndexSet();
+    IndexSet * heavyNeeded = IndexSet::indexSet();
     IMAPProgress cb;
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(remotePath));
