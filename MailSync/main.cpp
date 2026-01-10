@@ -484,14 +484,14 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
             if (type == "sync-calendar") {
                 static atomic<bool> runningCalendarSync { false };
-                if (!runningCalendarSync) {
-                    std::thread([&]() {
+                bool expected = false;
+                if (runningCalendarSync.compare_exchange_strong(expected, true)) {
+                    std::thread([account]() {
                         SetThreadName("calendar");
                         auto worker = DAVWorker(account);
                         worker.run();
                         runningCalendarSync = false;
                     }).detach();
-                    runningCalendarSync = true;
                 }
             }
 
