@@ -177,6 +177,15 @@ static void logger(mailpop3 * pop3, int log_type, const char * buffer, size_t si
     session->unlockConnectionLogger();
 }
 
+static void ssl_callback(struct mailstream_ssl_context * ssl_context, void * data)
+{
+    // Set the Server Name Indication (SNI) for TLS connections
+    const char * hostname = (const char *) data;
+    if (hostname != NULL) {
+        mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
+    }
+}
+
 void POPSession::setup()
 {
     mPop = mailpop3_new(0, NULL);
@@ -223,7 +232,7 @@ void POPSession::connect(ErrorCode * pError)
         }
 
         MCLog("start TLS");
-        r = mailpop3_socket_starttls(mPop);
+        r = mailpop3_socket_starttls_with_callback(mPop, ssl_callback, (void *) MCUTF8(hostname()));
         if (r != MAILPOP3_NO_ERROR) {
             * pError = ErrorStartTLSNotAvailable;
             return;
@@ -237,7 +246,8 @@ void POPSession::connect(ErrorCode * pError)
 
         case ConnectionTypeTLS:
         MCLog("connect %s %u", MCUTF8(hostname()), (unsigned int) port());
-        r = mailpop3_ssl_connect(mPop, MCUTF8(hostname()), port());
+        r = mailpop3_ssl_connect_with_callback(mPop, MCUTF8(hostname()), port(),
+            ssl_callback, (void *) MCUTF8(hostname()));
         if (r != MAILPOP3_NO_ERROR) {
             * pError = ErrorConnection;
             return;

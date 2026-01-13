@@ -611,6 +611,15 @@ static void logger(mailimap * imap, int log_type, const char * buffer, size_t si
     session->unlockConnectionLogger();
 }
 
+static void ssl_callback(struct mailstream_ssl_context * ssl_context, void * data)
+{
+    // Set the Server Name Indication (SNI) for TLS connections
+    const char * hostname = (const char *) data;
+    if (hostname != NULL) {
+        mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
+    }
+}
+
 void IMAPSession::setup()
 {
     MCAssert(mImap == NULL);
@@ -667,7 +676,7 @@ void IMAPSession::connect(ErrorCode * pError)
             goto close;
         }
 
-        r = mailimap_socket_starttls(mImap);
+        r = mailimap_socket_starttls_with_callback(mImap, ssl_callback, (void *) MCUTF8(mHostname));
         if (hasError(r)) {
             MCLog("no TLS %i", r);
             * pError = ErrorTLSNotAvailable;
@@ -682,7 +691,8 @@ void IMAPSession::connect(ErrorCode * pError)
         break;
 
         case ConnectionTypeTLS:
-        r = mailimap_ssl_connect_voip(mImap, MCUTF8(mHostname), mPort, isVoIPEnabled());
+        r = mailimap_ssl_connect_voip_with_callback(mImap, MCUTF8(mHostname), mPort, isVoIPEnabled(),
+            ssl_callback, (void *) MCUTF8(mHostname));
         MCLog("TLS ssl connect %s %u %u", MCUTF8(mHostname), mPort, r);
         if (hasError(r)) {
             MCLog("connect error %i", r);

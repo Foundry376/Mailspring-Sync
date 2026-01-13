@@ -251,6 +251,14 @@ static void logger(mailsmtp * smtp, int log_type, const char * buffer, size_t si
     session->unlockConnectionLogger();
 }
 
+static void ssl_callback(struct mailstream_ssl_context * ssl_context, void * data)
+{
+    // Set the Server Name Indication (SNI) for TLS connections
+    const char * hostname = (const char *) data;
+    if (hostname != NULL) {
+        mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
+    }
+}
 
 void SMTPSession::setup()
 {
@@ -325,7 +333,7 @@ void SMTPSession::connect(ErrorCode * pError)
             }
             
             MCLog("start TLS");
-            r = mailsmtp_socket_starttls(mSmtp);
+            r = mailsmtp_socket_starttls_with_callback(mSmtp, ssl_callback, (void *) MCUTF8(mHostname));
             saveLastResponse();
             mLastLibetpanError = r;
             mLastErrorLocation = 3;
@@ -357,7 +365,8 @@ void SMTPSession::connect(ErrorCode * pError)
             break;
             
         case ConnectionTypeTLS:
-            r = mailsmtp_ssl_connect(mSmtp, MCUTF8(mHostname), port());
+            r = mailsmtp_ssl_connect_with_callback(mSmtp, MCUTF8(mHostname), port(),
+                ssl_callback, (void *) MCUTF8(mHostname));
             saveLastResponse();
             mLastLibetpanError = r;
             mLastErrorLocation = 5;
