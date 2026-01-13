@@ -43,6 +43,9 @@ void CleanupCurlRequest(CURL * curl_handle) {
     curl_easy_cleanup(curl_handle);
 }
 
+// IMPORTANT: This certificate path detection logic is duplicated in
+// Vendor/mailcore2/src/core/security/MCCertificateUtils.cpp. If you update
+// the paths or logic here, update that file as well.
 string FindLinuxCertsBundle() {
 #ifdef __linux__
     // First, check the SSL_CERT_FILE environment variable (standard override)
@@ -88,6 +91,23 @@ string FindLinuxCertsBundle() {
     }
 #endif
     return "";
+}
+
+void SetCurlCertificateBundle(CURL * curl_handle) {
+#ifdef __linux__
+    // Ensure /all/ curl code paths run this code for RHEL 7.6 and other linux distros
+    static string cachedCertsBundlePath = FindLinuxCertsBundle();
+    if (!cachedCertsBundlePath.empty()) {
+        size_t len = cachedCertsBundlePath.length();
+        bool isFile = (len > 4 && cachedCertsBundlePath.substr(len - 4) == ".crt") ||
+                      (len > 4 && cachedCertsBundlePath.substr(len - 4) == ".pem");
+        if (isFile) {
+            curl_easy_setopt(curl_handle, CURLOPT_CAINFO, cachedCertsBundlePath.c_str());
+        } else {
+            curl_easy_setopt(curl_handle, CURLOPT_CAPATH, cachedCertsBundlePath.c_str());
+        }
+    }
+#endif
 }
 
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp) {
@@ -171,21 +191,14 @@ CURL * CreateJSONRequest(string url, string method, string authorization, const 
     curl_easy_setopt(curl_handle, CURLOPT_PRIVATE, requestData);
 
 
-    // Ensure /all/ curl code paths run this code for RHEL 7.6 and other linux distros
-    string explicitCertsBundlePath = FindLinuxCertsBundle();
-    if (explicitCertsBundlePath != "") {
-        curl_easy_setopt(curl_handle, CURLOPT_CAINFO, explicitCertsBundlePath.c_str());
-    }
+    SetCurlCertificateBundle(curl_handle);
 
     return curl_handle;
 }
 
 const string PerformRequest(CURL * curl_handle) {
-    string explicitCertsBundlePath = FindLinuxCertsBundle();
-    if (explicitCertsBundlePath != "") {
-        curl_easy_setopt(curl_handle, CURLOPT_CAINFO, explicitCertsBundlePath.c_str());
-    }
-    
+    SetCurlCertificateBundle(curl_handle);
+
     string result;
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
@@ -199,12 +212,8 @@ const string PerformExpectedRedirect(string url) {
     CURL * curl_handle = curl_easy_init();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 10);
+    SetCurlCertificateBundle(curl_handle);
 
-    string explicitCertsBundlePath = FindLinuxCertsBundle();
-    if (explicitCertsBundlePath != "") {
-        curl_easy_setopt(curl_handle, CURLOPT_CAINFO, explicitCertsBundlePath.c_str());
-    }
-    
     string result;
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);

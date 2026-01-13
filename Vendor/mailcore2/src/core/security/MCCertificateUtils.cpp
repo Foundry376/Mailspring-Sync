@@ -13,6 +13,9 @@
 #include <Security/Security.h>
 #else
 #include <string>
+#include <vector>
+#include <cstdlib>
+#include <cstring>
 #include <openssl/opensslv.h>
 #include <openssl/bio.h>
 #include <openssl/ossl_typ.h>
@@ -117,23 +120,41 @@ err:
 #endif
     int status;
 
-    std::string certificatePaths[] = {
-        // Debian, Ubuntu, Arch: maintained by update-ca-certificates
-        "/etc/ssl/certs/ca-certificates.crt",
-        // Red Hat 5+, Fedora, Centos
-        "/etc/pki/tls/certs/ca-bundle.crt",
-        // Red Hat 4
-        "/usr/share/ssl/certs/ca-bundle.crt",
-        // FreeBSD (security/ca-root-nss package)
-        "/usr/local/share/certs/ca-root-nss.crt",
-        // FreeBSD (deprecated security/ca-root package, removed 2008)
-        "/usr/local/share/certs/ca-root.crt",
-        // FreeBSD (optional symlink)
-        // OpenBSD
-        "/etc/ssl/cert.pem",
-        // OpenSUSE
-        "/etc/ssl/ca-bundle.pem",
-    };
+    // IMPORTANT: This certificate path detection logic is duplicated in
+    // MailSync/NetworkRequestUtils.cpp FindLinuxCertsBundle(). If you update
+    // the paths or logic here, update that function as well.
+
+    // Build list of paths to check
+    std::vector<std::string> certificatePaths;
+
+    // First, check the SSL_CERT_FILE environment variable (standard override)
+    const char* sslCertFile = getenv("SSL_CERT_FILE");
+    if (sslCertFile != nullptr && strlen(sslCertFile) > 0) {
+        certificatePaths.push_back(std::string(sslCertFile));
+    }
+
+    // If running in a snap, check snap-bundled certificates first
+    const char* snapPath = getenv("SNAP");
+    if (snapPath != nullptr && strlen(snapPath) > 0) {
+        certificatePaths.push_back(std::string(snapPath) + "/etc/ssl/certs/ca-certificates.crt");
+        certificatePaths.push_back(std::string(snapPath) + "/usr/share/ca-certificates/mozilla");
+    }
+
+    // Standard system paths
+    // Debian, Ubuntu, Arch: maintained by update-ca-certificates
+    certificatePaths.push_back("/etc/ssl/certs/ca-certificates.crt");
+    // Red Hat 5+, Fedora, Centos
+    certificatePaths.push_back("/etc/pki/tls/certs/ca-bundle.crt");
+    // Red Hat 4
+    certificatePaths.push_back("/usr/share/ssl/certs/ca-bundle.crt");
+    // FreeBSD (security/ca-root-nss package)
+    certificatePaths.push_back("/usr/local/share/certs/ca-root-nss.crt");
+    // FreeBSD (deprecated security/ca-root package, removed 2008)
+    certificatePaths.push_back("/usr/local/share/certs/ca-root.crt");
+    // OpenBSD
+    certificatePaths.push_back("/etc/ssl/cert.pem");
+    // OpenSUSE
+    certificatePaths.push_back("/etc/ssl/ca-bundle.pem");
 
     MCLog("OpenSSL version: %s", OpenSSL_version(0));
     OpenSSL_add_all_algorithms();
@@ -205,10 +226,15 @@ err:
         MCLog("Error loading the system-wide CA certificates");
     }
 
-    for (const auto path : certificatePaths)
+    for (const auto& path : certificatePaths)
     {
-        if (X509_STORE_load_locations(store, path.c_str(), NULL) == 1)
-        { // loaded successfully
+        size_t len = path.length();
+        bool isFile = (len > 4 && path.substr(len - 4) == ".crt") ||
+                      (len > 4 && path.substr(len - 4) == ".pem");
+        int loaded = isFile
+            ? X509_STORE_load_locations(store, path.c_str(), NULL)
+            : X509_STORE_load_locations(store, NULL, path.c_str());
+        if (loaded == 1) {
             break;
         }
     }
