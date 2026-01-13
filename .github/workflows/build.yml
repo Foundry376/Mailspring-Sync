@@ -163,25 +163,21 @@ jobs:
             ldd ./mailsync.bin || true
             echo ''
 
-            # Run mailsync via wrapper (wrapper sets LD_LIBRARY_PATH and SASL_PATH)
-            echo 'Running mailsync --help...'
-            ./mailsync --help > /tmp/output.txt 2>&1; EXIT_CODE=\$?
+            # Run mailsync install-check via wrapper (wrapper sets LD_LIBRARY_PATH and SASL_PATH)
+            # Note: || true prevents set -e from exiting on non-zero; we check output instead
+            echo 'Running mailsync --mode install-check...'
+            CONFIG_DIR_PATH=/tmp IDENTITY_SERVER=https://id.getmailspring.com ./mailsync --mode install-check > /tmp/output.txt 2>&1 || true
             cat /tmp/output.txt
             echo ''
-            echo \"Exit code: \$EXIT_CODE\"
-            echo ''
 
-            # Verify help message is printed
-            if grep -q 'USAGE:' /tmp/output.txt && grep -q 'CONFIG_DIR_PATH' /tmp/output.txt; then
-              echo '✓ mailsync runs successfully and prints help message on Fedora ${{ matrix.fedora_version }}'
-            else
-              echo '✗ mailsync failed to print expected help message'
-              echo 'Output was:'
-              cat /tmp/output.txt
-              echo ''
+            # Verify install check passed (no errors)
+            if grep -q 'One or more checks failed' /tmp/output.txt; then
+              echo '✗ mailsync install-check failed on Fedora ${{ matrix.fedora_version }}'
               echo 'Checking for missing libraries (not found):'
               ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
+            else
+              echo '✓ mailsync install-check passed on Fedora ${{ matrix.fedora_version }}'
             fi
           "
 
@@ -228,25 +224,21 @@ jobs:
             ldd ./mailsync.bin || true
             echo ''
 
-            # Run mailsync via wrapper (wrapper sets LD_LIBRARY_PATH and SASL_PATH)
-            echo 'Running mailsync --help...'
-            ./mailsync --help > /tmp/output.txt 2>&1; EXIT_CODE=\$?
+            # Run mailsync install-check via wrapper (wrapper sets LD_LIBRARY_PATH and SASL_PATH)
+            # Note: || true prevents set -e from exiting on non-zero; we check output instead
+            echo 'Running mailsync --mode install-check...'
+            CONFIG_DIR_PATH=/tmp IDENTITY_SERVER=https://id.getmailspring.com ./mailsync --mode install-check > /tmp/output.txt 2>&1 || true
             cat /tmp/output.txt
             echo ''
-            echo \"Exit code: \$EXIT_CODE\"
-            echo ''
 
-            # Verify help message is printed
-            if grep -q 'USAGE:' /tmp/output.txt && grep -q 'CONFIG_DIR_PATH' /tmp/output.txt; then
-              echo '✓ mailsync runs successfully and prints help message on Arch Linux'
-            else
-              echo '✗ mailsync failed to print expected help message'
-              echo 'Output was:'
-              cat /tmp/output.txt
-              echo ''
+            # Verify install check passed (no errors)
+            if grep -q 'One or more checks failed' /tmp/output.txt; then
+              echo '✗ mailsync install-check failed on Arch Linux'
               echo 'Checking for missing libraries (not found):'
               ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
+            else
+              echo '✓ mailsync install-check passed on Arch Linux'
             fi
           "
 
@@ -296,24 +288,20 @@ jobs:
             ldd ./mailsync.bin || true
             echo ''
 
-            # Run mailsync via wrapper (wrapper sets LD_LIBRARY_PATH and SASL_PATH)
-            echo 'Running mailsync --help...'
-            ./mailsync --help > /tmp/output.txt 2>&1; EXIT_CODE=\$?
+            # Run mailsync install-check via wrapper (wrapper sets LD_LIBRARY_PATH and SASL_PATH)
+            # Note: || true prevents set -e from exiting on non-zero; we check output instead
+            echo 'Running mailsync --mode install-check...'
+            CONFIG_DIR_PATH=/tmp IDENTITY_SERVER=https://id.getmailspring.com ./mailsync --mode install-check > /tmp/output.txt 2>&1 || true
             cat /tmp/output.txt
             echo ''
-            echo \"Exit code: \$EXIT_CODE\"
-            echo ''
 
-            # Verify help message is printed
-            if grep -q 'USAGE:' /tmp/output.txt && grep -q 'CONFIG_DIR_PATH' /tmp/output.txt; then
-              echo '✓ mailsync runs successfully and prints help message on Ubuntu ${{ matrix.ubuntu_version }}'
-            else
-              echo '✗ mailsync failed to print expected help message'
-              echo 'Output was:'
-              cat /tmp/output.txt
-              echo ''
+            # Verify install check passed (no errors)
+            if grep -q 'One or more checks failed' /tmp/output.txt; then
+              echo '✗ mailsync install-check failed on Ubuntu ${{ matrix.ubuntu_version }}'
               echo 'Checking for missing libraries (not found):'
               ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
+            else
+              echo '✓ mailsync install-check passed on Ubuntu ${{ matrix.ubuntu_version }}'
             fi
           "

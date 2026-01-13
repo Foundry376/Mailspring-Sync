@@ -127,6 +127,7 @@ err:
     // Build list of paths to check
     std::vector<std::string> certificatePaths;
 
+#if !defined(_MSC_VER) && !defined(ANDROID) && !defined(__ANDROID__)
     // First, check the SSL_CERT_FILE environment variable (standard override)
     const char* sslCertFile = getenv("SSL_CERT_FILE");
     if (sslCertFile != nullptr && strlen(sslCertFile) > 0) {
@@ -139,7 +140,8 @@ err:
         certificatePaths.push_back(std::string(snapPath) + "/etc/ssl/certs/ca-certificates.crt");
         certificatePaths.push_back(std::string(snapPath) + "/usr/share/ca-certificates/mozilla");
     }
-
+#endif
+    
     // Standard system paths
     // Debian, Ubuntu, Arch: maintained by update-ca-certificates
     certificatePaths.push_back("/etc/ssl/certs/ca-certificates.crt");

@@ -43,73 +43,6 @@ void CleanupCurlRequest(CURL * curl_handle) {
     curl_easy_cleanup(curl_handle);
 }
 
-// IMPORTANT: This certificate path detection logic is duplicated in
-// Vendor/mailcore2/src/core/security/MCCertificateUtils.cpp. If you update
-// the paths or logic here, update that file as well.
-string FindLinuxCertsBundle() {
-#ifdef __linux__
-    // First, check the SSL_CERT_FILE environment variable (standard override)
-    const char* sslCertFile = getenv("SSL_CERT_FILE");
-    if (sslCertFile != nullptr && strlen(sslCertFile) > 0) {
-        struct stat buffer;
-        if (stat(sslCertFile, &buffer) == 0) {
-            return std::string(sslCertFile);
-        }
-    }
-
-    // Build list of paths to check, including snap-relative paths if running in a snap
-    std::vector<std::string> certificatePaths;
-
-    // If running in a snap, check snap-bundled certificates first
-    const char* snapPath = getenv("SNAP");
-    if (snapPath != nullptr && strlen(snapPath) > 0) {
-        certificatePaths.push_back(std::string(snapPath) + "/etc/ssl/certs/ca-certificates.crt");
-        certificatePaths.push_back(std::string(snapPath) + "/usr/share/ca-certificates/mozilla");
-    }
-
-    // Standard system paths
-    // Debian, Ubuntu, Arch: maintained by update-ca-certificates
-    certificatePaths.push_back("/etc/ssl/certs/ca-certificates.crt");
-    // Red Hat 5+, Fedora, Centos
-    certificatePaths.push_back("/etc/pki/tls/certs/ca-bundle.crt");
-    // Red Hat 4
-    certificatePaths.push_back("/usr/share/ssl/certs/ca-bundle.crt");
-    // FreeBSD (security/ca-root-nss package)
-    certificatePaths.push_back("/usr/local/share/certs/ca-root-nss.crt");
-    // FreeBSD (deprecated security/ca-root package, removed 2008)
-    certificatePaths.push_back("/usr/local/share/certs/ca-root.crt");
-    // OpenBSD
-    certificatePaths.push_back("/etc/ssl/cert.pem");
-    // OpenSUSE
-    certificatePaths.push_back("/etc/ssl/ca-bundle.pem");
-
-    for (const auto& path : certificatePaths) {
-        struct stat buffer;
-        if (stat(path.c_str(), &buffer) == 0) {
-            return path;
-        }
-    }
-#endif
-    return "";
-}
-
-void SetCurlCertificateBundle(CURL * curl_handle) {
-#ifdef __linux__
-    // Ensure /all/ curl code paths run this code for RHEL 7.6 and other linux distros
-    static string cachedCertsBundlePath = FindLinuxCertsBundle();
-    if (!cachedCertsBundlePath.empty()) {
-        size_t len = cachedCertsBundlePath.length();
-        bool isFile = (len > 4 && cachedCertsBundlePath.substr(len - 4) == ".crt") ||
-                      (len > 4 && cachedCertsBundlePath.substr(len - 4) == ".pem");
-        if (isFile) {
-            curl_easy_setopt(curl_handle, CURLOPT_CAINFO, cachedCertsBundlePath.c_str());
-        } else {
-            curl_easy_setopt(curl_handle, CURLOPT_CAPATH, cachedCertsBundlePath.c_str());
-        }
-    }
-#endif
-}
-
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp) {
     string * buffer = (string *)userp;
     size_t real_size = length * nmemb;
@@ -190,15 +123,10 @@ CURL * CreateJSONRequest(string url, string method, string authorization, const 
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_PRIVATE, requestData);
 
-
-    SetCurlCertificateBundle(curl_handle);
-
     return curl_handle;
 }
 
 const string PerformRequest(CURL * curl_handle) {
-    SetCurlCertificateBundle(curl_handle);
-
     string result;
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
@@ -212,7 +140,6 @@ const string PerformExpectedRedirect(string url) {
     CURL * curl_handle = curl_easy_init();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 10);
-    SetCurlCertificateBundle(curl_handle);
 
     string result;
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);

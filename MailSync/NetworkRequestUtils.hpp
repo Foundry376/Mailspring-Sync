@@ -26,9 +26,6 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
 // Helper to cleanup curl handle and associated header list stored in CURLOPT_PRIVATE
 void CleanupCurlRequest(CURL * curl_handle);
 
-// Helper to set the CA certificate bundle path on Linux distros (RHEL 7.6, etc.)
-void SetCurlCertificateBundle(CURL * curl_handle);
-
 CURL * CreateJSONRequest(string url, string method = "GET", string authorization = "", const char * payloadChars = nullptr);
 CURL * CreateCalDavRequest(string url, string method = "GET", const char * payloadChars = nullptr);
 
