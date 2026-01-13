@@ -69,19 +69,57 @@ jobs:
           name: win-ia32-mailsync
           path: Windows/mailsync.tar.gz
 
-      # Validate that the program exits with code 0 (help/usage shown). If any DLLs are missing that
-      # prevent the application from starting, a code like -1073741515 will be returned.
-      - name: Validate executable
+      # Run install-check to verify SSL/TLS connectivity to Gmail and identity server.
+      # This validates that curl, OpenSSL, and mailcore2 are all working correctly.
+      - name: Run install-check
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath "..\app\dist\mailsync.exe" -PassThru -Wait -NoNewWindow
+          Write-Host "=== Running mailsync install-check on Windows ==="
+
+          # Create a directory with 'mailspring' in the path (required by branding check in main.cpp)
+          $testDir = "$env:TEMP\mailspring"
+          New-Item -ItemType Directory -Force -Path $testDir | Out-Null
+
+          # Copy mailsync.exe and all DLLs to the test directory
+          Copy-Item "..\app\dist\*" -Destination $testDir -Recurse -Force
+
+          # Set environment variables and run install-check
+          $env:CONFIG_DIR_PATH = $env:TEMP
+          $env:IDENTITY_SERVER = "https://id.getmailspring.com"
+
+          Write-Host "Running mailsync --mode install-check..."
+          $process = Start-Process -FilePath "$testDir\mailsync.exe" `
+            -ArgumentList "--mode", "install-check" `
+            -PassThru -Wait -NoNewWindow `
+            -RedirectStandardOutput "$env:TEMP\output.txt" `
+            -RedirectStandardError "$env:TEMP\error.txt"
+
           $exitCode = $process.ExitCode
 
-          if ($exitCode -ne 0) {
-            Write-Host "We expected mailsync.exe to exit with code 0, but we got $exitCode instead."
+          Write-Host "Output:"
+          if (Test-Path "$env:TEMP\output.txt") { Get-Content "$env:TEMP\output.txt" }
+          if (Test-Path "$env:TEMP\error.txt") {
+            $errorContent = Get-Content "$env:TEMP\error.txt" -ErrorAction SilentlyContinue
+            if ($errorContent) {
+              Write-Host "Stderr:"
+              Write-Host $errorContent
+            }
+          }
+
+          # Check for failure indicators in output
+          $output = ""
+          if (Test-Path "$env:TEMP\output.txt") {
+            $output = Get-Content "$env:TEMP\output.txt" -Raw
+          }
+
+          if ($output -match "One or more checks failed") {
+            Write-Host "X mailsync install-check failed on Windows"
+            exit 1
+          } elseif ($exitCode -ne 0) {
+            Write-Host "X mailsync install-check failed with exit code $exitCode"
             exit 1
           } else {
-            Write-Host "Exit code was as expected: $exitCode"
+            Write-Host "OK mailsync install-check passed on Windows"
           }
 
       - name: Deploy to S3

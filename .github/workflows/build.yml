@@ -79,6 +79,54 @@ jobs:
           echo "Universal binary verification passed: $ARCHS"
           lipo -info ../app/mailsync
 
+      - name: Run install-check (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "=== Running mailsync install-check on macOS ==="
+
+          # Create a directory with 'mailspring' in the path (required by branding check)
+          mkdir -p /tmp/mailspring
+          cp ../app/mailsync /tmp/mailspring/mailsync
+          chmod +x /tmp/mailspring/mailsync
+
+          # Run install-check to verify SSL/TLS connectivity
+          echo "Running mailsync --mode install-check..."
+          CONFIG_DIR_PATH=/tmp IDENTITY_SERVER=https://id.getmailspring.com /tmp/mailspring/mailsync --mode install-check > /tmp/output.txt 2>&1 || true
+          cat /tmp/output.txt
+          echo ""
+
+          # Verify install check passed
+          if grep -q 'One or more checks failed' /tmp/output.txt; then
+            echo "✗ mailsync install-check failed on macOS"
+            exit 1
+          else
+            echo "✓ mailsync install-check passed on macOS"
+          fi
+
+      - name: Run install-check (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "=== Running mailsync install-check on Linux (build host) ==="
+
+          # Extract the tarball to a directory with 'mailspring' in the path
+          mkdir -p /tmp/mailspring
+          tar -xzf ../app/dist/mailsync.tar.gz -C /tmp/mailspring
+          chmod +x /tmp/mailspring/mailsync /tmp/mailspring/mailsync.bin
+
+          # Run install-check via wrapper script
+          echo "Running mailsync --mode install-check..."
+          CONFIG_DIR_PATH=/tmp IDENTITY_SERVER=https://id.getmailspring.com /tmp/mailspring/mailsync --mode install-check > /tmp/output.txt 2>&1 || true
+          cat /tmp/output.txt
+          echo ""
+
+          # Verify install check passed
+          if grep -q 'One or more checks failed' /tmp/output.txt; then
+            echo "✗ mailsync install-check failed on Linux build host"
+            exit 1
+          else
+            echo "✓ mailsync install-check passed on Linux build host"
+          fi
+
       - name: Setup AWS CLI
         if: success() && (github.ref == 'refs/heads/master')
         uses: aws-actions/configure-aws-credentials@v1
