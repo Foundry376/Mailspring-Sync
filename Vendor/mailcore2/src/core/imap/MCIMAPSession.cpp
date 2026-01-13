@@ -5,6 +5,11 @@
 #include <libetpan/libetpan.h>
 #include <string.h>
 #include <stdlib.h>
+#ifdef _MSC_VER
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#endif
 
 #include "MCDefines.h"
 #include "MCIMAPSearchExpression.h"
@@ -611,6 +616,31 @@ static void logger(mailimap * imap, int log_type, const char * buffer, size_t si
     session->unlockConnectionLogger();
 }
 
+static bool isIPAddress(const char * hostname)
+{
+    // Check if hostname is an IPv4 or IPv6 address
+    // SNI should only be used for hostnames, not IP addresses
+    struct in_addr ipv4addr;
+    struct in6_addr ipv6addr;
+    if (inet_pton(AF_INET, hostname, &ipv4addr) == 1) {
+        return true;
+    }
+    if (inet_pton(AF_INET6, hostname, &ipv6addr) == 1) {
+        return true;
+    }
+    return false;
+}
+
+static void ssl_callback(struct mailstream_ssl_context * ssl_context, void * data)
+{
+    // Set the Server Name Indication (SNI) for TLS connections
+    // SNI only makes sense for hostnames, not IP addresses
+    const char * hostname = (const char *) data;
+    if (hostname != NULL && !isIPAddress(hostname)) {
+        mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
+    }
+}
+
 void IMAPSession::setup()
 {
     MCAssert(mImap == NULL);
@@ -667,7 +697,7 @@ void IMAPSession::connect(ErrorCode * pError)
             goto close;
         }
 
-        r = mailimap_socket_starttls(mImap);
+        r = mailimap_socket_starttls_with_callback(mImap, ssl_callback, (void *) MCUTF8(mHostname));
         if (hasError(r)) {
             MCLog("no TLS %i", r);
             * pError = ErrorTLSNotAvailable;
@@ -682,7 +712,8 @@ void IMAPSession::connect(ErrorCode * pError)
         break;
 
         case ConnectionTypeTLS:
-        r = mailimap_ssl_connect_voip(mImap, MCUTF8(mHostname), mPort, isVoIPEnabled());
+        r = mailimap_ssl_connect_voip_with_callback(mImap, MCUTF8(mHostname), mPort, isVoIPEnabled(),
+            ssl_callback, (void *) MCUTF8(mHostname));
         MCLog("TLS ssl connect %s %u %u", MCUTF8(mHostname), mPort, r);
         if (hasError(r)) {
             MCLog("connect error %i", r);

@@ -4,6 +4,11 @@
 
 #include <string.h>
 #include <libetpan/libetpan.h>
+#ifdef _MSC_VER
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#endif
 
 #include "MCAddress.h"
 #include "MCMessageBuilder.h"
@@ -251,6 +256,30 @@ static void logger(mailsmtp * smtp, int log_type, const char * buffer, size_t si
     session->unlockConnectionLogger();
 }
 
+static bool isIPAddress(const char * hostname)
+{
+    // Check if hostname is an IPv4 or IPv6 address
+    // SNI should only be used for hostnames, not IP addresses
+    struct in_addr ipv4addr;
+    struct in6_addr ipv6addr;
+    if (inet_pton(AF_INET, hostname, &ipv4addr) == 1) {
+        return true;
+    }
+    if (inet_pton(AF_INET6, hostname, &ipv6addr) == 1) {
+        return true;
+    }
+    return false;
+}
+
+static void ssl_callback(struct mailstream_ssl_context * ssl_context, void * data)
+{
+    // Set the Server Name Indication (SNI) for TLS connections
+    // SNI only makes sense for hostnames, not IP addresses
+    const char * hostname = (const char *) data;
+    if (hostname != NULL && !isIPAddress(hostname)) {
+        mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
+    }
+}
 
 void SMTPSession::setup()
 {
@@ -325,7 +354,7 @@ void SMTPSession::connect(ErrorCode * pError)
             }
             
             MCLog("start TLS");
-            r = mailsmtp_socket_starttls(mSmtp);
+            r = mailsmtp_socket_starttls_with_callback(mSmtp, ssl_callback, (void *) MCUTF8(mHostname));
             saveLastResponse();
             mLastLibetpanError = r;
             mLastErrorLocation = 3;
@@ -357,7 +386,8 @@ void SMTPSession::connect(ErrorCode * pError)
             break;
             
         case ConnectionTypeTLS:
-            r = mailsmtp_ssl_connect(mSmtp, MCUTF8(mHostname), port());
+            r = mailsmtp_ssl_connect_with_callback(mSmtp, MCUTF8(mHostname), port(),
+                ssl_callback, (void *) MCUTF8(mHostname));
             saveLastResponse();
             mLastLibetpanError = r;
             mLastErrorLocation = 5;
