@@ -397,6 +397,7 @@ int runInstallCheck() {
         {"error", nullptr},
         {"http_check", nullptr},
         {"imap_check", nullptr},
+        {"smtp_check", nullptr},
         {"tidy_check", nullptr}
     };
 
@@ -459,7 +460,35 @@ int runInstallCheck() {
         resp["imap_check"] = {{"success", true}};
     }
 
-    // Step 3: Check libtidy by actually processing HTML (Linux only)
+    // Step 3: Check SMTP connectivity to Gmail to verify SSL libraries work for SMTP
+    string smtpError = "";
+    try {
+        SMTPSession smtp;
+        smtp.setHostname(MCSTR("smtp.gmail.com"));
+        smtp.setPort(465);
+        smtp.setConnectionType(ConnectionType::ConnectionTypeTLS);
+        // No username/password - we just want to verify SSL connection works
+
+        ErrorCode err = ErrorNone;
+        smtp.connect(&err);
+
+        // Connection succeeded or failed with auth error (both mean SSL works)
+        if (err != ErrorNone && err != ErrorAuthentication && err != ErrorAuthenticationRequired) {
+            smtpError = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : ("SMTP error code: " + to_string(err));
+        }
+        // If we get here with ErrorAuthentication or ErrorAuthenticationRequired, SSL worked
+        smtp.disconnect();
+    } catch (std::exception & ex) {
+        smtpError = ex.what();
+    }
+
+    if (smtpError != "") {
+        resp["smtp_check"] = {{"error", smtpError}};
+    } else {
+        resp["smtp_check"] = {{"success", true}};
+    }
+
+    // Step 4: Check libtidy by actually processing HTML (Linux only)
     string tidyError = "";
 #if defined(__linux__)
     if (!mailspring_tidy_available()) {
@@ -520,7 +549,7 @@ int runInstallCheck() {
     }
 
     // Determine overall success
-    bool success = (httpError == "" && imapError == "" && tidyError == "");
+    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "");
     if (!success) {
         resp["error"] = "One or more checks failed";
     }
