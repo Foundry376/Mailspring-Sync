@@ -120,10 +120,6 @@ err:
 #endif
     int status;
 
-    // IMPORTANT: This certificate path detection logic is duplicated in
-    // MailSync/NetworkRequestUtils.cpp FindLinuxCertsBundle(). If you update
-    // the paths or logic here, update that function as well.
-
     // Build list of paths to check
     std::vector<std::string> certificatePaths;
 
@@ -139,6 +135,12 @@ err:
     if (snapPath != nullptr && strlen(snapPath) > 0) {
         certificatePaths.push_back(std::string(snapPath) + "/etc/ssl/certs/ca-certificates.crt");
         certificatePaths.push_back(std::string(snapPath) + "/usr/share/ca-certificates/mozilla");
+        // Also check the core snap's certificate bundle - the staged ca-certificates package
+        // doesn't include the generated bundle, but the core snap does
+        certificatePaths.push_back("/snap/core24/current/etc/ssl/certs/ca-certificates.crt");
+        certificatePaths.push_back("/snap/core22/current/etc/ssl/certs/ca-certificates.crt");
+        certificatePaths.push_back("/snap/core20/current/etc/ssl/certs/ca-certificates.crt");
+        certificatePaths.push_back("/snap/core18/current/etc/ssl/certs/ca-certificates.crt");
     }
 #endif
     
