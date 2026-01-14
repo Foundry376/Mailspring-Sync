@@ -31,6 +31,7 @@ typedef int (*tidySaveBuffer_t)(void*, MSTidyBuffer*);
 
 // Global state
 static void* s_tidyLib = nullptr;
+static char s_tidyError[512] = {0};
 static tidyCreate_t s_tidyCreate = nullptr;
 static tidyRelease_t s_tidyRelease = nullptr;
 static tidyBufInit_t s_tidyBufInit = nullptr;
@@ -53,21 +54,34 @@ void mailspring_tidy_init(void) {
     const char* libraryNames[] = {
         "libtidy.so.5",      // Fedora, Arch, generic
         "libtidy.so.58",     // Some newer versions
-        "libtidy.so.5deb1",  // Debian/Ubuntu
+        "libtidy.so.5deb1",  // Debian/Ubuntu older
+        "libtidy.so.60",     // Ubuntu 24.04 (libtidy 5.8.0 uses soname 60)
         "libtidy.so.6",      // Future versions
         "libtidy.so",        // Fallback (development symlink)
         nullptr
     };
 
+    // Clear any previous error
+    dlerror();
+
+    char lastError[256] = {0};
     for (int i = 0; libraryNames[i] != nullptr; i++) {
         s_tidyLib = dlopen(libraryNames[i], RTLD_NOW | RTLD_LOCAL);
         if (s_tidyLib != nullptr) {
             break;
         }
+        // Store the last dlerror for diagnostics
+        const char* err = dlerror();
+        if (err != nullptr) {
+            snprintf(lastError, sizeof(lastError), "%s", err);
+        }
     }
 
     if (s_tidyLib == nullptr) {
-        fprintf(stderr, "Error: Could not load libtidy. HTML cleaning will be unavailable.\n");
+        snprintf(s_tidyError, sizeof(s_tidyError),
+            "Could not load libtidy. Tried: libtidy.so.5, libtidy.so.58, libtidy.so.5deb1, "
+            "libtidy.so.60, libtidy.so.6, libtidy.so. Last error: %s", lastError);
+        fprintf(stderr, "Error: %s\n", s_tidyError);
         fprintf(stderr, "Install libtidy on your system (e.g., 'apt install libtidy-dev' or 'dnf install libtidy-devel')\n");
         return;
     }
@@ -91,11 +105,16 @@ void mailspring_tidy_init(void) {
         !s_tidyBufAppend || !s_tidyOptSetBool || !s_tidyOptSetInt ||
         !s_tidySetCharEncoding || !s_tidySetErrorBuffer || !s_tidyParseBuffer ||
         !s_tidyCleanAndRepair || !s_tidySaveBuffer) {
-        fprintf(stderr, "Error: libtidy loaded but missing required functions.\n");
+        snprintf(s_tidyError, sizeof(s_tidyError),
+            "libtidy loaded but missing required functions (incompatible version?)");
+        fprintf(stderr, "Error: %s\n", s_tidyError);
         dlclose(s_tidyLib);
         s_tidyLib = nullptr;
         return;
     }
+
+    // Success - clear any error
+    s_tidyError[0] = '\0';
 }
 
 // GCC/Clang constructor attribute: runs automatically at program startup
@@ -106,6 +125,13 @@ static void initTidyLibrary() {
 
 int mailspring_tidy_available(void) {
     return s_tidyLib != nullptr;
+}
+
+const char* mailspring_tidy_error(void) {
+    if (s_tidyLib != nullptr) {
+        return nullptr; // No error, tidy is available
+    }
+    return s_tidyError[0] != '\0' ? s_tidyError : "libtidy not initialized";
 }
 
 // Wrapper implementations
