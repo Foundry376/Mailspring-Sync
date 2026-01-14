@@ -65,14 +65,18 @@ String * HTMLCleaner::cleanHTML(String * input)
     mailspring_tidyCleanAndRepair(tdoc);
     mailspring_tidySaveBuffer(tdoc, &output);
 
-    String * result = String::stringWithUTF8Characters((const char *) output.bp);
+    String * result = NULL;
+    if (output.bp != NULL) {
+        result = String::stringWithUTF8Characters((const char *) output.bp);
+    }
 
     mailspring_tidyBufFree(&docbuf);
     mailspring_tidyBufFree(&output);
     mailspring_tidyBufFree(&errbuf);
     mailspring_tidyRelease(tdoc);
 
-    return result;
+    // If tidy failed to produce output, return the original input
+    return result != NULL ? result : input;
 
 #else
     // Non-Linux: use direct tidy linking

@@ -263,7 +263,13 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         bodyRepresentation = text->UTF8Characters();
         bodyIsPlaintext = true;
     } else {
-        text = html->flattenHTML()->stripWhitespace();
+        String * flattenedHTML = html->flattenHTML();
+        if (flattenedHTML != NULL) {
+            text = flattenedHTML->stripWhitespace();
+        } else {
+            // flattenHTML failed, use empty string to avoid crash
+            text = MCSTR("");
+        }
         bodyRepresentation = html->UTF8Characters();
         bodyIsPlaintext = false;
     }
