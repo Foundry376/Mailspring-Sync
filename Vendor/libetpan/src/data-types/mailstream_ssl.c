@@ -338,9 +338,17 @@ static int wait_SSL_connect(int s, int want_read, time_t timeout_seconds)
     timeout.tv_usec = 0;
   }
 #if defined(WIN32) || !USE_POLL
+#ifndef WIN32
+  /* On non-Windows systems, file descriptors are small sequential integers.
+   * FD_SET uses the fd as an index into a bitmask, so values >= FD_SETSIZE
+   * would cause undefined behavior (buffer overflow).
+   * On Windows, socket handles are opaque values that can be any number,
+   * and FD_SET uses an array with fd_count tracking, so this check doesn't
+   * apply. The Windows FD_SET macro safely handles the array bounds. */
   if (s >= FD_SETSIZE) {
     return -1;
   }
+#endif
   FD_ZERO(&fds);
   FD_SET(s, &fds);
   /* TODO: how to cancel this ? */
