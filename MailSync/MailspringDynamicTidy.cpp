@@ -134,10 +134,11 @@ void mailspring_tidy_init(void) {
     s_optShowErrors = s_tidyOptGetIdForName("show-errors");
 
     // Verify critical options were found (0 means TidyUnknownOption)
-    if (s_optXhtmlOut == 0 || s_optForceOutput == 0) {
+    if (s_optXhtmlOut == 0 || s_optForceOutput == 0 || s_optDoctypeMode == 0) {
         snprintf(s_tidyError, sizeof(s_tidyError),
-            "libtidy loaded but could not resolve required option names (xhtml=%u, force=%u)",
-            s_optXhtmlOut, s_optForceOutput);
+            "libtidy loaded but could not resolve required option names "
+            "(xhtml=%u, force=%u, doctype=%u)",
+            s_optXhtmlOut, s_optForceOutput, s_optDoctypeMode);
         fprintf(stderr, "Error: %s\n", s_tidyError);
         dlclose(s_tidyLib);
         s_tidyLib = nullptr;
