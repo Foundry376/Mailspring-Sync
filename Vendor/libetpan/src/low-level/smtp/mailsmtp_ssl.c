@@ -77,9 +77,8 @@ int mailsmtp_ssl_connect_with_callback(mailsmtp * session,
 
 #if HAVE_CFNETWORK
   if (mailstream_cfstream_enabled) {
-    if (callback == NULL) {
-      return mailsmtp_cfssl_connect(session, server, port);
-    }
+    // CFNetwork handles SNI automatically via hostname - callback not needed
+    return mailsmtp_cfssl_connect(session, server, port);
   }
 #endif
   

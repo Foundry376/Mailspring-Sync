@@ -75,9 +75,8 @@ int mailimap_ssl_connect_voip_with_callback(mailimap * f, const char * server, u
 
 #if HAVE_CFNETWORK
   if (mailstream_cfstream_enabled) {
-    if (callback == NULL) {
-      return mailimap_cfssl_connect_voip(f, server, port, voip_enabled);
-    }
+    // CFNetwork handles SNI automatically via hostname - callback not needed
+    return mailimap_cfssl_connect_voip(f, server, port, voip_enabled);
   }
 #endif
   
