@@ -41,11 +41,16 @@ String * HTMLCleaner::cleanHTML(String * input)
         return input;
     }
 
-    MSTidyBuffer output;
-    MSTidyBuffer errbuf;
-    MSTidyBuffer docbuf;
+    MSTidyBuffer output = {0};
+    MSTidyBuffer errbuf = {0};
+    MSTidyBuffer docbuf = {0};
 
     MSTidyDoc tdoc = mailspring_tidyCreate();
+    if (tdoc == NULL) {
+        // tidyCreate failed (out of memory?)
+        return input;
+    }
+
     mailspring_tidyBufInit(&output);
     mailspring_tidyBufInit(&errbuf);
     mailspring_tidyBufInit(&docbuf);
@@ -61,9 +66,19 @@ String * HTMLCleaner::cleanHTML(String * input)
     mailspring_tidyOptSetBool(tdoc, MSTidyShowWarnings, MSTidyNo);
     mailspring_tidyOptSetInt(tdoc, MSTidyShowErrors, 0);
     mailspring_tidySetErrorBuffer(tdoc, &errbuf);
-    mailspring_tidyParseBuffer(tdoc, &docbuf);
-    mailspring_tidyCleanAndRepair(tdoc);
-    mailspring_tidySaveBuffer(tdoc, &output);
+
+    int parseResult = mailspring_tidyParseBuffer(tdoc, &docbuf);
+    int cleanResult = mailspring_tidyCleanAndRepair(tdoc);
+    int saveResult = mailspring_tidySaveBuffer(tdoc, &output);
+
+    // Check for severe errors (< 0 means errno-style failure)
+    if (parseResult < 0 || cleanResult < 0 || saveResult < 0) {
+        mailspring_tidyBufFree(&docbuf);
+        mailspring_tidyBufFree(&output);
+        mailspring_tidyBufFree(&errbuf);
+        mailspring_tidyRelease(tdoc);
+        return input;
+    }
 
     String * result = NULL;
     if (output.bp != NULL) {
