@@ -2117,9 +2117,16 @@ String * String::flattenHTMLAndShowBlockquoteAndLink(bool showBlockquote, bool s
     state.lastCharIsWhitespace = true;
     state.linkStack = new Array();
     state.paragraphSpacingStack = new Array();
-    
-    const char * characters = cleanedHTMLString()->UTF8Characters();
-    
+
+    String * cleanedHTML = cleanedHTMLString();
+    if (cleanedHTML == NULL) {
+        // If HTML cleaning failed, return empty string to avoid crash
+        state.paragraphSpacingStack->release();
+        state.linkStack->release();
+        return result;
+    }
+    const char * characters = cleanedHTML->UTF8Characters();
+
     htmlSAXParseDoc((xmlChar*) characters, "utf-8", &handler, &state);
     
     if (mem_base != xmlMemBlocks()) {

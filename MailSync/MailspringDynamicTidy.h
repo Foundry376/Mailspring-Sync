@@ -49,6 +49,9 @@ void mailspring_tidy_init(void);
 // Check if libtidy is available
 int mailspring_tidy_available(void);
 
+// Get error message if tidy loading failed (returns NULL if available)
+const char* mailspring_tidy_error(void);
+
 // Wrapper functions matching libtidy API
 MSTidyDoc mailspring_tidyCreate(void);
 void mailspring_tidyRelease(MSTidyDoc tdoc);

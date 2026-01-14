@@ -46,6 +46,10 @@
 #include "constants.h"
 #include "SPDLogExtensions.hpp"
 
+#if defined(__linux__)
+#include "MailspringDynamicTidy.h"
+#endif
+
 using namespace nlohmann;
 using option::Option;
 using option::Descriptor;
@@ -392,7 +396,8 @@ int runInstallCheck() {
     json resp = {
         {"error", nullptr},
         {"http_check", nullptr},
-        {"imap_check", nullptr}
+        {"imap_check", nullptr},
+        {"tidy_check", nullptr}
     };
 
     // Step 1: Check HTTP connectivity to identity server using curl
@@ -454,8 +459,23 @@ int runInstallCheck() {
         resp["imap_check"] = {{"success", true}};
     }
 
+    // Step 3: Check libtidy availability (Linux only, required for HTML processing)
+    string tidyError = "";
+#if defined(__linux__)
+    if (!mailspring_tidy_available()) {
+        const char* err = mailspring_tidy_error();
+        tidyError = err ? err : "libtidy not available";
+    }
+#endif
+
+    if (tidyError != "") {
+        resp["tidy_check"] = {{"error", tidyError}};
+    } else {
+        resp["tidy_check"] = {{"success", true}};
+    }
+
     // Determine overall success
-    bool success = (httpError == "" && imapError == "");
+    bool success = (httpError == "" && imapError == "" && tidyError == "");
     if (!success) {
         resp["error"] = "One or more checks failed";
     }

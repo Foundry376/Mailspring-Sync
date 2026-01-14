@@ -37,15 +37,23 @@ String * HTMLCleaner::cleanHTML(String * input)
 {
 #if defined(__linux__)
     // Linux: use Mailspring's dynamic tidy wrapper
+    // SECURITY: We must not return unsanitized HTML. If tidy fails, return empty string.
     if (!mailspring_tidy_available()) {
-        return input;
+        const char* err = mailspring_tidy_error();
+        MCLog("HTMLCleaner: libtidy not available - %s", err ? err : "unknown error");
+        return String::string();
     }
 
-    MSTidyBuffer output;
-    MSTidyBuffer errbuf;
-    MSTidyBuffer docbuf;
+    MSTidyBuffer output = {0};
+    MSTidyBuffer errbuf = {0};
+    MSTidyBuffer docbuf = {0};
 
     MSTidyDoc tdoc = mailspring_tidyCreate();
+    if (tdoc == NULL) {
+        MCLog("HTMLCleaner: tidyCreate failed (out of memory?)");
+        return String::string();
+    }
+
     mailspring_tidyBufInit(&output);
     mailspring_tidyBufInit(&errbuf);
     mailspring_tidyBufInit(&docbuf);
@@ -61,16 +69,36 @@ String * HTMLCleaner::cleanHTML(String * input)
     mailspring_tidyOptSetBool(tdoc, MSTidyShowWarnings, MSTidyNo);
     mailspring_tidyOptSetInt(tdoc, MSTidyShowErrors, 0);
     mailspring_tidySetErrorBuffer(tdoc, &errbuf);
-    mailspring_tidyParseBuffer(tdoc, &docbuf);
-    mailspring_tidyCleanAndRepair(tdoc);
-    mailspring_tidySaveBuffer(tdoc, &output);
 
-    String * result = String::stringWithUTF8Characters((const char *) output.bp);
+    int parseResult = mailspring_tidyParseBuffer(tdoc, &docbuf);
+    int cleanResult = mailspring_tidyCleanAndRepair(tdoc);
+    int saveResult = mailspring_tidySaveBuffer(tdoc, &output);
+
+    // Check for severe errors (< 0 means errno-style failure)
+    if (parseResult < 0 || cleanResult < 0 || saveResult < 0) {
+        MCLog("HTMLCleaner: tidy processing failed (parse=%d, clean=%d, save=%d)",
+              parseResult, cleanResult, saveResult);
+        mailspring_tidyBufFree(&docbuf);
+        mailspring_tidyBufFree(&output);
+        mailspring_tidyBufFree(&errbuf);
+        mailspring_tidyRelease(tdoc);
+        return String::string();
+    }
+
+    String * result = NULL;
+    if (output.bp != NULL) {
+        result = String::stringWithUTF8Characters((const char *) output.bp);
+    }
 
     mailspring_tidyBufFree(&docbuf);
     mailspring_tidyBufFree(&output);
     mailspring_tidyBufFree(&errbuf);
     mailspring_tidyRelease(tdoc);
+
+    if (result == NULL) {
+        MCLog("HTMLCleaner: tidy produced no output");
+        return String::string();
+    }
 
     return result;
 
