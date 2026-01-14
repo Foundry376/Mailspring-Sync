@@ -483,13 +483,14 @@ int runInstallCheck() {
             const char* testHTML = "<html><body><p>Test</p></body></html>";
             mailspring_tidyBufAppend(&docbuf, (void*)testHTML, strlen(testHTML));
 
-            mailspring_tidyOptSetBool(tdoc, MSTidyXhtmlOut, MSTidyYes);
-            mailspring_tidyOptSetInt(tdoc, MSTidyDoctypeMode, MSTidyDoctypeUser);
-            mailspring_tidyOptSetBool(tdoc, MSTidyMark, MSTidyNo);
+            // Use dynamically resolved option IDs for libtidy version compatibility
+            mailspring_tidyOptSetBool(tdoc, mailspring_tidyOptId_XhtmlOut(), MSTidyYes);
+            mailspring_tidyOptSetInt(tdoc, mailspring_tidyOptId_DoctypeMode(), MSTidyDoctypeUser);
+            mailspring_tidyOptSetBool(tdoc, mailspring_tidyOptId_Mark(), MSTidyNo);
             mailspring_tidySetCharEncoding(tdoc, "utf8");
-            mailspring_tidyOptSetBool(tdoc, MSTidyForceOutput, MSTidyYes);
-            mailspring_tidyOptSetBool(tdoc, MSTidyShowWarnings, MSTidyNo);
-            mailspring_tidyOptSetInt(tdoc, MSTidyShowErrors, 0);
+            mailspring_tidyOptSetBool(tdoc, mailspring_tidyOptId_ForceOutput(), MSTidyYes);
+            mailspring_tidyOptSetBool(tdoc, mailspring_tidyOptId_ShowWarnings(), MSTidyNo);
+            mailspring_tidyOptSetInt(tdoc, mailspring_tidyOptId_ShowErrors(), 0);
             mailspring_tidySetErrorBuffer(tdoc, &errbuf);
 
             int parseResult = mailspring_tidyParseBuffer(tdoc, &docbuf);

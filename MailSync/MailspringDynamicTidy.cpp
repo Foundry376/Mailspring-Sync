@@ -28,6 +28,7 @@ typedef int (*tidySetErrorBuffer_t)(void*, MSTidyBuffer*);
 typedef int (*tidyParseBuffer_t)(void*, MSTidyBuffer*);
 typedef int (*tidyCleanAndRepair_t)(void*);
 typedef int (*tidySaveBuffer_t)(void*, MSTidyBuffer*);
+typedef unsigned int (*tidyOptGetIdForName_t)(const char*);
 
 // Global state
 static void* s_tidyLib = nullptr;
@@ -44,6 +45,15 @@ static tidySetErrorBuffer_t s_tidySetErrorBuffer = nullptr;
 static tidyParseBuffer_t s_tidyParseBuffer = nullptr;
 static tidyCleanAndRepair_t s_tidyCleanAndRepair = nullptr;
 static tidySaveBuffer_t s_tidySaveBuffer = nullptr;
+static tidyOptGetIdForName_t s_tidyOptGetIdForName = nullptr;
+
+// Dynamically resolved option IDs (looked up by name at init time)
+static unsigned int s_optXhtmlOut = 0;
+static unsigned int s_optDoctypeMode = 0;
+static unsigned int s_optMark = 0;
+static unsigned int s_optForceOutput = 0;
+static unsigned int s_optShowWarnings = 0;
+static unsigned int s_optShowErrors = 0;
 
 void mailspring_tidy_init(void) {
     if (s_tidyLib != nullptr) {
@@ -99,14 +109,35 @@ void mailspring_tidy_init(void) {
     s_tidyParseBuffer = (tidyParseBuffer_t)dlsym(s_tidyLib, "tidyParseBuffer");
     s_tidyCleanAndRepair = (tidyCleanAndRepair_t)dlsym(s_tidyLib, "tidyCleanAndRepair");
     s_tidySaveBuffer = (tidySaveBuffer_t)dlsym(s_tidyLib, "tidySaveBuffer");
+    s_tidyOptGetIdForName = (tidyOptGetIdForName_t)dlsym(s_tidyLib, "tidyOptGetIdForName");
 
     // Verify all functions were loaded
     if (!s_tidyCreate || !s_tidyRelease || !s_tidyBufInit || !s_tidyBufFree ||
         !s_tidyBufAppend || !s_tidyOptSetBool || !s_tidyOptSetInt ||
         !s_tidySetCharEncoding || !s_tidySetErrorBuffer || !s_tidyParseBuffer ||
-        !s_tidyCleanAndRepair || !s_tidySaveBuffer) {
+        !s_tidyCleanAndRepair || !s_tidySaveBuffer || !s_tidyOptGetIdForName) {
         snprintf(s_tidyError, sizeof(s_tidyError),
             "libtidy loaded but missing required functions (incompatible version?)");
+        fprintf(stderr, "Error: %s\n", s_tidyError);
+        dlclose(s_tidyLib);
+        s_tidyLib = nullptr;
+        return;
+    }
+
+    // Look up option IDs by name - this ensures compatibility across libtidy versions
+    // Option names use hyphens (e.g., "output-xhtml" not "output_xhtml")
+    s_optXhtmlOut = s_tidyOptGetIdForName("output-xhtml");
+    s_optDoctypeMode = s_tidyOptGetIdForName("doctype-mode");
+    s_optMark = s_tidyOptGetIdForName("tidy-mark");
+    s_optForceOutput = s_tidyOptGetIdForName("force-output");
+    s_optShowWarnings = s_tidyOptGetIdForName("show-warnings");
+    s_optShowErrors = s_tidyOptGetIdForName("show-errors");
+
+    // Verify critical options were found (0 means TidyUnknownOption)
+    if (s_optXhtmlOut == 0 || s_optForceOutput == 0) {
+        snprintf(s_tidyError, sizeof(s_tidyError),
+            "libtidy loaded but could not resolve required option names (xhtml=%u, force=%u)",
+            s_optXhtmlOut, s_optForceOutput);
         fprintf(stderr, "Error: %s\n", s_tidyError);
         dlclose(s_tidyLib);
         s_tidyLib = nullptr;
@@ -155,11 +186,11 @@ void mailspring_tidyBufAppend(MSTidyBuffer* buf, void* data, unsigned int size) 
     if (s_tidyBufAppend) s_tidyBufAppend(buf, data, size);
 }
 
-MSTidyBool mailspring_tidyOptSetBool(MSTidyDoc tdoc, MSTidyOptionId optId, MSTidyBool val) {
+MSTidyBool mailspring_tidyOptSetBool(MSTidyDoc tdoc, unsigned int optId, MSTidyBool val) {
     return s_tidyOptSetBool ? s_tidyOptSetBool(tdoc, optId, val) : MSTidyNo;
 }
 
-MSTidyBool mailspring_tidyOptSetInt(MSTidyDoc tdoc, MSTidyOptionId optId, unsigned long val) {
+MSTidyBool mailspring_tidyOptSetInt(MSTidyDoc tdoc, unsigned int optId, unsigned long val) {
     return s_tidyOptSetInt ? s_tidyOptSetInt(tdoc, optId, val) : MSTidyNo;
 }
 
@@ -182,5 +213,13 @@ int mailspring_tidyCleanAndRepair(MSTidyDoc tdoc) {
 int mailspring_tidySaveBuffer(MSTidyDoc tdoc, MSTidyBuffer* buf) {
     return s_tidySaveBuffer ? s_tidySaveBuffer(tdoc, buf) : -1;
 }
+
+// Getters for dynamically resolved option IDs
+unsigned int mailspring_tidyOptId_XhtmlOut(void) { return s_optXhtmlOut; }
+unsigned int mailspring_tidyOptId_DoctypeMode(void) { return s_optDoctypeMode; }
+unsigned int mailspring_tidyOptId_Mark(void) { return s_optMark; }
+unsigned int mailspring_tidyOptId_ForceOutput(void) { return s_optForceOutput; }
+unsigned int mailspring_tidyOptId_ShowWarnings(void) { return s_optShowWarnings; }
+unsigned int mailspring_tidyOptId_ShowErrors(void) { return s_optShowErrors; }
 
 #endif // __linux__
