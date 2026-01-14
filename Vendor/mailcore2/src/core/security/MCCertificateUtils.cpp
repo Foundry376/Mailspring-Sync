@@ -129,16 +129,6 @@ err:
     if (sslCertFile != nullptr && strlen(sslCertFile) > 0) {
         certificatePaths.push_back(std::string(sslCertFile));
     }
-
-    // If running in a snap, check snap-bundled certificates first
-    const char* snapPath = getenv("SNAP");
-    if (snapPath != nullptr && strlen(snapPath) > 0) {
-        certificatePaths.push_back(std::string(snapPath) + "/etc/ssl/certs/ca-certificates.crt");
-        certificatePaths.push_back("/snap/core24/current/etc/ssl/certs/ca-certificates.crt");
-        certificatePaths.push_back("/snap/core22/current/etc/ssl/certs/ca-certificates.crt");
-        certificatePaths.push_back("/snap/core20/current/etc/ssl/certs/ca-certificates.crt");
-        certificatePaths.push_back("/snap/core18/current/etc/ssl/certs/ca-certificates.crt");
-    }
 #endif
     
     // Standard system paths
