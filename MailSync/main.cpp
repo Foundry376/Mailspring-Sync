@@ -459,12 +459,56 @@ int runInstallCheck() {
         resp["imap_check"] = {{"success", true}};
     }
 
-    // Step 3: Check libtidy availability (Linux only, required for HTML processing)
+    // Step 3: Check libtidy by actually processing HTML (Linux only)
     string tidyError = "";
 #if defined(__linux__)
     if (!mailspring_tidy_available()) {
         const char* err = mailspring_tidy_error();
         tidyError = err ? err : "libtidy not available";
+    } else {
+        // Actually test tidy by processing sample HTML, same as MCHTMLCleaner::cleanHTML
+        MSTidyBuffer output = {0};
+        MSTidyBuffer errbuf = {0};
+        MSTidyBuffer docbuf = {0};
+
+        MSTidyDoc tdoc = mailspring_tidyCreate();
+        if (tdoc == NULL) {
+            tidyError = "tidyCreate returned NULL";
+        } else {
+            mailspring_tidyBufInit(&output);
+            mailspring_tidyBufInit(&errbuf);
+            mailspring_tidyBufInit(&docbuf);
+
+            // Test with simple HTML
+            const char* testHTML = "<html><body><p>Test</p></body></html>";
+            mailspring_tidyBufAppend(&docbuf, (void*)testHTML, strlen(testHTML));
+
+            mailspring_tidyOptSetBool(tdoc, MSTidyXhtmlOut, MSTidyYes);
+            mailspring_tidyOptSetInt(tdoc, MSTidyDoctypeMode, MSTidyDoctypeUser);
+            mailspring_tidyOptSetBool(tdoc, MSTidyMark, MSTidyNo);
+            mailspring_tidySetCharEncoding(tdoc, "utf8");
+            mailspring_tidyOptSetBool(tdoc, MSTidyForceOutput, MSTidyYes);
+            mailspring_tidyOptSetBool(tdoc, MSTidyShowWarnings, MSTidyNo);
+            mailspring_tidyOptSetInt(tdoc, MSTidyShowErrors, 0);
+            mailspring_tidySetErrorBuffer(tdoc, &errbuf);
+
+            int parseResult = mailspring_tidyParseBuffer(tdoc, &docbuf);
+            int cleanResult = mailspring_tidyCleanAndRepair(tdoc);
+            int saveResult = mailspring_tidySaveBuffer(tdoc, &output);
+
+            if (parseResult < 0 || cleanResult < 0 || saveResult < 0) {
+                tidyError = "tidy processing failed (parse=" + to_string(parseResult) +
+                           ", clean=" + to_string(cleanResult) +
+                           ", save=" + to_string(saveResult) + ")";
+            } else if (output.bp == NULL) {
+                tidyError = "tidy produced no output";
+            }
+
+            mailspring_tidyBufFree(&docbuf);
+            mailspring_tidyBufFree(&output);
+            mailspring_tidyBufFree(&errbuf);
+            mailspring_tidyRelease(tdoc);
+        }
     }
 #endif
 
