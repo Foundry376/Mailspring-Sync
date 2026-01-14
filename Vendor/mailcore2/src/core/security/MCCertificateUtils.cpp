@@ -134,9 +134,6 @@ err:
     const char* snapPath = getenv("SNAP");
     if (snapPath != nullptr && strlen(snapPath) > 0) {
         certificatePaths.push_back(std::string(snapPath) + "/etc/ssl/certs/ca-certificates.crt");
-        certificatePaths.push_back(std::string(snapPath) + "/usr/share/ca-certificates/mozilla");
-        // Also check the core snap's certificate bundle - the staged ca-certificates package
-        // doesn't include the generated bundle, but the core snap does
         certificatePaths.push_back("/snap/core24/current/etc/ssl/certs/ca-certificates.crt");
         certificatePaths.push_back("/snap/core22/current/etc/ssl/certs/ca-certificates.crt");
         certificatePaths.push_back("/snap/core20/current/etc/ssl/certs/ca-certificates.crt");
