@@ -37,8 +37,11 @@ String * HTMLCleaner::cleanHTML(String * input)
 {
 #if defined(__linux__)
     // Linux: use Mailspring's dynamic tidy wrapper
+    // SECURITY: We must not return unsanitized HTML. If tidy fails, return empty string.
     if (!mailspring_tidy_available()) {
-        return input;
+        const char* err = mailspring_tidy_error();
+        MCLog("HTMLCleaner: libtidy not available - %s", err ? err : "unknown error");
+        return String::string();
     }
 
     MSTidyBuffer output = {0};
@@ -47,8 +50,8 @@ String * HTMLCleaner::cleanHTML(String * input)
 
     MSTidyDoc tdoc = mailspring_tidyCreate();
     if (tdoc == NULL) {
-        // tidyCreate failed (out of memory?)
-        return input;
+        MCLog("HTMLCleaner: tidyCreate failed (out of memory?)");
+        return String::string();
     }
 
     mailspring_tidyBufInit(&output);
@@ -73,11 +76,13 @@ String * HTMLCleaner::cleanHTML(String * input)
 
     // Check for severe errors (< 0 means errno-style failure)
     if (parseResult < 0 || cleanResult < 0 || saveResult < 0) {
+        MCLog("HTMLCleaner: tidy processing failed (parse=%d, clean=%d, save=%d)",
+              parseResult, cleanResult, saveResult);
         mailspring_tidyBufFree(&docbuf);
         mailspring_tidyBufFree(&output);
         mailspring_tidyBufFree(&errbuf);
         mailspring_tidyRelease(tdoc);
-        return input;
+        return String::string();
     }
 
     String * result = NULL;
@@ -90,8 +95,12 @@ String * HTMLCleaner::cleanHTML(String * input)
     mailspring_tidyBufFree(&errbuf);
     mailspring_tidyRelease(tdoc);
 
-    // If tidy failed to produce output, return the original input
-    return result != NULL ? result : input;
+    if (result == NULL) {
+        MCLog("HTMLCleaner: tidy produced no output");
+        return String::string();
+    }
+
+    return result;
 
 #else
     // Non-Linux: use direct tidy linking
