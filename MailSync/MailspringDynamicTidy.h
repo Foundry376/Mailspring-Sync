@@ -30,18 +30,9 @@ typedef struct _MSTidyBuffer {
 // Boolean type matching libtidy
 typedef enum { MSTidyNo = 0, MSTidyYes = 1 } MSTidyBool;
 
-// Option IDs we use (from tidyenum.h)
-typedef enum {
-    MSTidyXhtmlOut = 115,
-    MSTidyDoctypeMode = 92,
-    MSTidyMark = 153,
-    MSTidyForceOutput = 162,
-    MSTidyShowWarnings = 106,
-    MSTidyShowErrors = 163
-} MSTidyOptionId;
-
-// Doctype mode value passed to MSTidyDoctypeMode option
-#define MSTidyDoctypeUser 249
+// Doctype mode value (TidyDoctypeUser from TidyDoctypeModes enum)
+// In libtidy 5.x: Html5=0, Omit=1, Auto=2, Strict=3, Loose=4, User=5
+#define MSTidyDoctypeUser 5
 
 // Initialize libtidy dynamic loading - called automatically at startup
 void mailspring_tidy_init(void);
@@ -58,13 +49,21 @@ void mailspring_tidyRelease(MSTidyDoc tdoc);
 void mailspring_tidyBufInit(MSTidyBuffer* buf);
 void mailspring_tidyBufFree(MSTidyBuffer* buf);
 void mailspring_tidyBufAppend(MSTidyBuffer* buf, void* data, unsigned int size);
-MSTidyBool mailspring_tidyOptSetBool(MSTidyDoc tdoc, MSTidyOptionId optId, MSTidyBool val);
-MSTidyBool mailspring_tidyOptSetInt(MSTidyDoc tdoc, MSTidyOptionId optId, unsigned long val);
+MSTidyBool mailspring_tidyOptSetBool(MSTidyDoc tdoc, unsigned int optId, MSTidyBool val);
+MSTidyBool mailspring_tidyOptSetInt(MSTidyDoc tdoc, unsigned int optId, unsigned long val);
 int mailspring_tidySetCharEncoding(MSTidyDoc tdoc, const char* encnam);
 int mailspring_tidySetErrorBuffer(MSTidyDoc tdoc, MSTidyBuffer* errbuf);
 int mailspring_tidyParseBuffer(MSTidyDoc tdoc, MSTidyBuffer* buf);
 int mailspring_tidyCleanAndRepair(MSTidyDoc tdoc);
 int mailspring_tidySaveBuffer(MSTidyDoc tdoc, MSTidyBuffer* buf);
+
+// Getters for dynamically resolved option IDs (looked up by name at init)
+unsigned int mailspring_tidyOptId_XhtmlOut(void);
+unsigned int mailspring_tidyOptId_DoctypeMode(void);
+unsigned int mailspring_tidyOptId_Mark(void);
+unsigned int mailspring_tidyOptId_ForceOutput(void);
+unsigned int mailspring_tidyOptId_ShowWarnings(void);
+unsigned int mailspring_tidyOptId_ShowErrors(void);
 
 #ifdef __cplusplus
 }
