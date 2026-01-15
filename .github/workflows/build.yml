@@ -148,7 +148,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        fedora_version: ['40', '41']
+        fedora_version: ['40', '41', '43']
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
