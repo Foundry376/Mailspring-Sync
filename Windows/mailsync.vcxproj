@@ -92,12 +92,12 @@ _TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;CURL_STATICLIB;SPDLOG_WCHAR_FILENAMES;%(Pre
         COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\icuin54.dll $(TargetDir) /Y
         COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\icuuc54.dll $(TargetDir) /Y
         COPY $(ProjectDir)..\Vendor\mailcore2\Externals\lib\libctemplate.dll $(TargetDir) /Y
-        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\libcryptoMD.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\libcrypto-3.dll $(TargetDir) /Y
         COPY $(ProjectDir)..\Vendor\mailcore2\Externals\lib\sasl2.dll $(TargetDir) /Y
         COPY $(ProjectDir)..\Vendor\mailcore2\Externals\lib\libtidy.dll $(TargetDir) /Y
         COPY $(ProjectDir)..\Vendor\mailcore2\Externals\lib\libxml2.dll $(TargetDir) /Y
         COPY $(ProjectDir)..\Vendor\mailcore2\Externals\dll\x86\pthreadVC2.dll $(TargetDir) /Y
-        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\libsslMD.dll $(TargetDir) /Y
+        COPY $(ProjectDir)..\Vendor\mailcore2\Externals\bin\libssl-3.dll $(TargetDir) /Y
         COPY $(ProjectDir)..\Vendor\mailcore2\Externals\lib\zlib.dll $(TargetDir) /Y
       </Command>
     </PostBuildEvent>
