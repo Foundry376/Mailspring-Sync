@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "mailspring-sync",
+  "version": "1.0.0",
+  "description": "Native sync engine for Mailspring email client",
+  "dependencies": [
+    "openssl",
+    {
+      "name": "curl",
+      "features": ["ssl"]
+    },
+    "libxml2",
+    "zlib",
+    "icu",
+    "libiconv",
+    "tidy-html5",
+    "ctemplate",
+    "pthreads",
+    "cyrus-sasl"
+  ]
+}

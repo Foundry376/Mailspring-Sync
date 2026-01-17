@@ -9,6 +9,9 @@ on:
     tags:
       - '*'
 
+env:
+  VCPKG_DEFAULT_TRIPLET: x86-windows
+
 jobs:
   build-windows:
     runs-on: windows-2022
@@ -19,6 +22,18 @@ jobs:
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 'c82f74667287d3dc386bce81e44964370c91a289'
+
+      - name: Install vcpkg dependencies
+        shell: pwsh
+        run: |
+          Write-Host "Installing vcpkg dependencies for x86-windows..."
+          vcpkg install --triplet x86-windows
+          Write-Host "vcpkg install completed"
 
       - name: Set commit hash
         shell: pwsh
@@ -39,17 +54,33 @@ jobs:
         run: cd Windows && msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32
 
       - name: Copy build artifacts and dependencies
-        shell: cmd
+        shell: pwsh
         run: |
-          IF not exist ..\app\dist (mkdir ..\app\dist)
-          XCOPY .\Windows\Release\*.* ..\app\dist
-          COPY "C:\Windows\SysWOW64\msvcr100.dll" ..\app\dist\ /Y
-          COPY "C:\Windows\SysWOW64\msvcr120.dll" ..\app\dist\ /Y
-          COPY "C:\Windows\SysWOW64\msvcp100.dll" ..\app\dist\ /Y
-          COPY "C:\Windows\SysWOW64\msvcp120.dll" ..\app\dist\ /Y
-          COPY "C:\Windows\SysWOW64\msvcp140.dll" ..\app\dist\ /Y
-          COPY "C:\Windows\SysWOW64\vcruntime140.dll" ..\app\dist\ /Y
-          XCOPY /rhy "C:\Program Files (x86)\Windows Kits\10\Redist\ucrt\DLLs\x86" ..\app\dist\
+          if (!(Test-Path "..\app\dist")) { New-Item -ItemType Directory -Path "..\app\dist" }
+
+          # Copy build output
+          Copy-Item ".\Windows\Release\*" -Destination "..\app\dist" -Recurse -Force
+
+          # Copy vcpkg DLLs
+          $vcpkgBin = "$env:VCPKG_ROOT\installed\x86-windows\bin"
+          Write-Host "Copying vcpkg DLLs from $vcpkgBin"
+          if (Test-Path $vcpkgBin) {
+            Copy-Item "$vcpkgBin\*.dll" -Destination "..\app\dist" -Force -ErrorAction SilentlyContinue
+          }
+
+          # Copy MSVC runtime DLLs
+          Copy-Item "C:\Windows\SysWOW64\msvcr100.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
+          Copy-Item "C:\Windows\SysWOW64\msvcr120.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
+          Copy-Item "C:\Windows\SysWOW64\msvcp100.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
+          Copy-Item "C:\Windows\SysWOW64\msvcp120.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
+          Copy-Item "C:\Windows\SysWOW64\msvcp140.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
+          Copy-Item "C:\Windows\SysWOW64\vcruntime140.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
+
+          # Copy UCRT DLLs
+          $ucrtPath = "C:\Program Files (x86)\Windows Kits\10\Redist\ucrt\DLLs\x86"
+          if (Test-Path $ucrtPath) {
+            Copy-Item "$ucrtPath\*" "..\app\dist\" -Force -ErrorAction SilentlyContinue
+          }
 
       - name: List build artifacts
         shell: pwsh
