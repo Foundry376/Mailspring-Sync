@@ -11,6 +11,7 @@ on:
 
 env:
   VCPKG_DEFAULT_TRIPLET: x86-windows
+  VCPKG_DEFAULT_HOST_TRIPLET: x86-windows
 
 jobs:
   build-windows:
@@ -23,17 +24,11 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Setup vcpkg
+      - name: Setup vcpkg and install dependencies
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: 'c82f74667287d3dc386bce81e44964370c91a289'
-
-      - name: Install vcpkg dependencies
-        shell: pwsh
-        run: |
-          Write-Host "Installing vcpkg dependencies for x86-windows..."
-          vcpkg install --triplet x86-windows
-          Write-Host "vcpkg install completed"
+          runVcpkgInstall: true
 
       - name: Set commit hash
         shell: pwsh
@@ -67,6 +62,9 @@ jobs:
           if (Test-Path $vcpkgBin) {
             Copy-Item "$vcpkgBin\*.dll" -Destination "..\app\dist" -Force -ErrorAction SilentlyContinue
           }
+
+          # Copy vendored SASL DLL (not available via vcpkg for x86-windows)
+          Copy-Item ".\Vendor\libetpan\third-party\lib\sasl2.dll" -Destination "..\app\dist" -Force
 
           # Copy MSVC runtime DLLs
           Copy-Item "C:\Windows\SysWOW64\msvcr100.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
