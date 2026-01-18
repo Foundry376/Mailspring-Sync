@@ -24,8 +24,8 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Cache vcpkg installed packages
-        uses: actions/cache@v4
+      - name: Restore vcpkg cache
+        uses: actions/cache/restore@v4
         id: vcpkg-cache
         with:
           path: ${{ github.workspace }}/vcpkg/installed
@@ -52,6 +52,13 @@ jobs:
           Write-Host "Listing installed libraries:"
           Get-ChildItem "$env:VCPKG_ROOT/installed/x86-windows/lib" -ErrorAction SilentlyContinue | Select-Object Name
           Write-Host "vcpkg install completed"
+
+      - name: Save vcpkg cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg/installed
+          key: vcpkg-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
 
       - name: Set commit hash
         shell: pwsh
