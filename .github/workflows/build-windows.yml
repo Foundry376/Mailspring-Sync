@@ -56,7 +56,7 @@ jobs:
         shell: cmd
         run: |
           cd Windows
-          msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32
+          msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32 /p:VcpkgEnableManifest=true
 
       - name: Copy build artifacts and dependencies
         shell: pwsh
