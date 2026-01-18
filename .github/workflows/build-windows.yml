@@ -32,7 +32,8 @@ jobs:
           key: vcpkg-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
 
       - name: Setup vcpkg
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        # Always run to ensure vcpkg.exe exists (needed for integrate install)
+        # The cache only stores installed packages, not vcpkg itself
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: '84bab45d415d22042bd0b9081aea57f362da3f35'
@@ -60,6 +61,10 @@ jobs:
           path: ${{ github.workspace }}/vcpkg/installed
           key: vcpkg-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
 
+      - name: Enable vcpkg MSBuild integration
+        shell: cmd
+        run: "%VCPKG_ROOT%\\vcpkg.exe integrate install"
+
       - name: Set commit hash
         shell: pwsh
         run: |
@@ -76,27 +81,28 @@ jobs:
 
       - name: Build with MSBuild
         shell: cmd
-        run: cd Windows && msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32
+        run: |
+          cd Windows
+          REM Enable vcpkg MSBuild integration with automatic DLL deployment
+          REM VcpkgInstalledDir tells MSBuild where packages are installed (must match our vcpkg install location)
+          msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32 /p:VcpkgEnabled=true /p:VcpkgAppLocalDeploy=true /p:VcpkgInstalledDir=%VCPKG_ROOT%\installed\
 
       - name: Copy build artifacts and dependencies
         shell: pwsh
         run: |
           if (!(Test-Path "..\app\dist")) { New-Item -ItemType Directory -Path "..\app\dist" }
 
-          # Copy build output
-          Copy-Item ".\Windows\Release\*" -Destination "..\app\dist" -Recurse -Force
+          # Show what vcpkg auto-deployed to the build output
+          Write-Host "=== DLLs in Windows\Release (vcpkg should have auto-deployed these) ==="
+          Get-ChildItem ".\Windows\Release\*.dll" -ErrorAction SilentlyContinue | Select-Object Name | Sort-Object Name
 
-          # Copy vcpkg DLLs
-          $vcpkgBin = "$env:VCPKG_ROOT\installed\x86-windows\bin"
-          Write-Host "Copying vcpkg DLLs from $vcpkgBin"
-          if (Test-Path $vcpkgBin) {
-            Copy-Item "$vcpkgBin\*.dll" -Destination "..\app\dist" -Force -ErrorAction SilentlyContinue
-          }
+          # Copy build output (includes vcpkg DLLs via VcpkgAppLocalDeploy)
+          Copy-Item ".\Windows\Release\*" -Destination "..\app\dist" -Recurse -Force
 
           # Copy vendored SASL DLL (not available via vcpkg for x86-windows)
           Copy-Item ".\Vendor\libetpan\third-party\lib\sasl2.dll" -Destination "..\app\dist" -Force
 
-          # Copy MSVC runtime DLLs
+          # Copy MSVC runtime DLLs (older versions needed for some dependencies)
           Copy-Item "C:\Windows\SysWOW64\msvcr100.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
           Copy-Item "C:\Windows\SysWOW64\msvcr120.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
           Copy-Item "C:\Windows\SysWOW64\msvcp100.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
@@ -104,10 +110,20 @@ jobs:
           Copy-Item "C:\Windows\SysWOW64\msvcp140.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
           Copy-Item "C:\Windows\SysWOW64\vcruntime140.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
 
-          # Copy UCRT DLLs
+          # Copy UCRT DLLs (for Windows 7/8 compatibility)
           $ucrtPath = "C:\Program Files (x86)\Windows Kits\10\Redist\ucrt\DLLs\x86"
           if (Test-Path $ucrtPath) {
             Copy-Item "$ucrtPath\*" "..\app\dist\" -Force -ErrorAction SilentlyContinue
+          }
+
+          # Verify vcpkg auto-deployed the DLLs - fail if not
+          $testDll = "..\app\dist\icuuc78.dll"
+          if (!(Test-Path $testDll)) {
+            Write-Host "ERROR: vcpkg did not auto-deploy DLLs to build output!"
+            Write-Host "Expected to find: $testDll"
+            Write-Host "Contents of Windows\Release:"
+            Get-ChildItem ".\Windows\Release\*" -ErrorAction SilentlyContinue | Select-Object Name
+            exit 1
           }
 
       - name: List build artifacts
@@ -172,69 +188,67 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "=== Running mailsync install-check on Windows ==="
+          $distDir = Resolve-Path "..\app\dist"
+          Set-Location $distDir
+          Write-Host "Current directory: $(Get-Location)"
+          Write-Host ""
 
-          # Create a directory with 'mailspring' in the path (required by branding check in main.cpp)
-          $testDir = "$env:TEMP\mailspring"
-          New-Item -ItemType Directory -Force -Path $testDir | Out-Null
-
-          # Debug: Check source directory
-          Write-Host "=== Current directory: $(Get-Location) ==="
-          Write-Host "=== Checking source directory ==="
-          $sourcePath = "..\app\dist"
-          if (Test-Path $sourcePath) {
-            Write-Host "Source exists: $sourcePath"
-            $sourceFiles = Get-ChildItem "$sourcePath\*" -ErrorAction SilentlyContinue
-            Write-Host "Source file count: $($sourceFiles.Count)"
-          } else {
-            Write-Host "ERROR: Source directory does not exist: $sourcePath"
-            Write-Host "Listing parent directory:"
-            Get-ChildItem "..\app" -ErrorAction SilentlyContinue
+          # Check ALL required DLLs from the dependency chain
+          Write-Host "=== Verifying ALL required DLLs ==="
+          $requiredDlls = @(
+            # Our built files
+            "mailsync.exe", "mailcore2.dll", "libetpan.dll",
+            # vcpkg dependencies
+            "libcurl.dll", "libxml2.dll", "libcrypto-3.dll", "libssl-3.dll",
+            "zlib1.dll", "tidy.dll", "libctemplate.dll", "pthreadVC3.dll",
+            "icuin78.dll", "icuuc78.dll", "icudt78.dll",
+            "sasl2.dll", "iconv-2.dll",
+            # MSVC runtime
+            "msvcp140.dll", "vcruntime140.dll"
+          )
+          $missing = @()
+          foreach ($dll in $requiredDlls) {
+            if (Test-Path $dll) {
+              $size = (Get-Item $dll).Length
+              Write-Host "OK: $dll ($size bytes)"
+            } else {
+              Write-Host "MISSING: $dll"
+              $missing += $dll
+            }
           }
 
-          # Copy mailsync.exe and all DLLs to the test directory
-          Write-Host "=== Copying files to $testDir ==="
-          Copy-Item "..\app\dist\*" -Destination $testDir -Recurse -Force -ErrorAction Stop
-          Write-Host "Copy completed"
+          if ($missing.Count -gt 0) {
+            Write-Host ""
+            Write-Host "ERROR: Missing $($missing.Count) required DLLs!"
+            exit 1
+          }
 
-          # Debug: List all DLLs in the test directory
-          Write-Host "=== DLLs in test directory ==="
-          Get-ChildItem "$testDir\*.dll" -ErrorAction SilentlyContinue | Select-Object Name | Sort-Object Name
-          Write-Host "=== All files in test directory ==="
-          Get-ChildItem "$testDir\*" -ErrorAction SilentlyContinue | Select-Object Name
-
-          # Debug: Check dependencies using dumpbin
+          # Check dependencies of key DLLs to find any missing second-level deps
+          Write-Host ""
+          Write-Host "=== Checking deeper dependencies with dumpbin ==="
           $dumpbin = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\2022" -Recurse -Filter "dumpbin.exe" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Hostx64\\x86" } | Select-Object -First 1
           if ($dumpbin) {
-            Write-Host "=== Dependencies of mailsync.exe ==="
-            & $dumpbin.FullName /dependents "$testDir\mailsync.exe" 2>&1
-            Write-Host "=== Dependencies of mailcore2.dll ==="
-            & $dumpbin.FullName /dependents "$testDir\mailcore2.dll" 2>&1
-            Write-Host "=== Dependencies of libetpan.dll ==="
-            & $dumpbin.FullName /dependents "$testDir\libetpan.dll" 2>&1
-            Write-Host "=== Dependencies of libcurl.dll ==="
-            & $dumpbin.FullName /dependents "$testDir\libcurl.dll" 2>&1
-          } else {
-            Write-Host "dumpbin.exe not found, skipping dependency check"
+            $dllsToCheck = @("libxml2.dll", "tidy.dll", "icuuc78.dll", "libcrypto-3.dll", "libssl-3.dll", "zlib1.dll")
+            foreach ($dll in $dllsToCheck) {
+              if (Test-Path $dll) {
+                Write-Host "--- Dependencies of ${dll}: ---"
+                & $dumpbin.FullName /dependents $dll 2>&1 | Select-String -Pattern "\.dll" | ForEach-Object { $_.Line.Trim() }
+              }
+            }
           }
 
-          # Set environment variables and run install-check
+          Write-Host ""
+          Write-Host "=== Running mailsync --mode install-check ==="
           $env:CONFIG_DIR_PATH = $env:TEMP
           $env:IDENTITY_SERVER = "https://id.getmailspring.com"
 
-          # Change to test directory so Windows finds DLLs in the same directory as the exe
-          Write-Host "Running mailsync --mode install-check from $testDir..."
-          Push-Location $testDir
-          try {
-            # Run directly with call operator to properly inherit environment
-            $output = & .\mailsync.exe --mode install-check 2>&1 | Out-String
-            $exitCode = $LASTEXITCODE
-            Write-Host "Output:"
-            Write-Host $output
-          } finally {
-            Pop-Location
-          }
+          # Run and capture output
+          $output = & .\mailsync.exe --mode install-check 2>&1 | Out-String
+          $exitCode = $LASTEXITCODE
 
-          # Check for failure indicators in output
+          Write-Host "Output: $output"
+          Write-Host "Exit code: $exitCode"
+
           if ($output -match "One or more checks failed") {
             Write-Host "X mailsync install-check failed on Windows"
             exit 1

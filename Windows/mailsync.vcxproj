@@ -85,12 +85,7 @@
       <AdditionalLibraryDirectories>$(VCPKG_ROOT)\installed\x86-windows\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>legacy_stdio_definitions.lib;libcurl.lib;libxml2.lib;zlib.lib;iconv.lib;dbghelp.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;Ws2_32.lib;Dnsapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
-    <PostBuildEvent>
-      <Message>Copying vcpkg DLLs into the $(TargetDir) folder...</Message>
-      <Command>
-        XCOPY "$(VCPKG_ROOT)\installed\x86-windows\bin\*.dll" "$(TargetDir)" /Y /D
-      </Command>
-    </PostBuildEvent>
+    <!-- vcpkg's VcpkgAppLocalDeploy handles DLL copying automatically -->
   </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
