@@ -24,12 +24,25 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Cache vcpkg installed packages
+        uses: actions/cache@v4
+        id: vcpkg-cache
+        with:
+          path: ${{ github.workspace }}/vcpkg/installed
+          key: vcpkg-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+
       - name: Setup vcpkg
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: '84bab45d415d22042bd0b9081aea57f362da3f35'
 
+      - name: Set VCPKG_ROOT
+        shell: pwsh
+        run: echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $env:GITHUB_ENV
+
       - name: Install vcpkg dependencies
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Write-Host "Installing vcpkg dependencies for x86-windows..."
