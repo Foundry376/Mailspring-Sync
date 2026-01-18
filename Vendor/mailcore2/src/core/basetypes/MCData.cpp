@@ -613,7 +613,7 @@ Data * Data::dataWithContentsOfFile(String * filename)
     Data * data;
     
 #ifdef _MSC_VER
-    r = _wfopen_s(&f, filename->unicodeCharacters(), L"rb");
+    r = _wfopen_s(&f, reinterpret_cast<const wchar_t *>(filename->unicodeCharacters()), L"rb");
     if (r != 0) {
         f = NULL;
     }
@@ -685,7 +685,7 @@ ErrorCode Data::writeToFile(String * filename)
 {
 #ifdef _MSC_VER
     FILE * f = NULL;
-    int r = _wfopen_s(&f, filename->unicodeCharacters(), L"wb");
+    int r = _wfopen_s(&f, reinterpret_cast<const wchar_t *>(filename->unicodeCharacters()), L"wb");
     if (r != 0) {
         f = NULL;
     }
