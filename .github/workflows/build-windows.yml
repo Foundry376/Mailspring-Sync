@@ -220,6 +220,8 @@ jobs:
           # Set environment variables and run install-check
           $env:CONFIG_DIR_PATH = $env:TEMP
           $env:IDENTITY_SERVER = "https://id.getmailspring.com"
+          # Add test directory to PATH so Windows can find the DLLs
+          $env:PATH = "$testDir;$env:PATH"
 
           Write-Host "Running mailsync --mode install-check..."
           $process = Start-Process -FilePath "$testDir\mailsync.exe" `
