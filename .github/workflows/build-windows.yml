@@ -113,6 +113,44 @@ jobs:
       - name: List build artifacts
         shell: pwsh
         run: |
+          Write-Host "=== vcpkg bin directory contents ==="
+          Get-ChildItem "$env:VCPKG_ROOT\installed\x86-windows\bin\*.dll" | Select-Object Name | Sort-Object Name
+
+          Write-Host ""
+          Write-Host "=== Build output (app\dist) ==="
+          Get-ChildItem "..\app\dist\*.dll" | Select-Object Name | Sort-Object Name
+
+          Write-Host ""
+          Write-Host "=== ICU DLLs in vcpkg bin ==="
+          Get-ChildItem "$env:VCPKG_ROOT\installed\x86-windows\bin\icu*.dll" -ErrorAction SilentlyContinue | Select-Object Name
+
+          Write-Host ""
+          Write-Host "=== Checking for expected DLLs ==="
+          $expectedDlls = @(
+            "libcrypto-3.dll",
+            "libssl-3.dll",
+            "libcurl.dll",
+            "libxml2.dll",
+            "zlib1.dll",
+            "tidy.dll",
+            "ctemplate.dll",
+            "pthreadVC3.dll",
+            "mailcore2.dll",
+            "libetpan.dll",
+            "sasl2.dll",
+            "iconv.dll"
+          )
+          foreach ($dll in $expectedDlls) {
+            $path = "..\app\dist\$dll"
+            if (Test-Path $path) {
+              Write-Host "OK: $dll"
+            } else {
+              Write-Host "MISSING: $dll"
+            }
+          }
+
+          Write-Host ""
+          Write-Host "=== Full listing ==="
           (Get-ChildItem -Force -Path ..\app).FullName
           (Get-ChildItem -Force -Path ..\app\dist).FullName
 
