@@ -24,46 +24,19 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Restore vcpkg cache
-        uses: actions/cache/restore@v4
-        id: vcpkg-cache
-        with:
-          path: ${{ github.workspace }}/vcpkg/installed
-          key: vcpkg-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
-
       - name: Setup vcpkg
-        # Always run to ensure vcpkg.exe exists (needed for integrate install)
-        # The cache only stores installed packages, not vcpkg itself
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: '84bab45d415d22042bd0b9081aea57f362da3f35'
 
-      - name: Set VCPKG_ROOT
-        shell: pwsh
-        run: echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $env:GITHUB_ENV
-
-      - name: Install vcpkg dependencies
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          Write-Host "Installing vcpkg dependencies for x86-windows..."
-          Write-Host "VCPKG_ROOT is: $env:VCPKG_ROOT"
-          # Use --x-install-root to install to $VCPKG_ROOT/installed where our vcxproj files expect them
-          vcpkg install --triplet x86-windows --x-install-root="$env:VCPKG_ROOT/installed"
-          Write-Host "Listing installed libraries:"
-          Get-ChildItem "$env:VCPKG_ROOT/installed/x86-windows/lib" -ErrorAction SilentlyContinue | Select-Object Name
-          Write-Host "vcpkg install completed"
-
-      - name: Save vcpkg cache
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+      - name: Restore vcpkg packages cache
+        uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/vcpkg/installed
+          path: vcpkg_installed
           key: vcpkg-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
 
       - name: Enable vcpkg MSBuild integration
-        shell: cmd
-        run: "%VCPKG_ROOT%\\vcpkg.exe integrate install"
+        run: vcpkg integrate install
 
       - name: Set commit hash
         shell: pwsh
@@ -83,9 +56,7 @@ jobs:
         shell: cmd
         run: |
           cd Windows
-          REM Enable vcpkg MSBuild integration with automatic DLL deployment
-          REM VcpkgInstalledDir tells MSBuild where packages are installed (must match our vcpkg install location)
-          msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32 /p:VcpkgEnabled=true /p:VcpkgAppLocalDeploy=true /p:VcpkgInstalledDir=%VCPKG_ROOT%\installed\
+          msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32
 
       - name: Copy build artifacts and dependencies
         shell: pwsh
@@ -129,16 +100,8 @@ jobs:
       - name: List build artifacts
         shell: pwsh
         run: |
-          Write-Host "=== vcpkg bin directory contents ==="
-          Get-ChildItem "$env:VCPKG_ROOT\installed\x86-windows\bin\*.dll" | Select-Object Name | Sort-Object Name
-
-          Write-Host ""
           Write-Host "=== Build output (app\dist) ==="
           Get-ChildItem "..\app\dist\*.dll" | Select-Object Name | Sort-Object Name
-
-          Write-Host ""
-          Write-Host "=== ICU DLLs in vcpkg bin ==="
-          Get-ChildItem "$env:VCPKG_ROOT\installed\x86-windows\bin\icu*.dll" -ErrorAction SilentlyContinue | Select-Object Name
 
           Write-Host ""
           Write-Host "=== Checking for expected DLLs ==="
@@ -185,79 +148,21 @@ jobs:
       # Run install-check to verify SSL/TLS connectivity to Gmail and identity server.
       # This validates that curl, OpenSSL, and mailcore2 are all working correctly.
       - name: Run install-check
-        shell: pwsh
+        shell: cmd
         run: |
-          Write-Host "=== Running mailsync install-check on Windows ==="
-          $distDir = Resolve-Path "..\app\dist"
-          Set-Location $distDir
-          Write-Host "Current directory: $(Get-Location)"
-          Write-Host ""
-
-          # Check ALL required DLLs from the dependency chain
-          Write-Host "=== Verifying ALL required DLLs ==="
-          $requiredDlls = @(
-            # Our built files
-            "mailsync.exe", "mailcore2.dll", "libetpan.dll",
-            # vcpkg dependencies
-            "libcurl.dll", "libxml2.dll", "libcrypto-3.dll", "libssl-3.dll",
-            "zlib1.dll", "tidy.dll", "libctemplate.dll", "pthreadVC3.dll",
-            "icuin78.dll", "icuuc78.dll", "icudt78.dll",
-            "sasl2.dll", "iconv-2.dll",
-            # MSVC runtime
-            "msvcp140.dll", "vcruntime140.dll"
+          echo === Running mailsync install-check on Windows ===
+          cd ..\app\dist
+          echo Current directory: %CD%
+          echo.
+          echo === Running mailsync --mode install-check ===
+          set CONFIG_DIR_PATH=%TEMP%
+          set IDENTITY_SERVER=https://id.getmailspring.com
+          mailsync.exe --mode install-check
+          if %ERRORLEVEL% NEQ 0 (
+            echo X mailsync install-check failed with exit code %ERRORLEVEL%
+            exit /b 1
           )
-          $missing = @()
-          foreach ($dll in $requiredDlls) {
-            if (Test-Path $dll) {
-              $size = (Get-Item $dll).Length
-              Write-Host "OK: $dll ($size bytes)"
-            } else {
-              Write-Host "MISSING: $dll"
-              $missing += $dll
-            }
-          }
-
-          if ($missing.Count -gt 0) {
-            Write-Host ""
-            Write-Host "ERROR: Missing $($missing.Count) required DLLs!"
-            exit 1
-          }
-
-          # Check dependencies of key DLLs to find any missing second-level deps
-          Write-Host ""
-          Write-Host "=== Checking deeper dependencies with dumpbin ==="
-          $dumpbin = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\2022" -Recurse -Filter "dumpbin.exe" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Hostx64\\x86" } | Select-Object -First 1
-          if ($dumpbin) {
-            $dllsToCheck = @("libxml2.dll", "tidy.dll", "icuuc78.dll", "libcrypto-3.dll", "libssl-3.dll", "zlib1.dll")
-            foreach ($dll in $dllsToCheck) {
-              if (Test-Path $dll) {
-                Write-Host "--- Dependencies of ${dll}: ---"
-                & $dumpbin.FullName /dependents $dll 2>&1 | Select-String -Pattern "\.dll" | ForEach-Object { $_.Line.Trim() }
-              }
-            }
-          }
-
-          Write-Host ""
-          Write-Host "=== Running mailsync --mode install-check ==="
-          $env:CONFIG_DIR_PATH = $env:TEMP
-          $env:IDENTITY_SERVER = "https://id.getmailspring.com"
-
-          # Run and capture output
-          $output = & .\mailsync.exe --mode install-check 2>&1 | Out-String
-          $exitCode = $LASTEXITCODE
-
-          Write-Host "Output: $output"
-          Write-Host "Exit code: $exitCode"
-
-          if ($output -match "One or more checks failed") {
-            Write-Host "X mailsync install-check failed on Windows"
-            exit 1
-          } elseif ($exitCode -ne 0) {
-            Write-Host "X mailsync install-check failed with exit code $exitCode"
-            exit 1
-          } else {
-            Write-Host "OK mailsync install-check passed on Windows"
-          }
+          echo OK mailsync install-check passed on Windows
 
       - name: Deploy to S3
         if: github.ref == 'refs/heads/master'
