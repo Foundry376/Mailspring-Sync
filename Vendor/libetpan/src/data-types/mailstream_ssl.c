@@ -87,6 +87,14 @@
 #ifdef USE_SSL
 # ifndef USE_GNUTLS
 #  include <openssl/ssl.h>
+#  include <openssl/opensslv.h>
+/* OpenSSL 3.0 renamed SSL_get_peer_certificate to SSL_get1_peer_certificate.
+   Define compatibility macro for older versions. */
+#  if OPENSSL_VERSION_NUMBER >= 0x30000000L
+#    define MAILSTREAM_SSL_GET_PEER_CERT SSL_get1_peer_certificate
+#  else
+#    define MAILSTREAM_SSL_GET_PEER_CERT SSL_get_peer_certificate
+#  endif
 # else
 #  include <errno.h>
 #  include <gnutls/gnutls.h>
@@ -1187,12 +1195,7 @@ ssize_t mailstream_ssl_get_certificate(mailstream *stream, unsigned char **cert_
   if (ssl_conn == NULL)
     return -1;
   
-/* OpenSSL 3.0 renamed SSL_get_peer_certificate to SSL_get1_peer_certificate */
-#if defined(OPENSSL_VERSION_MAJOR) && OPENSSL_VERSION_MAJOR >= 3
-  cert = SSL_get1_peer_certificate(ssl_conn);
-#else
-  cert = SSL_get_peer_certificate(ssl_conn);
-#endif
+  cert = MAILSTREAM_SSL_GET_PEER_CERT(ssl_conn);
   if (cert == NULL)
     return -1;
   
