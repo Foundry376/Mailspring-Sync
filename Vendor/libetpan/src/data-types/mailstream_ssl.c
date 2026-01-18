@@ -87,10 +87,12 @@
 #ifdef USE_SSL
 # ifndef USE_GNUTLS
 #  include <openssl/ssl.h>
-#  include <openssl/opensslv.h>
 /* OpenSSL 3.0 renamed SSL_get_peer_certificate to SSL_get1_peer_certificate.
-   Define compatibility macro for older versions. */
-#  if OPENSSL_VERSION_NUMBER >= 0x30000000L
+   On Windows we use vcpkg which provides OpenSSL 3.x, so always use the new name.
+   On other platforms, check the version number. */
+#  if defined(_WIN32)
+#    define MAILSTREAM_SSL_GET_PEER_CERT SSL_get1_peer_certificate
+#  elif defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x30000000L
 #    define MAILSTREAM_SSL_GET_PEER_CERT SSL_get1_peer_certificate
 #  else
 #    define MAILSTREAM_SSL_GET_PEER_CERT SSL_get_peer_certificate
