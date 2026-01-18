@@ -133,12 +133,12 @@ jobs:
             "libxml2.dll",
             "zlib1.dll",
             "tidy.dll",
-            "ctemplate.dll",
+            "libctemplate.dll",
             "pthreadVC3.dll",
             "mailcore2.dll",
             "libetpan.dll",
             "sasl2.dll",
-            "iconv.dll"
+            "iconv-2.dll"
           )
           foreach ($dll in $expectedDlls) {
             $path = "..\app\dist\$dll"
@@ -220,34 +220,21 @@ jobs:
           # Set environment variables and run install-check
           $env:CONFIG_DIR_PATH = $env:TEMP
           $env:IDENTITY_SERVER = "https://id.getmailspring.com"
-          # Add test directory to PATH so Windows can find the DLLs
-          $env:PATH = "$testDir;$env:PATH"
 
-          Write-Host "Running mailsync --mode install-check..."
-          $process = Start-Process -FilePath "$testDir\mailsync.exe" `
-            -ArgumentList "--mode", "install-check" `
-            -PassThru -Wait -NoNewWindow `
-            -RedirectStandardOutput "$env:TEMP\output.txt" `
-            -RedirectStandardError "$env:TEMP\error.txt"
-
-          $exitCode = $process.ExitCode
-
-          Write-Host "Output:"
-          if (Test-Path "$env:TEMP\output.txt") { Get-Content "$env:TEMP\output.txt" }
-          if (Test-Path "$env:TEMP\error.txt") {
-            $errorContent = Get-Content "$env:TEMP\error.txt" -ErrorAction SilentlyContinue
-            if ($errorContent) {
-              Write-Host "Stderr:"
-              Write-Host $errorContent
-            }
+          # Change to test directory so Windows finds DLLs in the same directory as the exe
+          Write-Host "Running mailsync --mode install-check from $testDir..."
+          Push-Location $testDir
+          try {
+            # Run directly with call operator to properly inherit environment
+            $output = & .\mailsync.exe --mode install-check 2>&1 | Out-String
+            $exitCode = $LASTEXITCODE
+            Write-Host "Output:"
+            Write-Host $output
+          } finally {
+            Pop-Location
           }
 
           # Check for failure indicators in output
-          $output = ""
-          if (Test-Path "$env:TEMP\output.txt") {
-            $output = Get-Content "$env:TEMP\output.txt" -Raw
-          }
-
           if ($output -match "One or more checks failed") {
             Write-Host "X mailsync install-check failed on Windows"
             exit 1
