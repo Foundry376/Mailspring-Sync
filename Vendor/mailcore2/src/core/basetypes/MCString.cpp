@@ -1719,8 +1719,9 @@ static void charactersParsed(void * context,
 }
 
 /* GCS: custom error function to ignore errors */
+/* Note: libxml2 2.12+ changed xmlErrorPtr to const xmlError * */
 static void structuredError(void * userData,
-                            xmlErrorPtr error)
+                            const xmlError * error)
 {
     /* ignore all errors */
     (void)userData;
@@ -2127,8 +2128,15 @@ String * String::flattenHTMLAndShowBlockquoteAndLink(bool showBlockquote, bool s
     }
     const char * characters = cleanedHTML->UTF8Characters();
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4996) // htmlSAXParseDoc deprecated in libxml2 2.12+
+#endif
     htmlSAXParseDoc((xmlChar*) characters, "utf-8", &handler, &state);
-    
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+
     if (mem_base != xmlMemBlocks()) {
         MCLog("Leak of %d blocks found in htmlSAXParseDoc",
             xmlMemBlocks() - mem_base);
@@ -2583,11 +2591,18 @@ String * String::htmlEncodedString()
     do {
         nBufConsumed = kBufSz-1;
         inStrSz = kInStrSz - nInStrConsumed;
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4996) // htmlEncodeEntities deprecated in libxml2 2.12+
+#endif
         outVal = htmlEncodeEntities( (unsigned char*)buf,
                                     &nBufConsumed,
                                     (const unsigned char*)inStr+nInStrConsumed,
                                     &inStrSz,
                                     0 );
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
         if (-2 == outVal || -1 == outVal) {
             MCLog("Unable to encode html entities of %s", MCUTF8DESC(this));
             break;
