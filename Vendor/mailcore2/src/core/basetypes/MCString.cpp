@@ -1720,8 +1720,13 @@ static void charactersParsed(void * context,
 
 /* GCS: custom error function to ignore errors */
 /* Note: libxml2 2.12+ changed xmlErrorPtr to const xmlError * */
+#if LIBXML_VERSION >= 21200
 static void structuredError(void * userData,
                             const xmlError * error)
+#else
+static void structuredError(void * userData,
+                            xmlErrorPtr error)
+#endif
 {
     /* ignore all errors */
     (void)userData;
