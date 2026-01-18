@@ -24,11 +24,21 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Setup vcpkg and install dependencies
+      - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: '84bab45d415d22042bd0b9081aea57f362da3f35'
-          runVcpkgInstall: true
+
+      - name: Install vcpkg dependencies
+        shell: pwsh
+        run: |
+          Write-Host "Installing vcpkg dependencies for x86-windows..."
+          Write-Host "VCPKG_ROOT is: $env:VCPKG_ROOT"
+          # Use --x-install-root to install to $VCPKG_ROOT/installed where our vcxproj files expect them
+          vcpkg install --triplet x86-windows --x-install-root="$env:VCPKG_ROOT/installed"
+          Write-Host "Listing installed libraries:"
+          Get-ChildItem "$env:VCPKG_ROOT/installed/x86-windows/lib" -ErrorAction SilentlyContinue | Select-Object Name
+          Write-Host "vcpkg install completed"
 
       - name: Set commit hash
         shell: pwsh
