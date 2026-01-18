@@ -146,11 +146,17 @@ jobs:
           Write-Host "=== DLLs in test directory ==="
           Get-ChildItem "$testDir\*.dll" | Select-Object Name | Sort-Object Name
 
-          # Debug: Check dependencies of mailsync.exe using dumpbin
-          Write-Host "=== Dependencies of mailsync.exe ==="
+          # Debug: Check dependencies using dumpbin
           $dumpbin = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\2022" -Recurse -Filter "dumpbin.exe" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Hostx64\\x86" } | Select-Object -First 1
           if ($dumpbin) {
+            Write-Host "=== Dependencies of mailsync.exe ==="
             & $dumpbin.FullName /dependents "$testDir\mailsync.exe" 2>&1
+            Write-Host "=== Dependencies of mailcore2.dll ==="
+            & $dumpbin.FullName /dependents "$testDir\mailcore2.dll" 2>&1
+            Write-Host "=== Dependencies of libetpan.dll ==="
+            & $dumpbin.FullName /dependents "$testDir\libetpan.dll" 2>&1
+            Write-Host "=== Dependencies of libcurl.dll ==="
+            & $dumpbin.FullName /dependents "$testDir\libcurl.dll" 2>&1
           } else {
             Write-Host "dumpbin.exe not found, skipping dependency check"
           }
@@ -160,8 +166,10 @@ jobs:
           $env:IDENTITY_SERVER = "https://id.getmailspring.com"
 
           Write-Host "Running mailsync --mode install-check..."
+          Write-Host "Working directory: $testDir"
           $process = Start-Process -FilePath "$testDir\mailsync.exe" `
             -ArgumentList "--mode", "install-check" `
+            -WorkingDirectory $testDir `
             -PassThru -Wait -NoNewWindow `
             -RedirectStandardOutput "$env:TEMP\output.txt" `
             -RedirectStandardError "$env:TEMP\error.txt"
