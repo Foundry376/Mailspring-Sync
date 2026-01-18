@@ -56,6 +56,7 @@
       <AdditionalIncludeDirectories>$(VCPKG_ROOT)\installed\x86-windows\include;..\Vendor\SQLiteCpp\sqlite3;..\Vendor\icalendarlib;..\MailSync\Models;..\MailSync;..\Vendor\StanfordCPPLib;..\Vendor;..\Vendor\SQLiteCpp\include;..\Vendor\nlohmann;..\Vendor\mailcore2\build-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -74,6 +75,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_CRT_SECURE_NO_WARNINGS;_CONSOLE;_LIB;_TIMESPEC_DEFINED;SQLITE_ENABLE_FTS5;SPDLOG_WCHAR_FILENAMES;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(VCPKG_ROOT)\installed\x86-windows\include;..\Vendor\SQLiteCpp\sqlite3;..\Vendor\icalendarlib;..\MailSync\Models;..\MailSync;..\Vendor\StanfordCPPLib;..\Vendor;..\Vendor\SQLiteCpp\include;..\Vendor\nlohmann;..\Vendor\mailcore2\build-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
