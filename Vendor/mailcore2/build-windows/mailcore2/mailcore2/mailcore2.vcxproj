@@ -410,7 +410,7 @@ build_headers.bat
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>MAILCORE_DLL;_WINDLL;_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(VCPKG_ROOT)\installed\x86-windows\include;..\..\..\Externals\include;$(MSBuildThisFileDirectory);..\..\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\nntp;..\..\..\src\core\smtp;..\..\..\src\core\pop;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(VCPKG_ROOT)\installed\x86-windows\include;..\..\..\..\libetpan\include;$(MSBuildThisFileDirectory);..\..\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\nntp;..\..\..\src\core\smtp;..\..\..\src\core\pop;</AdditionalIncludeDirectories>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
@@ -429,7 +429,7 @@ build_headers.bat
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>MAILCORE_DLL;_WINDLL;_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(VCPKG_ROOT)\installed\x64-windows\include;..\..\..\Externals\include;$(MSBuildThisFileDirectory);..\..\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\imap;..\..\..\src\core\pop;..\..\..\src\core\nntp;..\..\..\src\core\smtp</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(VCPKG_ROOT)\installed\x64-windows\include;..\..\..\..\libetpan\include;$(MSBuildThisFileDirectory);..\..\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\imap;..\..\..\src\core\pop;..\..\..\src\core\nntp;..\..\..\src\core\smtp</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -448,7 +448,7 @@ build_headers.bat
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>MAILCORE_DLL;_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(VCPKG_ROOT)\installed\x86-windows\include;..\..\..\Externals\include;$(MSBuildThisFileDirectory);..\..\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\imap;..\..\..\src\core\pop;..\..\..\src\core\nntp;..\..\..\src\core\smtp</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(VCPKG_ROOT)\installed\x86-windows\include;..\..\..\..\libetpan\include;$(MSBuildThisFileDirectory);..\..\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\imap;..\..\..\src\core\pop;..\..\..\src\core\nntp;..\..\..\src\core\smtp</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -469,7 +469,7 @@ build_headers.bat
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>MAILCORE_DLL;_WINDLL;_SILENCE_STDEXT_HASH_DEPRECATION_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(VCPKG_ROOT)\installed\x64-windows\include;..\..\..\Externals\include;$(MSBuildThisFileDirectory);..\..\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\imap;..\..\..\src\core\pop;..\..\..\src\core\nntp;..\..\..\src\core\smtp</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(VCPKG_ROOT)\installed\x64-windows\include;..\..\..\..\libetpan\include;$(MSBuildThisFileDirectory);..\..\include;..\..\..\src\core\basetypes;..\..\..\src\core\zip;..\..\..\src\core\zip\minizip;..\..\..\src\core\renderer;..\..\..\src\core/rfc822;..\..\..\src\core/imap;..\..\..\src\core\abstract;..\..\..\src\core\security;..\..\..\src\core\imap;..\..\..\src\core\pop;..\..\..\src\core\nntp;..\..\..\src\core\smtp</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>

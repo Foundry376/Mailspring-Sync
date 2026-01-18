@@ -204,10 +204,8 @@ jobs:
           $env:IDENTITY_SERVER = "https://id.getmailspring.com"
 
           Write-Host "Running mailsync --mode install-check..."
-          Write-Host "Working directory: $testDir"
           $process = Start-Process -FilePath "$testDir\mailsync.exe" `
             -ArgumentList "--mode", "install-check" `
-            -WorkingDirectory $testDir `
             -PassThru -Wait -NoNewWindow `
             -RedirectStandardOutput "$env:TEMP\output.txt" `
             -RedirectStandardError "$env:TEMP\error.txt"
