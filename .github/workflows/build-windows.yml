@@ -24,23 +24,25 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      # Cache vcpkg installed packages (must be before run-vcpkg)
-      - name: Restore vcpkg packages cache
-        uses: actions/cache@v4
-        with:
-          path: vcpkg/installed
-          key: vcpkg-installed-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
-
-      - name: Setup vcpkg and install packages
+      - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: '84bab45d415d22042bd0b9081aea57f362da3f35'
-          runVcpkgInstall: true
+          # Don't run vcpkg install here - let MSBuild handle it with manifest mode
+          runVcpkgInstall: false
           # Disable deprecated x-gha binary caching (was removed from vcpkg)
           doNotCache: true
 
       - name: Enable vcpkg MSBuild integration
         run: vcpkg integrate install
+
+      # Cache packages installed by MSBuild's vcpkg manifest mode
+      # MSBuild with VcpkgEnableManifest=true installs to vcpkg_installed/ next to vcpkg.json
+      - name: Restore vcpkg packages cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg_installed
+          key: vcpkg-msbuild-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
 
       - name: Set commit hash
         shell: pwsh
@@ -60,8 +62,8 @@ jobs:
         shell: cmd
         run: |
           cd Windows
-          REM Packages already installed by run-vcpkg, vcpkg integrate makes them available to MSBuild
-          msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32
+          REM VcpkgEnableManifest=true tells MSBuild to install packages from vcpkg.json to vcpkg_installed/
+          msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32 /p:VcpkgEnableManifest=true
 
       - name: Copy build artifacts and dependencies
         shell: pwsh
