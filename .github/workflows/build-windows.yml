@@ -177,12 +177,30 @@ jobs:
           $testDir = "$env:TEMP\mailspring"
           New-Item -ItemType Directory -Force -Path $testDir | Out-Null
 
+          # Debug: Check source directory
+          Write-Host "=== Current directory: $(Get-Location) ==="
+          Write-Host "=== Checking source directory ==="
+          $sourcePath = "..\app\dist"
+          if (Test-Path $sourcePath) {
+            Write-Host "Source exists: $sourcePath"
+            $sourceFiles = Get-ChildItem "$sourcePath\*" -ErrorAction SilentlyContinue
+            Write-Host "Source file count: $($sourceFiles.Count)"
+          } else {
+            Write-Host "ERROR: Source directory does not exist: $sourcePath"
+            Write-Host "Listing parent directory:"
+            Get-ChildItem "..\app" -ErrorAction SilentlyContinue
+          }
+
           # Copy mailsync.exe and all DLLs to the test directory
-          Copy-Item "..\app\dist\*" -Destination $testDir -Recurse -Force
+          Write-Host "=== Copying files to $testDir ==="
+          Copy-Item "..\app\dist\*" -Destination $testDir -Recurse -Force -ErrorAction Stop
+          Write-Host "Copy completed"
 
           # Debug: List all DLLs in the test directory
           Write-Host "=== DLLs in test directory ==="
-          Get-ChildItem "$testDir\*.dll" | Select-Object Name | Sort-Object Name
+          Get-ChildItem "$testDir\*.dll" -ErrorAction SilentlyContinue | Select-Object Name | Sort-Object Name
+          Write-Host "=== All files in test directory ==="
+          Get-ChildItem "$testDir\*" -ErrorAction SilentlyContinue | Select-Object Name
 
           # Debug: Check dependencies using dumpbin
           $dumpbin = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\2022" -Recurse -Filter "dumpbin.exe" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "Hostx64\\x86" } | Select-Object -First 1
