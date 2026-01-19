@@ -104,6 +104,13 @@ jobs:
             exit 1
           }
 
+          # vcpkg's zlib provides zlib1.dll but the import library causes dependents to look for zlib.dll
+          # This is a known vcpkg issue - copy zlib1.dll to zlib.dll as a workaround
+          if (Test-Path "..\app\dist\zlib1.dll") {
+            Copy-Item "..\app\dist\zlib1.dll" "..\app\dist\zlib.dll" -Force
+            Write-Host "Copied zlib1.dll to zlib.dll (vcpkg naming workaround)"
+          }
+
       - name: List build artifacts
         shell: pwsh
         run: |
@@ -118,6 +125,7 @@ jobs:
             "libcurl.dll",
             "libxml2.dll",
             "zlib1.dll",
+            "zlib.dll",
             "tidy.dll",
             "libctemplate.dll",
             "pthreadVC3.dll",
