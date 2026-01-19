@@ -174,7 +174,7 @@ jobs:
           echo === Running mailsync install-check on Windows ===
           mkdir %TEMP%\Mailspring
           xcopy /E /Y ..\app\dist\* %TEMP%\Mailspring\
-          cd %TEMP%\Mailspring
+          cd /d %TEMP%\Mailspring
           echo Current directory: %CD%
           echo.
           echo === Running mailsync --mode install-check ===
