@@ -2,13 +2,12 @@ diff --git a/libsasl2.pc.in b/libsasl2.pc.in
 index ddad76d..5192f74 100644
 --- a/libsasl2.pc.in
 +++ b/libsasl2.pc.in
-@@ -9,4 +9,5 @@ URL: http://www.cyrussasl.org/
+@@ -9,4 +9,4 @@ URL: http://www.cyrussasl.org/
  Version: @VERSION@
  Cflags: -I${includedir}
  Libs: -L${libdir} -lsasl2
 -Libs.private: @LIB_DOOR@ @SASL_DL_LIB@ @LIBS@
 +Libs.private: @LIB_DOOR@ @SASL_DB_LIB@ @SASL_DL_LIB@ @LIBS@
-+Requires.private: mit-krb5-gssapi
 diff --git a/m4/openssl.m4 b/m4/openssl.m4
 index 42b31af..301dca5 100644
 --- a/m4/openssl.m4
