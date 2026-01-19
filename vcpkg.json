@@ -15,6 +15,7 @@
     "libiconv",
     "tidy-html5",
     "ctemplate",
-    "pthreads"
+    "pthreads",
+    "cyrus-sasl"
   ]
 }
