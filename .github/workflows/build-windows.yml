@@ -12,6 +12,8 @@ on:
 env:
   VCPKG_DEFAULT_TRIPLET: x86-windows
   VCPKG_DEFAULT_HOST_TRIPLET: x86-windows
+  # Use overlay port for cyrus-sasl without krb5 (krb5 doesn't support x86-windows)
+  VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/vcpkg-overlay-ports
 
 jobs:
   build-windows:
@@ -42,7 +44,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vcpkg_installed
-          key: vcpkg-msbuild-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          key: vcpkg-msbuild-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-overlay-ports/**') }}
 
       - name: Set commit hash
         shell: pwsh
@@ -77,8 +79,15 @@ jobs:
           # Copy build output (includes vcpkg DLLs via VcpkgAppLocalDeploy)
           Copy-Item ".\Windows\Release\*" -Destination "..\app\dist" -Recurse -Force
 
-          # Copy vendored SASL DLL (not available via vcpkg for x86-windows)
-          Copy-Item ".\Vendor\libetpan\third-party\lib\sasl2.dll" -Destination "..\app\dist" -Force
+          # vcpkg builds cyrus-sasl as libsasl.dll, but libetpan expects sasl2.dll
+          # Copy libsasl.dll as sasl2.dll for compatibility - fail if not present
+          if (Test-Path "..\app\dist\libsasl.dll") {
+            Copy-Item "..\app\dist\libsasl.dll" "..\app\dist\sasl2.dll" -Force
+            Write-Host "Copied libsasl.dll to sasl2.dll (vcpkg naming compatibility)"
+          } else {
+            Write-Host "ERROR: libsasl.dll not found - vcpkg cyrus-sasl build failed!"
+            exit 1
+          }
 
           # Copy MSVC runtime DLLs (older versions needed for some dependencies)
           Copy-Item "C:\Windows\SysWOW64\msvcr100.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
@@ -131,6 +140,7 @@ jobs:
             "pthreadVC3.dll",
             "mailcore2.dll",
             "libetpan.dll",
+            "libsasl.dll",
             "sasl2.dll",
             "iconv-2.dll"
           )
