@@ -79,12 +79,8 @@ jobs:
           # Copy build output (includes vcpkg DLLs via VcpkgAppLocalDeploy)
           Copy-Item ".\Windows\Release\*" -Destination "..\app\dist" -Recurse -Force
 
-          # vcpkg builds cyrus-sasl as libsasl.dll, but libetpan expects sasl2.dll
-          # Copy libsasl.dll as sasl2.dll for compatibility - fail if not present
-          if (Test-Path "..\app\dist\libsasl.dll") {
-            Copy-Item "..\app\dist\libsasl.dll" "..\app\dist\sasl2.dll" -Force
-            Write-Host "Copied libsasl.dll to sasl2.dll (vcpkg naming compatibility)"
-          } else {
+          # Verify libsasl.dll was deployed by vcpkg
+          if (!(Test-Path "..\app\dist\libsasl.dll")) {
             Write-Host "ERROR: libsasl.dll not found - vcpkg cyrus-sasl build failed!"
             exit 1
           }
@@ -141,7 +137,6 @@ jobs:
             "mailcore2.dll",
             "libetpan.dll",
             "libsasl.dll",
-            "sasl2.dll",
             "iconv-2.dll"
           )
           foreach ($dll in $expectedDlls) {
