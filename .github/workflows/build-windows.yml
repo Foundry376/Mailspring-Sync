@@ -167,11 +167,14 @@ jobs:
 
       # Run install-check to verify SSL/TLS connectivity to Gmail and identity server.
       # This validates that curl, OpenSSL, and mailcore2 are all working correctly.
+      # Note: The executable must be in a path containing "Mailspring" (branding check in main.cpp)
       - name: Run install-check
         shell: cmd
         run: |
           echo === Running mailsync install-check on Windows ===
-          cd ..\app\dist
+          mkdir %TEMP%\Mailspring
+          xcopy /E /Y ..\app\dist\* %TEMP%\Mailspring\
+          cd %TEMP%\Mailspring
           echo Current directory: %CD%
           echo.
           echo === Running mailsync --mode install-check ===
