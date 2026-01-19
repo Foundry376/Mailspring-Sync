@@ -123,9 +123,9 @@ struct mailstream_ssl_context
   SSL_CTX * openssl_ssl_ctx;
   X509* client_x509;
   EVP_PKEY *client_pkey;
-# if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
+# if (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32)
   char * server_name;
-# endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) */
+# endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32) */
 #else
   gnutls_session session;
   gnutls_x509_crt client_x509;
@@ -475,13 +475,13 @@ static struct mailstream_ssl_data * ssl_data_new_full(int fd, time_t timeout,
   SSL_set_mode(ssl_conn, mode | SSL_MODE_RELEASE_BUFFERS);
 #endif
 
-#if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
+#if (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32)
   if (ssl_context != NULL && ssl_context->server_name != NULL) {
     SSL_set_tlsext_host_name(ssl_conn, ssl_context->server_name);
     free(ssl_context->server_name);
     ssl_context->server_name = NULL;
   }
-#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) */
+#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32) */
 
   if (SSL_set_fd(ssl_conn, fd) == 0)
     goto free_ssl_conn;
@@ -543,7 +543,7 @@ static struct mailstream_ssl_data * ssl_data_new(int fd, time_t timeout,
 	void (* callback)(struct mailstream_ssl_context * ssl_context, void * cb_data), void * cb_data)
 {
   return ssl_data_new_full(fd, timeout,
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L) || defined(_WIN32)
 		TLS_client_method(),
 #else
 	/* Despite their name the SSLv23_*method() functions have nothing to do
@@ -1395,7 +1395,7 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
     r = gnutls_server_name_set(ssl_context->session, GNUTLS_NAME_DNS, "", 0U);
   }
 # else /* !USE_GNUTLS */
-#  if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
+#  if (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32)
   if (hostname != NULL) {
     /* Unfortunately we can't set this in the openssl session yet since it
      * hasn't been created yet; we only have the openssl context at this point.
@@ -1414,7 +1414,7 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
     ssl_context->server_name = NULL;
   }
   r = 0;
-#  endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) */
+#  endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32) */
 # endif /* !USE_GNUTLS */
 #endif /* USE_SSL */
 
@@ -1434,9 +1434,9 @@ static struct mailstream_ssl_context * mailstream_ssl_context_new(SSL_CTX * open
   ssl_ctx->openssl_ssl_ctx = open_ssl_ctx;
   ssl_ctx->client_x509 = NULL;
   ssl_ctx->client_pkey = NULL;
-#if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
+#if (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32)
   ssl_ctx->server_name = NULL;
-#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) */
+#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32) */
   ssl_ctx->fd = fd;
 
   return ssl_ctx;
@@ -1445,11 +1445,11 @@ static struct mailstream_ssl_context * mailstream_ssl_context_new(SSL_CTX * open
 static void mailstream_ssl_context_free(struct mailstream_ssl_context * ssl_ctx)
 {
   if (ssl_ctx != NULL) {
-#if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
+#if (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32)
     if (ssl_ctx->server_name != NULL) {
       free(ssl_ctx->server_name);
     }
-#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) */
+#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32) */
     free(ssl_ctx);
   }
 }
