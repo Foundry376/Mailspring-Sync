@@ -165,19 +165,53 @@ jobs:
           name: win-ia32-mailsync
           path: Windows/mailsync.tar.gz
 
-      # Run install-check to verify SSL/TLS connectivity to Gmail and identity server.
-      # This validates that curl, OpenSSL, and mailcore2 are all working correctly.
+      - name: Deploy to S3
+        if: github.ref == 'refs/heads/master'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        shell: pwsh
+        run: |
+          # Upload to S3
+          $archivePath = "Windows/mailsync.tar.gz"
+          $s3Key = "mailsync/$env:COMMIT/win-ia32/mailsync.tar.gz"
+
+          aws s3 cp $archivePath s3://mailspring-builds/$s3Key --acl public-read
+
+  # Run install-check in a separate job to verify SSL/TLS connectivity.
+  # This validates that curl, OpenSSL, and mailcore2 are all working correctly.
+  # Separated from build so that caching works even if validation fails.
+  test-windows:
+    needs: build-windows
+    runs-on: windows-2022
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: win-ia32-mailsync
+
+      - name: Extract archive
+        shell: pwsh
+        run: |
+          # Create a directory with 'mailspring' in the path (required by branding check in main.cpp)
+          $testDir = "$env:TEMP\mailspring"
+          New-Item -ItemType Directory -Force -Path $testDir | Out-Null
+
+          # Extract the archive
+          tar -xzf mailsync.tar.gz -C $testDir
+
+          # List extracted files
+          Write-Host "=== Extracted files ==="
+          Get-ChildItem $testDir | Select-Object Name
+
       - name: Run install-check
         shell: pwsh
         run: |
           Write-Host "=== Running mailsync install-check on Windows ==="
 
-          # Create a directory with 'mailspring' in the path (required by branding check in main.cpp)
           $testDir = "$env:TEMP\mailspring"
-          New-Item -ItemType Directory -Force -Path $testDir | Out-Null
-
-          # Copy mailsync.exe and all DLLs to the test directory
-          Copy-Item "..\app\dist\*" -Destination $testDir -Recurse -Force
 
           # Set environment variables and run install-check
           $env:CONFIG_DIR_PATH = $env:TEMP
@@ -217,17 +251,3 @@ jobs:
           } else {
             Write-Host "OK mailsync install-check passed on Windows"
           }
-
-      - name: Deploy to S3
-        if: github.ref == 'refs/heads/master'
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
-        shell: pwsh
-        run: |
-          # Upload to S3
-          $archivePath = "Windows/mailsync.tar.gz"
-          $s3Key = "mailsync/$env:COMMIT/win-ia32/mailsync.tar.gz"
-
-          aws s3 cp $archivePath s3://mailspring-builds/$s3Key --acl public-read
