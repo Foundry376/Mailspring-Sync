@@ -73,13 +73,21 @@ int mailimap_ssl_connect_voip_with_callback(mailimap * f, const char * server, u
   int s;
   mailstream * stream;
 
+  fprintf(stderr, "WindowsDebug: mailimap_ssl_connect_voip_with_callback called, server=%s, port=%u, callback=%p, data=%p\n",
+          server ? server : "NULL", (unsigned)port, (void*)callback, data);
+
 #if HAVE_CFNETWORK
+  fprintf(stderr, "WindowsDebug: HAVE_CFNETWORK is defined\n");
   if (mailstream_cfstream_enabled) {
+    fprintf(stderr, "WindowsDebug: mailstream_cfstream_enabled is true, using CFNetwork path (no callback)\n");
     // CFNetwork handles SNI automatically via hostname - callback not needed
     return mailimap_cfssl_connect_voip(f, server, port, voip_enabled);
   }
+  fprintf(stderr, "WindowsDebug: mailstream_cfstream_enabled is false, using OpenSSL path\n");
+#else
+  fprintf(stderr, "WindowsDebug: HAVE_CFNETWORK is NOT defined, using OpenSSL path\n");
 #endif
-  
+
   if (port == 0) {
     port = mail_get_service_port(SERVICE_NAME_IMAPS, SERVICE_TYPE_TCP);
     if (port == 0)
@@ -89,11 +97,17 @@ int mailimap_ssl_connect_voip_with_callback(mailimap * f, const char * server, u
   /* Connection */
 
   s = mail_tcp_connect_timeout(server, port, f->imap_timeout);
-  if (s == -1)
+  if (s == -1) {
+    fprintf(stderr, "WindowsDebug: mail_tcp_connect_timeout failed\n");
     return MAILIMAP_ERROR_CONNECTION_REFUSED;
+  }
+  fprintf(stderr, "WindowsDebug: mail_tcp_connect_timeout succeeded, socket=%d\n", s);
 
+  fprintf(stderr, "WindowsDebug: calling mailstream_ssl_open_with_callback_timeout with callback=%p, data=%p\n",
+          (void*)callback, data);
   stream = mailstream_ssl_open_with_callback_timeout(s, f->imap_timeout, callback, data);
   if (stream == NULL) {
+    fprintf(stderr, "WindowsDebug: mailstream_ssl_open_with_callback_timeout returned NULL!\n");
 #ifdef WIN32
 	closesocket(s);
 #else
@@ -101,6 +115,7 @@ int mailimap_ssl_connect_voip_with_callback(mailimap * f, const char * server, u
 #endif
     return MAILIMAP_ERROR_SSL;
   }
+  fprintf(stderr, "WindowsDebug: mailstream_ssl_open_with_callback_timeout succeeded\n");
 
   return mailimap_connect(f, stream);
 }

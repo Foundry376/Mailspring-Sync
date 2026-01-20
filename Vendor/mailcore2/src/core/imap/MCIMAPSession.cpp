@@ -636,8 +636,13 @@ static void ssl_callback(struct mailstream_ssl_context * ssl_context, void * dat
     // Set the Server Name Indication (SNI) for TLS connections
     // SNI only makes sense for hostnames, not IP addresses
     const char * hostname = (const char *) data;
+    MCLog("WindowsDebug: ssl_callback called, ssl_context=%p, hostname=%s", ssl_context, hostname ? hostname : "NULL");
     if (hostname != NULL && !isIPAddress(hostname)) {
-        mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
+        MCLog("WindowsDebug: ssl_callback calling mailstream_ssl_set_server_name with hostname=%s", hostname);
+        int result = mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
+        MCLog("WindowsDebug: mailstream_ssl_set_server_name returned %d", result);
+    } else {
+        MCLog("WindowsDebug: ssl_callback NOT setting SNI - hostname is NULL or is IP address");
     }
 }
 

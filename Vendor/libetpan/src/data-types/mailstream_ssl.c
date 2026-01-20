@@ -443,23 +443,38 @@ static struct mailstream_ssl_data * ssl_data_new_full(int fd, time_t timeout,
 #ifdef SSL_MODE_RELEASE_BUFFERS
   long mode = 0;
 #endif
-  
+
+  fprintf(stderr, "WindowsDebug: ssl_data_new_full called, fd=%d, callback=%p, cb_data=%p\n",
+          fd, (void*)callback, cb_data);
+
   mailstream_ssl_init();
-  
+
   tmp_ctx = SSL_CTX_new(method);
-  if (tmp_ctx == NULL)
+  if (tmp_ctx == NULL) {
+    fprintf(stderr, "WindowsDebug: SSL_CTX_new failed!\n");
     goto err;
-  
-  if (callback != NULL) {
-    ssl_context = mailstream_ssl_context_new(tmp_ctx, fd);
-    callback(ssl_context, cb_data);
   }
-  
+  fprintf(stderr, "WindowsDebug: SSL_CTX_new succeeded, tmp_ctx=%p\n", (void*)tmp_ctx);
+
+  if (callback != NULL) {
+    fprintf(stderr, "WindowsDebug: callback is not NULL, creating ssl_context and calling callback\n");
+    ssl_context = mailstream_ssl_context_new(tmp_ctx, fd);
+    fprintf(stderr, "WindowsDebug: mailstream_ssl_context_new returned ssl_context=%p\n", (void*)ssl_context);
+    callback(ssl_context, cb_data);
+    fprintf(stderr, "WindowsDebug: callback returned, ssl_context->server_name=%s\n",
+            (ssl_context && ssl_context->server_name) ? ssl_context->server_name : "NULL");
+  } else {
+    fprintf(stderr, "WindowsDebug: callback is NULL, skipping SNI setup!\n");
+  }
+
   SSL_CTX_set_app_data(tmp_ctx, ssl_context);
   SSL_CTX_set_client_cert_cb(tmp_ctx, mailstream_openssl_client_cert_cb);
   ssl_conn = (SSL *) SSL_new(tmp_ctx);
-  if (ssl_conn == NULL)
+  if (ssl_conn == NULL) {
+    fprintf(stderr, "WindowsDebug: SSL_new failed!\n");
     goto free_ctx;
+  }
+  fprintf(stderr, "WindowsDebug: SSL_new succeeded, ssl_conn=%p\n", (void*)ssl_conn);
 
 #if SSL_MODE_RELEASE_BUFFERS
   mode = SSL_get_mode(ssl_conn);
@@ -467,13 +482,21 @@ static struct mailstream_ssl_data * ssl_data_new_full(int fd, time_t timeout,
 #endif
 
   if (ssl_context != NULL && ssl_context->server_name != NULL) {
-    SSL_set_tlsext_host_name(ssl_conn, ssl_context->server_name);
+    fprintf(stderr, "WindowsDebug: About to call SSL_set_tlsext_host_name with server_name=%s\n",
+            ssl_context->server_name);
+    int sni_result = SSL_set_tlsext_host_name(ssl_conn, ssl_context->server_name);
+    fprintf(stderr, "WindowsDebug: SSL_set_tlsext_host_name returned %d\n", sni_result);
     free(ssl_context->server_name);
     ssl_context->server_name = NULL;
+  } else {
+    fprintf(stderr, "WindowsDebug: NOT calling SSL_set_tlsext_host_name - ssl_context=%p, server_name=%s\n",
+            (void*)ssl_context, (ssl_context ? (ssl_context->server_name ? ssl_context->server_name : "NULL") : "N/A"));
   }
 
-  if (SSL_set_fd(ssl_conn, fd) == 0)
+  if (SSL_set_fd(ssl_conn, fd) == 0) {
+    fprintf(stderr, "WindowsDebug: SSL_set_fd failed!\n");
     goto free_ssl_conn;
+  }
   
 again:
   r = SSL_connect(ssl_conn);
@@ -546,6 +569,8 @@ again:
 static struct mailstream_ssl_data * ssl_data_new(int fd, time_t timeout,
 	void (* callback)(struct mailstream_ssl_context * ssl_context, void * cb_data), void * cb_data)
 {
+  fprintf(stderr, "WindowsDebug: ssl_data_new called, fd=%d, callback=%p, cb_data=%p\n",
+          fd, (void*)callback, cb_data);
   return ssl_data_new_full(fd, timeout, TLS_client_method(), callback, cb_data);
 }
 
@@ -728,14 +753,21 @@ static void  ssl_data_close(struct mailstream_ssl_data * ssl_data)
 static mailstream_low * mailstream_low_ssl_open_full(int fd, int starttls, time_t timeout,
   void (* callback)(struct mailstream_ssl_context * ssl_context, void * cb_data), void * cb_data)
 {
+  fprintf(stderr, "WindowsDebug: mailstream_low_ssl_open_full called, fd=%d, starttls=%d, callback=%p, cb_data=%p\n",
+          fd, starttls, (void*)callback, cb_data);
 #ifdef USE_SSL
+  fprintf(stderr, "WindowsDebug: USE_SSL is defined in mailstream_low_ssl_open_full\n");
   mailstream_low * s;
   struct mailstream_ssl_data * ssl_data;
 
+  fprintf(stderr, "WindowsDebug: calling ssl_data_new with callback=%p, cb_data=%p\n", (void*)callback, cb_data);
   ssl_data = ssl_data_new(fd, timeout, callback, cb_data);
 
-  if (ssl_data == NULL)
+  if (ssl_data == NULL) {
+    fprintf(stderr, "WindowsDebug: ssl_data_new returned NULL\n");
     goto err;
+  }
+  fprintf(stderr, "WindowsDebug: ssl_data_new succeeded\n");
 
   s = mailstream_low_new(ssl_data, mailstream_ssl_driver);
   if (s == NULL)
@@ -749,6 +781,7 @@ static mailstream_low * mailstream_low_ssl_open_full(int fd, int starttls, time_
  err:
   return NULL;
 #else
+  fprintf(stderr, "WindowsDebug: USE_SSL is NOT defined in mailstream_low_ssl_open_full!\n");
   return NULL;
 #endif
 }
@@ -1138,13 +1171,19 @@ mailstream * mailstream_ssl_open_with_callback(int fd,
 mailstream * mailstream_ssl_open_with_callback_timeout(int fd, time_t timeout,
     void (* callback)(struct mailstream_ssl_context * ssl_context, void * data), void * data)
 {
+  fprintf(stderr, "WindowsDebug: mailstream_ssl_open_with_callback_timeout called, fd=%d, callback=%p, data=%p\n",
+          fd, (void*)callback, data);
 #ifdef USE_SSL
+  fprintf(stderr, "WindowsDebug: USE_SSL is defined in mailstream_ssl_open_with_callback_timeout\n");
   mailstream_low * low;
   mailstream * s;
 
   low = mailstream_low_ssl_open_with_callback_timeout(fd, timeout, callback, data);
-  if (low == NULL)
+  if (low == NULL) {
+    fprintf(stderr, "WindowsDebug: mailstream_low_ssl_open_with_callback_timeout returned NULL\n");
     goto err;
+  }
+  fprintf(stderr, "WindowsDebug: mailstream_low_ssl_open_with_callback_timeout succeeded\n");
 
   s = mailstream_new(low, 4096);
   if (s == NULL)
@@ -1157,6 +1196,7 @@ mailstream * mailstream_ssl_open_with_callback_timeout(int fd, time_t timeout,
  err:
   return NULL;
 #else
+  fprintf(stderr, "WindowsDebug: USE_SSL is NOT defined in mailstream_ssl_open_with_callback_timeout!\n");
   return NULL;
 #endif
 }
@@ -1252,6 +1292,8 @@ mailstream_low * mailstream_low_ssl_open_with_callback(int fd,
 mailstream_low * mailstream_low_ssl_open_with_callback_timeout(int fd, time_t timeout,
     void (* callback)(struct mailstream_ssl_context * ssl_context, void * data), void * data)
 {
+  fprintf(stderr, "WindowsDebug: mailstream_low_ssl_open_with_callback_timeout called, fd=%d, callback=%p, data=%p\n",
+          fd, (void*)callback, data);
   return mailstream_low_ssl_open_full(fd, 0, timeout, callback, data);
 }
 
@@ -1378,8 +1420,13 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
 {
   int r = -1;
 
+  fprintf(stderr, "WindowsDebug: mailstream_ssl_set_server_name called, ssl_context=%p, hostname=%s\n",
+          (void*)ssl_context, hostname ? hostname : "NULL");
+
 #ifdef USE_SSL
+  fprintf(stderr, "WindowsDebug: USE_SSL is defined\n");
 # ifdef USE_GNUTLS
+  fprintf(stderr, "WindowsDebug: USE_GNUTLS is defined (using GNUTLS path)\n");
   if (hostname != NULL) {
     r = gnutls_server_name_set(ssl_context->session, GNUTLS_NAME_DNS, hostname, strlen(hostname));
   }
@@ -1387,6 +1434,7 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
     r = gnutls_server_name_set(ssl_context->session, GNUTLS_NAME_DNS, "", 0U);
   }
 # else /* !USE_GNUTLS */
+  fprintf(stderr, "WindowsDebug: USE_GNUTLS is NOT defined (using OpenSSL path)\n");
   if (hostname != NULL) {
     /* Unfortunately we can't set this in the openssl session yet since it
      * hasn't been created yet; we only have the openssl context at this point.
@@ -1397,17 +1445,23 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
      * must therefore take a temporary copy here, which we free once we've set
      * it in the openssl session. */
     ssl_context->server_name = strdup(hostname);
+    fprintf(stderr, "WindowsDebug: strdup hostname, ssl_context->server_name=%s\n",
+            ssl_context->server_name ? ssl_context->server_name : "NULL");
   }
   else {
     if (ssl_context->server_name != NULL) {
       free(ssl_context->server_name);
     }
     ssl_context->server_name = NULL;
+    fprintf(stderr, "WindowsDebug: hostname was NULL, cleared server_name\n");
   }
   r = 0;
 # endif /* !USE_GNUTLS */
+#else
+  fprintf(stderr, "WindowsDebug: USE_SSL is NOT defined!\n");
 #endif /* USE_SSL */
 
+  fprintf(stderr, "WindowsDebug: mailstream_ssl_set_server_name returning %d\n", r);
   return r;
 }
 
