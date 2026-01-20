@@ -456,6 +456,19 @@ static struct mailstream_ssl_data * ssl_data_new_full(int fd, time_t timeout,
   }
   fprintf(stderr, "WindowsDebug: SSL_CTX_new succeeded, tmp_ctx=%p\n", (void*)tmp_ctx);
 
+#ifdef WIN32
+  /* Disable TLS session tickets on Windows. In TLS 1.3, the server sends
+   * NewSessionTicket messages after the handshake completes, which OpenSSL
+   * processes during SSL_read(). This processing can trigger certificate
+   * operations that require accessing files at OPENSSLDIR paths compiled
+   * into OpenSSL. When the executable is deployed to a different machine
+   * than where OpenSSL was built (e.g., vcpkg build machine vs runtime
+   * container), these paths don't exist, causing "BIO routines::no such file"
+   * errors. Disabling session tickets avoids this issue. */
+  SSL_CTX_set_options(tmp_ctx, SSL_OP_NO_TICKET);
+  fprintf(stderr, "WindowsDebug: Disabled TLS session tickets (SSL_OP_NO_TICKET)\n");
+#endif
+
   if (callback != NULL) {
     fprintf(stderr, "WindowsDebug: callback is not NULL, creating ssl_context and calling callback\n");
     ssl_context = mailstream_ssl_context_new(tmp_ctx, fd);
