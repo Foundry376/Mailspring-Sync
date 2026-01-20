@@ -81,7 +81,7 @@ static ErrorCode addFile(zipFile file, String * path)
         HANDLE hFind = INVALID_HANDLE_VALUE;
         WIN32_FIND_DATA ffd;
 
-        hFind = FindFirstFile(wildcard->unicodeCharacters(), &ffd);
+        hFind = FindFirstFile(reinterpret_cast<const wchar_t *>(wildcard->unicodeCharacters()), &ffd);
         if (hFind == INVALID_HANDLE_VALUE)  {
             return ErrorFile;
         }
@@ -90,7 +90,7 @@ static ErrorCode addFile(zipFile file, String * path)
             if ((wcscmp(ffd.cFileName, L".") == 0) || (wcscmp(ffd.cFileName, L"..") == 0)) {
                 continue;
             }
-            String * subpath = path->stringByAppendingPathComponent(String::stringWithCharacters(ffd.cFileName));
+            String * subpath = path->stringByAppendingPathComponent(String::stringWithCharacters(reinterpret_cast<const UChar *>(ffd.cFileName)));
             addFile(file, subpath);
         }
         while (FindNextFile(hFind, &ffd) != 0);

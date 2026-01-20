@@ -217,17 +217,30 @@ LONG WINAPI UnhandledException(LPEXCEPTION_POINTERS exceptionInfo) {
 }
 #endif // _WIN32
 
+// Check for C++17 - MSVC uses _MSVC_LANG instead of __cplusplus
+#if defined(_MSVC_LANG)
+#define STDCPP_VERSION _MSVC_LANG
+#else
+#define STDCPP_VERSION __cplusplus
+#endif
+
 void setTopLevelExceptionHandlerEnabled(bool enabled, bool force) {
     static void (* old_terminate)() = nullptr;
+#if STDCPP_VERSION < 201703L
     static void (* old_unexpected)() = nullptr;
+#endif
 
     if ((!STATIC_VARIABLE(topLevelExceptionHandlerEnabled) || force) && enabled) {
         if (!old_terminate) {
             old_terminate = std::set_terminate(stanfordCppLibTerminateHandler);
+#if STDCPP_VERSION < 201703L
             old_unexpected = std::set_unexpected(stanfordCppLibUnexpectedHandler);
+#endif
         } else {
             std::set_terminate(stanfordCppLibTerminateHandler);
+#if STDCPP_VERSION < 201703L
             std::set_unexpected(stanfordCppLibUnexpectedHandler);
+#endif
         }
 #ifdef _WIN32
         // disabling this code for now because it messes with the
@@ -250,7 +263,9 @@ void setTopLevelExceptionHandlerEnabled(bool enabled, bool force) {
         signalHandlerEnable();
     } else if ((STATIC_VARIABLE(topLevelExceptionHandlerEnabled) || force) && !enabled) {
         std::set_terminate(old_terminate);
+#if STDCPP_VERSION < 201703L
         std::set_unexpected(old_unexpected);
+#endif
     }
     STATIC_VARIABLE(topLevelExceptionHandlerEnabled) = enabled;
 }

@@ -79,7 +79,7 @@ int mailimap_ssl_connect_voip_with_callback(mailimap * f, const char * server, u
     return mailimap_cfssl_connect_voip(f, server, port, voip_enabled);
   }
 #endif
-  
+
   if (port == 0) {
     port = mail_get_service_port(SERVICE_NAME_IMAPS, SERVICE_TYPE_TCP);
     if (port == 0)

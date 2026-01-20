@@ -15,7 +15,12 @@
 #define constants_h
 
 #define AS_MCSTR(X)         mailcore::String::uniquedStringWithUTF8Characters(X.c_str())
+#ifdef _MSC_VER
+// On Windows with newer ICU, UChar is char16_t not wchar_t, so we need reinterpret_cast
+#define AS_WIDE_MCSTR(X)    mailcore::String::stringWithCharacters(reinterpret_cast<const UChar*>(X.c_str()))
+#else
 #define AS_WIDE_MCSTR(X)    mailcore::String::stringWithCharacters(X.c_str())
+#endif
 
 #if defined _WIN32 || defined __CYGWIN__
 static string FS_PATH_SEP = "\\";

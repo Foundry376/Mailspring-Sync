@@ -1,39 +1,41 @@
 ## libEtPan on Windows ##
 
-All the provided binaries are compiled in release mode.
-For the debug mode, you need to download the repositories and compile them.
+libEtPan is built as part of the Mailspring-Sync project. External dependencies are managed via [vcpkg](https://vcpkg.io/) and are automatically installed during the GitHub Actions build.
 
-### Binary ###
+### Dependencies ###
 
-In case you just need a binary build of libEtPan:
-- [libEtPan](http://d.etpan.org/mailcore2-deps/libetpan-win32/)
+The following dependencies are installed via vcpkg (defined in `vcpkg.json` at the mailsync project root):
 
-Also, you'll need all the dependencies, download the most recent binary builds in:
+- openssl
+- zlib
+- cyrus-sasl
 
-- [Cyrus SASL](http://d.etpan.org/mailcore2-deps/cyrus-sasl-win32/)
-- [zlib](http://d.etpan.org/mailcore2-deps/zlib-win32/)
-- [OpenSSL](http://d.etpan.org/mailcore2-deps/misc-win32/)
-- [SASL](http://d.etpan.org/mailcore2-deps/cyrus-sasl-win32/)
+### GitHub Actions Build ###
 
-### Build using Visual Studio 2013 ###
+Windows builds run automatically via GitHub Actions. The workflow:
 
-You'll need all the dependencies, download the most recent binary builds in:
+1. Sets up vcpkg using `lukka/run-vcpkg`
+2. Installs dependencies from `vcpkg.json` with triplet `x86-windows`
+3. Builds using MSBuild with vcpkg integration enabled
 
-- [zlib](http://d.etpan.org/mailcore2-deps/zlib-win32/)
-- [OpenSSL](http://d.etpan.org/mailcore2-deps/misc-win32/)
-- [SASL](http://d.etpan.org/mailcore2-deps/cyrus-sasl-win32/)
+See `.github/workflows/build-windows.yml` for details.
 
-#### Instructions for zlib ####
+### Local Development ###
 
-- copy `include`, `lib` and `lib64` folders to `libetpan/third-party`.
+To build locally on Windows:
 
-#### openssl ####
+1. Install vcpkg:
+   ```cmd
+   git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+   C:\vcpkg\bootstrap-vcpkg.bat
+   set VCPKG_ROOT=C:\vcpkg
+   ```
 
-- copy `bin`, `bin64`, `include`, `lib` and `lib64` to `mailcore2/Externals`.
+2. Install dependencies (from mailsync project root):
+   ```cmd
+   vcpkg install --triplet x86-windows
+   ```
 
-As a result, in `Externals` folder, you should have the following folders: `include`, `lib`, `lib64`, `bin` and `bin64`.
+3. Open `Windows/mailsync.sln` in Visual Studio and build.
 
-In `libetpan/build-windows`, using Visual Studio 2013, open `libetpan.sln`.
-Then, build.
-
-Public headers will be located in `libetpan/build-windows/include`.
+Public headers are located in `libetpan/build-windows/include`.

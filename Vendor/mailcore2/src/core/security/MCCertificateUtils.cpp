@@ -148,9 +148,6 @@ err:
     certificatePaths.push_back("/etc/ssl/ca-bundle.pem");
 
     MCLog("OpenSSL version: %s", OpenSSL_version(0));
-    OpenSSL_add_all_algorithms();
-    ERR_load_BIO_strings();
-    ERR_load_crypto_strings();
 
     carray *cCerts = mailstream_get_certificate_chain(stream);
     if (cCerts == NULL)
@@ -170,6 +167,9 @@ err:
     HCERTSTORE systemStore = CertOpenSystemStore(NULL, L"ROOT");
 
     PCCERT_CONTEXT previousCert = NULL;
+    int certCount = 0;
+    int certLoadedCount = 0;
+    int certFailedCount = 0;
     while (1)
     {
         PCCERT_CONTEXT nextCert = CertEnumCertificatesInStore(systemStore, previousCert);
@@ -177,11 +177,30 @@ err:
         {
             break;
         }
-        X509 *openSSLCert = d2i_X509(NULL, (const unsigned char **)&nextCert->pbCertEncoded, nextCert->cbCertEncoded);
+        certCount++;
+
+        // Important: d2i_X509 advances the pointer, so we need to use a copy
+        const unsigned char *certData = nextCert->pbCertEncoded;
+        X509 *openSSLCert = d2i_X509(NULL, &certData, nextCert->cbCertEncoded);
         if (openSSLCert != NULL)
         {
-            X509_STORE_add_cert(store, openSSLCert);
+            int addResult = X509_STORE_add_cert(store, openSSLCert);
+            if (addResult == 1) {
+                certLoadedCount++;
+            } else {
+                // Note: X509_STORE_add_cert returns 0 for duplicates, which is not an error
+                unsigned long err = ERR_peek_last_error();
+                if (ERR_GET_REASON(err) == X509_R_CERT_ALREADY_IN_HASH_TABLE) {
+                    certLoadedCount++; // Count duplicates as loaded
+                } else {
+                    certFailedCount++;
+                }
+            }
             X509_free(openSSLCert);
+        }
+        else
+        {
+            certFailedCount++;
         }
         previousCert = nextCert;
     }
@@ -230,6 +249,14 @@ err:
         }
     }
 
+    /* Clear the OpenSSL error queue. The operations above (X509_STORE_set_default_paths
+     * and X509_STORE_load_locations) may push errors to the queue when they fail to
+     * find certificate files at various paths. On Windows, none of the Unix-style paths
+     * exist, so errors accumulate. If we don't clear them, subsequent SSL operations
+     * (like SSL_read) will report these stale "BIO routines::no such file" errors
+     * instead of actual errors. */
+    ERR_clear_error();
+
     certificates = sk_X509_new_null();
     for (unsigned int i = 0; i < carray_count(cCerts); i++)
     {
@@ -243,6 +270,9 @@ err:
         BIO *bio = BIO_new_mem_buf((void *)str->str, str->len);
         X509 *certificate = d2i_X509_bio(bio, NULL);
         BIO_free(bio);
+        if (certificate == NULL) {
+            goto free_certs;
+        }
         if (!sk_X509_push(certificates, certificate))
         {
             MCLog("Could not append certificate via sk_X509_push");
@@ -271,19 +301,20 @@ err:
     }
     else
     {
+        int errcode = X509_STORE_CTX_get_error(storectx);
         MCLog("Verification failed:\n");
         MCLog("X509_verify_cert_error_string:\n");
-        int errcode = X509_STORE_CTX_get_error(storectx);
         MCLog(X509_verify_cert_error_string(errcode));
         /*  get the offending certificate causing the failure */
         X509 *error_cert = X509_STORE_CTX_get_current_cert(storectx);
-        X509_NAME *certsubject = X509_NAME_new();
-        certsubject = X509_get_subject_name(error_cert);
-        MCLog("X509_get_subject_name:\n");
-        BIO *outbio = BIO_new_fp(stderr, BIO_NOCLOSE);
-        X509_NAME_print_ex(outbio, certsubject, 0, XN_FLAG_MULTILINE);
-        BIO_printf(outbio, "\n");
-        BIO_free_all(outbio);
+        if (error_cert != NULL) {
+            X509_NAME *certsubject = X509_get_subject_name(error_cert);
+            MCLog("X509_get_subject_name:\n");
+            BIO *outbio = BIO_new_fp(stderr, BIO_NOCLOSE);
+            X509_NAME_print_ex(outbio, certsubject, 0, XN_FLAG_MULTILINE);
+            BIO_printf(outbio, "\n");
+            BIO_free_all(outbio);
+        }
     }
 
 free_certs:

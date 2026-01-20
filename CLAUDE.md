@@ -25,10 +25,27 @@ xcodebuild -scheme mailsync -configuration Release
 ```
 
 ### Windows
+
+Windows builds use [vcpkg](https://vcpkg.io/) for dependency management. Dependencies are defined in `vcpkg.json` at the project root.
+
+**Local Development:**
 ```cmd
+# Install vcpkg (one-time setup)
+git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+C:\vcpkg\bootstrap-vcpkg.bat
+set VCPKG_ROOT=C:\vcpkg
+
+# Install dependencies (from project root)
+vcpkg install --triplet x86-windows
+
+# Build
 cd Windows
 msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32
 ```
+
+**CI/CD:** GitHub Actions automatically installs vcpkg dependencies during the build (see `.github/workflows/build-windows.yml`).
+
+**vcpkg-managed dependencies:** openssl, curl, libxml2, zlib, icu, libiconv, tidy-html5, ctemplate, pthreads, cyrus-sasl
 
 ## Running Mailsync
 
@@ -99,7 +116,16 @@ Each mailsync process handles a single email account. Mailspring runs one proces
 Account, Message, Thread, Folder, Label, Contact, ContactBook, ContactGroup, Calendar, Event, File, Task, Identity
 
 ### Vendor Libraries
-Located in `Vendor/` - both libetpan and mailcore2 contain local modifications from upstream.
+Located in `Vendor/` - these are built from source and some contain local modifications:
+- **libetpan** - IMAP/SMTP library (modified from upstream)
+- **mailcore2** - High-level mail library (modified from upstream)
+- **SQLiteCpp** - SQLite C++ wrapper
+- **nlohmann-json** - JSON library (header-only)
+- **spdlog** - Logging library
+- **icalendarlib** - iCalendar parsing
+- **StanfordCPPLib** - Utility library
+
+On Windows, external binary dependencies (OpenSSL, curl, libxml2, etc.) are managed via vcpkg rather than vendored binaries.
 
 ## Gmail-Specific Behavior
 Gmail accounts sync only Spam, All Mail, and Trash folders, using X-GM-LABELS extension for label handling. Virtual folders are ignored.

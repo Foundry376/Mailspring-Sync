@@ -4245,11 +4245,11 @@ IndexSet * IMAPSession::capability(ErrorCode * pError)
 {
     int r;
     struct mailimap_capability_data * cap;
-    
+
     connectIfNeeded(pError);
     if (* pError != ErrorNone)
         return NULL;
-    
+
     r = mailimap_capability(mImap, &cap);
     if (r == MAILIMAP_ERROR_STREAM) {
         mShouldDisconnect = true;
@@ -4265,7 +4265,7 @@ IndexSet * IMAPSession::capability(ErrorCode * pError)
         * pError = ErrorCapability;
         return NULL;
     }
-    
+
     mailimap_capability_data_free(cap);
     
     IndexSet * result = new IndexSet();

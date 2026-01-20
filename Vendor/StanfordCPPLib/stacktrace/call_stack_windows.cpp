@@ -23,7 +23,7 @@
 
 #ifdef _WIN32
 #include "call_stack.h"
-#include "../../dbg.h"
+#include "dbg.h"
 
 #include <iostream>
 

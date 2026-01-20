@@ -143,7 +143,7 @@ Attachment * Attachment::attachmentWithContentsOfFile(String * filename)
 
 #ifdef _MSC_VER
     struct _stat statinfo;
-    r = _wstat(filename->unicodeCharacters(), &statinfo);
+    r = _wstat(reinterpret_cast<const wchar_t *>(filename->unicodeCharacters()), &statinfo);
 #else
     struct stat statinfo;
     r = stat(filename->fileSystemRepresentation(), &statinfo);

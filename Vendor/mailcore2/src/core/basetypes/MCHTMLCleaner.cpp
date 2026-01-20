@@ -21,7 +21,12 @@ typedef unsigned long ulong;
 #include "MailspringDynamicTidy.h"
 #else
 #include <tidy.h>
+// In tidy-html5 5.8.0+, buffio.h was renamed to tidybuffio.h
+#if defined(_WIN32)
+#include <tidybuffio.h>
+#else
 #include <buffio.h>
+#endif
 #endif
 
 #include "MCUtils.h"

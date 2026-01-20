@@ -87,6 +87,10 @@
 #ifdef USE_SSL
 # ifndef USE_GNUTLS
 #  include <openssl/ssl.h>
+#  include <openssl/err.h>
+#  include <openssl/provider.h>
+/* OpenSSL 3.0 renamed SSL_get_peer_certificate to SSL_get1_peer_certificate. */
+#  define MAILSTREAM_SSL_GET_PEER_CERT SSL_get1_peer_certificate
 # else
 #  include <errno.h>
 #  include <gnutls/gnutls.h>
@@ -113,9 +117,7 @@ struct mailstream_ssl_context
   SSL_CTX * openssl_ssl_ctx;
   X509* client_x509;
   EVP_PKEY *client_pkey;
-# if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
   char * server_name;
-# endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) */
 #else
   gnutls_session session;
   gnutls_x509_crt client_x509;
@@ -288,11 +290,33 @@ static inline void mailstream_ssl_init(void)
     #if defined (HAVE_PTHREAD_H) && !defined (WIN32) && defined (USE_SSL) && defined (LIBETPAN_REENTRANT)
       mailstream_openssl_reentrant_setup();
     #endif
-    
+
+#ifdef WIN32
+    /* On Windows, explicitly initialize OpenSSL without loading the default
+     * config file (openssl.cnf). OpenSSL 3.x tries to load this from paths
+     * compiled into the library at build time (OPENSSLDIR). When deploying
+     * to a different machine, these paths don't exist, causing "no such file"
+     * errors during various SSL operations. */
+    OPENSSL_init_ssl(OPENSSL_INIT_NO_LOAD_CONFIG, NULL);
+
+    /* Set the provider module search path to the current directory. OpenSSL 3.x
+     * has a providers architecture that loads DLLs from MODULESDIR, which is
+     * compiled into the library at build time (e.g., vcpkg build paths). When
+     * the executable is deployed elsewhere, these paths don't exist. Setting
+     * the search path to "." prevents OpenSSL from looking in non-existent
+     * directories. The default provider is built into libcrypto and doesn't
+     * need external modules for standard TLS operations. */
+    OSSL_PROVIDER_set_default_search_path(NULL, ".");
+
+    /* Explicitly load the default provider to ensure it's available and to
+     * prevent any lazy loading that might try to access non-existent paths. */
+    OSSL_PROVIDER_load(NULL, "default");
+#else
     SSL_load_error_strings();
     SSL_library_init();
     OpenSSL_add_all_algorithms();
-    
+#endif
+
     openssl_init_done = 1;
   }
 #else
@@ -442,39 +466,52 @@ static struct mailstream_ssl_data * ssl_data_new_full(int fd, time_t timeout,
 #ifdef SSL_MODE_RELEASE_BUFFERS
   long mode = 0;
 #endif
-  
+
   mailstream_ssl_init();
-  
+
   tmp_ctx = SSL_CTX_new(method);
-  if (tmp_ctx == NULL)
+  if (tmp_ctx == NULL) {
     goto err;
-  
+  }
+
+#ifdef WIN32
+  /* Disable TLS session tickets on Windows. In TLS 1.3, the server sends
+   * NewSessionTicket messages after the handshake completes, which OpenSSL
+   * processes during SSL_read(). This processing can trigger certificate
+   * operations that require accessing files at OPENSSLDIR paths compiled
+   * into OpenSSL. When the executable is deployed to a different machine
+   * than where OpenSSL was built (e.g., vcpkg build machine vs runtime
+   * container), these paths don't exist, causing "BIO routines::no such file"
+   * errors. Disabling session tickets avoids this issue. */
+  SSL_CTX_set_options(tmp_ctx, SSL_OP_NO_TICKET);
+#endif
+
   if (callback != NULL) {
     ssl_context = mailstream_ssl_context_new(tmp_ctx, fd);
     callback(ssl_context, cb_data);
   }
-  
+
   SSL_CTX_set_app_data(tmp_ctx, ssl_context);
   SSL_CTX_set_client_cert_cb(tmp_ctx, mailstream_openssl_client_cert_cb);
   ssl_conn = (SSL *) SSL_new(tmp_ctx);
-  if (ssl_conn == NULL)
+  if (ssl_conn == NULL) {
     goto free_ctx;
+  }
 
 #if SSL_MODE_RELEASE_BUFFERS
   mode = SSL_get_mode(ssl_conn);
   SSL_set_mode(ssl_conn, mode | SSL_MODE_RELEASE_BUFFERS);
 #endif
 
-#if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
   if (ssl_context != NULL && ssl_context->server_name != NULL) {
     SSL_set_tlsext_host_name(ssl_conn, ssl_context->server_name);
     free(ssl_context->server_name);
     ssl_context->server_name = NULL;
   }
-#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) */
 
-  if (SSL_set_fd(ssl_conn, fd) == 0)
+  if (SSL_set_fd(ssl_conn, fd) == 0) {
     goto free_ssl_conn;
+  }
   
 again:
   r = SSL_connect(ssl_conn);
@@ -495,9 +532,24 @@ again:
 	    goto again;
 	break;
   }
-  if (r <= 0)
+  if (r <= 0) {
+    unsigned long ssl_err = ERR_get_error();
+    if (ssl_err != 0) {
+      char err_buf[256];
+      ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+      fprintf(stderr, "SSL_connect failed: %s\n", err_buf);
+      /* Log additional errors in the queue */
+      while ((ssl_err = ERR_get_error()) != 0) {
+        ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+        fprintf(stderr, "SSL error: %s\n", err_buf);
+      }
+    } else {
+      int ssl_error = SSL_get_error(ssl_conn, r);
+      fprintf(stderr, "SSL_connect failed with SSL_ERROR: %d\n", ssl_error);
+    }
     goto free_ssl_conn;
-  
+  }
+
   cancel = mailstream_cancel_new();
   if (cancel == NULL)
     goto free_ssl_conn;
@@ -532,19 +584,7 @@ again:
 static struct mailstream_ssl_data * ssl_data_new(int fd, time_t timeout,
 	void (* callback)(struct mailstream_ssl_context * ssl_context, void * cb_data), void * cb_data)
 {
-  return ssl_data_new_full(fd, timeout,
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
-		TLS_client_method(),
-#else
-	/* Despite their name the SSLv23_*method() functions have nothing to do
-	 * with the availability of SSLv2 or SSLv3. What these functions do is
-	 * negotiate with the peer the highest available SSL/TLS protocol version
-	 * available. The name is as it is for historic reasons. This is a very
-	 * common confusion and is the main reason why these names have been
-	 * deprecated in the latest dev version of OpenSSL. */
-		SSLv23_client_method(),
-#endif
-		callback, cb_data);
+  return ssl_data_new_full(fd, timeout, TLS_client_method(), callback, cb_data);
 }
 
 #else
@@ -732,8 +772,9 @@ static mailstream_low * mailstream_low_ssl_open_full(int fd, int starttls, time_
 
   ssl_data = ssl_data_new(fd, timeout, callback, cb_data);
 
-  if (ssl_data == NULL)
+  if (ssl_data == NULL) {
     goto err;
+  }
 
   s = mailstream_low_new(ssl_data, mailstream_ssl_driver);
   if (s == NULL)
@@ -890,31 +931,31 @@ static ssize_t mailstream_low_ssl_read(mailstream_low * s,
   int r;
 
   ssl_data = (struct mailstream_ssl_data *) s->data;
-  
+
   if (mailstream_cancel_cancelled(ssl_data->cancel))
     return -1;
-  
+
   while (1) {
     int ssl_r;
-    
+
     r = SSL_read(ssl_data->ssl_conn, buf, (int) count);
     if (r > 0)
       return r;
-    
+
     ssl_r = SSL_get_error(ssl_data->ssl_conn, r);
     switch (ssl_r) {
     case SSL_ERROR_NONE:
       return r;
-      
+
     case SSL_ERROR_ZERO_RETURN:
       return r;
-      
+
     case SSL_ERROR_WANT_READ:
       r = wait_read(s);
       if (r < 0)
         return r;
       break;
-      
+
     default:
       return -1;
     }
@@ -1059,27 +1100,27 @@ static ssize_t mailstream_low_ssl_write(mailstream_low * s,
   struct mailstream_ssl_data * ssl_data;
   int ssl_r;
   int r;
-  
+
   ssl_data = (struct mailstream_ssl_data *) s->data;
   r = wait_write(s);
   if (r <= 0)
     return r;
-  
+
   r = SSL_write(ssl_data->ssl_conn, buf, (int) count);
   if (r > 0)
     return r;
-  
+
   ssl_r = SSL_get_error(ssl_data->ssl_conn, r);
   switch (ssl_r) {
   case SSL_ERROR_NONE:
     return r;
-    
+
   case SSL_ERROR_ZERO_RETURN:
     return -1;
-    
+
   case SSL_ERROR_WANT_WRITE:
     return 0;
-    
+
   default:
     return r;
   }
@@ -1187,7 +1228,7 @@ ssize_t mailstream_ssl_get_certificate(mailstream *stream, unsigned char **cert_
   if (ssl_conn == NULL)
     return -1;
   
-  cert = SSL_get_peer_certificate(ssl_conn);
+  cert = MAILSTREAM_SSL_GET_PEER_CERT(ssl_conn);
   if (cert == NULL)
     return -1;
   
@@ -1385,7 +1426,6 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
     r = gnutls_server_name_set(ssl_context->session, GNUTLS_NAME_DNS, "", 0U);
   }
 # else /* !USE_GNUTLS */
-#  if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
   if (hostname != NULL) {
     /* Unfortunately we can't set this in the openssl session yet since it
      * hasn't been created yet; we only have the openssl context at this point.
@@ -1404,7 +1444,6 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
     ssl_context->server_name = NULL;
   }
   r = 0;
-#  endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) */
 # endif /* !USE_GNUTLS */
 #endif /* USE_SSL */
 
@@ -1424,9 +1463,7 @@ static struct mailstream_ssl_context * mailstream_ssl_context_new(SSL_CTX * open
   ssl_ctx->openssl_ssl_ctx = open_ssl_ctx;
   ssl_ctx->client_x509 = NULL;
   ssl_ctx->client_pkey = NULL;
-#if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
   ssl_ctx->server_name = NULL;
-#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) */
   ssl_ctx->fd = fd;
 
   return ssl_ctx;
@@ -1435,11 +1472,9 @@ static struct mailstream_ssl_context * mailstream_ssl_context_new(SSL_CTX * open
 static void mailstream_ssl_context_free(struct mailstream_ssl_context * ssl_ctx)
 {
   if (ssl_ctx != NULL) {
-#if (OPENSSL_VERSION_NUMBER >= 0x10000000L)
     if (ssl_ctx->server_name != NULL) {
       free(ssl_ctx->server_name);
     }
-#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) */
     free(ssl_ctx);
   }
 }
