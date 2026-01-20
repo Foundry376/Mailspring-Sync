@@ -565,9 +565,16 @@ static bool hasError(int errorCode)
 
 bool IMAPSession::checkCertificate()
 {
-    if (!isCheckCertificateEnabled())
+    fprintf(stderr, "WindowsDebug: IMAPSession::checkCertificate called, isCheckCertificateEnabled=%d\n",
+            isCheckCertificateEnabled() ? 1 : 0);
+    if (!isCheckCertificateEnabled()) {
+        fprintf(stderr, "WindowsDebug: Certificate checking is disabled, returning true\n");
         return true;
-    return mailcore::checkCertificate(mImap->imap_stream, hostname());
+    }
+    fprintf(stderr, "WindowsDebug: Calling mailcore::checkCertificate\n");
+    bool result = mailcore::checkCertificate(mImap->imap_stream, hostname());
+    fprintf(stderr, "WindowsDebug: mailcore::checkCertificate returned %d\n", result ? 1 : 0);
+    return result;
 }
 
 void IMAPSession::body_progress(size_t current, size_t maximum, void * context)
@@ -717,19 +724,25 @@ void IMAPSession::connect(ErrorCode * pError)
         break;
 
         case ConnectionTypeTLS:
+        fprintf(stderr, "WindowsDebug: ConnectionTypeTLS - calling mailimap_ssl_connect_voip_with_callback\n");
         r = mailimap_ssl_connect_voip_with_callback(mImap, MCUTF8(mHostname), mPort, isVoIPEnabled(),
             ssl_callback, (void *) MCUTF8(mHostname));
+        fprintf(stderr, "WindowsDebug: mailimap_ssl_connect_voip_with_callback returned %d\n", r);
         MCLog("TLS ssl connect %s %u %u", MCUTF8(mHostname), mPort, r);
         if (hasError(r)) {
+            fprintf(stderr, "WindowsDebug: hasError(r) is true, setting ErrorConnection\n");
             MCLog("connect error %i", r);
             * pError = ErrorConnection;
             goto close;
         }
+        fprintf(stderr, "WindowsDebug: SSL connection succeeded, now checking certificate\n");
         if (!checkCertificate()) {
+            fprintf(stderr, "WindowsDebug: checkCertificate returned false, setting ErrorCertificate\n");
             MCLog("TLS ssl connect certificate ERROR %d", r);
             * pError = ErrorCertificate;
             goto close;
         }
+        fprintf(stderr, "WindowsDebug: Certificate check passed\n");
 
         break;
 
