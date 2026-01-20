@@ -416,10 +416,22 @@ void DAVWorker::runContacts() {
 
     // First sync or after cache invalidation: perform full discovery
     if (!contactsDiscoveryComplete) {
-        logger->info("Performing full CardDAV address book discovery");
-        cachedAddressBook = resolveAddressBook();
-        contactsDiscoveryComplete = true;
-        contactsValidationFailures = 0;
+        try {
+            logger->info("Performing full CardDAV address book discovery");
+            cachedAddressBook = resolveAddressBook();
+            contactsDiscoveryComplete = true;
+            contactsValidationFailures = 0;
+        } catch (SyncException & e) {
+            // Handle servers that don't support CardDAV (return 404 Not Found or 405 Method Not Allowed).
+            // Log the error and skip contact sync rather than crashing the entire sync process.
+            if (e.key.find("404") != string::npos || e.key.find("405") != string::npos) {
+                logger->info("CardDAV not supported by server ({}), skipping contact sync", e.key);
+                contactsDiscoveryComplete = true;
+                cachedAddressBook = nullptr;
+                return;
+            }
+            throw;
+        }
 
         if (cachedAddressBook == nullptr) {
             return;
@@ -1156,7 +1168,19 @@ void DAVWorker::runCalendars() {
         "<ical:calendar-order />"
         "</d:prop>"
         "</d:propfind>";
-    auto calendarSetDoc = performXMLRequest(calHost + calPrincipal, "PROPFIND", propfindQuery);
+
+    shared_ptr<DavXML> calendarSetDoc;
+    try {
+        calendarSetDoc = performXMLRequest(calHost + calPrincipal, "PROPFIND", propfindQuery);
+    } catch (SyncException & e) {
+        // Handle servers that don't support CalDAV (return 404 Not Found or 405 Method Not Allowed).
+        // Log the error and skip calendar sync rather than crashing the entire sync process.
+        if (e.key.find("404") != string::npos || e.key.find("405") != string::npos) {
+            logger->info("CalDAV not supported by server ({}), skipping calendar sync", e.key);
+            return;
+        }
+        throw;
+    }
 
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
 
