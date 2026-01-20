@@ -28,6 +28,9 @@
 #include "SyncException.hpp"
 #include "NetworkRequestUtils.hpp"
 
+#include <sstream>
+#include <algorithm>
+
 #if defined(_MSC_VER)
 #include <direct.h>
 #include <codecvt>
@@ -1848,62 +1851,211 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
 void TaskProcessor::performRemoteSendRSVP(Task * task) {
     AutoreleasePool pool;
     ErrorCode err = ErrorNone;
-    
+
+    // Validate required fields exist
     if (!task->data().count("ics") || !task->data().count("subject") || !task->data().count("to")) {
-        throw SyncException(err, "missing-json");
+        throw SyncException("missing-json", "Missing required fields: ics, subject, or to", false);
     }
-    
-    // load the draft and body from the task
+
+    // Load task data
     string ics = task->data()["ics"].get<string>();
-    string icsMethod = "REPLY";
     string subject = task->data()["subject"].get<string>();
     string organizer = task->data()["to"].get<string>();
+    string icsRSVPStatus = task->data().count("icsRSVPStatus")
+        ? task->data()["icsRSVPStatus"].get<string>()
+        : "ACCEPTED";
 
-    // build the MIME message
+    // =========================================================================
+    // RFC 5546/6047 Validation
+    // =========================================================================
+
+    // Validation 1: Check ICS contains METHOD:REPLY (RFC 5546 requirement)
+    if (ics.find("METHOD:REPLY") == string::npos) {
+        throw SyncException("invalid-ics", "ICS data must contain METHOD:REPLY for an RSVP response", false);
+    }
+
+    // Parse the ICS to validate and extract event information
+    ICalendar cal(ics);
+
+    if (cal.Events.empty()) {
+        throw SyncException("invalid-ics", "ICS data does not contain any VEVENT components", false);
+    }
+
+    ICalendarEvent* event = cal.Events.front();
+
+    // Validation 2: UID is required (RFC 5546 Section 3.2.3 - MUST match original REQUEST)
+    if (event->UID.empty()) {
+        throw SyncException("invalid-ics",
+            "ICS REPLY must contain UID property matching the original invitation", false);
+    }
+
+    // Validation 3: DTSTAMP is required (RFC 5546 Section 3.2.3)
+    if (event->DtStamp.IsEmpty()) {
+        throw SyncException("invalid-ics",
+            "ICS REPLY must contain DTSTAMP property", false);
+    }
+
+    // Validation 4: ORGANIZER is required (RFC 5546 Section 3.2.3)
+    if (event->Organizer.empty()) {
+        throw SyncException("invalid-ics",
+            "ICS REPLY must contain ORGANIZER property", false);
+    }
+
+    // Validation 5: REPLY must contain exactly one ATTENDEE (RFC 5546 Section 3.2.3)
+    if (event->Attendees.size() != 1) {
+        throw SyncException("invalid-ics",
+            "ICS REPLY must contain exactly one ATTENDEE (the replying user), found " + to_string(event->Attendees.size()), false);
+    }
+
+    // Validation 6: Check ATTENDEE has valid PARTSTAT (RFC 5545 Section 3.2.12)
+    bool hasValidPartstat = (ics.find("PARTSTAT=ACCEPTED") != string::npos ||
+                             ics.find("PARTSTAT=DECLINED") != string::npos ||
+                             ics.find("PARTSTAT=TENTATIVE") != string::npos);
+    if (!hasValidPartstat) {
+        throw SyncException("invalid-ics",
+            "ATTENDEE must have valid PARTSTAT parameter (ACCEPTED, DECLINED, or TENTATIVE)", false);
+    }
+
+    // Extract attendee email for From address validation
+    // The ICalendar library returns attendee as "Name <email>" or just "email"
+    string attendeeInfo = event->Attendees.front();
+    string attendeeEmail;
+    size_t emailStart = attendeeInfo.find('<');
+    size_t emailEnd = attendeeInfo.find('>');
+    if (emailStart != string::npos && emailEnd != string::npos && emailEnd > emailStart) {
+        attendeeEmail = attendeeInfo.substr(emailStart + 1, emailEnd - emailStart - 1);
+    } else {
+        attendeeEmail = attendeeInfo;
+    }
+
+    // Validation 7: Verify From address matches ATTENDEE email (RFC 6047 requirement)
+    // Mismatches may cause the RSVP to be rejected by the organizer's calendar
+    string fromEmail = account->emailAddress();
+    string lowerFromEmail = fromEmail;
+    string lowerAttendeeEmail = attendeeEmail;
+    transform(lowerFromEmail.begin(), lowerFromEmail.end(), lowerFromEmail.begin(), ::tolower);
+    transform(lowerAttendeeEmail.begin(), lowerAttendeeEmail.end(), lowerAttendeeEmail.begin(), ::tolower);
+
+    if (lowerFromEmail != lowerAttendeeEmail) {
+        // Warn but don't fail - email aliases and forwarding may cause legitimate mismatches
+        logger->warn("RSVP From address ({}) does not match ATTENDEE email in ICS ({}). "
+                     "This may cause the RSVP to be rejected.", fromEmail, attendeeEmail);
+    }
+
+    // =========================================================================
+    // Build RFC 6047-compliant iMIP message with multipart/alternative structure
+    // =========================================================================
+
+    // Extract event summary for human-readable message
+    string eventSummary = event->Summary.empty() ? "Calendar Event" : event->Summary;
+
+    // Generate human-readable text based on RSVP status (per RFC 6047 recommendation)
+    string humanReadableText;
+    if (icsRSVPStatus == "ACCEPTED") {
+        humanReadableText = fromEmail + " has accepted the invitation to: " + eventSummary;
+    } else if (icsRSVPStatus == "DECLINED") {
+        humanReadableText = fromEmail + " has declined the invitation to: " + eventSummary;
+    } else if (icsRSVPStatus == "TENTATIVE") {
+        humanReadableText = fromEmail + " has tentatively accepted the invitation to: " + eventSummary;
+    } else {
+        humanReadableText = fromEmail + " has responded to the invitation: " + eventSummary;
+    }
+
+    // Generate a unique boundary for multipart message
+    string boundary = "----=_Mailspring_RSVP_" + to_string(time(0)) + "_" + to_string(rand());
+
+    // Base64 encode the ICS data (RFC 6047 recommends base64 for maximum compatibility)
+    Data * icsData = AS_MCSTR(ics)->dataUsingEncoding("utf-8");
+    String * icsBase64 = icsData->base64String();
+
+    // Build MIME headers
     MessageBuilder builder;
     builder.header()->setSubject(AS_MCSTR(subject));
     builder.header()->setUserAgent(MCSTR("Mailspring"));
     builder.header()->setDate(time(0));
 
-    Array * to = Array::array();
-    to->addObject(Address::addressWithMailbox(AS_MCSTR(organizer)));
-    builder.header()->setTo(to);
+    Array * toArray = Array::array();
+    toArray->addObject(Address::addressWithMailbox(AS_MCSTR(organizer)));
+    builder.header()->setTo(toArray);
 
-    Array * replyTo = Array::array();
-    Address * me = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
-    replyTo->addObject(me);
-
-    builder.header()->setReplyTo(replyTo);
+    Address * me = Address::addressWithMailbox(AS_MCSTR(fromEmail));
     builder.header()->setFrom(me);
-    builder.setTextBody(MCSTR(""));
-    
-    Data * data;
-    Attachment * icsAttachment;
-    
-    icsAttachment = new Attachment();
-    icsAttachment->setMimeType(MCSTR("text/calendar"));
-    icsAttachment->setContentTypeParameter(MCSTR("method"), AS_MCSTR(icsMethod));
-    data = AS_MCSTR(ics)->dataUsingEncoding("utf-8");
-    icsAttachment->setData(data);
-    builder.addAttachment(icsAttachment);
-    icsAttachment->autorelease();
-    
-    // Save the message data / body we'll write to the sent folder
-    Data * messageDataForSent = builder.data();
-    
-    /*
-     OK! If we've reached this point we're going to deliver the message. To do multisend,
-     we need to hit the SMTP gateway more than once. If one request fails we stop and mark
-     the task as failed, but keep track of who got the message.
-     */
-    
+    builder.header()->setReplyTo(Array::arrayWithObject(me));
+
+    // Construct the multipart/alternative body per RFC 6047 Section 2.4
+    // Structure: text/plain (human-readable) + text/calendar (machine-readable)
+    stringstream mimeBody;
+    mimeBody << "--" << boundary << "\r\n";
+    mimeBody << "Content-Type: text/plain; charset=UTF-8\r\n";
+    mimeBody << "Content-Transfer-Encoding: 7bit\r\n";
+    mimeBody << "\r\n";
+    mimeBody << humanReadableText << "\r\n";
+    mimeBody << "\r\n";
+    mimeBody << "--" << boundary << "\r\n";
+    // Critical: Content-Type MUST include method=REPLY parameter (RFC 6047 Section 2.4)
+    mimeBody << "Content-Type: text/calendar; method=REPLY; charset=UTF-8\r\n";
+    mimeBody << "Content-Transfer-Encoding: base64\r\n";
+    // Use inline disposition, not attachment (RFC 6047 Section 2.4)
+    mimeBody << "Content-Disposition: inline; filename=\"invite.ics\"\r\n";
+    mimeBody << "\r\n";
+    mimeBody << icsBase64->UTF8Characters() << "\r\n";
+    mimeBody << "--" << boundary << "--\r\n";
+
+    // Build the complete message by getting headers and appending our body
+    // We set a dummy body first, then replace it
+    builder.setTextBody(MCSTR("placeholder"));
+    Data * headerData = builder.data();
+    string headerStr = string(headerData->bytes(), headerData->length());
+
+    // Find where headers end (double CRLF) and extract just the headers
+    size_t headerEnd = headerStr.find("\r\n\r\n");
+    if (headerEnd == string::npos) {
+        headerEnd = headerStr.find("\n\n");
+    }
+
+    // Reconstruct message with correct Content-Type and our multipart body
+    stringstream fullMessage;
+
+    // Write original headers but replace Content-Type
+    string headers = headerStr.substr(0, headerEnd);
+
+    // Remove the original Content-Type and Content-Transfer-Encoding headers
+    string newHeaders;
+    istringstream headerStream(headers);
+    string line;
+    while (getline(headerStream, line)) {
+        // Remove \r if present
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        // Skip Content-Type and Content-Transfer-Encoding headers (we'll add our own)
+        string lowerLine = line;
+        transform(lowerLine.begin(), lowerLine.end(), lowerLine.begin(), ::tolower);
+        if (lowerLine.find("content-type:") == 0 || lowerLine.find("content-transfer-encoding:") == 0) {
+            continue;
+        }
+        newHeaders += line + "\r\n";
+    }
+
+    fullMessage << newHeaders;
+    fullMessage << "Content-Type: multipart/alternative; boundary=\"" << boundary << "\"\r\n";
+    fullMessage << "MIME-Version: 1.0\r\n";
+    fullMessage << "\r\n";
+    fullMessage << mimeBody.str();
+
+    string messageStr = fullMessage.str();
+    Data * messageData = Data::dataWithBytes(messageStr.c_str(), (unsigned int)messageStr.length());
+
+    // =========================================================================
+    // Send the RSVP via SMTP
+    // =========================================================================
+
     SMTPSession smtp;
     SMTPProgress sprogress;
     MailUtils::configureSessionForAccount(smtp, account);
-    string succeeded;
 
-    logger->info("-- Sending RSVP to organizer {}", organizer);
-    smtp.sendMessage(messageDataForSent, &sprogress, &err);
+    logger->info("-- Sending RFC 6047-compliant RSVP ({}) to organizer {}", icsRSVPStatus, organizer);
+    smtp.sendMessage(messageData, &sprogress, &err);
 
     if (err != ErrorNone) {
         int e = smtp.lastLibetpanError();
@@ -1911,4 +2063,6 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
         logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], es);
         throw SyncException("send-failed", ErrorCodeToTypeMap[err], false);
     }
+
+    logger->info("-- RSVP sent successfully");
 }

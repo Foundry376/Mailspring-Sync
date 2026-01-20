@@ -66,6 +66,9 @@ void ICalendar::LoadFromString(string icsData) {
 					NewEvent->Location = UnescapeICSText(GetProperty(Line));
 				} else if (Line.find("ATTENDEE") == 0) {
 					NewEvent->Attendees.push_back(ParseAttendee(Line, GetProperty(Line)));
+				} else if (Line.find("ORGANIZER") == 0) {
+					// ORGANIZER has same format as ATTENDEE: ORGANIZER;CN="Name":mailto:email
+					NewEvent->Organizer = ParseAttendee(Line, GetProperty(Line));
 				} else if (Line.find("BEGIN:VALARM") == 0) {
 					NewAlarm.Clear();
 					PrevComponent = CurrentComponent;
