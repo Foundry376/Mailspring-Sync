@@ -61,6 +61,7 @@ struct ICalendarEvent {
 		RecurrenceId(Base.RecurrenceId),
 		Status(Base.Status),
 		Location(Base.Location),
+		Organizer(Base.Organizer),
 		Attendees(Base.Attendees),
 		DtStamp(Base.DtStamp),
 		DtStart(Base.DtStart),
@@ -82,6 +83,7 @@ struct ICalendarEvent {
 	string RecurrenceId;  // RECURRENCE-ID for exception instances (e.g., "20240115T100000Z")
 	string Status;        // STATUS: TENTATIVE, CONFIRMED, CANCELLED
 	string Location;      // LOCATION: physical or virtual location
+	string Organizer;     // ORGANIZER: event organizer (as "Name <email>" or just email) - RFC 5546 MUST for REPLY
 	list<string> Attendees;  // ATTENDEE: list of participants (each as "Name <email>" or just email)
 	Date DtStamp, DtStart, DtEnd;
 	Recurrence RRule;
