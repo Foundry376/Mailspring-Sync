@@ -88,6 +88,7 @@
 # ifndef USE_GNUTLS
 #  include <openssl/ssl.h>
 #  include <openssl/err.h>
+#  include <openssl/provider.h>
 /* OpenSSL 3.0 renamed SSL_get_peer_certificate to SSL_get1_peer_certificate. */
 #  define MAILSTREAM_SSL_GET_PEER_CERT SSL_get1_peer_certificate
 # else
@@ -298,6 +299,25 @@ static inline void mailstream_ssl_init(void)
      * errors during various SSL operations. */
     OPENSSL_init_ssl(OPENSSL_INIT_NO_LOAD_CONFIG, NULL);
     fprintf(stderr, "WindowsDebug: Called OPENSSL_init_ssl with OPENSSL_INIT_NO_LOAD_CONFIG\n");
+
+    /* Set the provider module search path to the current directory. OpenSSL 3.x
+     * has a providers architecture that loads DLLs from MODULESDIR, which is
+     * compiled into the library at build time (e.g., vcpkg build paths). When
+     * the executable is deployed elsewhere, these paths don't exist. Setting
+     * the search path to "." prevents OpenSSL from looking in non-existent
+     * directories. The default provider is built into libcrypto and doesn't
+     * need external modules for standard TLS operations. */
+    OSSL_PROVIDER_set_default_search_path(NULL, ".");
+    fprintf(stderr, "WindowsDebug: Set OSSL_PROVIDER search path to current directory\n");
+
+    /* Explicitly load the default provider to ensure it's available and to
+     * prevent any lazy loading that might try to access non-existent paths. */
+    OSSL_PROVIDER *deflt = OSSL_PROVIDER_load(NULL, "default");
+    if (deflt == NULL) {
+        fprintf(stderr, "WindowsDebug: WARNING - Failed to load default provider\n");
+    } else {
+        fprintf(stderr, "WindowsDebug: Successfully loaded default provider\n");
+    }
 #else
     SSL_load_error_strings();
     SSL_library_init();
