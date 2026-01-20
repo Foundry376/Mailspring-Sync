@@ -393,12 +393,19 @@ int runSingleFunctionAndExit(std::function<void()> fn) {
 
 int runInstallCheck() {
     AutoreleasePool pool;
+
+    // Enable detailed logging for diagnostics
+    alogger.accumulated = "";
+    MCLogEnabled = 1;
+    MCLogFn = MCLogToAccumulatorLog;
+
     json resp = {
         {"error", nullptr},
         {"http_check", nullptr},
         {"imap_check", nullptr},
         {"smtp_check", nullptr},
-        {"tidy_check", nullptr}
+        {"tidy_check", nullptr},
+        {"log", nullptr}
     };
 
     // Step 1: Check HTTP connectivity to identity server using curl
@@ -434,11 +441,13 @@ int runInstallCheck() {
 
     // Step 2: Check IMAP connectivity to Gmail to verify SSL libraries work
     string imapError = "";
+    alogger.log("----------IMAP----------\n");
     try {
         IMAPSession session;
         session.setHostname(MCSTR("imap.gmail.com"));
         session.setPort(993);
         session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+        session.setConnectionLogger(&alogger);
         // No username/password - we just want to verify SSL connection works
 
         ErrorCode err = ErrorNone;
@@ -462,11 +471,13 @@ int runInstallCheck() {
 
     // Step 3: Check SMTP connectivity to Gmail to verify SSL libraries work for SMTP
     string smtpError = "";
+    alogger.log("\n\n----------SMTP----------\n");
     try {
         SMTPSession smtp;
         smtp.setHostname(MCSTR("smtp.gmail.com"));
         smtp.setPort(465);
         smtp.setConnectionType(ConnectionType::ConnectionTypeTLS);
+        smtp.setConnectionLogger(&alogger);
         // No username/password - we just want to verify SSL connection works
 
         ErrorCode err = ErrorNone;
@@ -553,6 +564,9 @@ int runInstallCheck() {
     if (!success) {
         resp["error"] = "One or more checks failed";
     }
+
+    // Include accumulated log for diagnostics
+    resp["log"] = alogger.accumulated;
 
     cout << resp.dump();
     return success ? 0 : 1;

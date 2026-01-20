@@ -148,12 +148,6 @@ err:
     certificatePaths.push_back("/etc/ssl/ca-bundle.pem");
 
     MCLog("OpenSSL version: %s", OpenSSL_version(0));
-#if OPENSSL_VERSION_NUMBER < 0x30000000L
-    // These functions are deprecated in OpenSSL 3.0+ where initialization is automatic
-    OpenSSL_add_all_algorithms();
-    ERR_load_BIO_strings();
-    ERR_load_crypto_strings();
-#endif
 
     carray *cCerts = mailstream_get_certificate_chain(stream);
     if (cCerts == NULL)

@@ -87,16 +87,9 @@
 #ifdef USE_SSL
 # ifndef USE_GNUTLS
 #  include <openssl/ssl.h>
-/* OpenSSL 3.0 renamed SSL_get_peer_certificate to SSL_get1_peer_certificate.
-   On Windows we use vcpkg which provides OpenSSL 3.x, so always use the new name.
-   On other platforms, check the version number. */
-#  if defined(_WIN32)
-#    define MAILSTREAM_SSL_GET_PEER_CERT SSL_get1_peer_certificate
-#  elif defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x30000000L
-#    define MAILSTREAM_SSL_GET_PEER_CERT SSL_get1_peer_certificate
-#  else
-#    define MAILSTREAM_SSL_GET_PEER_CERT SSL_get_peer_certificate
-#  endif
+#  include <openssl/err.h>
+/* OpenSSL 3.0 renamed SSL_get_peer_certificate to SSL_get1_peer_certificate. */
+#  define MAILSTREAM_SSL_GET_PEER_CERT SSL_get1_peer_certificate
 # else
 #  include <errno.h>
 #  include <gnutls/gnutls.h>
@@ -123,9 +116,7 @@ struct mailstream_ssl_context
   SSL_CTX * openssl_ssl_ctx;
   X509* client_x509;
   EVP_PKEY *client_pkey;
-# if (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32)
   char * server_name;
-# endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32) */
 #else
   gnutls_session session;
   gnutls_x509_crt client_x509;
@@ -475,13 +466,11 @@ static struct mailstream_ssl_data * ssl_data_new_full(int fd, time_t timeout,
   SSL_set_mode(ssl_conn, mode | SSL_MODE_RELEASE_BUFFERS);
 #endif
 
-#if (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32)
   if (ssl_context != NULL && ssl_context->server_name != NULL) {
     SSL_set_tlsext_host_name(ssl_conn, ssl_context->server_name);
     free(ssl_context->server_name);
     ssl_context->server_name = NULL;
   }
-#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32) */
 
   if (SSL_set_fd(ssl_conn, fd) == 0)
     goto free_ssl_conn;
@@ -505,9 +494,24 @@ again:
 	    goto again;
 	break;
   }
-  if (r <= 0)
+  if (r <= 0) {
+    unsigned long ssl_err = ERR_get_error();
+    if (ssl_err != 0) {
+      char err_buf[256];
+      ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+      fprintf(stderr, "SSL_connect failed: %s\n", err_buf);
+      /* Log additional errors in the queue */
+      while ((ssl_err = ERR_get_error()) != 0) {
+        ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+        fprintf(stderr, "SSL error: %s\n", err_buf);
+      }
+    } else {
+      int ssl_error = SSL_get_error(ssl_conn, r);
+      fprintf(stderr, "SSL_connect failed with SSL_ERROR: %d\n", ssl_error);
+    }
     goto free_ssl_conn;
-  
+  }
+
   cancel = mailstream_cancel_new();
   if (cancel == NULL)
     goto free_ssl_conn;
@@ -542,19 +546,7 @@ again:
 static struct mailstream_ssl_data * ssl_data_new(int fd, time_t timeout,
 	void (* callback)(struct mailstream_ssl_context * ssl_context, void * cb_data), void * cb_data)
 {
-  return ssl_data_new_full(fd, timeout,
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L) || defined(_WIN32)
-		TLS_client_method(),
-#else
-	/* Despite their name the SSLv23_*method() functions have nothing to do
-	 * with the availability of SSLv2 or SSLv3. What these functions do is
-	 * negotiate with the peer the highest available SSL/TLS protocol version
-	 * available. The name is as it is for historic reasons. This is a very
-	 * common confusion and is the main reason why these names have been
-	 * deprecated in the latest dev version of OpenSSL. */
-		SSLv23_client_method(),
-#endif
-		callback, cb_data);
+  return ssl_data_new_full(fd, timeout, TLS_client_method(), callback, cb_data);
 }
 
 #else
@@ -1395,7 +1387,6 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
     r = gnutls_server_name_set(ssl_context->session, GNUTLS_NAME_DNS, "", 0U);
   }
 # else /* !USE_GNUTLS */
-#  if (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32)
   if (hostname != NULL) {
     /* Unfortunately we can't set this in the openssl session yet since it
      * hasn't been created yet; we only have the openssl context at this point.
@@ -1414,7 +1405,6 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
     ssl_context->server_name = NULL;
   }
   r = 0;
-#  endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32) */
 # endif /* !USE_GNUTLS */
 #endif /* USE_SSL */
 
@@ -1434,9 +1424,7 @@ static struct mailstream_ssl_context * mailstream_ssl_context_new(SSL_CTX * open
   ssl_ctx->openssl_ssl_ctx = open_ssl_ctx;
   ssl_ctx->client_x509 = NULL;
   ssl_ctx->client_pkey = NULL;
-#if (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32)
   ssl_ctx->server_name = NULL;
-#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32) */
   ssl_ctx->fd = fd;
 
   return ssl_ctx;
@@ -1445,11 +1433,9 @@ static struct mailstream_ssl_context * mailstream_ssl_context_new(SSL_CTX * open
 static void mailstream_ssl_context_free(struct mailstream_ssl_context * ssl_ctx)
 {
   if (ssl_ctx != NULL) {
-#if (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32)
     if (ssl_ctx->server_name != NULL) {
       free(ssl_ctx->server_name);
     }
-#endif /* (OPENSSL_VERSION_NUMBER >= 0x10000000L) || defined(_WIN32) */
     free(ssl_ctx);
   }
 }
