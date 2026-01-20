@@ -409,12 +409,6 @@ void DAVWorker::runContacts() {
         return;
     }
 
-    // Yandex returns a CardDAV host via DNS SRV but doesn't actually support CardDAV.
-    // PROPFIND requests to yandex.ru return HTTP 405 (Method Not Allowed).
-    if (account->IMAPHost().find("imap.yandex.com") != string::npos) {
-        return;
-    }
-
     // Discovery already completed but no address book found - nothing to sync
     if (contactsDiscoveryComplete && cachedAddressBook == nullptr) {
         return;
@@ -1143,12 +1137,6 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
 
 void DAVWorker::runCalendars() {
     if (calHost == "") {
-        return;
-    }
-
-    // Yandex returns a CalDAV host via DNS SRV but doesn't actually support CalDAV.
-    // PROPFIND requests to yandex.ru return HTTP 405 (Method Not Allowed).
-    if (account->IMAPHost().find("imap.yandex.com") != string::npos) {
         return;
     }
 
