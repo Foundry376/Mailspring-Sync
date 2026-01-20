@@ -267,6 +267,15 @@ err:
         }
     }
 
+    /* Clear the OpenSSL error queue. The operations above (X509_STORE_set_default_paths
+     * and X509_STORE_load_locations) may push errors to the queue when they fail to
+     * find certificate files at various paths. On Windows, none of the Unix-style paths
+     * exist, so errors accumulate. If we don't clear them, subsequent SSL operations
+     * (like SSL_read) will report these stale "BIO routines::no such file" errors
+     * instead of actual errors. */
+    ERR_clear_error();
+    fprintf(stderr, "WindowsDebug: Cleared OpenSSL error queue after certificate store setup\n");
+
     fprintf(stderr, "WindowsDebug: Parsing server certificate chain\n");
     certificates = sk_X509_new_null();
     for (unsigned int i = 0; i < carray_count(cCerts); i++)
