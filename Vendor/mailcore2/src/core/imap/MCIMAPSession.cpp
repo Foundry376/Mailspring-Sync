@@ -565,16 +565,9 @@ static bool hasError(int errorCode)
 
 bool IMAPSession::checkCertificate()
 {
-    fprintf(stderr, "WindowsDebug: IMAPSession::checkCertificate called, isCheckCertificateEnabled=%d\n",
-            isCheckCertificateEnabled() ? 1 : 0);
-    if (!isCheckCertificateEnabled()) {
-        fprintf(stderr, "WindowsDebug: Certificate checking is disabled, returning true\n");
+    if (!isCheckCertificateEnabled())
         return true;
-    }
-    fprintf(stderr, "WindowsDebug: Calling mailcore::checkCertificate\n");
-    bool result = mailcore::checkCertificate(mImap->imap_stream, hostname());
-    fprintf(stderr, "WindowsDebug: mailcore::checkCertificate returned %d\n", result ? 1 : 0);
-    return result;
+    return mailcore::checkCertificate(mImap->imap_stream, hostname());
 }
 
 void IMAPSession::body_progress(size_t current, size_t maximum, void * context)
@@ -643,13 +636,8 @@ static void ssl_callback(struct mailstream_ssl_context * ssl_context, void * dat
     // Set the Server Name Indication (SNI) for TLS connections
     // SNI only makes sense for hostnames, not IP addresses
     const char * hostname = (const char *) data;
-    MCLog("WindowsDebug: ssl_callback called, ssl_context=%p, hostname=%s", ssl_context, hostname ? hostname : "NULL");
     if (hostname != NULL && !isIPAddress(hostname)) {
-        MCLog("WindowsDebug: ssl_callback calling mailstream_ssl_set_server_name with hostname=%s", hostname);
-        int result = mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
-        MCLog("WindowsDebug: mailstream_ssl_set_server_name returned %d", result);
-    } else {
-        MCLog("WindowsDebug: ssl_callback NOT setting SNI - hostname is NULL or is IP address");
+        mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
     }
 }
 
@@ -724,25 +712,19 @@ void IMAPSession::connect(ErrorCode * pError)
         break;
 
         case ConnectionTypeTLS:
-        fprintf(stderr, "WindowsDebug: ConnectionTypeTLS - calling mailimap_ssl_connect_voip_with_callback\n");
         r = mailimap_ssl_connect_voip_with_callback(mImap, MCUTF8(mHostname), mPort, isVoIPEnabled(),
             ssl_callback, (void *) MCUTF8(mHostname));
-        fprintf(stderr, "WindowsDebug: mailimap_ssl_connect_voip_with_callback returned %d\n", r);
         MCLog("TLS ssl connect %s %u %u", MCUTF8(mHostname), mPort, r);
         if (hasError(r)) {
-            fprintf(stderr, "WindowsDebug: hasError(r) is true, setting ErrorConnection\n");
             MCLog("connect error %i", r);
             * pError = ErrorConnection;
             goto close;
         }
-        fprintf(stderr, "WindowsDebug: SSL connection succeeded, now checking certificate\n");
         if (!checkCertificate()) {
-            fprintf(stderr, "WindowsDebug: checkCertificate returned false, setting ErrorCertificate\n");
             MCLog("TLS ssl connect certificate ERROR %d", r);
             * pError = ErrorCertificate;
             goto close;
         }
-        fprintf(stderr, "WindowsDebug: Certificate check passed\n");
 
         break;
 
@@ -4264,35 +4246,26 @@ IndexSet * IMAPSession::capability(ErrorCode * pError)
     int r;
     struct mailimap_capability_data * cap;
 
-    fprintf(stderr, "WindowsDebug: IMAPSession::capability called\n");
     connectIfNeeded(pError);
-    if (* pError != ErrorNone) {
-        fprintf(stderr, "WindowsDebug: capability - connectIfNeeded failed with error %d\n", (int)*pError);
+    if (* pError != ErrorNone)
         return NULL;
-    }
 
-    fprintf(stderr, "WindowsDebug: capability - calling mailimap_capability\n");
     r = mailimap_capability(mImap, &cap);
-    fprintf(stderr, "WindowsDebug: capability - mailimap_capability returned %d\n", r);
     if (r == MAILIMAP_ERROR_STREAM) {
-        fprintf(stderr, "WindowsDebug: capability - MAILIMAP_ERROR_STREAM, setting ErrorConnection\n");
         mShouldDisconnect = true;
         * pError = ErrorConnection;
         return NULL;
     }
     else if (r == MAILIMAP_ERROR_PARSE) {
-        fprintf(stderr, "WindowsDebug: capability - MAILIMAP_ERROR_PARSE, setting ErrorParse\n");
         mShouldDisconnect = true;
         * pError = ErrorParse;
         return NULL;
     }
     else if (hasError(r)) {
-        fprintf(stderr, "WindowsDebug: capability - hasError(r) true, setting ErrorCapability\n");
         * pError = ErrorCapability;
         return NULL;
     }
-    fprintf(stderr, "WindowsDebug: capability - success\n");
-    
+
     mailimap_capability_data_free(cap);
     
     IndexSet * result = new IndexSet();

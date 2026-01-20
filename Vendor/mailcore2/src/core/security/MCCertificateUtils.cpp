@@ -34,7 +34,6 @@
 
 bool mailcore::checkCertificate(mailstream *stream, String *hostname)
 {
-    fprintf(stderr, "WindowsDebug: checkCertificate called, stream=%p\n", (void*)stream);
 #if __APPLE__
     bool result = false;
     CFStringRef hostnameCFString;
@@ -150,15 +149,12 @@ err:
 
     MCLog("OpenSSL version: %s", OpenSSL_version(0));
 
-    fprintf(stderr, "WindowsDebug: Calling mailstream_get_certificate_chain\n");
     carray *cCerts = mailstream_get_certificate_chain(stream);
     if (cCerts == NULL)
     {
-        fprintf(stderr, "WindowsDebug: ERROR - mailstream_get_certificate_chain returned NULL\n");
         MCLog("warning: No certificate chain retrieved");
         goto err;
     }
-    fprintf(stderr, "WindowsDebug: Got certificate chain with %d certificates\n", carray_count(cCerts));
 
     store = X509_STORE_new();
     if (store == NULL)
@@ -168,13 +164,7 @@ err:
     }
 
 #ifdef _MSC_VER
-    fprintf(stderr, "WindowsDebug: Opening Windows ROOT certificate store\n");
     HCERTSTORE systemStore = CertOpenSystemStore(NULL, L"ROOT");
-    if (systemStore == NULL) {
-        fprintf(stderr, "WindowsDebug: ERROR - CertOpenSystemStore returned NULL, GetLastError=%lu\n", GetLastError());
-    } else {
-        fprintf(stderr, "WindowsDebug: Successfully opened Windows ROOT certificate store\n");
-    }
 
     PCCERT_CONTEXT previousCert = NULL;
     int certCount = 0;
@@ -211,17 +201,9 @@ err:
         else
         {
             certFailedCount++;
-            unsigned long err = ERR_get_error();
-            char errBuf[256];
-            ERR_error_string_n(err, errBuf, sizeof(errBuf));
-            if (certCount <= 5) { // Only log first 5 failures to avoid spam
-                fprintf(stderr, "WindowsDebug: d2i_X509 failed for cert #%d: %s\n", certCount, errBuf);
-            }
         }
         previousCert = nextCert;
     }
-    fprintf(stderr, "WindowsDebug: Windows cert store: enumerated %d certs, loaded %d, failed %d\n",
-            certCount, certLoadedCount, certFailedCount);
     CertCloseStore(systemStore, 0);
 #elif defined(ANDROID) || defined(__ANDROID__)
     dir = opendir("/system/etc/security/cacerts");
@@ -274,9 +256,7 @@ err:
      * (like SSL_read) will report these stale "BIO routines::no such file" errors
      * instead of actual errors. */
     ERR_clear_error();
-    fprintf(stderr, "WindowsDebug: Cleared OpenSSL error queue after certificate store setup\n");
 
-    fprintf(stderr, "WindowsDebug: Parsing server certificate chain\n");
     certificates = sk_X509_new_null();
     for (unsigned int i = 0; i < carray_count(cCerts); i++)
     {
@@ -284,30 +264,21 @@ err:
         str = (MMAPString *)carray_get(cCerts, i);
         if (str == NULL)
         {
-            fprintf(stderr, "WindowsDebug: ERROR - carray_get returned NULL for cert %d\n", i);
             MCLog("Could not read carray_get cert");
             goto free_certs;
         }
-        fprintf(stderr, "WindowsDebug: Parsing server cert %d, length=%zu\n", i, str->len);
         BIO *bio = BIO_new_mem_buf((void *)str->str, str->len);
         X509 *certificate = d2i_X509_bio(bio, NULL);
         BIO_free(bio);
         if (certificate == NULL) {
-            unsigned long err = ERR_get_error();
-            char errBuf[256];
-            ERR_error_string_n(err, errBuf, sizeof(errBuf));
-            fprintf(stderr, "WindowsDebug: ERROR - d2i_X509_bio failed for server cert %d: %s\n", i, errBuf);
             goto free_certs;
         }
         if (!sk_X509_push(certificates, certificate))
         {
-            fprintf(stderr, "WindowsDebug: ERROR - sk_X509_push failed for cert %d\n", i);
             MCLog("Could not append certificate via sk_X509_push");
             goto free_certs;
         }
-        fprintf(stderr, "WindowsDebug: Successfully parsed server cert %d\n", i);
     }
-    fprintf(stderr, "WindowsDebug: Successfully parsed all %d server certificates\n", carray_count(cCerts));
 
     storectx = X509_STORE_CTX_new();
     if (storectx == NULL)
@@ -323,21 +294,14 @@ err:
         goto free_certs;
     }
 
-    fprintf(stderr, "WindowsDebug: Calling X509_verify_cert\n");
     status = X509_verify_cert(storectx);
-    fprintf(stderr, "WindowsDebug: X509_verify_cert returned %d\n", status);
     if (status == 1)
     {
-        fprintf(stderr, "WindowsDebug: Certificate verification SUCCEEDED\n");
         result = true;
     }
     else
     {
         int errcode = X509_STORE_CTX_get_error(storectx);
-        int errDepth = X509_STORE_CTX_get_error_depth(storectx);
-        const char *errString = X509_verify_cert_error_string(errcode);
-        fprintf(stderr, "WindowsDebug: Certificate verification FAILED: error=%d (%s), depth=%d\n",
-                errcode, errString ? errString : "unknown", errDepth);
         MCLog("Verification failed:\n");
         MCLog("X509_verify_cert_error_string:\n");
         MCLog(X509_verify_cert_error_string(errcode));
@@ -350,8 +314,6 @@ err:
             X509_NAME_print_ex(outbio, certsubject, 0, XN_FLAG_MULTILINE);
             BIO_printf(outbio, "\n");
             BIO_free_all(outbio);
-        } else {
-            fprintf(stderr, "WindowsDebug: No error certificate available\n");
         }
     }
 

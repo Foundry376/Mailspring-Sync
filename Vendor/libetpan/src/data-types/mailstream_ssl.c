@@ -1417,13 +1417,8 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
 {
   int r = -1;
 
-  fprintf(stderr, "WindowsDebug: mailstream_ssl_set_server_name called, ssl_context=%p, hostname=%s\n",
-          (void*)ssl_context, hostname ? hostname : "NULL");
-
 #ifdef USE_SSL
-  fprintf(stderr, "WindowsDebug: USE_SSL is defined\n");
 # ifdef USE_GNUTLS
-  fprintf(stderr, "WindowsDebug: USE_GNUTLS is defined (using GNUTLS path)\n");
   if (hostname != NULL) {
     r = gnutls_server_name_set(ssl_context->session, GNUTLS_NAME_DNS, hostname, strlen(hostname));
   }
@@ -1431,7 +1426,6 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
     r = gnutls_server_name_set(ssl_context->session, GNUTLS_NAME_DNS, "", 0U);
   }
 # else /* !USE_GNUTLS */
-  fprintf(stderr, "WindowsDebug: USE_GNUTLS is NOT defined (using OpenSSL path)\n");
   if (hostname != NULL) {
     /* Unfortunately we can't set this in the openssl session yet since it
      * hasn't been created yet; we only have the openssl context at this point.
@@ -1442,23 +1436,17 @@ int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
      * must therefore take a temporary copy here, which we free once we've set
      * it in the openssl session. */
     ssl_context->server_name = strdup(hostname);
-    fprintf(stderr, "WindowsDebug: strdup hostname, ssl_context->server_name=%s\n",
-            ssl_context->server_name ? ssl_context->server_name : "NULL");
   }
   else {
     if (ssl_context->server_name != NULL) {
       free(ssl_context->server_name);
     }
     ssl_context->server_name = NULL;
-    fprintf(stderr, "WindowsDebug: hostname was NULL, cleared server_name\n");
   }
   r = 0;
 # endif /* !USE_GNUTLS */
-#else
-  fprintf(stderr, "WindowsDebug: USE_SSL is NOT defined!\n");
 #endif /* USE_SSL */
 
-  fprintf(stderr, "WindowsDebug: mailstream_ssl_set_server_name returning %d\n", r);
   return r;
 }
 
