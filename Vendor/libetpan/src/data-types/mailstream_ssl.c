@@ -925,32 +925,48 @@ static ssize_t mailstream_low_ssl_read(mailstream_low * s,
   int r;
 
   ssl_data = (struct mailstream_ssl_data *) s->data;
-  
-  if (mailstream_cancel_cancelled(ssl_data->cancel))
+
+  if (mailstream_cancel_cancelled(ssl_data->cancel)) {
+    fprintf(stderr, "WindowsDebug: mailstream_low_ssl_read - cancelled, returning -1\n");
     return -1;
-  
+  }
+
   while (1) {
     int ssl_r;
-    
+
     r = SSL_read(ssl_data->ssl_conn, buf, (int) count);
-    if (r > 0)
+    if (r > 0) {
+      fprintf(stderr, "WindowsDebug: SSL_read returned %d bytes\n", r);
       return r;
-    
+    }
+
     ssl_r = SSL_get_error(ssl_data->ssl_conn, r);
+    fprintf(stderr, "WindowsDebug: SSL_read returned %d, SSL_get_error=%d\n", r, ssl_r);
     switch (ssl_r) {
     case SSL_ERROR_NONE:
+      fprintf(stderr, "WindowsDebug: SSL_ERROR_NONE\n");
       return r;
-      
+
     case SSL_ERROR_ZERO_RETURN:
+      fprintf(stderr, "WindowsDebug: SSL_ERROR_ZERO_RETURN (connection closed)\n");
       return r;
-      
+
     case SSL_ERROR_WANT_READ:
+      fprintf(stderr, "WindowsDebug: SSL_ERROR_WANT_READ, calling wait_read\n");
       r = wait_read(s);
-      if (r < 0)
+      if (r < 0) {
+        fprintf(stderr, "WindowsDebug: wait_read returned %d\n", r);
         return r;
+      }
       break;
-      
+
     default:
+      {
+        unsigned long err = ERR_get_error();
+        char errBuf[256];
+        ERR_error_string_n(err, errBuf, sizeof(errBuf));
+        fprintf(stderr, "WindowsDebug: SSL_read error default case, ssl_r=%d, ERR=%s\n", ssl_r, errBuf);
+      }
       return -1;
     }
   }
@@ -1094,28 +1110,38 @@ static ssize_t mailstream_low_ssl_write(mailstream_low * s,
   struct mailstream_ssl_data * ssl_data;
   int ssl_r;
   int r;
-  
+
   ssl_data = (struct mailstream_ssl_data *) s->data;
   r = wait_write(s);
-  if (r <= 0)
+  if (r <= 0) {
+    fprintf(stderr, "WindowsDebug: SSL_write - wait_write returned %d\n", r);
     return r;
-  
+  }
+
   r = SSL_write(ssl_data->ssl_conn, buf, (int) count);
+  fprintf(stderr, "WindowsDebug: SSL_write(%d bytes) returned %d\n", (int)count, r);
   if (r > 0)
     return r;
-  
+
   ssl_r = SSL_get_error(ssl_data->ssl_conn, r);
+  fprintf(stderr, "WindowsDebug: SSL_write error, SSL_get_error=%d\n", ssl_r);
   switch (ssl_r) {
   case SSL_ERROR_NONE:
     return r;
-    
+
   case SSL_ERROR_ZERO_RETURN:
     return -1;
-    
+
   case SSL_ERROR_WANT_WRITE:
     return 0;
-    
+
   default:
+    {
+      unsigned long err = ERR_get_error();
+      char errBuf[256];
+      ERR_error_string_n(err, errBuf, sizeof(errBuf));
+      fprintf(stderr, "WindowsDebug: SSL_write error: %s\n", errBuf);
+    }
     return r;
   }
 }

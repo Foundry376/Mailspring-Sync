@@ -4263,26 +4263,35 @@ IndexSet * IMAPSession::capability(ErrorCode * pError)
 {
     int r;
     struct mailimap_capability_data * cap;
-    
+
+    fprintf(stderr, "WindowsDebug: IMAPSession::capability called\n");
     connectIfNeeded(pError);
-    if (* pError != ErrorNone)
+    if (* pError != ErrorNone) {
+        fprintf(stderr, "WindowsDebug: capability - connectIfNeeded failed with error %d\n", (int)*pError);
         return NULL;
-    
+    }
+
+    fprintf(stderr, "WindowsDebug: capability - calling mailimap_capability\n");
     r = mailimap_capability(mImap, &cap);
+    fprintf(stderr, "WindowsDebug: capability - mailimap_capability returned %d\n", r);
     if (r == MAILIMAP_ERROR_STREAM) {
+        fprintf(stderr, "WindowsDebug: capability - MAILIMAP_ERROR_STREAM, setting ErrorConnection\n");
         mShouldDisconnect = true;
         * pError = ErrorConnection;
         return NULL;
     }
     else if (r == MAILIMAP_ERROR_PARSE) {
+        fprintf(stderr, "WindowsDebug: capability - MAILIMAP_ERROR_PARSE, setting ErrorParse\n");
         mShouldDisconnect = true;
         * pError = ErrorParse;
         return NULL;
     }
     else if (hasError(r)) {
+        fprintf(stderr, "WindowsDebug: capability - hasError(r) true, setting ErrorCapability\n");
         * pError = ErrorCapability;
         return NULL;
     }
+    fprintf(stderr, "WindowsDebug: capability - success\n");
     
     mailimap_capability_data_free(cap);
     
