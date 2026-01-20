@@ -352,7 +352,30 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         message->setPlaintext(bodyIsPlaintext);
         message->setBodyForDispatch(bodyRepresentation);
         message->setFiles(files);
-        
+
+        // extract additional headers from the full message that weren't available
+        // during initial sync (which only fetches IMAP ENVELOPE)
+        MessageHeader * msgHeader = parser->header();
+        if (msgHeader != nullptr) {
+            String * listUnsub = msgHeader->extraHeaderValueForName(MCSTR("List-Unsubscribe"));
+            String * listUnsubPost = msgHeader->extraHeaderValueForName(MCSTR("List-Unsubscribe-Post"));
+            String * xPriority = msgHeader->extraHeaderValueForName(MCSTR("X-Priority"));
+            String * importance = msgHeader->extraHeaderValueForName(MCSTR("Importance"));
+
+            if (listUnsub != nullptr) {
+                message->_data["hListUnsub"] = listUnsub->UTF8Characters();
+            }
+            if (listUnsubPost != nullptr) {
+                message->_data["hListUnsubPost"] = listUnsubPost->UTF8Characters();
+            }
+            if (xPriority != nullptr) {
+                message->_data["hXPriority"] = xPriority->UTF8Characters();
+            }
+            if (importance != nullptr) {
+                message->_data["hImportance"] = importance->UTF8Characters();
+            }
+        }
+
         store->save(message);
         
         transaction.commit();
