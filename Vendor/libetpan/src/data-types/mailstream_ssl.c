@@ -88,6 +88,7 @@
 # ifndef USE_GNUTLS
 #  include <openssl/ssl.h>
 #  include <openssl/err.h>
+#  include <openssl/provider.h>
 /* OpenSSL 3.0 renamed SSL_get_peer_certificate to SSL_get1_peer_certificate. */
 #  define MAILSTREAM_SSL_GET_PEER_CERT SSL_get1_peer_certificate
 # else
@@ -291,23 +292,32 @@ static inline void mailstream_ssl_init(void)
     #endif
 
 #ifdef WIN32
-    /* On Windows, set environment variables to redirect OpenSSL 3.x away from
-     * paths compiled into the library at build time (OPENSSLDIR, MODULESDIR).
-     * When the executable is deployed to a different machine than where it was
-     * built (e.g., vcpkg build machine vs runtime container), these paths don't
-     * exist, causing "no such file" errors during various SSL operations.
-     *
-     * OPENSSL_MODULES controls where OpenSSL looks for provider DLLs.
-     * OPENSSL_CONF controls where OpenSSL looks for its config file.
-     * Setting these to "." (current directory) prevents access to non-existent paths.
-     * The default provider is built into libcrypto and doesn't need external modules. */
-    _putenv("OPENSSL_MODULES=.");
-    _putenv("OPENSSL_CONF=.");
-    fprintf(stderr, "WindowsDebug: Set OPENSSL_MODULES and OPENSSL_CONF to current directory\n");
-
-    /* Initialize OpenSSL without loading the default config file. */
+    /* On Windows, explicitly initialize OpenSSL without loading the default
+     * config file (openssl.cnf). OpenSSL 3.x tries to load this from paths
+     * compiled into the library at build time (OPENSSLDIR). When deploying
+     * to a different machine, these paths don't exist, causing "no such file"
+     * errors during various SSL operations. */
     OPENSSL_init_ssl(OPENSSL_INIT_NO_LOAD_CONFIG, NULL);
     fprintf(stderr, "WindowsDebug: Called OPENSSL_init_ssl with OPENSSL_INIT_NO_LOAD_CONFIG\n");
+
+    /* Set the provider module search path to the current directory. OpenSSL 3.x
+     * has a providers architecture that loads DLLs from MODULESDIR, which is
+     * compiled into the library at build time (e.g., vcpkg build paths). When
+     * the executable is deployed elsewhere, these paths don't exist. Setting
+     * the search path to "." prevents OpenSSL from looking in non-existent
+     * directories. The default provider is built into libcrypto and doesn't
+     * need external modules for standard TLS operations. */
+    OSSL_PROVIDER_set_default_search_path(NULL, ".");
+    fprintf(stderr, "WindowsDebug: Set OSSL_PROVIDER search path to current directory\n");
+
+    /* Explicitly load the default provider to ensure it's available and to
+     * prevent any lazy loading that might try to access non-existent paths. */
+    OSSL_PROVIDER *deflt = OSSL_PROVIDER_load(NULL, "default");
+    if (deflt == NULL) {
+        fprintf(stderr, "WindowsDebug: WARNING - Failed to load default provider\n");
+    } else {
+        fprintf(stderr, "WindowsDebug: Successfully loaded default provider\n");
+    }
 #else
     SSL_load_error_strings();
     SSL_library_init();
