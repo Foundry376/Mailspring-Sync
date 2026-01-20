@@ -289,11 +289,21 @@ static inline void mailstream_ssl_init(void)
     #if defined (HAVE_PTHREAD_H) && !defined (WIN32) && defined (USE_SSL) && defined (LIBETPAN_REENTRANT)
       mailstream_openssl_reentrant_setup();
     #endif
-    
+
+#ifdef WIN32
+    /* On Windows, explicitly initialize OpenSSL without loading the default
+     * config file (openssl.cnf). OpenSSL 3.x tries to load this from paths
+     * compiled into the library at build time (OPENSSLDIR). When deploying
+     * to a different machine, these paths don't exist, causing "no such file"
+     * errors during various SSL operations. */
+    OPENSSL_init_ssl(OPENSSL_INIT_NO_LOAD_CONFIG, NULL);
+    fprintf(stderr, "WindowsDebug: Called OPENSSL_init_ssl with OPENSSL_INIT_NO_LOAD_CONFIG\n");
+#else
     SSL_load_error_strings();
     SSL_library_init();
     OpenSSL_add_all_algorithms();
-    
+#endif
+
     openssl_init_done = 1;
   }
 #else
