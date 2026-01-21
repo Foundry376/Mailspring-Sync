@@ -329,3 +329,63 @@ jobs:
               echo '✓ mailsync install-check passed on Ubuntu ${{ matrix.ubuntu_version }}'
             fi
           "
+
+  test-opensuse:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mailsync-linux
+
+      - name: Test on openSUSE Tumbleweed
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace opensuse/tumbleweed bash -c "
+            set -e
+            echo '=== Testing mailsync on openSUSE Tumbleweed ==='
+
+            # Install required runtime dependencies
+            zypper --non-interactive install glibc libstdc++6 libcurl4 libopenssl3 \
+              libicu libuuid1 cyrus-sasl libXss1 libsecret-1-0 libtidy5 \
+              ca-certificates file glib2-tools libgcrypt20 mozilla-nss
+
+            # Extract to a directory containing 'mailspring' in the path
+            # (required by branding check in main.cpp that exits with code 2)
+            cd /workspace
+            mkdir -p mailspring
+            cd mailspring
+            tar -xzf ../mailsync.tar.gz
+
+            # Debug: show extracted files and binary info
+            echo 'Extracted files:'
+            ls -la
+            echo ''
+            echo 'Wrapper script (mailsync):'
+            cat ./mailsync
+            echo ''
+            echo 'Binary info (mailsync.bin):'
+            file ./mailsync.bin
+            echo ''
+
+            echo 'Checking for missing shared libraries:'
+            ldd ./mailsync.bin || true
+            echo ''
+
+            # Run mailsync install-check via wrapper (wrapper sets LD_LIBRARY_PATH and SASL_PATH)
+            # Note: || true prevents set -e from exiting on non-zero; we check output instead
+            echo 'Running mailsync --mode install-check...'
+            CONFIG_DIR_PATH=/tmp IDENTITY_SERVER=https://id.getmailspring.com ./mailsync --mode install-check > /tmp/output.txt 2>&1 || true
+            cat /tmp/output.txt
+            echo ''
+
+            # Verify install check passed (no errors)
+            if grep -q 'One or more checks failed' /tmp/output.txt; then
+              echo '✗ mailsync install-check failed on openSUSE Tumbleweed'
+              echo 'Checking for missing libraries (not found):'
+              ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
+              exit 1
+            else
+              echo '✓ mailsync install-check passed on openSUSE Tumbleweed'
+            fi
+          "
