@@ -346,9 +346,10 @@ jobs:
             echo '=== Testing mailsync on openSUSE Tumbleweed ==='
 
             # Install required runtime dependencies
-            zypper --non-interactive install glibc libstdc++6 libcurl4 libopenssl3 \
-              libicu libuuid1 cyrus-sasl libXss1 libsecret-1-0 libtidy5 \
-              ca-certificates file glib2-tools libgcrypt20 mozilla-nss
+            # Note: glibc, libstdc++6, libopenssl3, libgcrypt20, libuuid1, ca-certificates are pre-installed
+            # Package name differences from other distros: libtidy58 (not libtidy5)
+            zypper --non-interactive install libcurl4 cyrus-sasl libXss1 \
+              libsecret-1-0 libtidy58 file glib2-tools mozilla-nss
 
             # Extract to a directory containing 'mailspring' in the path
             # (required by branding check in main.cpp that exits with code 2)
