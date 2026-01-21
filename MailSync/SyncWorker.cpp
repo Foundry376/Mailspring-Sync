@@ -143,12 +143,12 @@ void SyncWorker::idleCycleIteration()
         idleShouldReloop = false;
         return;
     }
-    
+
     session.loginIfNeeded(&err);
     if (err != ErrorCode::ErrorNone) {
         throw SyncException(err, "loginIfNeeded");
     }
-    
+
     if (idleShouldReloop) {
         idleShouldReloop = false;
         return;
@@ -284,6 +284,16 @@ bool SyncWorker::syncNow()
     vector<shared_ptr<Folder>> folders = syncFoldersAndLabels();
     bool hasCondstore = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
     bool hasQResync = session.storedCapabilities()->containsIndex(IMAPCapabilityQResync);
+
+    // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
+    // responses and doesn't send the ENABLED untagged response per RFC. This causes
+    // messages to be incorrectly detected as deleted. Disable QRESYNC for iCloud.
+    // See: https://developer.apple.com/forums/thread/694251
+    bool isICloud = account->IMAPHost().find("imap.mail.me.com") != string::npos;
+    if (isICloud && hasQResync) {
+        logger->info("Disabling QRESYNC for iCloud account due to known server compatibility issues");
+        hasQResync = false;
+    }
 
     // Identify folders to sync. On Gmail, labels are mapped to IMAP folders and
     // we only want to sync all, spam, and trash.
@@ -532,16 +542,16 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 {
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
-    
+
     string containerFolderPath = account->containerFolder();
     vector<string> containerFolderComponents;
-    
+
     if (containerFolderPath == "" || containerFolderPath == MAILSPRING_FOLDER_PREFIX_V2) {
       logger->info("Syncing folder list...");
       containerFolderComponents.push_back(MAILSPRING_FOLDER_PREFIX_V2);
     } else {
       logger->info("Syncing folder list on custom container folder {} ...", containerFolderPath);
-      
+
       std::stringstream data(containerFolderPath);
       std::string folder;
       while(std::getline(data, folder, '/'))
@@ -549,7 +559,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         containerFolderComponents.push_back(folder);
       }
     }
-    
+
     ErrorCode err = ErrorCode::ErrorNone;
     Array * remoteFolders = session.fetchAllFolders(&err);
     if (err) {

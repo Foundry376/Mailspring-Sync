@@ -384,6 +384,7 @@ void IMAPSession::init()
     mIdleEnabled = false;
     mXListEnabled = false;
     mQResyncEnabled = false;
+    mQResyncForceDisabled = false;
     mCondstoreEnabled = false;
     mXYMHighestModseqEnabled = false;
     mIdentityEnabled = false;
@@ -4362,7 +4363,7 @@ void IMAPSession::applyCapabilities(IndexSet * capabilities)
     if (capabilities->containsIndex(IMAPCapabilityCondstore)) {
         mCondstoreEnabled = true;
     }
-    if (capabilities->containsIndex(IMAPCapabilityQResync)) {
+    if (capabilities->containsIndex(IMAPCapabilityQResync) && !mQResyncForceDisabled) {
         mQResyncEnabled = true;
     }
     if (capabilities->containsIndex(IMAPCapabilityXYMHighestModseq)) {
@@ -4402,6 +4403,16 @@ bool IMAPSession::isCondstoreEnabled()
 bool IMAPSession::isQResyncEnabled()
 {
     return mQResyncEnabled;
+}
+
+void IMAPSession::setQResyncEnabled(bool enabled)
+{
+    mQResyncEnabled = enabled;
+    // When explicitly disabling, also set force flag to prevent applyCapabilities
+    // from re-enabling it during login
+    if (!enabled) {
+        mQResyncForceDisabled = true;
+    }
 }
 
 bool IMAPSession::isIdentityEnabled()

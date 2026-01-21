@@ -756,6 +756,15 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
         session.setCheckCertificateEnabled(false);
     }
 
+    // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
+    // responses and doesn't send the ENABLED untagged response per RFC. This causes
+    // messages to be incorrectly detected as deleted. Disable QRESYNC before login
+    // so the ENABLE QRESYNC command is never sent to the server.
+    // See: https://developer.apple.com/forums/thread/694251
+    if (account->IMAPHost().find("imap.mail.me.com") != string::npos) {
+        session.setQResyncEnabled(false);
+    }
+
     if (_verboseLogging) {
         session.setConnectionLogger(new MailcoreSPDLogger());
     }
