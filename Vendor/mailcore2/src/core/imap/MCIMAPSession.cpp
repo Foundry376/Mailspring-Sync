@@ -4404,6 +4404,11 @@ bool IMAPSession::isQResyncEnabled()
     return mQResyncEnabled;
 }
 
+void IMAPSession::setQResyncEnabled(bool enabled)
+{
+    mQResyncEnabled = enabled;
+}
+
 bool IMAPSession::isIdentityEnabled()
 {
     return mIdentityEnabled;
