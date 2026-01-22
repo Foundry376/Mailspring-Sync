@@ -5253,6 +5253,14 @@ mailimap_env_from_parse(mailstream * fd, MMAPString * buffer, struct mailimap_pa
 
 /*
    env-in-reply-to = nstring
+
+   Workaround for malformed ENVELOPE responses (e.g., from iCloud) where
+   the in-reply-to field contains unescaped DQUOTE characters. When this
+   happens, nstring_parse returns early and leaves garbage in the buffer.
+
+   Per RFC 3501, after env-in-reply-to there MUST be a space before env-message-id.
+   If the next character is not a space, garbage remains and we scan forward to
+   find where env-message-id actually starts.
 */
 
 static int mailimap_env_in_reply_to_parse(mailstream * fd,
@@ -5261,49 +5269,91 @@ static int mailimap_env_in_reply_to_parse(mailstream * fd,
 					  size_t progr_rate,
 					  progress_function * progr_fun)
 {
-  return mailimap_nstring_parse(fd, buffer, parser_ctx, indx, result, NULL,
+  int r;
+  size_t cur_token;
+
+  cur_token = *indx;
+
+  r = mailimap_nstring_parse(fd, buffer, parser_ctx, &cur_token, result, NULL,
 				progr_rate, progr_fun);
+
+  if (r != MAILIMAP_NO_ERROR) {
+    return r;
+  }
+
+  /* Per RFC 3501, next char MUST be space before env-message-id.
+     If not, garbage remains from malformed field with unescaped quotes. */
+  if (cur_token < buffer->len && buffer->str[cur_token] != ' ') {
+    /* Scan forward to find env-message-id: ' "<' or ' NIL' */
+    size_t scan = cur_token;
+    while (scan < buffer->len) {
+      if (buffer->str[scan] == ' ' && scan + 2 < buffer->len) {
+        /* ' "<' pattern - a quoted message-id */
+        if (buffer->str[scan + 1] == '"' && buffer->str[scan + 2] == '<') {
+          cur_token = scan;
+          break;
+        }
+        /* ' NI' pattern - NIL */
+        if (buffer->str[scan + 1] == 'N' && buffer->str[scan + 2] == 'I') {
+          cur_token = scan;
+          break;
+        }
+      }
+      scan++;
+    }
+  }
+
+  *indx = cur_token;
+  return MAILIMAP_NO_ERROR;
 }
 
 /*
-   Workaround for iCloud issue where the ENVELOPE's messageid contains unescaped DQUOTE's
+   Workaround for malformed ENVELOPE message-id containing unescaped DQUOTE's.
+   Re-parses by looking for content between '<' and '>' delimiters.
 */
 
-static int mailimap_env_message_id_parse_icloud_workaround ( mailstream* fd,
+static int mailimap_env_message_id_parse_workaround ( mailstream* fd,
     MMAPString* buffer, struct mailimap_parser_context* parser_ctx,
     size_t* indx, char** result,
     size_t progr_rate,
     progress_function* progr_fun )
-    {
+{
     int r;
     size_t cur_token;
 
-    // Workaround for iCloud issue where the ENVELOPE's messageid contains DQUOTE's
-
     cur_token = *indx;
     r = mailimap_dquote_parse ( fd, buffer, parser_ctx, &cur_token );
-
     if ( r != MAILIMAP_NO_ERROR )
         return r;
 
     r = mailimap_encapsulated_parse ( fd, buffer, parser_ctx,
         &cur_token, result, progr_rate,
         progr_fun, '<', '>', true );
-
     if ( r != MAILIMAP_NO_ERROR )
         return r;
 
     r = mailimap_dquote_parse ( fd, buffer, parser_ctx, &cur_token );
-
     if ( r != MAILIMAP_NO_ERROR )
         return r;
 
     *indx = cur_token;
     return MAILIMAP_NO_ERROR;
-    }
+}
 
 /*
    env-message-id  = nstring
+
+   Workaround for malformed ENVELOPE responses where the message-id field
+   contains unescaped DQUOTE characters. When nstring_parse encounters an
+   unescaped quote, it returns early leaving garbage in the buffer.
+
+   Per RFC 3501, after env-message-id there MUST be ')' to close the envelope.
+   If the next character is not ')', garbage remains and we scan forward.
+
+   Two workaround strategies:
+   1. If result is exactly '<' (quote right after angle bracket), re-parse
+      using the encapsulated parser that looks for '<' to '>' delimiters.
+   2. If garbage remains (next char not ')'), scan forward to find ')'.
 */
 
 static int mailimap_env_message_id_parse ( mailstream* fd,
@@ -5311,7 +5361,7 @@ static int mailimap_env_message_id_parse ( mailstream* fd,
     size_t* indx, char** result,
     size_t progr_rate,
     progress_function* progr_fun )
-    {
+{
     int r;
     size_t cur_token;
 
@@ -5320,18 +5370,37 @@ static int mailimap_env_message_id_parse ( mailstream* fd,
     r = mailimap_nstring_parse ( fd, buffer, parser_ctx, &cur_token, result, NULL,
         progr_rate, progr_fun );
 
-    if ( r == MAILIMAP_NO_ERROR && *result != NULL && strlen ( *result ) == 1 && *result[0] == '<' )
-        {
-        return mailimap_env_message_id_parse_icloud_workaround ( fd, buffer, parser_ctx, indx, result,
-            progr_rate, progr_fun );
-        }
-    else if ( r == MAILIMAP_NO_ERROR )
-        {
-        *indx = cur_token;
-        }
-
-    return r;
+    if (r != MAILIMAP_NO_ERROR) {
+        return r;
     }
+
+    /* Strategy 1: If result is exactly '<', the quote came right after the
+       angle bracket. Re-parse using encapsulated parser. */
+    if ( *result != NULL && strlen ( *result ) == 1 && (*result)[0] == '<' ) {
+        /* Free the truncated result before re-parsing */
+        mailimap_nstring_free(*result);
+        *result = NULL;
+        return mailimap_env_message_id_parse_workaround ( fd, buffer, parser_ctx,
+            indx, result, progr_rate, progr_fun );
+    }
+
+    /* Strategy 2: Per RFC 3501, next char MUST be ')' to close envelope.
+       If not, garbage remains from malformed field with unescaped quotes.
+       Scan forward to find the closing ')'. */
+    if (cur_token < buffer->len && buffer->str[cur_token] != ')') {
+        size_t scan = cur_token;
+        while (scan < buffer->len) {
+            if (buffer->str[scan] == ')') {
+                cur_token = scan;
+                break;
+            }
+            scan++;
+        }
+    }
+
+    *indx = cur_token;
+    return MAILIMAP_NO_ERROR;
+}
 
 /*
    env-reply-to    = "(" 1*address ")" / nil
