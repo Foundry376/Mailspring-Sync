@@ -422,9 +422,9 @@ void DAVWorker::runContacts() {
             contactsDiscoveryComplete = true;
             contactsValidationFailures = 0;
         } catch (SyncException & e) {
-            // Handle servers that don't support CardDAV (return 404 Not Found or 405 Method Not Allowed).
-            // Log the error and skip contact sync rather than crashing the entire sync process.
-            if (e.key.find("404") != string::npos || e.key.find("405") != string::npos) {
+            // Handle servers that don't support CardDAV (return 404 Not Found, 405 Method Not Allowed,
+            // or 406 Not Acceptable). Log the error and skip contact sync rather than crashing.
+            if (e.key.find("404") != string::npos || e.key.find("405") != string::npos || e.key.find("406") != string::npos) {
                 logger->info("CardDAV not supported by server ({}), skipping contact sync", e.key);
                 contactsDiscoveryComplete = true;
                 cachedAddressBook = nullptr;
@@ -511,8 +511,9 @@ bool DAVWorker::validateCachedAddressBook() {
     } catch (const SyncException& e) {
         contactsValidationFailures++;
 
-        // URL definitively invalid (deleted, moved, etc.)
+        // URL definitively invalid (deleted, moved, not acceptable, etc.)
         if (e.key.find("404") != string::npos ||
+            e.key.find("406") != string::npos ||
             e.key.find("410") != string::npos) {
             logger->info("Address book URL returned {}, invalidating cache", e.key);
             return false;
@@ -1173,9 +1174,9 @@ void DAVWorker::runCalendars() {
     try {
         calendarSetDoc = performXMLRequest(calHost + calPrincipal, "PROPFIND", propfindQuery);
     } catch (SyncException & e) {
-        // Handle servers that don't support CalDAV (return 404 Not Found or 405 Method Not Allowed).
-        // Log the error and skip calendar sync rather than crashing the entire sync process.
-        if (e.key.find("404") != string::npos || e.key.find("405") != string::npos) {
+        // Handle servers that don't support CalDAV (return 404 Not Found, 405 Method Not Allowed,
+        // or 406 Not Acceptable). Log the error and skip calendar sync rather than crashing.
+        if (e.key.find("404") != string::npos || e.key.find("405") != string::npos || e.key.find("406") != string::npos) {
             logger->info("CalDAV not supported by server ({}), skipping calendar sync", e.key);
             return;
         }
