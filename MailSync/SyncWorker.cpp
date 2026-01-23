@@ -120,6 +120,10 @@ void SyncWorker::idleCycleIteration()
                     logger->error("Failed to login for body fetch: {}", ErrorCodeToTypeMap[connectErr]);
                     continue;
                 }
+                // Disable QRESYNC for iCloud after reconnect (see main login comment)
+                if (account->IMAPHost().find("imap.mail.me.com") != string::npos) {
+                    session.setQResyncEnabled(false);
+                }
             }
 
             syncMessageBody(msg.get());
@@ -148,7 +152,14 @@ void SyncWorker::idleCycleIteration()
     if (err != ErrorCode::ErrorNone) {
         throw SyncException(err, "loginIfNeeded");
     }
-    
+
+    // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
+    // responses. Disable QRESYNC at session level after login to prevent issues.
+    // This must be done after login because applyCapabilities() sets it based on server caps.
+    if (account->IMAPHost().find("imap.mail.me.com") != string::npos) {
+        session.setQResyncEnabled(false);
+    }
+
     if (idleShouldReloop) {
         idleShouldReloop = false;
         return;
@@ -284,6 +295,16 @@ bool SyncWorker::syncNow()
     vector<shared_ptr<Folder>> folders = syncFoldersAndLabels();
     bool hasCondstore = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
     bool hasQResync = session.storedCapabilities()->containsIndex(IMAPCapabilityQResync);
+
+    // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
+    // responses and doesn't send the ENABLED untagged response per RFC. This causes
+    // messages to be incorrectly detected as deleted. Disable QRESYNC for iCloud.
+    // See: https://developer.apple.com/forums/thread/694251
+    bool isICloud = account->IMAPHost().find("imap.mail.me.com") != string::npos;
+    if (isICloud && hasQResync) {
+        logger->info("Disabling QRESYNC for iCloud account due to known server compatibility issues");
+        hasQResync = false;
+    }
 
     // Identify folders to sync. On Gmail, labels are mapped to IMAP folders and
     // we only want to sync all, spam, and trash.
