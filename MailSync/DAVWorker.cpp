@@ -430,6 +430,14 @@ void DAVWorker::runContacts() {
                 cachedAddressBook = nullptr;
                 return;
             }
+            // Handle network errors during discovery (DNS resolution failure, connection refused, etc.)
+            // These indicate the CardDAV server is unreachable - skip contact sync rather than crashing.
+            if (e.isOffline()) {
+                logger->info("CardDAV server unreachable during discovery ({}), skipping contact sync", e.key);
+                contactsDiscoveryComplete = true;
+                cachedAddressBook = nullptr;
+                return;
+            }
             throw;
         }
 
@@ -1178,6 +1186,12 @@ void DAVWorker::runCalendars() {
         // or 406 Not Acceptable). Log the error and skip calendar sync rather than crashing.
         if (e.key.find("404") != string::npos || e.key.find("405") != string::npos || e.key.find("406") != string::npos) {
             logger->info("CalDAV not supported by server ({}), skipping calendar sync", e.key);
+            return;
+        }
+        // Handle network errors during discovery (DNS resolution failure, connection refused, etc.)
+        // These indicate the CalDAV server is unreachable - skip calendar sync rather than crashing.
+        if (e.isOffline()) {
+            logger->info("CalDAV server unreachable during discovery ({}), skipping calendar sync", e.key);
             return;
         }
         throw;
