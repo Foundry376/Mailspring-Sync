@@ -74,5 +74,6 @@ json SyncException::toJSON() {
         {"key", key},
         {"debuginfo", debuginfo},
         {"retryable", retryable},
+        {"offline", offline},
     };
 }
