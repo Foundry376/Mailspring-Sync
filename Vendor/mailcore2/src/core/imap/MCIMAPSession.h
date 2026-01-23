@@ -261,6 +261,7 @@ namespace mailcore {
         bool mXListEnabled;
         bool mCondstoreEnabled;
         bool mQResyncEnabled;
+        bool mQResyncForceDisabled;
         bool mXYMHighestModseqEnabled;
         bool mIdentityEnabled;
         bool mXOauth2Enabled;

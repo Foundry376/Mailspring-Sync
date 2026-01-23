@@ -120,10 +120,6 @@ void SyncWorker::idleCycleIteration()
                     logger->error("Failed to login for body fetch: {}", ErrorCodeToTypeMap[connectErr]);
                     continue;
                 }
-                // Disable QRESYNC for iCloud after reconnect (see main login comment)
-                if (account->IMAPHost().find("imap.mail.me.com") != string::npos) {
-                    session.setQResyncEnabled(false);
-                }
             }
 
             syncMessageBody(msg.get());
@@ -147,17 +143,10 @@ void SyncWorker::idleCycleIteration()
         idleShouldReloop = false;
         return;
     }
-    
+
     session.loginIfNeeded(&err);
     if (err != ErrorCode::ErrorNone) {
         throw SyncException(err, "loginIfNeeded");
-    }
-
-    // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
-    // responses. Disable QRESYNC at session level after login to prevent issues.
-    // This must be done after login because applyCapabilities() sets it based on server caps.
-    if (account->IMAPHost().find("imap.mail.me.com") != string::npos) {
-        session.setQResyncEnabled(false);
     }
 
     if (idleShouldReloop) {
@@ -553,16 +542,16 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 {
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
-    
+
     string containerFolderPath = account->containerFolder();
     vector<string> containerFolderComponents;
-    
+
     if (containerFolderPath == "" || containerFolderPath == MAILSPRING_FOLDER_PREFIX_V2) {
       logger->info("Syncing folder list...");
       containerFolderComponents.push_back(MAILSPRING_FOLDER_PREFIX_V2);
     } else {
       logger->info("Syncing folder list on custom container folder {} ...", containerFolderPath);
-      
+
       std::stringstream data(containerFolderPath);
       std::string folder;
       while(std::getline(data, folder, '/'))
@@ -570,7 +559,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         containerFolderComponents.push_back(folder);
       }
     }
-    
+
     ErrorCode err = ErrorCode::ErrorNone;
     Array * remoteFolders = session.fetchAllFolders(&err);
     if (err) {
