@@ -38,9 +38,8 @@ jobs:
           sudo apt install -y \
             autoconf automake build-essential clang cmake execstack fakeroot \
             git libc-ares-dev libctemplate-dev libcurl4-openssl-dev \
-            libglib2.0-dev libicu-dev libsasl2-dev \
-            libsasl2-modules libsasl2-modules-gssapi-mit libsecret-1-dev \
-            libssl-dev libnss3 libnss3-dev \
+            libglib2.0-dev libicu-dev libsasl2-dev libssl-dev \
+            libsasl2-modules libsasl2-modules-gssapi-mit \
             libtidy-dev libtool libxext-dev libxkbfile-dev libxml2-dev \
             libxtst-dev rpm uuid-dev xvfb
 
@@ -163,7 +162,7 @@ jobs:
 
             # Install required runtime dependencies (from RPM spec)
             dnf install -y glibc libstdc++ libcurl openssl libicu libuuid cyrus-sasl-lib \
-              libXScrnSaver libsecret libtidy ca-certificates libappindicator-gtk3 file
+              libtidy ca-certificates file
 
             # Extract to a directory containing 'mailspring' in the path
             # (required by branding check in main.cpp that exits with code 2)
@@ -224,7 +223,7 @@ jobs:
             # Only install what mailsync CLI actually needs (not GUI dependencies)
             pacman -Syu --noconfirm
             pacman -S --noconfirm glibc gcc-libs curl openssl icu util-linux-libs cyrus-sasl file \
-              libsecret tidy ca-certificates libgcrypt nss glib2
+              tidy ca-certificates libgcrypt glib2
 
             # Extract to a directory containing 'mailspring' in the path
             # (required by branding check in main.cpp that exits with code 2)
@@ -286,9 +285,16 @@ jobs:
 
             # Install required runtime dependencies (from debian control.in)
             apt-get update
-            apt-get install -y libcurl4 libssl3 libicu-dev uuid-runtime libsasl2-2 \
-              libsecret-1-dev libgtk2.0-0 libudev1 libgcrypt20 libnotify4 libxtst6 \
-              libnss3 libglib2.0-bin xdg-utils libtidy-dev file
+
+            # libicu package name varies by Ubuntu version
+            if [[ '${{ matrix.ubuntu_version }}' == '22.04' ]]; then
+              LIBICU=libicu70
+            else
+              LIBICU=libicu74
+            fi
+
+            apt-get install -y libcurl4 libssl3 \$LIBICU uuid-runtime libsasl2-2 \
+              libudev1 libgcrypt20 libxtst6 libglib2.0-bin xdg-utils libtidy5deb1 file
 
             # Extract to a directory containing 'mailspring' in the path
             # (required by branding check in main.cpp that exits with code 2)
