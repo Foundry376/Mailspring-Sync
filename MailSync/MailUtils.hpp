@@ -63,6 +63,7 @@ public:
     static string roleForFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
+    static int priorityForFolderRole(const string & role);
 
     static void setBaseIDVersion(time_t identityCreationDate);
 

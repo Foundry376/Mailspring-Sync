@@ -386,6 +386,32 @@ string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPr
     return "";
 }
 
+int MailUtils::priorityForFolderRole(const string & role) {
+    // Mailspring's data model assumes each message exists in exactly one folder.
+    // However, some providers (notably iCloud) allow the same message to exist in
+    // multiple folders simultaneously. When this happens, we use folder priority
+    // to decide which folder "owns" the message, preventing it from flickering
+    // between folders on each sync cycle. Higher priority folders (lower numbers)
+    // always win, so messages "bubble up" to the most visible location (INBOX).
+    // This order matches the roleOrder array in SyncWorker.cpp:301.
+    static const map<string, int> priorities = {
+        {"inbox", 0},
+        {"sent", 1},
+        {"drafts", 2},
+        {"all", 3},
+        {"archive", 4},
+        {"trash", 5},
+        {"spam", 6}
+    };
+
+    auto it = priorities.find(role);
+    if (it != priorities.end()) {
+        return it->second;
+    }
+    // Custom folders (no role or unknown role) have lowest priority
+    return 100;
+}
+
 string MailUtils::pathForFile(string root, File * file, bool create) {
     string id = file->id();
     transform(id.begin(), id.end(), id.begin(), ::tolower);
