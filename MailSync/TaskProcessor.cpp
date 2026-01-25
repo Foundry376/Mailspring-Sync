@@ -1577,7 +1577,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         // because multisend is capped.
         int tries = 0;
         int delay[] = {0, 1, 1, 2, 2};
-        IndexSet * uids = new IndexSet();
+        IndexSet * uids = IndexSet::indexSet();
         
         while (tries < 4 && uids->count() == 0) {
             if (delay[tries]) {
