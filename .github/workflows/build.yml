@@ -270,7 +270,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        ubuntu_version: ['22.04', '24.04']
+        ubuntu_version: ['22.04', '24.04', '25.04']
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -286,15 +286,21 @@ jobs:
             # Install required runtime dependencies (from debian control.in)
             apt-get update
 
-            # libicu package name varies by Ubuntu version
+            # libicu and libtidy package names vary by Ubuntu version
             if [[ '${{ matrix.ubuntu_version }}' == '22.04' ]]; then
               LIBICU=libicu70
-            else
+              LIBTIDY=libtidy5deb1
+            elif [[ '${{ matrix.ubuntu_version }}' == '24.04' ]]; then
               LIBICU=libicu74
+              LIBTIDY=libtidy5deb1
+            else
+              # Ubuntu 25.04+: libicu76, libtidy58
+              LIBICU=libicu76
+              LIBTIDY=libtidy58
             fi
 
             apt-get install -y libcurl4 libssl3 \$LIBICU uuid-runtime libsasl2-2 \
-              libudev1 libgcrypt20 libxtst6 libglib2.0-bin xdg-utils libtidy5deb1 file
+              libudev1 libgcrypt20 libxtst6 libglib2.0-bin xdg-utils \$LIBTIDY file
 
             # Extract to a directory containing 'mailspring' in the path
             # (required by branding check in main.cpp that exits with code 2)
