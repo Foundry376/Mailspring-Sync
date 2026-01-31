@@ -85,119 +85,16 @@ jobs:
             exit 1
           }
 
-          # Copy SASL plugin DLLs - these are required for SMTP authentication
-          # SASL loads mechanism plugins (PLAIN, LOGIN, etc.) dynamically at runtime
-          # Without these, SMTP auth fails with error 296 (SASL_NOMECH - no mechanism available)
-
-          # First, search for SASL plugin files to discover their actual location
-          Write-Host "=== Searching for SASL plugin files ==="
-
-          # Check vcpkg_installed
-          Write-Host "Checking vcpkg_installed..."
-          $saslFiles = Get-ChildItem -Path ".\vcpkg_installed" -Recurse -Filter "sasl*.dll" -ErrorAction SilentlyContinue
-          if ($saslFiles) {
-            Write-Host "Found in vcpkg_installed:"
-            $saslFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
+          # Copy SASL plugin DLLs (PLAIN, LOGIN, etc.) for SMTP authentication
+          # vcpkg MSBuild manifest mode uses nested triplet: x86-windows\x86-windows\bin\sasl2
+          $saslPluginSrc = ".\vcpkg_installed\x86-windows\x86-windows\bin\sasl2"
+          if (Test-Path $saslPluginSrc) {
+            Copy-Item "$saslPluginSrc\sasl*.dll" -Destination "..\app\dist" -Force -ErrorAction SilentlyContinue
+            $copied = Get-ChildItem "..\app\dist\sasl*.dll" -ErrorAction SilentlyContinue
+            Write-Host "Copied $($copied.Count) SASL plugins: $($copied.Name -join ', ')"
           } else {
-            Write-Host "No sasl*.dll files found in vcpkg_installed"
-          }
-
-          # Check vcpkg packages directory (where vcpkg stages packages before install)
-          Write-Host ""
-          Write-Host "Checking vcpkg packages directory..."
-          Write-Host "VCPKG_ROOT = $env:VCPKG_ROOT"
-
-          # Build the path explicitly to avoid any interpolation issues
-          $vcpkgRoot = $env:VCPKG_ROOT
-          $vcpkgPackagesPath = Join-Path $vcpkgRoot "packages\cyrus-sasl_x86-windows\bin\sasl2"
-          Write-Host "Looking for SASL plugins at: $vcpkgPackagesPath"
-
-          if (Test-Path $vcpkgPackagesPath) {
-            Write-Host "Path exists! Contents:"
-            Get-ChildItem $vcpkgPackagesPath | ForEach-Object { Write-Host "  $($_.Name)" }
-          } else {
-            Write-Host "Path does not exist"
-            # Show what's in the packages directory
-            $pkgBase = Join-Path $vcpkgRoot "packages\cyrus-sasl_x86-windows"
-            if (Test-Path $pkgBase) {
-              Write-Host "Package base exists. Structure:"
-              Get-ChildItem $pkgBase -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
-            } else {
-              Write-Host "Package base $pkgBase does not exist"
-              # List what packages exist
-              $pkgsDir = Join-Path $vcpkgRoot "packages"
-              if (Test-Path $pkgsDir) {
-                Write-Host "Available packages:"
-                Get-ChildItem $pkgsDir -Directory | ForEach-Object { Write-Host "  $($_.Name)" }
-              }
-            }
-          }
-
-          # Also check for plugin DLLs with common names
-          Write-Host ""
-          Write-Host "=== Searching for potential plugin DLLs ==="
-          $pluginPatterns = @("*PLAIN*", "*LOGIN*", "*ANONYMOUS*", "*CRAM*", "*DIGEST*", "*NTLM*", "*SCRAM*", "*OTP*", "*SRP*")
-          foreach ($pattern in $pluginPatterns) {
-            $found = Get-ChildItem -Path ".\vcpkg_installed" -Recurse -Filter "$pattern.dll" -ErrorAction SilentlyContinue
-            if ($found) {
-              $found | ForEach-Object { Write-Host "  $($_.FullName)" }
-            }
-          }
-
-          # Show the full directory structure of vcpkg_installed for debugging
-          Write-Host ""
-          Write-Host "=== vcpkg_installed directory structure (DLLs only) ==="
-          Get-ChildItem -Path ".\vcpkg_installed" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
-
-          # Copy SASL plugins directly to dist directory (alongside libsasl.dll)
-          # This avoids DLL dependency issues - plugins can find libsasl.dll in same directory
-          $saslPluginDst = "..\app\dist"
-          $saslPluginSrc = $null
-
-          # Check various possible locations for SASL plugins
-          # Note: vcpkg MSBuild manifest mode creates a nested triplet structure:
-          # vcpkg_installed\x86-windows\x86-windows\bin\sasl2 (not vcpkg_installed\x86-windows\bin\sasl2)
-          $possiblePaths = @(
-            # Nested triplet structure (vcpkg MSBuild manifest mode)
-            ".\vcpkg_installed\x86-windows\x86-windows\bin\sasl2",
-            # Standard structure (just in case)
-            ".\vcpkg_installed\x86-windows\bin\sasl2",
-            ".\vcpkg_installed\x86-windows\lib\sasl2"
-          )
-
-          Write-Host ""
-          Write-Host "=== Checking possible SASL plugin locations ==="
-          foreach ($path in $possiblePaths) {
-            if (Test-Path $path) {
-              Write-Host "EXISTS: $path"
-            } else {
-              Write-Host "NOT FOUND: $path"
-            }
-          }
-
-          foreach ($path in $possiblePaths) {
-            if (Test-Path $path) {
-              # Check if this path contains SASL plugin DLLs
-              $plugins = Get-ChildItem -Path $path -Filter "sasl*.dll" -ErrorAction SilentlyContinue
-              if ($plugins -and $plugins.Count -gt 0) {
-                Write-Host "Found SASL plugins at: $path"
-                $saslPluginSrc = $path
-                break
-              }
-            }
-          }
-
-          if ($saslPluginSrc) {
-            Write-Host "=== Copying SASL plugin DLLs from $saslPluginSrc to $saslPluginDst ==="
-            # Copy all sasl*.dll files (the plugins) directly to dist directory
-            Copy-Item "$saslPluginSrc\sasl*.dll" -Destination $saslPluginDst -Force -ErrorAction SilentlyContinue
-            Write-Host "Copied SASL plugins:"
-            Get-ChildItem "$saslPluginDst\sasl*.dll" -ErrorAction SilentlyContinue | Select-Object Name
-          } else {
-            Write-Host "WARNING: SASL plugin DLLs not found in any expected location"
+            Write-Host "WARNING: SASL plugins not found at $saslPluginSrc"
             Write-Host "SMTP authentication may fail with error 296 (SASL_NOMECH)"
-            Write-Host "The build will continue, but this should be investigated."
-            # Don't fail the build - let the install-check catch this
           }
 
           # Copy MSVC runtime DLLs (older versions needed for some dependencies)
@@ -330,19 +227,9 @@ jobs:
           $testDir = "$env:TEMP\mailspring"
 
           # Set environment variables for install-check
-          # Note: SASL_PATH and PATH are set at runtime by mailsync.exe itself
-          # This ensures CI tests the same behavior users will experience
+          # Note: SASL plugin path is configured in libetpan at runtime
           $env:CONFIG_DIR_PATH = $env:TEMP
           $env:IDENTITY_SERVER = "https://id.getmailspring.com"
-
-          # Verify SASL plugins are present in the extracted archive (alongside other DLLs)
-          $saslPlugins = Get-ChildItem "$testDir\sasl*.dll" -ErrorAction SilentlyContinue
-          if ($saslPlugins -and $saslPlugins.Count -gt 0) {
-            Write-Host "SASL plugins found in archive:"
-            $saslPlugins | Select-Object Name
-          } else {
-            Write-Host "WARNING: SASL plugin DLLs (sasl*.dll) not found in archive"
-          }
 
           Write-Host "Running mailsync --mode install-check..."
           $process = Start-Process -FilePath "$testDir\mailsync.exe" `
