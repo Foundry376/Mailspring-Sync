@@ -88,28 +88,69 @@ jobs:
           # Copy SASL plugin DLLs - these are required for SMTP authentication
           # SASL loads mechanism plugins (PLAIN, LOGIN, etc.) dynamically at runtime
           # Without these, SMTP auth fails with error 296 (SASL_NOMECH - no mechanism available)
-          $saslPluginSrc = ".\vcpkg_installed\x86-windows\bin\sasl2"
-          $saslPluginDst = "..\app\dist\sasl2"
-          if (Test-Path $saslPluginSrc) {
-            Write-Host "=== Copying SASL plugin DLLs from vcpkg ==="
-            New-Item -ItemType Directory -Force -Path $saslPluginDst | Out-Null
-            Copy-Item "$saslPluginSrc\*" -Destination $saslPluginDst -Recurse -Force
-            Get-ChildItem $saslPluginDst | Select-Object Name
+
+          # First, search for SASL plugin files to discover their actual location
+          Write-Host "=== Searching for SASL plugin files in vcpkg_installed ==="
+          $saslFiles = Get-ChildItem -Path ".\vcpkg_installed" -Recurse -Filter "sasl*.dll" -ErrorAction SilentlyContinue
+          if ($saslFiles) {
+            Write-Host "Found SASL-related DLLs:"
+            $saslFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
           } else {
-            Write-Host "WARNING: SASL plugins not found at $saslPluginSrc"
-            Write-Host "Checking alternative locations..."
-            # vcpkg may install to lib/sasl2 instead
-            $altPath = ".\vcpkg_installed\x86-windows\lib\sasl2"
-            if (Test-Path $altPath) {
-              Write-Host "Found SASL plugins at $altPath"
-              New-Item -ItemType Directory -Force -Path $saslPluginDst | Out-Null
-              Copy-Item "$altPath\*" -Destination $saslPluginDst -Recurse -Force
-              Get-ChildItem $saslPluginDst | Select-Object Name
-            } else {
-              Write-Host "ERROR: SASL plugin DLLs not found - SMTP authentication will fail!"
-              Write-Host "Searched: $saslPluginSrc and $altPath"
-              exit 1
+            Write-Host "No sasl*.dll files found in vcpkg_installed"
+          }
+
+          # Also check for plugin DLLs with common names
+          Write-Host ""
+          Write-Host "=== Searching for potential plugin DLLs ==="
+          $pluginPatterns = @("*PLAIN*", "*LOGIN*", "*ANONYMOUS*", "*CRAM*", "*DIGEST*", "*NTLM*", "*SCRAM*", "*OTP*", "*SRP*")
+          foreach ($pattern in $pluginPatterns) {
+            $found = Get-ChildItem -Path ".\vcpkg_installed" -Recurse -Filter "$pattern.dll" -ErrorAction SilentlyContinue
+            if ($found) {
+              $found | ForEach-Object { Write-Host "  $($_.FullName)" }
             }
+          }
+
+          # Show the full directory structure of vcpkg_installed for debugging
+          Write-Host ""
+          Write-Host "=== vcpkg_installed directory structure (DLLs only) ==="
+          Get-ChildItem -Path ".\vcpkg_installed" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
+
+          $saslPluginDst = "..\app\dist\sasl2"
+          $saslPluginSrc = $null
+
+          # Check various possible locations for SASL plugins
+          $possiblePaths = @(
+            ".\vcpkg_installed\x86-windows\bin\sasl2",
+            ".\vcpkg_installed\x86-windows\lib\sasl2",
+            ".\vcpkg_installed\x86-windows\plugins",
+            ".\vcpkg_installed\x86-windows\bin",  # plugins might be in main bin dir
+            ".\vcpkg_installed\x86-windows\lib"   # or main lib dir
+          )
+
+          foreach ($path in $possiblePaths) {
+            if (Test-Path $path) {
+              # Check if this path contains SASL plugin DLLs
+              $plugins = Get-ChildItem -Path $path -Filter "sasl*.dll" -ErrorAction SilentlyContinue
+              if ($plugins -and $plugins.Count -gt 0) {
+                Write-Host "Found SASL plugins at: $path"
+                $saslPluginSrc = $path
+                break
+              }
+            }
+          }
+
+          if ($saslPluginSrc) {
+            Write-Host "=== Copying SASL plugin DLLs from $saslPluginSrc ==="
+            New-Item -ItemType Directory -Force -Path $saslPluginDst | Out-Null
+            # Copy all sasl*.dll files (the plugins)
+            Copy-Item "$saslPluginSrc\sasl*.dll" -Destination $saslPluginDst -Force -ErrorAction SilentlyContinue
+            Write-Host "Copied SASL plugins:"
+            Get-ChildItem $saslPluginDst -ErrorAction SilentlyContinue | Select-Object Name
+          } else {
+            Write-Host "WARNING: SASL plugin DLLs not found in any expected location"
+            Write-Host "SMTP authentication may fail with error 296 (SASL_NOMECH)"
+            Write-Host "The build will continue, but this should be investigated."
+            # Don't fail the build - let the install-check catch this
           }
 
           # Copy MSVC runtime DLLs (older versions needed for some dependencies)

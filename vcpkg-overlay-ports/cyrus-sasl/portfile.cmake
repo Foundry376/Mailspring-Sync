@@ -66,6 +66,37 @@ if(VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
     )
     vcpkg_copy_tools(TOOL_NAMES pluginviewer sasldblistusers2 saslpasswd2 testsuite AUTO_CLEAN)
 
+    # Copy SASL plugin DLLs to bin/sasl2 directory
+    # These are required for SMTP authentication - without them, SASL returns SASL_NOMECH
+    # The plugins are built by NTMakefile but need to be explicitly installed
+    set(SASL_PLUGIN_DIR "${CURRENT_PACKAGES_DIR}/bin/sasl2")
+    file(MAKE_DIRECTORY "${SASL_PLUGIN_DIR}")
+
+    # Find and copy all SASL plugin DLLs from the build output
+    # Plugin DLLs are named sasl*.dll (e.g., saslPLAIN.dll, saslLOGIN.dll, etc.)
+    file(GLOB SASL_PLUGIN_DLLS
+        "${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel/plugins/sasl*.dll"
+        "${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel/sasl*.dll"
+        "${SOURCE_PATH}/plugins/Release/sasl*.dll"
+        "${SOURCE_PATH}/Release/sasl*.dll"
+    )
+
+    if(SASL_PLUGIN_DLLS)
+        file(COPY ${SASL_PLUGIN_DLLS} DESTINATION "${SASL_PLUGIN_DIR}")
+        message(STATUS "Installed SASL plugins to ${SASL_PLUGIN_DIR}")
+    else()
+        # Also check the nmake output directory structure
+        file(GLOB_RECURSE SASL_PLUGIN_DLLS_RECURSE
+            "${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel/**/sasl*.dll"
+        )
+        if(SASL_PLUGIN_DLLS_RECURSE)
+            file(COPY ${SASL_PLUGIN_DLLS_RECURSE} DESTINATION "${SASL_PLUGIN_DIR}")
+            message(STATUS "Installed SASL plugins to ${SASL_PLUGIN_DIR} (found via recursive search)")
+        else()
+            message(WARNING "SASL plugin DLLs not found - SMTP authentication may fail")
+        endif()
+    endif()
+
     block(SCOPE_FOR VARIABLES)
         set(prefix      [[placeholder]])
         set(exec_prefix [[${prefix}]])
