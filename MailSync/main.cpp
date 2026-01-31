@@ -469,7 +469,12 @@ int runInstallCheck() {
         resp["imap_check"] = {{"success", true}};
     }
 
-    // Step 3: Check SMTP connectivity to Gmail to verify SSL libraries work for SMTP
+    // Step 3: Check SMTP connectivity and SASL authentication mechanism loading
+    // We use intentionally invalid credentials to test that:
+    // 1. SSL/TLS connection works
+    // 2. SASL plugins are properly loaded (can attempt authentication)
+    // If SASL plugins are missing, we get error 296 (SASL_NOMECH) before the server even sees our credentials.
+    // If SASL works, we get a normal authentication error (wrong password) from the server.
     string smtpError = "";
     alogger.log("\n\n----------SMTP----------\n");
     try {
@@ -478,16 +483,48 @@ int runInstallCheck() {
         smtp.setPort(465);
         smtp.setConnectionType(ConnectionType::ConnectionTypeTLS);
         smtp.setConnectionLogger(&alogger);
-        // No username/password - we just want to verify SSL connection works
+
+        // Use intentionally invalid credentials to test SASL mechanism loading
+        // The email format is valid but the credentials are obviously fake
+        smtp.setUsername(MCSTR("mailspring-install-check@gmail.com"));
+        smtp.setPassword(MCSTR("invalid-password-for-sasl-test"));
 
         ErrorCode err = ErrorNone;
         smtp.connect(&err);
 
-        // Connection succeeded or failed with auth error (both mean SSL works)
-        if (err != ErrorNone && err != ErrorAuthentication && err != ErrorAuthenticationRequired) {
-            smtpError = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : ("SMTP error code: " + to_string(err));
+        if (err != ErrorNone) {
+            smtpError = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : ("SMTP connect error: " + to_string(err));
+        } else {
+            // Connection succeeded, now try to authenticate
+            // This will fail with wrong credentials, but we're testing that SASL works
+            Address * testAddr = Address::addressWithMailbox(MCSTR("mailspring-install-check@gmail.com"));
+            smtp.checkAccount(testAddr, &err);
+
+            if (err == ErrorNone) {
+                // This shouldn't happen with fake credentials, but if it does, SASL works
+                alogger.log("\nSMTP auth unexpectedly succeeded (SASL works)\n");
+            } else if (err == ErrorAuthentication) {
+                // Check the specific libetpan error to distinguish SASL failure from auth failure
+                int libetpanErr = smtp.lastLibetpanError();
+                alogger.log("\nSMTP auth error, libetpan code: " + to_string(libetpanErr) + "\n");
+
+                // Error 296 = 300 + (-4) = SASL_NOMECH (no mechanism available)
+                // This means SASL plugin DLLs are missing
+                if (libetpanErr == 296) {
+                    smtpError = "SASL mechanism not available (error 296) - SASL plugin DLLs may be missing. SASL_PATH=" + MailUtils::getEnvUTF8("SASL_PATH");
+                } else if (libetpanErr >= 200 && libetpanErr < 300) {
+                    // Error 2xx = SASL client initialization failed
+                    smtpError = "SASL client initialization failed (error " + to_string(libetpanErr) + ")";
+                } else {
+                    // Normal authentication failure (e.g., 535 wrong password) - this means SASL worked!
+                    alogger.log("\nSMTP SASL mechanism loaded successfully (auth failed as expected with fake credentials)\n");
+                    // Clear error - SASL is working, auth failure with fake creds is expected
+                }
+            } else {
+                // Some other error
+                smtpError = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : ("SMTP error: " + to_string(err));
+            }
         }
-        // If we get here with ErrorAuthentication or ErrorAuthenticationRequired, SSL worked
         smtp.disconnect();
     } catch (std::exception & ex) {
         smtpError = ex.what();
