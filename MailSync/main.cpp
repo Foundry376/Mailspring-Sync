@@ -699,8 +699,24 @@ int main(int argc, const char * argv[]) {
 
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);
-    
+
 string exectuablePath = argv[0];
+
+#if defined(_MSC_VER)
+    // On Windows, set SASL_PATH to find SASL plugin DLLs (PLAIN, LOGIN, etc.)
+    // These are required for SMTP authentication. Without them, SASL returns
+    // SASL_NOMECH (-4) and SMTP auth fails with error 296.
+    // The plugins are in a sasl2 subdirectory next to mailsync.exe
+    if (MailUtils::getEnvUTF8("SASL_PATH") == "") {
+        string exeDir = exectuablePath;
+        size_t lastSlash = exeDir.find_last_of("\\/");
+        if (lastSlash != string::npos) {
+            exeDir = exeDir.substr(0, lastSlash);
+        }
+        string saslPath = exeDir + "\\sasl2";
+        MailUtils::setEnvUTF8("SASL_PATH", saslPath);
+    }
+#endif
 
 #ifndef DEBUG
     // check path to executable in an obtuse way, prevent re-use of

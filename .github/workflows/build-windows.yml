@@ -85,6 +85,33 @@ jobs:
             exit 1
           }
 
+          # Copy SASL plugin DLLs - these are required for SMTP authentication
+          # SASL loads mechanism plugins (PLAIN, LOGIN, etc.) dynamically at runtime
+          # Without these, SMTP auth fails with error 296 (SASL_NOMECH - no mechanism available)
+          $saslPluginSrc = ".\vcpkg_installed\x86-windows\bin\sasl2"
+          $saslPluginDst = "..\app\dist\sasl2"
+          if (Test-Path $saslPluginSrc) {
+            Write-Host "=== Copying SASL plugin DLLs from vcpkg ==="
+            New-Item -ItemType Directory -Force -Path $saslPluginDst | Out-Null
+            Copy-Item "$saslPluginSrc\*" -Destination $saslPluginDst -Recurse -Force
+            Get-ChildItem $saslPluginDst | Select-Object Name
+          } else {
+            Write-Host "WARNING: SASL plugins not found at $saslPluginSrc"
+            Write-Host "Checking alternative locations..."
+            # vcpkg may install to lib/sasl2 instead
+            $altPath = ".\vcpkg_installed\x86-windows\lib\sasl2"
+            if (Test-Path $altPath) {
+              Write-Host "Found SASL plugins at $altPath"
+              New-Item -ItemType Directory -Force -Path $saslPluginDst | Out-Null
+              Copy-Item "$altPath\*" -Destination $saslPluginDst -Recurse -Force
+              Get-ChildItem $saslPluginDst | Select-Object Name
+            } else {
+              Write-Host "ERROR: SASL plugin DLLs not found - SMTP authentication will fail!"
+              Write-Host "Searched: $saslPluginSrc and $altPath"
+              exit 1
+            }
+          }
+
           # Copy MSVC runtime DLLs (older versions needed for some dependencies)
           Copy-Item "C:\Windows\SysWOW64\msvcr100.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
           Copy-Item "C:\Windows\SysWOW64\msvcr120.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
@@ -157,7 +184,8 @@ jobs:
         shell: cmd
         run: |
           cd Windows
-          7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe -so | 7z -si -tgzip a .\mailsync.tar.gz
+          REM Include sasl2 subdirectory with SASL plugin DLLs for SMTP authentication
+          7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe ..\..\app\dist\sasl2 -so | 7z -si -tgzip a .\mailsync.tar.gz
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -216,6 +244,17 @@ jobs:
           # Set environment variables and run install-check
           $env:CONFIG_DIR_PATH = $env:TEMP
           $env:IDENTITY_SERVER = "https://id.getmailspring.com"
+
+          # Set SASL_PATH to find SASL plugin DLLs for SMTP authentication
+          # Without this, SASL cannot find authentication mechanisms (PLAIN, LOGIN, etc.)
+          $env:SASL_PATH = "$testDir\sasl2"
+          Write-Host "SASL_PATH set to: $env:SASL_PATH"
+          if (Test-Path $env:SASL_PATH) {
+            Write-Host "SASL plugins found:"
+            Get-ChildItem $env:SASL_PATH | Select-Object Name
+          } else {
+            Write-Host "WARNING: SASL plugin directory not found"
+          }
 
           Write-Host "Running mailsync --mode install-check..."
           $process = Start-Process -FilePath "$testDir\mailsync.exe" `
