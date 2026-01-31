@@ -740,18 +740,29 @@ int main(int argc, const char * argv[]) {
 string exectuablePath = argv[0];
 
 #if defined(_MSC_VER)
-    // On Windows, set SASL_PATH to find SASL plugin DLLs (PLAIN, LOGIN, etc.)
+    // On Windows, configure paths for SASL plugin DLLs (PLAIN, LOGIN, etc.)
     // These are required for SMTP authentication. Without them, SASL returns
     // SASL_NOMECH (-4) and SMTP auth fails with error 296.
-    // The plugins are in a sasl2 subdirectory next to mailsync.exe
-    if (MailUtils::getEnvUTF8("SASL_PATH") == "") {
+    {
         string exeDir = exectuablePath;
         size_t lastSlash = exeDir.find_last_of("\\/");
         if (lastSlash != string::npos) {
             exeDir = exeDir.substr(0, lastSlash);
         }
-        string saslPath = exeDir + "\\sasl2";
-        MailUtils::setEnvUTF8("SASL_PATH", saslPath);
+
+        // Set SASL_PATH to find plugin DLLs in the sasl2 subdirectory
+        if (MailUtils::getEnvUTF8("SASL_PATH") == "") {
+            string saslPath = exeDir + "\\sasl2";
+            MailUtils::setEnvUTF8("SASL_PATH", saslPath);
+        }
+
+        // Add exeDir to PATH so SASL plugins can find libsasl.dll
+        // The plugins are in sasl2/ but need to load DLLs from the parent directory
+        string currentPath = MailUtils::getEnvUTF8("PATH");
+        if (currentPath.find(exeDir) == string::npos) {
+            string newPath = exeDir + ";" + currentPath;
+            MailUtils::setEnvUTF8("PATH", newPath);
+        }
     }
 #endif
 

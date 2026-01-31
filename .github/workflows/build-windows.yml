@@ -328,25 +328,19 @@ jobs:
 
           $testDir = "$env:TEMP\mailspring"
 
-          # Set environment variables and run install-check
+          # Set environment variables for install-check
+          # Note: SASL_PATH and PATH are set at runtime by mailsync.exe itself
+          # This ensures CI tests the same behavior users will experience
           $env:CONFIG_DIR_PATH = $env:TEMP
           $env:IDENTITY_SERVER = "https://id.getmailspring.com"
 
-          # Set SASL_PATH to find SASL plugin DLLs for SMTP authentication
-          # Without this, SASL cannot find authentication mechanisms (PLAIN, LOGIN, etc.)
-          $env:SASL_PATH = "$testDir\sasl2"
-          Write-Host "SASL_PATH set to: $env:SASL_PATH"
-
-          # Add testDir to PATH so SASL plugins can find libsasl.dll and other dependencies
-          # The plugins are in sasl2/ but need to load DLLs from the parent directory
-          $env:PATH = "$testDir;$env:PATH"
-          Write-Host "Added $testDir to PATH for DLL resolution"
-
-          if (Test-Path $env:SASL_PATH) {
-            Write-Host "SASL plugins found:"
-            Get-ChildItem $env:SASL_PATH | Select-Object Name
+          # Verify SASL plugins are present in the extracted archive
+          $saslPluginDir = "$testDir\sasl2"
+          if (Test-Path $saslPluginDir) {
+            Write-Host "SASL plugins found in archive:"
+            Get-ChildItem $saslPluginDir | Select-Object Name
           } else {
-            Write-Host "WARNING: SASL plugin directory not found"
+            Write-Host "WARNING: SASL plugin directory not found in archive"
           }
 
           Write-Host "Running mailsync --mode install-check..."
