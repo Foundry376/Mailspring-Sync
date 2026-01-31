@@ -105,13 +105,30 @@ jobs:
           # Check vcpkg packages directory (where vcpkg stages packages before install)
           Write-Host ""
           Write-Host "Checking vcpkg packages directory..."
-          $vcpkgPackages = @(".\vcpkg\packages", "$env:VCPKG_ROOT\packages")
-          foreach ($pkgDir in $vcpkgPackages) {
-            if (Test-Path $pkgDir) {
-              $pkgSaslFiles = Get-ChildItem -Path $pkgDir -Recurse -Filter "sasl*.dll" -ErrorAction SilentlyContinue
-              if ($pkgSaslFiles) {
-                Write-Host "Found in $pkgDir :"
-                $pkgSaslFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
+          Write-Host "VCPKG_ROOT = $env:VCPKG_ROOT"
+
+          # Build the path explicitly to avoid any interpolation issues
+          $vcpkgRoot = $env:VCPKG_ROOT
+          $vcpkgPackagesPath = Join-Path $vcpkgRoot "packages\cyrus-sasl_x86-windows\bin\sasl2"
+          Write-Host "Looking for SASL plugins at: $vcpkgPackagesPath"
+
+          if (Test-Path $vcpkgPackagesPath) {
+            Write-Host "Path exists! Contents:"
+            Get-ChildItem $vcpkgPackagesPath | ForEach-Object { Write-Host "  $($_.Name)" }
+          } else {
+            Write-Host "Path does not exist"
+            # Show what's in the packages directory
+            $pkgBase = Join-Path $vcpkgRoot "packages\cyrus-sasl_x86-windows"
+            if (Test-Path $pkgBase) {
+              Write-Host "Package base exists. Structure:"
+              Get-ChildItem $pkgBase -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
+            } else {
+              Write-Host "Package base $pkgBase does not exist"
+              # List what packages exist
+              $pkgsDir = Join-Path $vcpkgRoot "packages"
+              if (Test-Path $pkgsDir) {
+                Write-Host "Available packages:"
+                Get-ChildItem $pkgsDir -Directory | ForEach-Object { Write-Host "  $($_.Name)" }
               }
             }
           }
@@ -136,6 +153,9 @@ jobs:
           $saslPluginSrc = $null
 
           # Check various possible locations for SASL plugins
+          # Build vcpkg paths explicitly to avoid interpolation issues
+          $vcpkgSaslPath = Join-Path $env:VCPKG_ROOT "packages\cyrus-sasl_x86-windows\bin\sasl2"
+
           $possiblePaths = @(
             ".\vcpkg_installed\x86-windows\bin\sasl2",
             ".\vcpkg_installed\x86-windows\lib\sasl2",
@@ -143,9 +163,21 @@ jobs:
             ".\vcpkg_installed\x86-windows\bin",  # plugins might be in main bin dir
             ".\vcpkg_installed\x86-windows\lib",   # or main lib dir
             # Also check vcpkg packages directory - vcpkg may not copy bin/ subdirectories to installed
-            "$env:VCPKG_ROOT\packages\cyrus-sasl_x86-windows\bin\sasl2",
-            ".\vcpkg\packages\cyrus-sasl_x86-windows\bin\sasl2"
+            $vcpkgSaslPath,
+            ".\vcpkg\packages\cyrus-sasl_x86-windows\bin\sasl2",
+            # Try the exact path from the build log
+            "D:\a\Mailspring-Sync\Mailspring-Sync\vcpkg\packages\cyrus-sasl_x86-windows\bin\sasl2"
           )
+
+          Write-Host ""
+          Write-Host "=== Checking possible SASL plugin locations ==="
+          foreach ($path in $possiblePaths) {
+            if (Test-Path $path) {
+              Write-Host "EXISTS: $path"
+            } else {
+              Write-Host "NOT FOUND: $path"
+            }
+          }
 
           foreach ($path in $possiblePaths) {
             if (Test-Path $path) {
