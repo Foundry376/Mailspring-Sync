@@ -149,7 +149,9 @@ jobs:
           Write-Host "=== vcpkg_installed directory structure (DLLs only) ==="
           Get-ChildItem -Path ".\vcpkg_installed" -Recurse -Filter "*.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
 
-          $saslPluginDst = "..\app\dist\sasl2"
+          # Copy SASL plugins directly to dist directory (alongside libsasl.dll)
+          # This avoids DLL dependency issues - plugins can find libsasl.dll in same directory
+          $saslPluginDst = "..\app\dist"
           $saslPluginSrc = $null
 
           # Check various possible locations for SASL plugins
@@ -186,12 +188,11 @@ jobs:
           }
 
           if ($saslPluginSrc) {
-            Write-Host "=== Copying SASL plugin DLLs from $saslPluginSrc ==="
-            New-Item -ItemType Directory -Force -Path $saslPluginDst | Out-Null
-            # Copy all sasl*.dll files (the plugins)
+            Write-Host "=== Copying SASL plugin DLLs from $saslPluginSrc to $saslPluginDst ==="
+            # Copy all sasl*.dll files (the plugins) directly to dist directory
             Copy-Item "$saslPluginSrc\sasl*.dll" -Destination $saslPluginDst -Force -ErrorAction SilentlyContinue
             Write-Host "Copied SASL plugins:"
-            Get-ChildItem $saslPluginDst -ErrorAction SilentlyContinue | Select-Object Name
+            Get-ChildItem "$saslPluginDst\sasl*.dll" -ErrorAction SilentlyContinue | Select-Object Name
           } else {
             Write-Host "WARNING: SASL plugin DLLs not found in any expected location"
             Write-Host "SMTP authentication may fail with error 296 (SASL_NOMECH)"
@@ -271,8 +272,8 @@ jobs:
         shell: cmd
         run: |
           cd Windows
-          REM Include sasl2 subdirectory with SASL plugin DLLs for SMTP authentication
-          7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe ..\..\app\dist\sasl2 -so | 7z -si -tgzip a .\mailsync.tar.gz
+          REM SASL plugin DLLs (saslPLAIN.dll, etc.) are now in dist alongside other DLLs
+          7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe -so | 7z -si -tgzip a .\mailsync.tar.gz
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -334,13 +335,13 @@ jobs:
           $env:CONFIG_DIR_PATH = $env:TEMP
           $env:IDENTITY_SERVER = "https://id.getmailspring.com"
 
-          # Verify SASL plugins are present in the extracted archive
-          $saslPluginDir = "$testDir\sasl2"
-          if (Test-Path $saslPluginDir) {
+          # Verify SASL plugins are present in the extracted archive (alongside other DLLs)
+          $saslPlugins = Get-ChildItem "$testDir\sasl*.dll" -ErrorAction SilentlyContinue
+          if ($saslPlugins -and $saslPlugins.Count -gt 0) {
             Write-Host "SASL plugins found in archive:"
-            Get-ChildItem $saslPluginDir | Select-Object Name
+            $saslPlugins | Select-Object Name
           } else {
-            Write-Host "WARNING: SASL plugin directory not found in archive"
+            Write-Host "WARNING: SASL plugin DLLs (sasl*.dll) not found in archive"
           }
 
           Write-Host "Running mailsync --mode install-check..."
