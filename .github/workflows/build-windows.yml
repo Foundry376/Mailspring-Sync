@@ -336,6 +336,12 @@ jobs:
           # Without this, SASL cannot find authentication mechanisms (PLAIN, LOGIN, etc.)
           $env:SASL_PATH = "$testDir\sasl2"
           Write-Host "SASL_PATH set to: $env:SASL_PATH"
+
+          # Add testDir to PATH so SASL plugins can find libsasl.dll and other dependencies
+          # The plugins are in sasl2/ but need to load DLLs from the parent directory
+          $env:PATH = "$testDir;$env:PATH"
+          Write-Host "Added $testDir to PATH for DLL resolution"
+
           if (Test-Path $env:SASL_PATH) {
             Write-Host "SASL plugins found:"
             Get-ChildItem $env:SASL_PATH | Select-Object Name
