@@ -110,8 +110,18 @@ void mailsasl_ref(void)
 {
   LOCK_SASL();
   sasl_use_count ++;
-  if (sasl_use_count == 1)
+  if (sasl_use_count == 1) {
+#ifdef WIN32
+    // On Windows, we must call sasl_set_path() BEFORE sasl_client_init()
+    // for the SASL_PATH environment variable to take effect.
+    // The environment variable alone is not sufficient on Windows.
+    char *sasl_path = getenv("SASL_PATH");
+    if (sasl_path != NULL && sasl_path[0] != '\0') {
+      sasl_set_path(SASL_PATH_TYPE_PLUGIN, sasl_path);
+    }
+#endif
     sasl_init_error = sasl_client_init(NULL);
+  }
   UNLOCK_SASL();
 }
 
