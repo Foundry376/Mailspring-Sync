@@ -41,7 +41,8 @@ public:
     static string toBase64(const char * pbegin, size_t len);
     
     static string getEnvUTF8(string key);
-    
+    static bool setEnvUTF8(string key, string value);
+
     static json merge(const json &a, const json &b);
     static json contactJSONFromAddress(Address * addr);
     static Address * addressFromContactJSON(json & j);

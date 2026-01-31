@@ -736,8 +736,11 @@ int main(int argc, const char * argv[]) {
 
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);
-    
+
 string exectuablePath = argv[0];
+
+    // Note: On Windows, SASL plugin path is configured in libetpan's mailsasl.c
+    // It defaults to the executable directory, but can be overridden via SASL_PATH env var.
 
 #ifndef DEBUG
     // check path to executable in an obtuse way, prevent re-use of

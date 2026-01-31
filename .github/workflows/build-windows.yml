@@ -85,6 +85,18 @@ jobs:
             exit 1
           }
 
+          # Copy SASL plugin DLLs (PLAIN, LOGIN, etc.) for SMTP authentication
+          # vcpkg MSBuild manifest mode uses nested triplet: x86-windows\x86-windows\bin\sasl2
+          $saslPluginSrc = ".\vcpkg_installed\x86-windows\x86-windows\bin\sasl2"
+          if (Test-Path $saslPluginSrc) {
+            Copy-Item "$saslPluginSrc\sasl*.dll" -Destination "..\app\dist" -Force -ErrorAction SilentlyContinue
+            $copied = Get-ChildItem "..\app\dist\sasl*.dll" -ErrorAction SilentlyContinue
+            Write-Host "Copied $($copied.Count) SASL plugins: $($copied.Name -join ', ')"
+          } else {
+            Write-Host "WARNING: SASL plugins not found at $saslPluginSrc"
+            Write-Host "SMTP authentication may fail with error 296 (SASL_NOMECH)"
+          }
+
           # Copy MSVC runtime DLLs (older versions needed for some dependencies)
           Copy-Item "C:\Windows\SysWOW64\msvcr100.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
           Copy-Item "C:\Windows\SysWOW64\msvcr120.dll" "..\app\dist\" -Force -ErrorAction SilentlyContinue
@@ -157,6 +169,7 @@ jobs:
         shell: cmd
         run: |
           cd Windows
+          REM SASL plugin DLLs (saslPLAIN.dll, etc.) are now in dist alongside other DLLs
           7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe -so | 7z -si -tgzip a .\mailsync.tar.gz
 
       - name: Upload build artifacts
@@ -213,7 +226,8 @@ jobs:
 
           $testDir = "$env:TEMP\mailspring"
 
-          # Set environment variables and run install-check
+          # Set environment variables for install-check
+          # Note: SASL plugin path is configured in libetpan at runtime
           $env:CONFIG_DIR_PATH = $env:TEMP
           $env:IDENTITY_SERVER = "https://id.getmailspring.com"
 
