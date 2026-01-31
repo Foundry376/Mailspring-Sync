@@ -65,9 +65,9 @@ void mailspring_tidy_init(void) {
     // available, avoiding RPM/DEB dependency issues on the specific soversion.
     const char* libraryNames[] = {
         "libtidy.so.5",      // Fedora <40, RHEL 7/8, Arch, generic
-        "libtidy.so.58",     // Fedora 40+, RHEL 9+, Alma, Rocky (libtidy 5.8.x)
-        "libtidy.so.5deb1",  // Debian/Ubuntu (Debian-patched versions)
-        "libtidy.so.60",     // Ubuntu 24.04+ (libtidy 5.8.0 with soname 60)
+        "libtidy.so.58",     // Fedora 40+, RHEL 9+, Alma, Rocky, Ubuntu 25.04+ (libtidy 5.8.x)
+        "libtidy.so.5deb1",  // Debian/Ubuntu 22.04-24.04 (Debian-patched versions)
+        "libtidy.so.60",     // Some distros with libtidy 5.8.0 soname 60
         "libtidy.so.6",      // Future versions
         "libtidy.so",        // Fallback (development symlink)
         nullptr
