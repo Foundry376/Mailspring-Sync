@@ -90,13 +90,30 @@ jobs:
           # Without these, SMTP auth fails with error 296 (SASL_NOMECH - no mechanism available)
 
           # First, search for SASL plugin files to discover their actual location
-          Write-Host "=== Searching for SASL plugin files in vcpkg_installed ==="
+          Write-Host "=== Searching for SASL plugin files ==="
+
+          # Check vcpkg_installed
+          Write-Host "Checking vcpkg_installed..."
           $saslFiles = Get-ChildItem -Path ".\vcpkg_installed" -Recurse -Filter "sasl*.dll" -ErrorAction SilentlyContinue
           if ($saslFiles) {
-            Write-Host "Found SASL-related DLLs:"
+            Write-Host "Found in vcpkg_installed:"
             $saslFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
           } else {
             Write-Host "No sasl*.dll files found in vcpkg_installed"
+          }
+
+          # Check vcpkg packages directory (where vcpkg stages packages before install)
+          Write-Host ""
+          Write-Host "Checking vcpkg packages directory..."
+          $vcpkgPackages = @(".\vcpkg\packages", "$env:VCPKG_ROOT\packages")
+          foreach ($pkgDir in $vcpkgPackages) {
+            if (Test-Path $pkgDir) {
+              $pkgSaslFiles = Get-ChildItem -Path $pkgDir -Recurse -Filter "sasl*.dll" -ErrorAction SilentlyContinue
+              if ($pkgSaslFiles) {
+                Write-Host "Found in $pkgDir :"
+                $pkgSaslFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
+              }
+            }
           }
 
           # Also check for plugin DLLs with common names
@@ -124,7 +141,10 @@ jobs:
             ".\vcpkg_installed\x86-windows\lib\sasl2",
             ".\vcpkg_installed\x86-windows\plugins",
             ".\vcpkg_installed\x86-windows\bin",  # plugins might be in main bin dir
-            ".\vcpkg_installed\x86-windows\lib"   # or main lib dir
+            ".\vcpkg_installed\x86-windows\lib",   # or main lib dir
+            # Also check vcpkg packages directory - vcpkg may not copy bin/ subdirectories to installed
+            "$env:VCPKG_ROOT\packages\cyrus-sasl_x86-windows\bin\sasl2",
+            ".\vcpkg\packages\cyrus-sasl_x86-windows\bin\sasl2"
           )
 
           foreach ($path in $possiblePaths) {
