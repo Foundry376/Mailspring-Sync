@@ -46,6 +46,12 @@
 
 #include <sasl/sasl.h>
 #include <stdlib.h>
+#include <string.h>
+
+#if defined(WIN32) && !defined(LIBETPAN_REENTRANT)
+// Need windows.h for GetModuleFileNameA even in non-reentrant builds
+#include <windows.h>
+#endif
 
 #ifdef LIBETPAN_REENTRANT
 #if defined(HAVE_PTHREAD_H) && !defined(IGNORE_PTHREAD_H)
@@ -113,11 +119,26 @@ void mailsasl_ref(void)
   if (sasl_use_count == 1) {
 #ifdef WIN32
     // On Windows, we must call sasl_set_path() BEFORE sasl_client_init()
-    // for the SASL_PATH environment variable to take effect.
-    // The environment variable alone is not sufficient on Windows.
+    // for SASL to find plugin DLLs.
+    //
+    // If SASL_PATH is set in the environment, use it (allows user override).
+    // Otherwise, default to the executable's directory where plugins are deployed.
     char *sasl_path = getenv("SASL_PATH");
     if (sasl_path != NULL && sasl_path[0] != '\0') {
+      // User-specified path takes precedence
       sasl_set_path(SASL_PATH_TYPE_PLUGIN, sasl_path);
+    } else {
+      // Default to executable directory
+      char exe_path[MAX_PATH];
+      DWORD len = GetModuleFileNameA(NULL, exe_path, MAX_PATH);
+      if (len > 0 && len < MAX_PATH) {
+        // Strip filename to get directory
+        char *last_slash = strrchr(exe_path, '\\');
+        if (last_slash != NULL) {
+          *last_slash = '\0';
+          sasl_set_path(SASL_PATH_TYPE_PLUGIN, exe_path);
+        }
+      }
     }
 #endif
     sasl_init_error = sasl_client_init(NULL);

@@ -739,21 +739,8 @@ int main(int argc, const char * argv[]) {
 
 string exectuablePath = argv[0];
 
-#if defined(_MSC_VER)
-    // On Windows, set SASL_PATH so SASL can find plugin DLLs (PLAIN, LOGIN, etc.)
-    // These are required for SMTP authentication. Without them, SASL returns
-    // SASL_NOMECH (-4) and SMTP auth fails with error 296.
-    // The plugins (saslPLAIN.dll, etc.) are in the same directory as mailsync.exe
-    // alongside libsasl.dll, so no PATH modification is needed.
-    if (MailUtils::getEnvUTF8("SASL_PATH") == "") {
-        string exeDir = exectuablePath;
-        size_t lastSlash = exeDir.find_last_of("\\/");
-        if (lastSlash != string::npos) {
-            exeDir = exeDir.substr(0, lastSlash);
-        }
-        MailUtils::setEnvUTF8("SASL_PATH", exeDir);
-    }
-#endif
+    // Note: On Windows, SASL plugin path is configured in libetpan's mailsasl.c
+    // It defaults to the executable directory, but can be overridden via SASL_PATH env var.
 
 #ifndef DEBUG
     // check path to executable in an obtuse way, prevent re-use of
