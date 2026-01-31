@@ -153,20 +153,14 @@ jobs:
           $saslPluginSrc = $null
 
           # Check various possible locations for SASL plugins
-          # Build vcpkg paths explicitly to avoid interpolation issues
-          $vcpkgSaslPath = Join-Path $env:VCPKG_ROOT "packages\cyrus-sasl_x86-windows\bin\sasl2"
-
+          # Note: vcpkg MSBuild manifest mode creates a nested triplet structure:
+          # vcpkg_installed\x86-windows\x86-windows\bin\sasl2 (not vcpkg_installed\x86-windows\bin\sasl2)
           $possiblePaths = @(
+            # Nested triplet structure (vcpkg MSBuild manifest mode)
+            ".\vcpkg_installed\x86-windows\x86-windows\bin\sasl2",
+            # Standard structure (just in case)
             ".\vcpkg_installed\x86-windows\bin\sasl2",
-            ".\vcpkg_installed\x86-windows\lib\sasl2",
-            ".\vcpkg_installed\x86-windows\plugins",
-            ".\vcpkg_installed\x86-windows\bin",  # plugins might be in main bin dir
-            ".\vcpkg_installed\x86-windows\lib",   # or main lib dir
-            # Also check vcpkg packages directory - vcpkg may not copy bin/ subdirectories to installed
-            $vcpkgSaslPath,
-            ".\vcpkg\packages\cyrus-sasl_x86-windows\bin\sasl2",
-            # Try the exact path from the build log
-            "D:\a\Mailspring-Sync\Mailspring-Sync\vcpkg\packages\cyrus-sasl_x86-windows\bin\sasl2"
+            ".\vcpkg_installed\x86-windows\lib\sasl2"
           )
 
           Write-Host ""
