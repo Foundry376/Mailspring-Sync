@@ -4346,11 +4346,15 @@ void IMAPSession::applyCapabilities(IndexSet * capabilities)
     if (capabilities->containsIndex(IMAPCapabilityId)) {
         mIdentityEnabled = true;
     }
+    
     if (mWelcomeString->locationOfString(MCSTR("IdeaImapServer")) != -1) {
         // Home.pl servers running "IdeaImapServer" improperly advertise xlist or we can't parse the response.
+    } else if (mWelcomeString->locationOfString(MCSTR("Yandex IMAP4rev1")) != -1) {
+        // Yandex servers advertise xlist but drop the connection when it's used.
     } else if (capabilities->containsIndex(IMAPCapabilityXList)) {
         mXListEnabled = true;
     }
+    
     if (capabilities->containsIndex(IMAPCapabilityGmail)) {
         mXListEnabled = false;
         mIsGmail = true;
