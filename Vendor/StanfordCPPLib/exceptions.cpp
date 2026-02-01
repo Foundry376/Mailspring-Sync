@@ -100,6 +100,45 @@ static void stanfordCppLibSignalHandler(int sig);
 [[noreturn]] static void stanfordCppLibTerminateHandler();
 static void stanfordCppLibUnexpectedHandler();
 
+/*
+ * Logs a message to spdlog if possible, falling back to cerr.
+ *
+ * This function is safe to call during exception handling. spdlog uses an internal
+ * mutex to protect its logger registry. If an exception is thrown while that mutex
+ * is held (e.g., during a logging call), and the exception handler tries to log via
+ * spdlog::get(), the mutex lock will throw EDEADLK (deadlock detection) because the
+ * same thread already holds it. This causes "terminate_handler unexpectedly threw
+ * an exception" and crashes the process.
+ *
+ * By wrapping spdlog access in a try-catch, we gracefully fall back to cerr when
+ * the mutex is unavailable, ensuring exception handling never triggers a nested
+ * exception from the logging system.
+ */
+static void logCriticalSafe(const std::string& msg) {
+    try {
+        auto logger = spdlog::get("logger");
+        if (logger) {
+            logger->critical(msg);
+            logger->flush();
+        } else {
+            std::cerr << msg;
+            std::cerr.flush();
+        }
+    } catch (...) {
+        std::cerr << msg;
+        std::cerr.flush();
+    }
+}
+
+static void flushLoggerSafe() {
+    try {
+        auto logger = spdlog::get("logger");
+        if (logger) logger->flush();
+    } catch (...) {
+        // spdlog mutex may already be held by this thread - ignore
+    }
+}
+
 std::string cleanupFunctionNameForStackTrace(std::string function) {
     // remove references to std:: namespace
     stringReplaceInPlace(function, "std::", "");
@@ -519,15 +558,8 @@ void printStackTrace(std::vector<stacktrace::entry> entries) {
     }
     
     out << "***" << std::endl;
-    
-    auto logger = spdlog::get("logger");
-    if (logger) {
-        logger->critical(out.str());
-        logger->flush();
-    } else {
-        std::cerr << out.str();
-        std::cerr.flush();
-    }
+
+    logCriticalSafe(out.str());
 }
 
 // macro to avoid lots of redundancy in catch statements below
@@ -543,9 +575,7 @@ void printStackTrace(std::vector<stacktrace::entry> entries) {
     std::string __desc = (desc); \
     if ((!__kind.empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_KIND, __kind); } \
     if ((!__desc.empty())) { stringReplaceInPlace(msg, DEFAULT_EXCEPTION_DETAILS, __desc); } \
-    auto logger = spdlog::get("logger"); \
-    if (logger) { logger->critical(msg); } else { std::cerr << msg; } \
-    if (logger) { logger->flush(); } else { std::cerr.flush(); } \
+    logCriticalSafe(msg); \
     }
 
 static void signalHandlerDisable() {
@@ -603,9 +633,7 @@ static void signalHandlerEnable() {
  * Prints details about the signal and then tries to print a stack trace.
  */
 static void stanfordCppLibSignalHandler(int sig) {
-     // immediately flush any pending spdlogs
-    auto logger = spdlog::get("logger");
-    if (logger) logger->flush();
+    flushLoggerSafe();
 
     // turn the signal handler off (should run only once; avoid infinite cycle)
     signalHandlerDisable();
@@ -684,14 +712,7 @@ void logCurrentExceptionWithStackTrace() {
     } catch (const ErrorException& ex) {
          FILL_IN_AND_LOG_MSG(ex, "An ErrorException", insertStarsBeforeEachLine(ex.what()));
          if (ex.hasStackTrace()) {
-             auto logger = spdlog::get("logger");
-             if (logger) {
-                 logger->critical(ex.getStackTrace());
-                 logger->flush();
-             } else {
-                 std::cerr << ex.getStackTrace();
-                 std::cerr.flush();
-             }
+             logCriticalSafe(ex.getStackTrace());
          }
      } catch (const std::exception& ex) {
          FILL_IN_AND_LOG_MSG(ex, "A C++ exception", insertStarsBeforeEachLine(ex.what()));
