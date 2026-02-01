@@ -250,9 +250,11 @@ void SyncWorker::idleCycleIteration()
         session.idle(&path, 0, &err);
         session.unsetupIdle();
         logger->info("Idle exited with code {}", err);
-        if (err != ErrorNone) {
-            throw SyncException(err, "idle");
-        }
+        
+        // Ben Note: We don't throw these errors because Yandex (maybe others) abruptly and
+        // randomly close IDLE connections - and that's ok! The point is to idle "for a while"
+        // and then reconnect and idle again. If the reconnect fails on the next iteration,
+        // /that/ error will propagate up and trigger the `retryable=true` flow.
     } else {
         logger->info("Connection does not support idling. Locking until more to do...");
         std::unique_lock<std::mutex> lck(idleMtx);
