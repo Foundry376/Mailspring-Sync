@@ -57,7 +57,8 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
 
   # copy libsasl2's modules into the target directory because they're all shipped separately
   # (We set SASL_PATH below so it finds these.)
-  cp /usr/lib/x86_64-linux-gnu/sasl2/* "$APP_ROOT_DIR"
+  MULTIARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH)
+  cp /usr/lib/${MULTIARCH}/sasl2/* "$APP_ROOT_DIR"
 
   printf "#!/bin/bash\nset -e\nset -o pipefail\nSCRIPTPATH=\"\$( cd \"\$(dirname \"\$0\")\" >/dev/null 2>&1 ; pwd -P )\"\nSASL_PATH=\"\$SCRIPTPATH\" LD_LIBRARY_PATH=\"\$SCRIPTPATH:\$LD_LIBRARY_PATH\" \"\$SCRIPTPATH/mailsync.bin\" \"\$@\"" > "$APP_ROOT_DIR/mailsync"
   chmod +x "$APP_ROOT_DIR/mailsync"
