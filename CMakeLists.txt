@@ -15,6 +15,18 @@ link_directories (${GLIB_LIBRARY_DIRS})
 
 IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
+  # Detect Debian/Ubuntu multiarch library path (e.g. /usr/lib/aarch64-linux-gnu)
+  # so that find_library() works on ARM64 and other non-x86 architectures
+  execute_process(
+    COMMAND dpkg-architecture -qDEB_HOST_MULTIARCH
+    OUTPUT_VARIABLE DEB_HOST_MULTIARCH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+  )
+  if(DEB_HOST_MULTIARCH)
+    list(APPEND CMAKE_LIBRARY_PATH /usr/lib/${DEB_HOST_MULTIARCH})
+  endif()
+
   set(additional_includes
     /usr/include/tidy
     /usr/include/libxml2
@@ -84,8 +96,8 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   find_library(ICUDATA_LIB NAMES libicudata.a libicudata)
   target_link_libraries(mailsync ${ICUDATA_LIB})
 
-  find_library(C_ARES_LIB NAMES libcares.a libcares)
-  target_link_libraries(mailsync ${C_ARES_LIB})
+  pkg_check_modules(CARES REQUIRED libcares)
+  target_link_libraries(mailsync ${CARES_LINK_LIBRARIES})
 
   #find_library(SASL2_LIB NAMES libsasl2.a libsasl2)
   #target_link_libraries(mailsync ${SASL2_LIB})

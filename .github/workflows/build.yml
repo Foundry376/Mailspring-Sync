@@ -14,11 +14,18 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-latest]
         include:
           - os: ubuntu-22.04
+            artifact_name: mailsync-linux
+            s3_dir: linux
+          - os: ubuntu-24.04-arm
+            artifact_name: mailsync-linux-arm64
+            s3_dir: linux-arm64
           - os: macos-latest
+            artifact_name: mailsync-macos
+            s3_dir: osx
 
     steps:
       - name: Checkout code
@@ -36,12 +43,14 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y \
-            autoconf automake build-essential clang cmake execstack fakeroot \
+            autoconf automake build-essential clang cmake fakeroot \
             git libc-ares-dev libctemplate-dev libcurl4-openssl-dev \
-            libglib2.0-dev libicu-dev libsasl2-dev libssl-dev \
+            libglib2.0-dev libicu-dev liblzma-dev libsasl2-dev libssl-dev \
             libsasl2-modules libsasl2-modules-gssapi-mit \
             libtidy-dev libtool libxext-dev libxkbfile-dev libxml2-dev \
             libxtst-dev rpm uuid-dev xvfb
+          # execstack may not be available on all architectures
+          sudo apt install -y execstack || true
 
       - name: Start Xvfb (Linux)
         if: runner.os == 'Linux'
@@ -113,14 +122,7 @@ jobs:
       - name: Upload artifact
         if: success() && (github.ref == 'refs/heads/master')
         run: |
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            OS_DIR="linux"
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            OS_DIR="osx"
-          else
-            OS_DIR="$RUNNER_OS"
-          fi
-          aws s3 sync ../app/dist s3://mailspring-builds/mailsync/${GITHUB_SHA:0:8}/${OS_DIR}/ --delete
+          aws s3 sync ../app/dist s3://mailspring-builds/mailsync/${GITHUB_SHA:0:8}/${{ matrix.s3_dir }}/ --delete
 
       - name: Copy Linux artifact for upload
         if: runner.os == 'Linux'
@@ -130,7 +132,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: mailsync-linux
+          name: ${{ matrix.artifact_name }}
           path: mailsync.tar.gz
           retention-days: 1
 
@@ -138,27 +140,36 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/mailsync-build-deps-v2
-          key: ${{ runner.os }}-mailsync-deps-${{ hashFiles('**/build.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-mailsync-deps-${{ hashFiles('**/build.sh') }}
           restore-keys: |
-            ${{ runner.os }}-mailsync-deps-
+            ${{ runner.os }}-${{ runner.arch }}-mailsync-deps-
 
   test-fedora:
     needs: build
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
         fedora_version: ['40', '41', '43']
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+            artifact: mailsync-linux
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            artifact: mailsync-linux-arm64
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: mailsync-linux
+          name: ${{ matrix.artifact }}
 
-      - name: Test on Fedora ${{ matrix.fedora_version }}
+      - name: Test on Fedora ${{ matrix.fedora_version }} (${{ matrix.arch }})
         run: |
           docker run --rm -v ${{ github.workspace }}:/workspace fedora:${{ matrix.fedora_version }} bash -c "
             set -e
-            echo '=== Testing mailsync on Fedora ${{ matrix.fedora_version }} ==='
+            echo '=== Testing mailsync on Fedora ${{ matrix.fedora_version }} (${{ matrix.arch }}) ==='
 
             # Install required runtime dependencies (from RPM spec)
             dnf install -y glibc libstdc++ libcurl openssl libicu libuuid cyrus-sasl-lib \
@@ -195,17 +206,19 @@ jobs:
 
             # Verify install check passed (no errors)
             if grep -q 'One or more checks failed' /tmp/output.txt; then
-              echo '✗ mailsync install-check failed on Fedora ${{ matrix.fedora_version }}'
+              echo '✗ mailsync install-check failed on Fedora ${{ matrix.fedora_version }} (${{ matrix.arch }})'
               echo 'Checking for missing libraries (not found):'
               ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
             else
-              echo '✓ mailsync install-check passed on Fedora ${{ matrix.fedora_version }}'
+              echo '✓ mailsync install-check passed on Fedora ${{ matrix.fedora_version }} (${{ matrix.arch }})'
             fi
           "
 
   test-arch:
     needs: build
+    # Official archlinux Docker image only supports x86_64
+    # (Arch Linux ARM is a separate project with no official Docker image)
     runs-on: ubuntu-22.04
     steps:
       - name: Download artifact
@@ -267,21 +280,35 @@ jobs:
 
   test-ubuntu:
     needs: build
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
         ubuntu_version: ['22.04', '24.04', '25.04']
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+            artifact: mailsync-linux
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            artifact: mailsync-linux-arm64
+        exclude:
+          # ARM binary built on Ubuntu 24.04 requires glibc >= 2.39,
+          # which is not available in Ubuntu 22.04 (glibc 2.35)
+          - ubuntu_version: '22.04'
+            arch: arm64
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: mailsync-linux
+          name: ${{ matrix.artifact }}
 
-      - name: Test on Ubuntu ${{ matrix.ubuntu_version }}
+      - name: Test on Ubuntu ${{ matrix.ubuntu_version }} (${{ matrix.arch }})
         run: |
           docker run --rm -v ${{ github.workspace }}:/workspace ubuntu:${{ matrix.ubuntu_version }} bash -c "
             set -e
-            echo '=== Testing mailsync on Ubuntu ${{ matrix.ubuntu_version }} ==='
+            echo '=== Testing mailsync on Ubuntu ${{ matrix.ubuntu_version }} (${{ matrix.arch }}) ==='
 
             # Install required runtime dependencies (from debian control.in)
             apt-get update
@@ -333,29 +360,40 @@ jobs:
 
             # Verify install check passed (no errors)
             if grep -q 'One or more checks failed' /tmp/output.txt; then
-              echo '✗ mailsync install-check failed on Ubuntu ${{ matrix.ubuntu_version }}'
+              echo '✗ mailsync install-check failed on Ubuntu ${{ matrix.ubuntu_version }} (${{ matrix.arch }})'
               echo 'Checking for missing libraries (not found):'
               ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
             else
-              echo '✓ mailsync install-check passed on Ubuntu ${{ matrix.ubuntu_version }}'
+              echo '✓ mailsync install-check passed on Ubuntu ${{ matrix.ubuntu_version }} (${{ matrix.arch }})'
             fi
           "
 
   test-opensuse:
     needs: build
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+            artifact: mailsync-linux
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            artifact: mailsync-linux-arm64
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: mailsync-linux
+          name: ${{ matrix.artifact }}
 
-      - name: Test on openSUSE Tumbleweed
+      - name: Test on openSUSE Tumbleweed (${{ matrix.arch }})
         run: |
           docker run --rm -v ${{ github.workspace }}:/workspace opensuse/tumbleweed bash -c "
             set -e
-            echo '=== Testing mailsync on openSUSE Tumbleweed ==='
+            echo '=== Testing mailsync on openSUSE Tumbleweed (${{ matrix.arch }}) ==='
 
             # Install required runtime dependencies
             # Note: glibc, libstdc++6, libopenssl3, libgcrypt20, libuuid1, ca-certificates are pre-installed
@@ -394,11 +432,11 @@ jobs:
 
             # Verify install check passed (no errors)
             if grep -q 'One or more checks failed' /tmp/output.txt; then
-              echo '✗ mailsync install-check failed on openSUSE Tumbleweed'
+              echo '✗ mailsync install-check failed on openSUSE Tumbleweed (${{ matrix.arch }})'
               echo 'Checking for missing libraries (not found):'
               ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
             else
-              echo '✓ mailsync install-check passed on openSUSE Tumbleweed'
+              echo '✓ mailsync install-check passed on openSUSE Tumbleweed (${{ matrix.arch }})'
             fi
           "
