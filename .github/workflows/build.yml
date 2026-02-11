@@ -217,29 +217,20 @@ jobs:
 
   test-arch:
     needs: build
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x64, arm64]
-        include:
-          - arch: x64
-            runner: ubuntu-22.04
-            artifact: mailsync-linux
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-            artifact: mailsync-linux-arm64
+    # Official archlinux Docker image only supports x86_64
+    # (Arch Linux ARM is a separate project with no official Docker image)
+    runs-on: ubuntu-22.04
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: mailsync-linux
 
-      - name: Test on Arch Linux (${{ matrix.arch }})
+      - name: Test on Arch Linux
         run: |
           docker run --rm -v ${{ github.workspace }}:/workspace archlinux:latest bash -c "
             set -e
-            echo '=== Testing mailsync on Arch Linux (${{ matrix.arch }}) ==='
+            echo '=== Testing mailsync on Arch Linux ==='
 
             # Update package database and install required runtime dependencies
             # Only install what mailsync CLI actually needs (not GUI dependencies)
@@ -278,12 +269,12 @@ jobs:
 
             # Verify install check passed (no errors)
             if grep -q 'One or more checks failed' /tmp/output.txt; then
-              echo '✗ mailsync install-check failed on Arch Linux (${{ matrix.arch }})'
+              echo '✗ mailsync install-check failed on Arch Linux'
               echo 'Checking for missing libraries (not found):'
               ldd ./mailsync.bin 2>&1 | grep 'not found' || echo 'No missing libraries detected'
               exit 1
             else
-              echo '✓ mailsync install-check passed on Arch Linux (${{ matrix.arch }})'
+              echo '✓ mailsync install-check passed on Arch Linux'
             fi
           "
 
