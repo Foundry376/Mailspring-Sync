@@ -121,6 +121,10 @@ bool Account::IMAPAllowInsecureSSL() {
     return _data["settings"]["imap_allow_insecure_ssl"].get<bool>();
 }
 
+bool Account::isICloud() {
+    return IMAPHost().find("imap.mail.me.com") != string::npos;
+}
+
 unsigned int Account::SMTPPort() {
     json & val = _data["settings"]["smtp_port"];
     return val.is_string() ? stoi(val.get<string>()) : val.get<unsigned int>();

@@ -304,8 +304,7 @@ bool SyncWorker::syncNow()
     // responses and doesn't send the ENABLED untagged response per RFC. This causes
     // messages to be incorrectly detected as deleted. Disable QRESYNC for iCloud.
     // See: https://developer.apple.com/forums/thread/694251
-    bool isICloud = account->IMAPHost().find("imap.mail.me.com") != string::npos;
-    if (isICloud && hasQResync) {
+    if (account->isICloud() && hasQResync) {
         logger->info("Disabling QRESYNC for iCloud account due to known server compatibility issues");
         hasQResync = false;
     }

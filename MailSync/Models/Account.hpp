@@ -49,6 +49,8 @@ public:
     string IMAPSecurity();
     bool IMAPAllowInsecureSSL();
 
+    bool isICloud();
+
     unsigned int SMTPPort();
     string SMTPHost();
     string SMTPUsername();

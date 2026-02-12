@@ -805,7 +805,7 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
     // messages to be incorrectly detected as deleted. Disable QRESYNC before login
     // so the ENABLE QRESYNC command is never sent to the server.
     // See: https://developer.apple.com/forums/thread/694251
-    if (account->IMAPHost().find("imap.mail.me.com") != string::npos) {
+    if (account->isICloud()) {
         session.setQResyncEnabled(false);
     }
 
