@@ -906,7 +906,15 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     IMAPProgress cb;
     ErrorCode err = ErrorCode::ErrorNone;
     String path(AS_MCSTR(folder.path()));
-    
+
+    // Request SELECT QRESYNC so the server reports VANISHED UIDs during
+    // folder selection. Some servers (e.g. Fastmail) only report vanished
+    // messages via SELECT QRESYNC, not via UID FETCH CHANGEDSINCE VANISHED.
+    if (session.isQResyncEnabled()) {
+        uint32_t uidvalidity = folder.localStatus()[LS_UIDVALIDITY].get<uint32_t>();
+        session.requestQResyncSelect(uidvalidity, modseq);
+    }
+
     auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
     IMAPSyncResult * result = session.syncMessagesByUID(&path, kind, uids, modseq, &cb, &err);
     if (err != ErrorCode::ErrorNone) {

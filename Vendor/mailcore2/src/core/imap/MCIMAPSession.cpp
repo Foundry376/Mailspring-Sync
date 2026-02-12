@@ -385,6 +385,10 @@ void IMAPSession::init()
     mXListEnabled = false;
     mQResyncEnabled = false;
     mQResyncForceDisabled = false;
+    mQResyncSelectPending = false;
+    mQResyncSelectUIDValidity = 0;
+    mQResyncSelectModseq = 0;
+    mQResyncSelectVanished = NULL;
     mCondstoreEnabled = false;
     mXYMHighestModseqEnabled = false;
     mIdentityEnabled = false;
@@ -444,6 +448,7 @@ IMAPSession::~IMAPSession()
     MC_SAFE_RELEASE(mWelcomeString);
     MC_SAFE_RELEASE(mDefaultNamespace);
     MC_SAFE_RELEASE(mCurrentFolder);
+    MC_SAFE_RELEASE(mQResyncSelectVanished);
     pthread_mutex_destroy(&mIdleLock);
     pthread_mutex_destroy(&mConnectionLoggerLock);
 }
@@ -1109,10 +1114,16 @@ void IMAPSession::selectIfNeeded(String * folder, ErrorCode * pError)
     loginIfNeeded(pError);
     if (* pError != ErrorNone)
         return;
-    
+
     if (mState == STATE_SELECTED) {
         MCAssert(mCurrentFolder != NULL);
         if (mCurrentFolder->caseInsensitiveCompare(folder) != 0) {
+            select(folder, pError);
+        }
+        else if (mQResyncSelectPending) {
+            // Force re-SELECT with QRESYNC even though the folder is already
+            // selected. This is needed when the foreground worker has INBOX
+            // selected from IDLE and needs VANISHED data from SELECT QRESYNC.
             select(folder, pError);
         }
     }
@@ -1191,7 +1202,43 @@ void IMAPSession::select(String * folder, ErrorCode * pError)
     MCLog("select");
     MCAssert(mState == STATE_LOGGEDIN || mState == STATE_SELECTED);
 
-    r = mailimap_select(mImap, MCUTF8(folder));
+    // Clear any previously cached QRESYNC vanished results
+    MC_SAFE_RELEASE(mQResyncSelectVanished);
+    mQResyncSelectVanished = NULL;
+
+    if (mQResyncEnabled && mQResyncSelectPending) {
+        // Use SELECT QRESYNC to get VANISHED data during folder selection.
+        // This allows the server to report expunged UIDs that UID FETCH
+        // CHANGEDSINCE VANISHED may not return on some servers (e.g. Fastmail).
+        clist * fetch_result = NULL;
+        struct mailimap_qresync_vanished * vanished = NULL;
+        uint64_t new_modseq = 0;
+
+        mQResyncSelectPending = false;
+
+        r = mailimap_select_qresync(mImap, MCUTF8(folder),
+            mQResyncSelectUIDValidity, mQResyncSelectModseq,
+            NULL, NULL, NULL,
+            &fetch_result, &vanished, &new_modseq);
+
+        // Cache VANISHED results for fetchMessages to merge later
+        if (vanished != NULL) {
+            mQResyncSelectVanished = indexSetFromSet(vanished->qr_known_uids);
+            mQResyncSelectVanished->retain();
+            mailimap_qresync_vanished_free(vanished);
+        }
+
+        // Free fetch results from SELECT - the subsequent UID FETCH
+        // CHANGEDSINCE will re-fetch changed messages
+        if (fetch_result != NULL) {
+            mailimap_fetch_list_free(fetch_result);
+        }
+    }
+    else {
+        mQResyncSelectPending = false;
+        r = mailimap_select(mImap, MCUTF8(folder));
+    }
+
     MCLog("select error : %i", r);
     if (r == MAILIMAP_ERROR_STREAM) {
         mShouldDisconnect = true;
@@ -1215,19 +1262,19 @@ void IMAPSession::select(String * folder, ErrorCode * pError)
 
     if (mImap->imap_selection_info != NULL) {
         mUIDValidity = mImap->imap_selection_info->sel_uidvalidity;
-        mUIDNext = mImap->imap_selection_info->sel_uidnext;        
+        mUIDNext = mImap->imap_selection_info->sel_uidnext;
         if (mImap->imap_selection_info->sel_has_exists) {
             mFolderMsgCount = (unsigned int) (mImap->imap_selection_info->sel_exists);
         } else {
             mFolderMsgCount = -1;
         }
-        
+
         if (mImap->imap_selection_info->sel_first_unseen) {
             mFirstUnseenUid = mImap->imap_selection_info->sel_first_unseen;
         } else {
             mFirstUnseenUid = 0;
         }
-        
+
         if (mImap->imap_selection_info->sel_perm_flags) {
           clistiter * cur;
 
@@ -1241,7 +1288,7 @@ void IMAPSession::select(String * folder, ErrorCode * pError)
             }
           }
         }
-      
+
         mModSequenceValue = get_mod_sequence_value(mImap);
     }
 
@@ -2732,7 +2779,21 @@ IMAPSyncResult * IMAPSession::fetchMessages(String * folder, IMAPMessagesRequest
     if (vanished != NULL) {
         vanishedMessages = indexSetFromSet(vanished->qr_known_uids);
     }
-    
+
+    // Merge VANISHED UIDs from SELECT QRESYNC (if available) with those
+    // from UID FETCH. SELECT QRESYNC may report vanished UIDs that the
+    // UID FETCH CHANGEDSINCE VANISHED response does not include.
+    if (mQResyncSelectVanished != NULL) {
+        if (vanishedMessages == NULL) {
+            vanishedMessages = mQResyncSelectVanished;
+            mQResyncSelectVanished->autorelease();
+        } else {
+            vanishedMessages->addIndexSet(mQResyncSelectVanished);
+            MC_SAFE_RELEASE(mQResyncSelectVanished);
+        }
+        mQResyncSelectVanished = NULL;
+    }
+
     mBodyProgressEnabled = true;
     
     mProgressCallback = NULL;
@@ -4417,6 +4478,13 @@ void IMAPSession::setQResyncEnabled(bool enabled)
     if (!enabled) {
         mQResyncForceDisabled = true;
     }
+}
+
+void IMAPSession::requestQResyncSelect(uint32_t lastKnownUIDValidity, uint64_t lastKnownModseq)
+{
+    mQResyncSelectPending = true;
+    mQResyncSelectUIDValidity = lastKnownUIDValidity;
+    mQResyncSelectModseq = lastKnownModseq;
 }
 
 bool IMAPSession::isIdentityEnabled()

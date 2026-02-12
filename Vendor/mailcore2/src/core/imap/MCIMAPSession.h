@@ -193,6 +193,10 @@ namespace mailcore {
         virtual bool isCondstoreEnabled();
         virtual bool isQResyncEnabled();
         virtual void setQResyncEnabled(bool enabled);
+
+        // QRESYNC SELECT: Call before syncMessagesByUID to request SELECT QRESYNC
+        // on the next folder selection, enabling server-side VANISHED tracking.
+        virtual void requestQResyncSelect(uint32_t lastKnownUIDValidity, uint64_t lastKnownModseq);
         virtual bool isIdentityEnabled();
         virtual bool isXOAuthEnabled();
         virtual bool isNamespaceEnabled();
@@ -262,6 +266,10 @@ namespace mailcore {
         bool mCondstoreEnabled;
         bool mQResyncEnabled;
         bool mQResyncForceDisabled;
+        bool mQResyncSelectPending;
+        uint32_t mQResyncSelectUIDValidity;
+        uint64_t mQResyncSelectModseq;
+        IndexSet * mQResyncSelectVanished;
         bool mXYMHighestModseqEnabled;
         bool mIdentityEnabled;
         bool mXOauth2Enabled;
