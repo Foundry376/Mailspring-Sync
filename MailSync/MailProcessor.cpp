@@ -184,9 +184,16 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
 
     // Priority folder check: prevent lower-priority folders from claiming messages
     // that already belong to higher-priority folders. This fixes "flickering" on
-    // iCloud where the same message exists in multiple folders.
+    // iCloud where the same message genuinely exists in multiple folders simultaneously.
+    //
+    // On standard IMAP servers (FastMail, etc.), messages MOVE between folders
+    // (DELETE from source + APPEND to destination). The "latest folder wins" behavior
+    // is correct for these servers. The priority check is only needed for iCloud's
+    // non-standard behavior where the same message appears in multiple folders at once.
     string currentFolderId = local->remoteFolderId();
-    if (folder.id() != currentFolderId && !currentFolderId.empty()) {
+    bool isICloud = account->IMAPHost().find("imap.mail.me.com") != string::npos;
+
+    if (isICloud && folder.id() != currentFolderId && !currentFolderId.empty()) {
         bool isUnlinked = local->remoteUID() > UINT32_MAX - 5;
 
         if (isUnlinked) {
@@ -209,8 +216,9 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
                 logger->info("- Message {} upgrading from {} ({}) to {} ({})",
                             local->id(), currentFolderId, currentRole, folder.id(), folder.role());
             } else {
-                // Current folder has equal or higher priority - skip ALL updates
-                logger->info("- Message {} staying in {} (priority {}), ignoring {} (priority {})",
+                // Current folder has equal or higher priority - block folder change
+                // but still allow flag updates below
+                logger->info("- Message {} staying in {} (priority {}), ignoring folder {} (priority {})",
                             local->id(), currentFolderId, currentPriority, folder.id(), newPriority);
                 return;
             }
