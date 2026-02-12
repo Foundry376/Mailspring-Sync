@@ -408,6 +408,7 @@ void IMAPSession::init()
     mHermesServer = false;
     mQipServer = false;
     mOutlookServer = false;
+    mIdleVanishedMessages = NULL;
     mLastFetchedSequenceNumber = 0;
     mCurrentFolder = NULL;
     pthread_mutex_init(&mIdleLock, NULL);
@@ -432,6 +433,7 @@ IMAPSession::IMAPSession()
 
 IMAPSession::~IMAPSession()
 {
+    MC_SAFE_RELEASE(mIdleVanishedMessages);
     MC_SAFE_RELEASE(mUnparsedResponseData);
     MC_SAFE_RELEASE(mGmailUserDisplayName);
     MC_SAFE_RELEASE(mLoginResponse);
@@ -3751,6 +3753,35 @@ void IMAPSession::idle(String * folder, uint32_t lastKnownUID, ErrorCode * pErro
         * pError = ErrorIdle;
         return;
     }
+
+    // Extract VANISHED UIDs from the IDLE response before the next IMAP command
+    // overwrites rsp_extension_list. The server sends VANISHED during IDLE when
+    // messages are expunged, but won't re-report them in a subsequent FETCH
+    // CHANGEDSINCE since it considers this connection already informed.
+    MC_SAFE_RELEASE(mIdleVanishedMessages);
+    mIdleVanishedMessages = NULL;
+    if (mQResyncEnabled && mImap->imap_response_info != NULL) {
+        clistiter * cur;
+        for (cur = clist_begin(mImap->imap_response_info->rsp_extension_list);
+             cur != NULL; cur = clist_next(cur)) {
+            struct mailimap_extension_data * ext_data;
+            ext_data = (struct mailimap_extension_data *) clist_content(cur);
+            if (ext_data->ext_extension->ext_id != MAILIMAP_EXTENSION_QRESYNC) {
+                continue;
+            }
+            if (ext_data->ext_type != MAILIMAP_QRESYNC_TYPE_VANISHED) {
+                continue;
+            }
+            struct mailimap_qresync_vanished * vanished;
+            vanished = (struct mailimap_qresync_vanished *) ext_data->ext_data;
+            if (vanished != NULL && vanished->qr_known_uids != NULL) {
+                mIdleVanishedMessages = indexSetFromSet(vanished->qr_known_uids);
+                mIdleVanishedMessages->retain();
+            }
+            break;
+        }
+    }
+
     * pError = ErrorNone;
 }
 
@@ -4417,6 +4448,11 @@ void IMAPSession::setQResyncEnabled(bool enabled)
     if (!enabled) {
         mQResyncForceDisabled = true;
     }
+}
+
+IndexSet * IMAPSession::idleVanishedMessages()
+{
+    return mIdleVanishedMessages;
 }
 
 bool IMAPSession::isIdentityEnabled()
