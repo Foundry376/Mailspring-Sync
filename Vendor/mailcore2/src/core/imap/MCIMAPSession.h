@@ -193,6 +193,11 @@ namespace mailcore {
         virtual bool isCondstoreEnabled();
         virtual bool isQResyncEnabled();
         virtual void setQResyncEnabled(bool enabled);
+
+        /** Returns UIDs of messages that were reported as VANISHED during the last IDLE session.
+            The caller should process these before issuing FETCH CHANGEDSINCE, because the server
+            may not re-report them. Returns NULL if no VANISHED was received. */
+        virtual IndexSet * idleVanishedMessages();
         virtual bool isIdentityEnabled();
         virtual bool isXOAuthEnabled();
         virtual bool isNamespaceEnabled();
@@ -282,6 +287,7 @@ namespace mailcore {
         bool mQipServer;
         bool mOutlookServer;
 
+        IndexSet * mIdleVanishedMessages;
         unsigned int mLastFetchedSequenceNumber;
         String * mCurrentFolder;
         pthread_mutex_t mIdleLock;

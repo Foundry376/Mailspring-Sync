@@ -212,9 +212,22 @@ void SyncWorker::idleCycleIteration()
                                    inbox->localStatus()[LS_SYNCED_MIN_UID].is_number();
 
     if (hasStartedSyncingFolder) {
+        // Process VANISHED notifications received during the previous IDLE session.
+        // The server sends VANISHED during IDLE when messages are expunged, but won't
+        // re-report them in the subsequent FETCH CHANGEDSINCE since it considers this
+        // connection already informed. We must process them here before they're lost.
+        IndexSet * idleVanished = session.idleVanishedMessages();
+        if (idleVanished != NULL && idleVanished->count() > 0) {
+            logger->info("Processing {} VANISHED UIDs from IDLE on {}", idleVanished->count(), inbox->path());
+            vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(inbox->id(), idleVanished);
+            for (Query & query : queries) {
+                this->processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
+            }
+        }
+
         String path = AS_MCSTR(inbox->path());
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
-        
+
         // Note: If we have CONDSTORE but don't have QRESYNC, this if/else may result
         // in us not seeing "vanished" messages until the next shallow sync iteration.
         // Right now I think that's fine.
