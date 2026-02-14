@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.1 FATAL_ERROR)
+cmake_minimum_required (VERSION 3.5 FATAL_ERROR)
 project (mailsync) 
 
 SET (CMAKE_CXX_FLAGS   "-Wno-unknown-pragmas")
@@ -15,6 +15,9 @@ link_directories (${GLIB_LIBRARY_DIRS})
 
 IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
+  set(LIBETPAN_VENDOR_LIB_DIR "${CMAKE_SOURCE_DIR}/Vendor/libetpan/src/.libs")
+  set(LIBETPAN_VENDOR_SO "${LIBETPAN_VENDOR_LIB_DIR}/libetpan.so")
+
   set(additional_includes
     /usr/include/tidy
     /usr/include/libxml2
@@ -26,6 +29,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   link_directories(/opt/openssl/lib)
   link_directories(Vendor/mailcore2/build/src)
+  link_directories(${LIBETPAN_VENDOR_LIB_DIR})
   include_directories(Vendor/mailcore2/build/src/include)
 
   include_directories(Vendor)
@@ -50,11 +54,27 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   add_executable(mailsync MailSync/main.cpp ${SOURCES})
 
+  if(EXISTS "${LIBETPAN_VENDOR_SO}")
+    set(MAILSYNC_LIBETPAN_LIBRARY "${LIBETPAN_VENDOR_SO}")
+    message(STATUS "Using vendored libetpan: ${MAILSYNC_LIBETPAN_LIBRARY}")
+  else()
+    find_library(MAILSYNC_LIBETPAN_LIBRARY NAMES etpan)
+    if(NOT MAILSYNC_LIBETPAN_LIBRARY)
+      message(FATAL_ERROR "Could not find libetpan (vendored or system)")
+    endif()
+    message(STATUS "Using system libetpan: ${MAILSYNC_LIBETPAN_LIBRARY}")
+  endif()
+
+  set_target_properties(mailsync PROPERTIES
+    BUILD_RPATH "\$ORIGIN;\$ORIGIN/..;${LIBETPAN_VENDOR_LIB_DIR};${CMAKE_SOURCE_DIR}/Vendor/mailcore2/build/src;/opt/openssl/lib"
+    INSTALL_RPATH "\$ORIGIN;\$ORIGIN/.."
+  )
+
   add_definitions(-DSQLITE_ENABLE_FTS5=1 -DHAVE_USLEEP=1 -DSQLITE_OMIT_LOAD_EXTENSION=1)
 
   target_link_libraries(mailsync libMailCore.a)
   target_link_libraries(mailsync ${GLIB_LIBRARIES})
-  target_link_libraries(mailsync libetpan.a)
+  target_link_libraries(mailsync ${MAILSYNC_LIBETPAN_LIBRARY})
 
   find_library(XML_LIB NAMES libxml2.a libxml2)
   target_link_libraries(mailsync ${XML_LIB})
@@ -68,9 +88,6 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   find_library(RESOLV_LIB NAMES libresolv.a libresolv)
   target_link_libraries(mailsync ${RESOLV_LIB})
-
-  find_library(CTEMPLATE_LIB NAMES libctemplate.a libctemplate)
-  target_link_libraries(mailsync ${CTEMPLATE_LIB})
 
   find_library(UUID_LIB NAMES libuuid.a libuuid)
   target_link_libraries(mailsync ${UUID_LIB})
