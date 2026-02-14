@@ -8,7 +8,6 @@
 
 #include "MCHTMLRenderer.h"
 
-#include <ctemplate/template.h>
 #include "MCAddressDisplay.h"
 #include "MCDateFormatter.h"
 #include "MCSizeFormatter.h"
