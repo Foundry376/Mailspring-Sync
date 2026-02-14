@@ -20,3 +20,7 @@ CMakeCache.txt
 CMakeFiles/
 Makefile
 cmake_install.cmake
+
+# Local generated build directories
+/build-local/
+/Vendor/mailcore2/build/
