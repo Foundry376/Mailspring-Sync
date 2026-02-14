@@ -20,6 +20,7 @@
 #include <openssl/bio.h>
 #include <openssl/ossl_typ.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/stack.h>
 #include <openssl/pem.h>
@@ -113,11 +114,15 @@ err:
     X509_STORE *store = NULL;
     X509_STORE_CTX *storectx = NULL;
     STACK_OF(X509) *certificates = NULL;
+    STACK_OF(X509) *untrustedChain = NULL;
+    X509 *leafCertificate = NULL;
 #if defined(ANDROID) || defined(__ANDROID__)
     DIR *dir = NULL;
     struct dirent *ent = NULL;
     FILE *f = NULL;
 #endif
+    bool certsLoaded = false;
+    int leafIndex = -1;
     int status;
 
     // Build list of paths to check
@@ -233,7 +238,10 @@ err:
     status = X509_STORE_set_default_paths(store);
     if (status != 1)
     {
-        MCLog("Error loading the system-wide CA certificates");
+        MCLog("Error loading the system-wide CA certificates via default paths");
+    } else {
+        MCLog("Successfully loaded system-wide CA certificates via default paths");
+        certsLoaded = true;
     }
 
     for (const auto& path : certificatePaths)
@@ -272,6 +280,15 @@ err:
         BIO_free(bio);
         if (certificate == NULL) {
             goto free_certs;
+    }
+    {
+        char subject[1024];
+        char issuer[1024];
+        subject[0] = '\0';
+        issuer[0] = '\0';
+        X509_NAME_oneline(X509_get_subject_name(certificate), subject, sizeof(subject));
+        X509_NAME_oneline(X509_get_issuer_name(certificate), issuer, sizeof(issuer));
+        MCLog("Peer cert[%u]: subject=%s issuer=%s isCA=%d", i, subject, issuer, X509_check_ca(certificate));
         }
         if (!sk_X509_push(certificates, certificate))
         {
@@ -287,7 +304,59 @@ err:
         goto free_certs;
     }
 
-    status = X509_STORE_CTX_init(storectx, store, sk_X509_value(certificates, 0), certificates);
+    for (int i = 0; i < sk_X509_num(certificates); i++)
+    {
+        X509 *candidate = sk_X509_value(certificates, i);
+        if (candidate != NULL && X509_check_ca(candidate) == 0)
+        {
+            leafIndex = i;
+            break;
+        }
+    }
+
+    if (leafIndex == -1)
+    {
+        leafIndex = 0;
+    }
+
+    leafCertificate = sk_X509_value(certificates, leafIndex);
+    if (leafCertificate == NULL)
+    {
+        MCLog("Could not select leaf certificate from chain");
+        goto free_certs;
+    }
+    else
+    {
+        char leafSubject[1024];
+        char leafIssuer[1024];
+        leafSubject[0] = '\0';
+        leafIssuer[0] = '\0';
+        X509_NAME_oneline(X509_get_subject_name(leafCertificate), leafSubject, sizeof(leafSubject));
+        X509_NAME_oneline(X509_get_issuer_name(leafCertificate), leafIssuer, sizeof(leafIssuer));
+        MCLog("Selected leaf cert index=%d subject=%s issuer=%s", leafIndex, leafSubject, leafIssuer);
+    }
+
+    untrustedChain = sk_X509_new_null();
+    if (untrustedChain == NULL)
+    {
+        MCLog("Could not allocate untrusted chain stack");
+        goto free_certs;
+    }
+
+    for (int i = 0; i < sk_X509_num(certificates); i++)
+    {
+        if (i == leafIndex)
+        {
+            continue;
+        }
+        X509 *chainCertificate = sk_X509_value(certificates, i);
+        if (chainCertificate != NULL)
+        {
+            sk_X509_push(untrustedChain, chainCertificate);
+        }
+    }
+
+    status = X509_STORE_CTX_init(storectx, store, leafCertificate, untrustedChain);
     if (status != 1)
     {
         MCLog("Could not call X509_STORE_CTX_init");
@@ -326,6 +395,10 @@ free_certs:
     if (storectx != NULL)
     {
         X509_STORE_CTX_free(storectx);
+    }
+    if (untrustedChain != NULL)
+    {
+        sk_X509_free(untrustedChain);
     }
     if (store != NULL)
     {

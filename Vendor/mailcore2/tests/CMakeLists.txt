@@ -13,9 +13,15 @@ IF(APPLE)
 ENDIF()
 
 add_executable (tests main.cpp test-all.cpp ${test_mac_files})
+
+set(CTEMPLATE_LINK_LIB)
+if(CTEMPLATE_LIBRARY)
+    set(CTEMPLATE_LINK_LIB ${CTEMPLATE_LIBRARY})
+endif()
+
 target_link_libraries (
     tests MailCore
     ${ZLIB_LIBRARY} ${LIBETPAN_LIBRARY} ${LIBXML_LIBRARY} ${UCHARDET_LIBRARY} sasl2
-    ${TIDY_LIBRARY} ${CTEMPLATE_LIBRARY} ssl crypto ${linux_libraries} ${mac_libraries}
+    ${TIDY_LIBRARY} ${CTEMPLATE_LINK_LIB} ssl crypto ${linux_libraries} ${mac_libraries}
     ${GLIB2_LIBRARIES} ${FOUNDATIONFRAMEWORK} ${SECURITYFRAMEWORK} ${CORESERVICESFRAMEWORK}
 )
