@@ -108,6 +108,7 @@
 struct mailstream_ssl_context
 {
   int fd;
+  char * server_name;
 #ifdef USE_SSL
 #ifndef USE_GNUTLS
   SSL_CTX * openssl_ssl_ctx;
@@ -465,6 +466,10 @@ static struct mailstream_ssl_data * ssl_data_new_full(int fd, time_t timeout,
   
   if (SSL_set_fd(ssl_conn, fd) == 0)
     goto free_ssl_conn;
+
+  if (ssl_context != NULL && ssl_context->server_name != NULL) {
+    SSL_set_tlsext_host_name(ssl_conn, ssl_context->server_name);
+  }
   
 again:
   r = SSL_connect(ssl_conn);
@@ -616,6 +621,11 @@ static struct mailstream_ssl_data * ssl_data_new(int fd, time_t timeout,
   gnutls_dh_set_prime_bits(session, 512);
 
   gnutls_transport_set_ptr(session, (gnutls_transport_ptr) fd);
+
+  if (ssl_context != NULL && ssl_context->server_name != NULL) {
+    gnutls_server_name_set(session, GNUTLS_NAME_DNS,
+      ssl_context->server_name, strlen(ssl_context->server_name));
+  }
 
   /* lower limits on server key length restriction */
   gnutls_dh_set_prime_bits(session, 512);
@@ -1360,6 +1370,31 @@ int mailstream_ssl_set_server_certicate(struct mailstream_ssl_context * ssl_cont
 #endif /* USE_SSL */
 }
 
+int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
+    const char * server_name)
+{
+#ifdef USE_SSL
+  if (ssl_context == NULL)
+    return -1;
+
+  if (ssl_context->server_name != NULL) {
+    free(ssl_context->server_name);
+    ssl_context->server_name = NULL;
+  }
+
+  if (server_name == NULL || server_name[0] == '\0')
+    return 0;
+
+  ssl_context->server_name = strdup(server_name);
+  if (ssl_context->server_name == NULL)
+    return -1;
+
+  return 0;
+#else
+  return -1;
+#endif
+}
+
 #ifdef USE_SSL
 #ifndef USE_GNUTLS
 static struct mailstream_ssl_context * mailstream_ssl_context_new(SSL_CTX * open_ssl_ctx, int fd)
@@ -1373,6 +1408,7 @@ static struct mailstream_ssl_context * mailstream_ssl_context_new(SSL_CTX * open
   ssl_ctx->openssl_ssl_ctx = open_ssl_ctx;
   ssl_ctx->client_x509 = NULL;
   ssl_ctx->client_pkey = NULL;
+  ssl_ctx->server_name = NULL;
   ssl_ctx->fd = fd;
   
   return ssl_ctx;
@@ -1380,8 +1416,11 @@ static struct mailstream_ssl_context * mailstream_ssl_context_new(SSL_CTX * open
 
 static void mailstream_ssl_context_free(struct mailstream_ssl_context * ssl_ctx)
 {
-  if (ssl_ctx)
+  if (ssl_ctx) {
+    if (ssl_ctx->server_name != NULL)
+      free(ssl_ctx->server_name);
     free(ssl_ctx);
+  }
 }
 #else
 static struct mailstream_ssl_context * mailstream_ssl_context_new(gnutls_session session, int fd)
@@ -1395,6 +1434,7 @@ static struct mailstream_ssl_context * mailstream_ssl_context_new(gnutls_session
   ssl_ctx->session = session;
   ssl_ctx->client_x509 = NULL;
   ssl_ctx->client_pkey = NULL;
+  ssl_ctx->server_name = NULL;
   ssl_ctx->fd = fd;
   
   return ssl_ctx;
@@ -1403,6 +1443,8 @@ static struct mailstream_ssl_context * mailstream_ssl_context_new(gnutls_session
 static void mailstream_ssl_context_free(struct mailstream_ssl_context * ssl_ctx)
 {
   if (ssl_ctx) {
+    if (ssl_ctx->server_name)
+      free(ssl_ctx->server_name);
     if (ssl_ctx->client_x509)
       gnutls_x509_crt_deinit(ssl_ctx->client_x509);
     if (ssl_ctx->client_pkey)

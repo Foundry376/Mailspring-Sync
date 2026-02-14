@@ -42,6 +42,24 @@
 #include "mailsmtp.h"
 
 #include "mailstream_cfstream.h"
+
+struct mailsmtp_ssl_callback_data {
+  void (* callback)(struct mailstream_ssl_context * ssl_context, void * data);
+  void * data;
+  const char * server;
+};
+
+static void mailsmtp_ssl_sni_callback(struct mailstream_ssl_context * ssl_context, void * data)
+{
+  struct mailsmtp_ssl_callback_data * callback_data = (struct mailsmtp_ssl_callback_data *) data;
+
+  if (callback_data != NULL && callback_data->server != NULL) {
+    mailstream_ssl_set_server_name(ssl_context, callback_data->server);
+  }
+  if (callback_data != NULL && callback_data->callback != NULL) {
+    callback_data->callback(ssl_context, callback_data->data);
+  }
+}
 #include "connect.h"
 
 #include <stdlib.h>
@@ -74,6 +92,7 @@ int mailsmtp_ssl_connect_with_callback(mailsmtp * session,
 {
   int s;
   mailstream * stream;
+  struct mailsmtp_ssl_callback_data callback_data;
 
 #if HAVE_CFNETWORK
   if (mailstream_cfstream_enabled) {
@@ -95,7 +114,11 @@ int mailsmtp_ssl_connect_with_callback(mailsmtp * session,
   if (s == -1)
     return MAILSMTP_ERROR_CONNECTION_REFUSED;
 
-  stream = mailstream_ssl_open_with_callback_timeout(s, session->smtp_timeout, callback, data);
+  callback_data.callback = callback;
+  callback_data.data = data;
+  callback_data.server = server;
+  stream = mailstream_ssl_open_with_callback_timeout(s, session->smtp_timeout,
+    mailsmtp_ssl_sni_callback, &callback_data);
   if (stream == NULL) {
 #ifdef WIN32
 	closesocket(s);
