@@ -45,6 +45,10 @@ class DAVWorker {
     shared_ptr<ContactBook> cachedAddressBook = nullptr;
     int contactsValidationFailures = 0;
 
+    // In-memory discovery cache for CalDAV
+    bool calendarsDiscoveryComplete = false;
+    string cachedCalendarHomeURL = "";
+
     bool validateCachedAddressBook();
 
     // Rate limiting state (shared for CalDAV and CardDAV)
@@ -66,6 +70,12 @@ public:
     void run();
     
     shared_ptr<ContactBook> resolveAddressBook();
+    string resolveCalendarHomeURL();
+
+    // Returns the full https:// URL for a calendar collection path.
+    // For Gmail, prepends calHost. For all other accounts, resolves
+    // against the discovered cachedCalendarHomeURL.
+    string resolvedCalendarURL(const string & calPath);
     
     void writeAndResyncContact(shared_ptr<Contact> contact);
     void deleteContact(shared_ptr<Contact> contact);

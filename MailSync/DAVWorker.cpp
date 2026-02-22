@@ -367,31 +367,14 @@ DAVWorker::DAVWorker(shared_ptr<Account> account) :
     account(account),
     logger(spdlog::get("logger"))
 {
+    // calHost is only set for Gmail; all other accounts use resolveCalendarHomeURL().
+    // calPrincipal is only meaningful when calHost != "" (Gmail path).
     calHost = "";
-    calPrincipal = "discover";
+    calPrincipal = "";
 
-    // Shortcuts for a few providers that implement CardDav / CalDav but do NOT
-    // expose SRV records telling us where they are.
     if (account->provider() == "gmail") {
         calHost = "apidata.googleusercontent.com";
         calPrincipal = "/caldav/v2/" + account->emailAddress();
-    }
-    
-    if (account->IMAPHost().find("imap.mail.ru") != string::npos) {
-        calHost = "calendar.mail.ru";
-        calPrincipal = "discover";
-    }
-    if (account->IMAPHost().find("imap.yandex.com") != string::npos) {
-        calHost = "yandex.ru";
-        calPrincipal = "discover";
-    }
-    if (account->IMAPHost().find("securemail.a1.net") != string::npos) {
-        calHost = "caldav.a1.net";
-        calPrincipal = "discover";
-    }
-    if (account->IMAPHost().find("imap.zoho.com") != string::npos) {
-        calHost = "calendar.zoho.com";
-        calPrincipal = "discover";
     }
 
     // Initialize libxml
@@ -635,6 +618,95 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     }));
 
     return existing;
+}
+
+/*
+ Performs CalDAV calendar home-set discovery via the identity server, .well-known
+ redirect, current-user-principal PROPFIND, and calendar-home-set PROPFIND.
+ Mirrors resolveAddressBook() but targets RFC 4791 CalDAV.
+ Returns the calendar home-set URL, or "" if CalDAV is not available.
+ Throws SyncException on transient errors; caller handles.
+*/
+string DAVWorker::resolveCalendarHomeURL() {
+    string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
+    string imapHost = account->IMAPHost();
+    json payload = {{"domain", domain}, {"imapHost", imapHost}};
+    json result = PerformJSONRequest(
+        CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str())
+    );
+
+    string caldavHost = "";
+    if (result.count("caldavHost")) {
+        caldavHost = result["caldavHost"].get<string>();
+    }
+    if (caldavHost == "") {
+        return "";
+    }
+
+    // .well-known/caldav redirect to find service root
+    string calRoot = PerformExpectedRedirect("https://" + caldavHost + "/.well-known/caldav");
+    if (calRoot == "") {
+        calRoot = PerformExpectedRedirect("http://" + caldavHost + "/.well-known/caldav");
+    }
+    if (calRoot == "" || calRoot.find("/.well-known") != string::npos) {
+        // Include scheme so that replacePath() and performXMLRequest() receive a
+        // consistent full URL regardless of which branch was taken above.
+        calRoot = "https://" + caldavHost + "/";
+    }
+
+    // PROPFIND root → current-user-principal (RFC 5397)
+    auto principalDoc = performXMLRequest(calRoot, "PROPFIND",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<A:propfind xmlns:A=\"DAV:\"><A:prop>"
+        "<A:current-user-principal/><A:principal-URL/><A:resourcetype/>"
+        "</A:prop></A:propfind>");
+    string calPrincipalURL = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
+    if (calPrincipalURL.empty()) {
+        logger->info("CalDAV: server returned no current-user-principal, skipping calendar discovery");
+        return "";
+    }
+    if (calPrincipalURL.find("://") == string::npos) {
+        calPrincipalURL = replacePath(calRoot, calPrincipalURL);
+    }
+
+    // PROPFIND principal → calendar-home-set (RFC 4791 §6.2.1)
+    auto homeSetDoc = performXMLRequest(calPrincipalURL, "PROPFIND",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<d:propfind xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
+        "<d:prop><c:calendar-home-set/></d:prop></d:propfind>");
+    string homeSetURL = homeSetDoc->nodeContentAtXPath("//caldav:calendar-home-set/D:href/text()");
+    if (homeSetURL.empty()) {
+        logger->info("CalDAV: server returned no calendar-home-set, skipping calendar discovery");
+        return "";
+    }
+    if (homeSetURL.find("://") == string::npos) {
+        homeSetURL = replacePath(calRoot, homeSetURL);
+    }
+
+    return homeSetURL;
+}
+
+string DAVWorker::resolvedCalendarURL(const string & calPath) {
+    // Gmail uses calHost set in the constructor.
+    if (calHost != "") {
+        return calHost + calPath;
+    }
+    // All other accounts: resolve against the discovered calendar home-set URL.
+    // If the server returned the calendar path as an absolute URL, use it directly.
+    if (calPath.find("://") != string::npos) {
+        return calPath;
+    }
+    // Lazily perform CalDAV discovery if this is a fresh DAVWorker instance
+    // (e.g., created by TaskProcessor for a single syncback task without a prior
+    // runCalendars() call having populated the cache).
+    if (!calendarsDiscoveryComplete) {
+        cachedCalendarHomeURL = resolveCalendarHomeURL();
+        calendarsDiscoveryComplete = true;
+    }
+    if (cachedCalendarHomeURL.empty()) {
+        throw SyncException("no-caldav", "CalDAV is not available for this account", false);
+    }
+    return replacePath(cachedCalendarHomeURL, calPath);
 }
 
 void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
@@ -1166,11 +1238,42 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
 }
 
 void DAVWorker::runCalendars() {
-    if (calHost == "") {
-        return;
+    // Gmail uses calHost/calPrincipal set in constructor.
+    // All other accounts use dynamic discovery (cached after first run).
+    string calendarHomeURL = "";
+
+    if (calHost != "") {
+        calendarHomeURL = calHost + calPrincipal;
+    } else {
+        if (!calendarsDiscoveryComplete) {
+            try {
+                logger->info("Performing CalDAV calendar home-set discovery");
+                cachedCalendarHomeURL = resolveCalendarHomeURL();
+                calendarsDiscoveryComplete = true;
+            } catch (SyncException & e) {
+                if (e.key.find("404") != string::npos ||
+                    e.key.find("405") != string::npos ||
+                    e.key.find("406") != string::npos) {
+                    logger->info("CalDAV not supported by server ({}), skipping calendar sync", e.key);
+                    calendarsDiscoveryComplete = true;
+                    cachedCalendarHomeURL = "";
+                    return;
+                }
+                if (e.isOffline()) {
+                    // Do NOT set calendarsDiscoveryComplete — a transient network failure
+                    // should not permanently suppress CalDAV for the process lifetime.
+                    // Discovery will be retried on the next sync cycle.
+                    logger->info("CalDAV server unreachable during discovery ({}), will retry next cycle", e.key);
+                    return;
+                }
+                throw;
+            }
+        }
+        calendarHomeURL = cachedCalendarHomeURL;
+        if (calendarHomeURL == "") return;
     }
 
-    // Fetch the list of calendars from the principal URL
+    // Fetch the list of calendars from the calendar home-set URL
     // Request calendar metadata: color, description, read-only status, order
     string propfindQuery =
         "<d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\" "
@@ -1189,7 +1292,7 @@ void DAVWorker::runCalendars() {
 
     shared_ptr<DavXML> calendarSetDoc;
     try {
-        calendarSetDoc = performXMLRequest(calHost + calPrincipal, "PROPFIND", propfindQuery);
+        calendarSetDoc = performXMLRequest(calendarHomeURL, "PROPFIND", propfindQuery);
     } catch (SyncException & e) {
         // Handle servers that don't support CalDAV (return 404 Not Found, 405 Method Not Allowed,
         // or 406 Not Acceptable). Log the error and skip calendar sync rather than crashing.
@@ -1265,10 +1368,14 @@ void DAVWorker::runCalendars() {
                 metadataChanged = true;
             }
             if (!orderStr.empty()) {
-                int order = std::stoi(orderStr);
-                if (calendar->order() != order) {
-                    calendar->setOrder(order);
-                    metadataChanged = true;
+                try {
+                    int order = std::stoi(orderStr);
+                    if (calendar->order() != order) {
+                        calendar->setOrder(order);
+                        metadataChanged = true;
+                    }
+                } catch (const std::exception &) {
+                    logger->warn("Calendar '{}': ignoring non-numeric calendar-order value '{}'", name, orderStr);
                 }
             }
             if (metadataChanged) {
@@ -1285,7 +1392,11 @@ void DAVWorker::runCalendars() {
             calendar->setDescription(description);
             calendar->setReadOnly(readOnly);
             if (!orderStr.empty()) {
-                calendar->setOrder(std::stoi(orderStr));
+                try {
+                    calendar->setOrder(std::stoi(orderStr));
+                } catch (const std::exception &) {
+                    logger->warn("Calendar '{}': ignoring non-numeric calendar-order value '{}'", name, orderStr);
+                }
             }
             store->save(calendar.get());
         }
@@ -1302,9 +1413,10 @@ void DAVWorker::runCalendars() {
             // This fallback handles servers that don't support sync-collection (Robur, GMX),
             // return errors instead of graceful decline (Zimbra, Posteo), or have unreliable
             // implementations (Synology, DAViCal, Bedework, Nextcloud). See function comments.
-            bool usedSyncToken = runForCalendarWithSyncToken(id, calHost + path, calendar);
+            string calURL = (path.find("://") != string::npos) ? path : replacePath(calendarHomeURL, path);
+            bool usedSyncToken = runForCalendarWithSyncToken(id, calURL, calendar);
             if (!usedSyncToken) {
-                runForCalendar(id, name, calHost + path);
+                runForCalendar(id, name, calURL);
             }
 
             // Update ctag after successful sync
@@ -1427,7 +1539,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     for (auto chunk : MailUtils::chunksOfVector(neededHrefs, 90)) {
         string payload = "";
         for (auto & href : chunk) {
-            payload += "<D:href>" + href + "</D:href>";
+            payload += "<d:href>" + href + "</d:href>";
         }
 
         // Fetch the data (rate limiting is now handled in performXMLRequest)
@@ -1723,7 +1835,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         for (auto chunk : MailUtils::chunksOfVector(neededHrefs, 90)) {
             string payload = "";
             for (auto & icsHref : chunk) {
-                payload += "<D:href>" + icsHref + "</D:href>";
+                payload += "<d:href>" + icsHref + "</d:href>";
             }
 
             auto icsDoc = performXMLRequest(url, "REPORT",
@@ -1967,7 +2079,7 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
         throw SyncException("no-calendar", "Calendar not found for event syncback", false);
     }
 
-    string calendarUrl = calHost + calendar->path();
+    string calendarUrl = resolvedCalendarURL(calendar->path());
     string icsData = event->icsData();
     string href = event->href();
     string existingEtag = event->etag();
@@ -2061,7 +2173,8 @@ void DAVWorker::deleteEvent(shared_ptr<Event> event) {
         href = calendar->path() + uid + ".ics";
     }
 
-    string fullUrl = replacePath(calHost + calendar->path(), href);
+    string calendarUrl = resolvedCalendarURL(calendar->path());
+    string fullUrl = replacePath(calendarUrl, href);
 
     // 3. Perform DELETE request with If-Match header if we have an etag
     string existingEtag = event->etag();
