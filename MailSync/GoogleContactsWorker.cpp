@@ -24,8 +24,8 @@
 #include <string>
 #include <curl/curl.h>
 
-string PERSON_FIELDS        = "emailAddresses,genders,names,nicknames,phoneNumbers,urls,birthdays,addresses,userDefined,relations,occupations,organizations,photos";
-string PERSON_UPDATE_FIELDS = "emailAddresses,genders,names,nicknames,phoneNumbers,urls,birthdays,addresses,userDefined,relations,occupations,organizations";
+string PERSON_FIELDS        = "emailAddresses,genders,names,nicknames,phoneNumbers,urls,birthdays,addresses,userDefined,relations,occupations,organizations,photos,biographies";
+string PERSON_UPDATE_FIELDS = "emailAddresses,genders,names,nicknames,phoneNumbers,urls,birthdays,addresses,userDefined,relations,occupations,organizations,biographies";
 string GOOGLE_PEOPLE_ROOT = "https://people.googleapis.com/v1/";
 
 GoogleContactsWorker::GoogleContactsWorker(shared_ptr<Account> account) :
