@@ -1575,11 +1575,17 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     {
         // grab the last few items in the sent folder... we know we don't need more than 10
         // because multisend is capped.
+        bool isOutlook = session->isOutlookServer();
         int tries = 0;
-        int delay[] = {0, 1, 1, 2, 2};
+        int delay[] = isOutlook ? {0, 2, 3, 5, 5} : {0, 1, 1, 2, 2};
+        int maxTries = isOutlook ? 5 : 4;
         IndexSet * uids = IndexSet::indexSet();
         
-        while (tries < 4 && uids->count() == 0) {
+        if (isOutlook) {
+            logger->info("-- Outlook/Exchange detected - using extended retry delays to wait for SMTP gateway");
+        }
+        
+        while (tries < maxTries && uids->count() == 0) {
             if (delay[tries]) {
                 logger->info("-- No messages found. Sleeping {} to wait for sent folder to settle...", delay[tries]);
 				std::this_thread::sleep_for(std::chrono::seconds(delay[tries]));
@@ -1611,6 +1617,17 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
             sentFolderMessageUID = (uint32_t)uids->allRanges()[0].location;
             logger->info("-- Found a message added to the sent folder by the SMTP gateway (UID {})", sentFolderMessageUID);
             
+        } else if (!multisend && (uids->count() > 1)) {
+            // Multiple copies found - keep the first one and delete the rest to prevent duplicates
+            auto allRanges = uids->allRanges();
+            sentFolderMessageUID = (uint32_t)allRanges[0].location;
+            logger->info("-- Found {} copies in sent folder. Keeping UID {}, deleting extras.", uids->count(), sentFolderMessageUID);
+            IndexSet * extras = IndexSet::indexSet();
+            for (unsigned int i = 1; i < uids->count(); i++) {
+                extras->addIndex(allRanges[i].location);
+            }
+            _removeMessagesResilient(session, store, account->id(), sentPath, extras);
+            
         } else {
             logger->info("-- No messages matching the message-id were found in the Sent folder.", uids->count());
         }
@@ -1622,34 +1639,68 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     }
 
     if (sentFolderMessageUID == 0) {
-        // Manually place a single message in the sent folder
-        IMAPProgress iprogress;
-        logger->info("-- Placing a new message with `self` body in the sent folder.");
-        session->appendMessage(sentPath, messageDataForSent, MessageFlagSeen, &iprogress, &sentFolderMessageUID, &err);
-        if (err != ErrorNone) {
-            logger->error("-X IMAP Error: {}. Could not place a message into the Sent folder. This means no metadata will be attached!", ErrorCodeToTypeMap[err]);
-            err = ErrorNone;
-        }
-
-        // If the user is on Gmail and the thread had labels, apply those same
-        // labels to the new sent message. Otherwise the thread moves /only/ to
-        // the sent folder.
-        if (session->storedCapabilities()->containsIndex(IMAPCapabilityGmail)) {
-            if (draft.threadId() != "") {
-                auto thread = store->find<Thread>(Query().equal("id", draft.threadId()));
-                if (thread) {
-                    Array * xgmValues = Array::array();
-                    for (auto & l : thread->labels()) {
-                        string role = l["role"].get<string>();
-                        if (role == "inbox" || role == "sent" || role == "drafts") { continue; }
-                        string xgm = _xgmKeyForLabel(l);
-                        logger->info("-- Will add label to new message: {}", xgm);
-                        xgmValues->addObject(AS_MCSTR(xgm));
+        bool isOutlook = session->isOutlookServer();
+        
+        if (isOutlook) {
+            // Outlook/Exchange always places a copy in Sent Items via SMTP gateway.
+            // Don't manually append - it would create a duplicate.
+            // Do a final long-wait probe to find the gateway copy for metadata attachment.
+            logger->info("-- Outlook detected. Skipping manual append; trusting SMTP gateway to place sent copy.");
+            
+            for (int i = 0; i < 6 && sentFolderMessageUID == 0; i++) {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                IndexSet * finalUids = IndexSet::indexSet();
+                session->findUIDsOfRecentHeaderMessageID(sentPath, AS_MCSTR(draft.headerMessageId()), finalUids);
+                if (finalUids->count() > 0) {
+                    sentFolderMessageUID = (uint32_t)finalUids->allRanges()[0].location;
+                    logger->info("-- Found Outlook SMTP gateway copy after extended wait (UID {})", sentFolderMessageUID);
+                    
+                    // If multiple copies exist, delete the extras
+                    if (finalUids->count() > 1) {
+                        logger->info("-- Found {} copies, deleting extras", finalUids->count());
+                        IndexSet * extras = IndexSet::indexSet();
+                        auto allRanges = finalUids->allRanges();
+                        for (unsigned int j = 1; j < finalUids->count(); j++) {
+                            extras->addIndex(allRanges[j].location);
+                        }
+                        _removeMessagesResilient(session, store, account->id(), sentPath, extras);
                     }
-                    session->storeLabelsByUID(sentPath, IndexSet::indexSetWithIndex(sentFolderMessageUID), IMAPStoreFlagsRequestKindAdd, xgmValues, &err);
-                    if (err != ErrorNone) {
-                        logger->error("-X IMAP Error: {}. Could not add labels to new message in sent folder. This means the thread may disappear from the inbox.", ErrorCodeToTypeMap[err]);
-                        err = ErrorNone;
+                }
+            }
+            
+            if (sentFolderMessageUID == 0) {
+                logger->error("-X Outlook SMTP gateway did not place a message in Sent folder after 12 seconds. This is unexpected.");
+            }
+        } else {
+            // Non-Outlook: manually append (original behavior)
+            IMAPProgress iprogress;
+            logger->info("-- Placing a new message with `self` body in the sent folder.");
+            session->appendMessage(sentPath, messageDataForSent, MessageFlagSeen, &iprogress, &sentFolderMessageUID, &err);
+            if (err != ErrorNone) {
+                logger->error("-X IMAP Error: {}. Could not place a message into the Sent folder. This means no metadata will be attached!", ErrorCodeToTypeMap[err]);
+                err = ErrorNone;
+            }
+
+            // If the user is on Gmail and the thread had labels, apply those same
+            // labels to the new sent message. Otherwise the thread moves /only/ to
+            // the sent folder.
+            if (session->storedCapabilities()->containsIndex(IMAPCapabilityGmail)) {
+                if (draft.threadId() != "") {
+                    auto thread = store->find<Thread>(Query().equal("id", draft.threadId()));
+                    if (thread) {
+                        Array * xgmValues = Array::array();
+                        for (auto & l : thread->labels()) {
+                            string role = l["role"].get<string>();
+                            if (role == "inbox" || role == "sent" || role == "drafts") { continue; }
+                            string xgm = _xgmKeyForLabel(l);
+                            logger->info("-- Will add label to new message: {}", xgm);
+                            xgmValues->addObject(AS_MCSTR(xgm));
+                        }
+                        session->storeLabelsByUID(sentPath, IndexSet::indexSetWithIndex(sentFolderMessageUID), IMAPStoreFlagsRequestKindAdd, xgmValues, &err);
+                        if (err != ErrorNone) {
+                            logger->error("-X IMAP Error: {}. Could not add labels to new message in sent folder. This means the thread may disappear from the inbox.", ErrorCodeToTypeMap[err]);
+                            err = ErrorNone;
+                        }
                     }
                 }
             }

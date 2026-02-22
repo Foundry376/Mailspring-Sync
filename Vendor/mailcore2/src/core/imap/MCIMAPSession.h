@@ -203,6 +203,7 @@ namespace mailcore {
         virtual bool isNamespaceEnabled();
         virtual bool isCompressionEnabled();
         virtual bool allowsNewPermanentFlags();
+        virtual bool isOutlookServer();
       
         virtual String * gmailUserDisplayName() DEPRECATED_ATTRIBUTE;
         

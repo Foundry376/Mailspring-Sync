@@ -2020,7 +2020,7 @@ void IMAPSession::moveMessages(String * folder, IndexSet * uidSet, String * dest
 }
 
 void IMAPSession::findUIDsOfRecentHeaderMessageID(String * folder, String * headerMessageID, IndexSet * uids) {
-    IndexSet * set = new IndexSet();
+    IndexSet * set = IndexSet::indexSet(); // Use autorelease pool instead of raw new
     ErrorCode err;
 
     selectIfNeeded(folder, &err);
@@ -4477,6 +4477,11 @@ bool IMAPSession::isCompressionEnabled()
 
 bool IMAPSession::allowsNewPermanentFlags() {
     return mAllowsNewPermanentFlags;
+}
+
+bool IMAPSession::isOutlookServer()
+{
+    return mOutlookServer;
 }
 
 bool IMAPSession::isDisconnected()
