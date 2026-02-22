@@ -453,6 +453,13 @@ IMAPSession::~IMAPSession()
 void IMAPSession::setHostname(String * hostname)
 {
     MC_SAFE_REPLACE_COPY(String, mHostname, hostname);
+    if (mHostname) {
+        mOutlookServer = (mHostname->locationOfString(MCSTR(".outlook.com")) != -1) ||
+                         (mHostname->locationOfString(MCSTR("office365.com")) != -1);
+    }
+    else {
+        mOutlookServer = false;
+    }
 }
 
 String * IMAPSession::hostname()
@@ -768,7 +775,8 @@ void IMAPSession::connect(ErrorCode * pError)
         mRamblerRuServer = (mHostname->locationOfString(MCSTR(".rambler.ru")) != -1);
         mHermesServer = (mWelcomeString->locationOfString(MCSTR("Hermes")) != -1);
         mQipServer = (mWelcomeString->locationOfString(MCSTR("QIP IMAP server")) != -1);
-        mOutlookServer = (mHostname->locationOfString(MCSTR(".outlook.com")) != -1);
+        mOutlookServer = (mHostname->locationOfString(MCSTR(".outlook.com")) != -1) ||
+                         (mHostname->locationOfString(MCSTR("office365.com")) != -1);
     }
     
     mState = STATE_CONNECTED;

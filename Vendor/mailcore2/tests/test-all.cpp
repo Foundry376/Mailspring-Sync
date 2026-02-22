@@ -148,7 +148,7 @@ static void testOutlookDetection()
     MCAssert(session->isOutlookServer());
     
     session->setHostname(MCSTR("outlook.office365.com"));
-    MCAssert(!session->isOutlookServer());
+    MCAssert(session->isOutlookServer());
 
     session->release();
 }
