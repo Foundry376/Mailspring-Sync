@@ -1773,8 +1773,17 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         logger->warn("sync-collection hit max pages limit ({}), sync may be incomplete", maxPages);
     }
 
-    logger->info("sync-collection complete ({} pages): {} direct, {} needed, {} deleted",
-                 pageCount, directData.size(), neededHrefs.size(), deletedHrefs.size());
+    logger->info("sync-collection complete ({} pages): {} direct, {} needed, {} deleted, token={}",
+                 pageCount, directData.size(), neededHrefs.size(), deletedHrefs.size(), syncToken);
+
+    // Some providers (observed: Yahoo CalDAV) never return a <D:sync-token> in their
+    // sync-collection response, so calendar->syncToken() is always empty and isInitialSync
+    // is always true.
+    bool anyChangesFound = !directData.empty() || !neededHrefs.empty() || !deletedHrefs.empty();
+    if (!anyChangesFound && syncToken == "") {
+        logger->info("sync-collection reported 0 change and no token, falling back to full sync");
+        return false;
+    }
 
     // Process direct data (from incremental sync with full calendar-data)
     if (!directData.empty()) {
