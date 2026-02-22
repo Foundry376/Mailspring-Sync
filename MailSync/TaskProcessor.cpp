@@ -1576,8 +1576,14 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         // grab the last few items in the sent folder... we know we don't need more than 10
         // because multisend is capped.
         bool isOutlook = session->isOutlookServer();
+        if (!isOutlook) {
+            string p = account->provider();
+            isOutlook = (p.find("outlook") != string::npos || p.find("office365") != string::npos);
+        }
         int tries = 0;
-        int delay[] = isOutlook ? {0, 2, 3, 5, 5} : {0, 1, 1, 2, 2};
+        int delayOutlook[] = {0, 2, 3, 5, 5};
+        int delayStandard[] = {0, 1, 1, 2, 2};
+        int * delay = isOutlook ? delayOutlook : delayStandard;
         int maxTries = isOutlook ? 5 : 4;
         IndexSet * uids = IndexSet::indexSet();
         
@@ -1640,6 +1646,10 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
 
     if (sentFolderMessageUID == 0) {
         bool isOutlook = session->isOutlookServer();
+        if (!isOutlook) {
+            string p = account->provider();
+            isOutlook = (p.find("outlook") != string::npos || p.find("office365") != string::npos);
+        }
         
         if (isOutlook) {
             // Outlook/Exchange always places a copy in Sent Items via SMTP gateway.
