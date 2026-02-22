@@ -480,6 +480,13 @@ void DAVWorker::runContacts() {
     if (!usedSyncToken) {
         runForAddressBook(cachedAddressBook);
     }
+
+    // Persist ctag after successful sync (mirrors calendar behavior).
+    // On the first sync the DB record has no ctag yet, so we save it now.
+    if (newCtag != "") {
+        cachedAddressBook->setCtag(newCtag);
+        store->save(cachedAddressBook.get());
+    }
 }
 
 /*
@@ -621,8 +628,10 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
         }
         existing->setSource("carddav");
         existing->setURL(abURL);
-        existing->setCtag(ctag);
+        // Save without ctag - ctag is only persisted after a successful sync.
+        // (Setting it here would cause the first sync to see oldCtag == newCtag and skip.)
         store->save(existing.get());
+        existing->setCtag(ctag); // set in-memory for comparison, not yet in DB
     }));
 
     return existing;
