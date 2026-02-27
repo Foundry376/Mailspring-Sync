@@ -60,6 +60,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     Vendor/StanfordCPPLib/stacktrace/*.[ch]pp
   )
 
+  # ... existing mailsync executable ...
   add_executable(mailsync MailSync/main.cpp ${SOURCES})
 
   add_definitions(-DSQLITE_ENABLE_FTS5=1 -DHAVE_USLEEP=1 -DSQLITE_OMIT_LOAD_EXTENSION=1)
@@ -98,6 +99,41 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   pkg_check_modules(CARES REQUIRED libcares)
   target_link_libraries(mailsync ${CARES_LINK_LIBRARIES})
+
+  # Batch 1: GTest Setup
+  find_library(GTEST_LIB NAMES gtest PATHS /usr/lib/x86_64-linux-gnu)
+  find_library(GMOCK_LIB NAMES gmock PATHS /usr/lib/x86_64-linux-gnu)
+
+  if(GTEST_LIB AND GMOCK_LIB)
+    message(STATUS "Found GTest: ${GTEST_LIB}")
+    message(STATUS "Found GMock: ${GMOCK_LIB}")
+
+    set(TEST_SOURCES ${SOURCES})
+    list(REMOVE_ITEM TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/MailSync/main.cpp")
+
+    add_executable(mailsync_tests tests/Smoke_test.cpp tests/TaskProcessor_test.cpp ${TEST_SOURCES})
+
+    set(MAILCORE_LIB "${CMAKE_SOURCE_DIR}/Vendor/mailcore2/build/src/libMailCore.a")
+    set(LIBETPAN_STATIC "${CMAKE_SOURCE_DIR}/Vendor/libetpan/src/.libs/libetpan.a")
+
+    target_link_libraries(mailsync_tests
+        -Wl,--start-group
+        ${MAILCORE_LIB}
+        ${LIBETPAN_STATIC}
+        -Wl,--end-group
+        ${GLIB_LIBRARIES}
+    )
+    target_link_libraries(mailsync_tests ${XML_LIB} ${LZMA_LIB} ${Z_LIB} ${RESOLV_LIB} ${UUID_LIB} ${ICUI18N_LIB} ${ICUUC_LIB} ${ICUDATA_LIB} ${CARES_LINK_LIBRARIES})
+    target_link_libraries(mailsync_tests pthread sasl2 ssl crypto curl dl lockfile)
+    target_link_libraries(mailsync_tests ${GTEST_LIB} ${GMOCK_LIB})
+
+    target_include_directories(mailsync_tests PRIVATE /usr/include/libxml2)
+    target_include_directories(mailsync_tests PRIVATE "${CMAKE_SOURCE_DIR}/Vendor/libetpan/include")
+
+    set_target_properties(mailsync_tests PROPERTIES
+      BUILD_RPATH "\$ORIGIN;\$ORIGIN/..;${LIBETPAN_VENDOR_LIB_DIR};${CMAKE_SOURCE_DIR}/Vendor/mailcore2/build/src;/opt/openssl/lib"
+    )
+  endif()
 
   #find_library(SASL2_LIB NAMES libsasl2.a libsasl2)
   #target_link_libraries(mailsync ${SASL2_LIB})
