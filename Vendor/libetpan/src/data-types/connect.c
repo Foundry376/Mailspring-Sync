@@ -239,12 +239,16 @@ int mail_tcp_connect_with_local_address_timeout(const char * server, uint16_t po
 
 #ifndef HAVE_IPV6
   s = socket(PF_INET, SOCK_STREAM, 0);
-  if (s == -1)
+  if (s == -1) {
+#ifdef WIN32
+    fprintf(stderr, "socket() failed: WSA error %d\n", WSAGetLastError());
+#endif
     goto err;
+  }
 
   if ((local_address != NULL) || (local_port != 0)) {
     struct sockaddr_in la;
-    
+
     la.sin_family = AF_INET;
     la.sin_port = htons(local_port);
     if (local_address == NULL) {
@@ -257,23 +261,30 @@ int mail_tcp_connect_with_local_address_timeout(const char * server, uint16_t po
     if (r == -1)
       goto close_socket;
   }
-  
+
   remotehost = gethostbyname(server);
-  if (remotehost == NULL)
+  if (remotehost == NULL) {
+#ifdef WIN32
+    fprintf(stderr, "gethostbyname(%s) failed: WSA error %d\n", server, WSAGetLastError());
+#endif
     goto close_socket;
+  }
 
   sa.sin_family = AF_INET;
   sa.sin_port = htons(port);
   memcpy(&sa.sin_addr, remotehost->h_addr, remotehost->h_length);
-  
+
   r = prepare_fd(s);
   if (r == -1) {
     goto close_socket;
   }
-  
+
   r = connect(s, (struct sockaddr *) &sa, sizeof(struct sockaddr_in));
   r = wait_connect(s, r, timeout);
   if (r == -1) {
+#ifdef WIN32
+    fprintf(stderr, "connect(%s:%u) failed: WSA error %d\n", server, (unsigned)port, WSAGetLastError());
+#endif
     goto close_socket;
   }
 #else /* HAVE_IPV6 */
