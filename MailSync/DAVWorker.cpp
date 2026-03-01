@@ -1060,6 +1060,7 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
                  pageCount, neededHrefs.size(), deletedHrefs.size());
 
     // Fetch needed items (from initial sync) using multiget in chunks
+    bool multigetHadEmptyResponse = false;
     if (!neededHrefs.empty()) {
         std::reverse(neededHrefs.begin(), neededHrefs.end());
 
@@ -1073,8 +1074,10 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
                 "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\">"
                 "<d:prop><d:getetag /><c:address-data /></d:prop>" + payload + "</c:addressbook-multiget>");
 
+            int responsesFound = 0;
             MailStoreTransaction transaction{store, "syncToken:contacts:multiget"};
             abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+                responsesFound++;
                 bool isGroup = false;
                 auto contact = ingestAddressDataNode(abDoc, node, isGroup);
                 if (contact) {
@@ -1087,6 +1090,11 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
                 }
             }));
             transaction.commit();
+
+            if (responsesFound == 0) {
+                logger->warn("Multiget for {} hrefs returned 0 D:response nodes - server response may be malformed or empty", chunk.size());
+                multigetHadEmptyResponse = true;
+            }
         }
     }
 
@@ -1126,11 +1134,18 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
         store->save(contact.get());
     }
 
-    // Store final sync-token for next sync
+    // Store final sync-token for next sync.
+    // Do NOT advance the token if the multiget returned 0 D:response nodes for requested hrefs.
+    // That indicates a server-side anomaly (empty response), and storing the token would permanently
+    // skip those contacts since future incremental syncs would not re-request them.
     if (syncToken != "" && syncToken != ab->syncToken()) {
-        ab->setSyncToken(syncToken);
-        store->save(ab.get());
-        logger->info("Stored new sync-token for address book");
+        if (multigetHadEmptyResponse) {
+            logger->warn("Not storing sync-token because multiget returned empty responses - will retry contacts on next sync");
+        } else {
+            ab->setSyncToken(syncToken);
+            store->save(ab.get());
+            logger->info("Stored new sync-token for address book");
+        }
     }
 
     return true;
@@ -1994,11 +2009,11 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
     headers = curl_slist_append(headers, "Prefer: return-minimal");
     headers = curl_slist_append(headers, "Content-Type: application/xml; charset=utf-8");
-
-    // Check for CardDAV namespace to set vCard Accept header
-    if (payload.find("urn:ietf:params:xml:ns:carddav") != string::npos) {
-        headers = curl_slist_append(headers, "Accept: text/vcard; version=4.0");
-    }
+    // Note: Do NOT set Accept: text/vcard here. WebDAV REPORT/PROPFIND responses are always
+    // XML (207 Multi-Status). Setting Accept: text/vcard confuses some servers into returning
+    // raw vCard text or an empty multistatus instead of the expected XML response. The vCard
+    // format preference for embedded carddav:address-data should be set via XML request body
+    // attributes, not via the HTTP Accept header.
     string depthHeader = "Depth: " + depth;
     headers = curl_slist_append(headers, depthHeader.c_str());
 
