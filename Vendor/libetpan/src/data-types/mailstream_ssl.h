@@ -125,7 +125,7 @@ int mailstream_ssl_set_server_certicate(struct mailstream_ssl_context * ssl_cont
 
 LIBETPAN_EXPORT
 int mailstream_ssl_set_server_name(struct mailstream_ssl_context * ssl_context,
-    char * hostname);
+    const char * server_name);
 
 LIBETPAN_EXPORT
 void * mailstream_ssl_get_openssl_ssl_ctx(struct mailstream_ssl_context * ssl_context);
