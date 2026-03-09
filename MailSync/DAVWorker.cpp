@@ -226,6 +226,18 @@ static string normalizeHref(const string & href) {
     return result;
 }
 
+// Generate the CalDAV resource href for a new event that has no stored href yet.
+//
+// Returns the CalDAV resource href for an event. Exceptions are embedded inline in
+// the master's VCALENDAR (RFC 4791 §4.1), so all events use "{uid}.ics".
+static string hrefForNewEvent(const string & calendarPath, shared_ptr<Event> event) {
+    string uid = event->icsUID();
+    if (uid.empty()) {
+        uid = MailUtils::idRandomlyGenerated();
+    }
+    return calendarPath + uid + ".ics";
+}
+
 // Rate limiting constants (RFC 6585/7231 compliance)
 static const int MAX_BACKOFF_MS = 60000;  // 1 minute max backoff
 static const int MIN_BACKOFF_MS = 100;    // 100ms minimum when backing off
@@ -578,7 +590,7 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     }
     
     if (cardRoot == "https://mail.yahoo.com/") {
-        // workaound yahoo second recirect above sending us to mail.yahoo.com...
+        // workaound yahoo second redirect above sending us to mail.yahoo.com...
         return existing;
     }
     
@@ -2091,7 +2103,7 @@ string DAVWorker::performICSRequest(string _url, string method, string icsData, 
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
 
-    logger->info("performICSRequest: {} {} etag:{}", method, _url, existingEtag);
+    logger->info("performICSRequest: {} {} etag:{}, data: {}", method, _url, existingEtag, icsData);
     string result = PerformRequest(curl_handle);
     return result;
 }
@@ -2110,13 +2122,8 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
 
     // 2. Determine the href for the event
     if (href == "") {
-        // No href stored - either a new event or a legacy event synced before we stored hrefs.
-        // Generate the href from the UID (most CalDAV servers use {uid}.ics as the resource name)
-        string uid = event->icsUID();
-        if (uid == "") {
-            uid = MailUtils::idRandomlyGenerated();
-        }
-        href = calendar->path() + uid + ".ics";
+        // No href stored — new event, or legacy event synced before hrefs were recorded.
+        href = hrefForNewEvent(calendar->path(), event);
     }
 
     string fullUrl = replacePath(calendarUrl, href);
@@ -2188,13 +2195,12 @@ void DAVWorker::deleteEvent(shared_ptr<Event> event) {
 
     string href = event->href();
 
-    // 2. If no href stored, try to reconstruct from UID
+    // 2. If no href stored, reconstruct it using the icsUID.
     if (href == "") {
-        string uid = event->icsUID();
-        if (uid == "") {
+        if (event->icsUID().empty()) {
             throw SyncException("no-href", "Cannot delete event without href or icsUID", false);
         }
-        href = calendar->path() + uid + ".ics";
+        href = hrefForNewEvent(calendar->path(), event);
     }
 
     string calendarUrl = resolvedCalendarURL(calendar->path());
