@@ -125,6 +125,11 @@ void MetadataWorker::fetchDeltasBlocking() {
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onDeltaData);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)this);
 
+    // Force HTTP/1.1 for the streaming connection. HTTP/2 multiplexing provides no
+    // benefit for a single long-lived stream, and HTTP/2 framing errors (CURLE_HTTP2,
+    // CURLE_HTTP2_STREAM) from load balancers and proxies cause unnecessary disconnects.
+    curl_easy_setopt(curl_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+
     // close the connection if we receive <1 byte/sec for 30 seconds.
     // the backend sends 16 bytes (16 x "\n") every 10 sec, giving
     // 1.06 - 1.6 bytes every 30 sec depending on whether 2 or 3 packets
