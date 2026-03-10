@@ -34,6 +34,8 @@ SyncException::SyncException(CURLcode c, string di) :
         (c == CURLE_GOT_NOTHING) ||
         (c == CURLE_SEND_ERROR) ||
         (c == CURLE_RECV_ERROR) ||
+        (c == CURLE_HTTP2) ||
+        (c == CURLE_HTTP2_STREAM) ||
         (c == CURLE_AGAIN)) {
         retryable = true;
         offline = true;
