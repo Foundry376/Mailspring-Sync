@@ -42,6 +42,24 @@
 #include "mailpop3.h"
 #include "mailstream_cfstream.h"
 
+struct mailpop3_ssl_callback_data {
+  void (* callback)(struct mailstream_ssl_context * ssl_context, void * data);
+  void * data;
+  const char * server;
+};
+
+static void mailpop3_ssl_sni_callback(struct mailstream_ssl_context * ssl_context, void * data)
+{
+  struct mailpop3_ssl_callback_data * callback_data = (struct mailpop3_ssl_callback_data *) data;
+
+  if (callback_data != NULL && callback_data->server != NULL) {
+    mailstream_ssl_set_server_name(ssl_context, callback_data->server);
+  }
+  if (callback_data != NULL && callback_data->callback != NULL) {
+    callback_data->callback(ssl_context, callback_data->data);
+  }
+}
+
 #include "connect.h"
 #ifdef HAVE_NETINET_IN_H
 #	include <netinet/in.h>
@@ -70,6 +88,7 @@ int mailpop3_ssl_connect_with_callback(mailpop3 * f, const char * server, uint16
 {
   int s;
   mailstream * stream;
+  struct mailpop3_ssl_callback_data callback_data;
 
 #if HAVE_CFNETWORK
   if (mailstream_cfstream_enabled) {
@@ -90,7 +109,11 @@ int mailpop3_ssl_connect_with_callback(mailpop3 * f, const char * server, uint16
   if (s == -1)
     return MAILPOP3_ERROR_CONNECTION_REFUSED;
 
-  stream = mailstream_ssl_open_with_callback_timeout(s, f->pop3_timeout, callback, data);
+  callback_data.callback = callback;
+  callback_data.data = data;
+  callback_data.server = server;
+  stream = mailstream_ssl_open_with_callback_timeout(s, f->pop3_timeout,
+    mailpop3_ssl_sni_callback, &callback_data);
   if (stream == NULL) {
 #ifdef WIN32
 	closesocket(s);

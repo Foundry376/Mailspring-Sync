@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required (VERSION 3.5)
 project (mailcore2) 
 
 IF(APPLE)
@@ -78,7 +78,7 @@ IF(ANDROID)
   message(STATUS "Android platform")
 ELSE()
 
-# detect ctemplate
+# detect ctemplate (optional)
 
 find_path(CTEMPLATE_INCLUDE_DIR
   NAMES ctemplate/template.h
@@ -90,7 +90,7 @@ find_library(CTEMPLATE_LIBRARY
 )
 
 if(NOT CTEMPLATE_INCLUDE_DIR OR NOT CTEMPLATE_LIBRARY)
-  message(FATAL_ERROR "ERROR: Could not find ctemplate")
+  message(STATUS "ctemplate not found - continuing without it")
 else()
   message(STATUS "Found ctemplate")
 endif()
