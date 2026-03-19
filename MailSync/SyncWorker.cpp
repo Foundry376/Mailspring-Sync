@@ -9,6 +9,7 @@
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
 #include <algorithm>
+#include <chrono>
 
 #include "SyncWorker.hpp"
 #include "MailUtils.hpp"
@@ -799,16 +800,17 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID");
     }
 
-    clock_t lastSleepClock = clock();
+    auto lastSleepTime = std::chrono::steady_clock::now();
 
     logger->info("- {}: remote={}, local={}, remoteUID={}", remotePath, remote->count(), local.size(), folder.id());
 
     for (int ii = ((int)remote->count()) - 1; ii >= 0; ii--) {
         // Never sit in a hard loop inserting things into the database for more than 250ms.
         // This ensures we don't starve another thread waiting for a database connection
-        if (((clock() - lastSleepClock) * 4) / CLOCKS_PER_SEC > 1) {
+        auto currentTime = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - lastSleepTime).count() > 250) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            lastSleepClock = clock();
+            lastSleepTime = std::chrono::steady_clock::now();
         }
         
         IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));

@@ -66,6 +66,7 @@
 #ifndef __clang_analyzer__
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -188,8 +189,8 @@ typedef struct
     int isZip64;
 
 #    ifndef NOUNCRYPT
-    unsigned long keys[3];     /* keys defining the pseudo-random sequence */
-    const unsigned long* pcrc_32_tab;
+    uint32_t keys[3];     /* keys defining the pseudo-random sequence */
+    const uint32_t* pcrc_32_tab;
 #    endif
 } unz64_s;
 

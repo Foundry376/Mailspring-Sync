@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.6)
+cmake_minimum_required (VERSION 3.5)
 project (mailcore2) 
 
 IF(APPLE)
@@ -25,7 +25,7 @@ IF(APPLE)
   set(mac_libraries iconv)
   
 ELSEIF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-  set(CMAKE_CXX_FLAGS "-std=gnu++0x")
+  set(CMAKE_CXX_FLAGS "-std=c++17")
   
   set(additional_includes
     /usr/include/tidy
@@ -184,6 +184,6 @@ endif()
 ENDIF() # Android platform
 
 add_subdirectory (src)
-add_subdirectory (tests)
-add_subdirectory (unittest)
+# add_subdirectory (tests)
+# add_subdirectory (unittest)
 

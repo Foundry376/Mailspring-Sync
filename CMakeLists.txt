@@ -1,5 +1,7 @@
-cmake_minimum_required (VERSION 3.1 FATAL_ERROR)
+cmake_minimum_required (VERSION 3.5 FATAL_ERROR)
 project (mailsync) 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 SET (CMAKE_CXX_FLAGS   "-Wno-unknown-pragmas")
 
@@ -15,17 +17,21 @@ link_directories (${GLIB_LIBRARY_DIRS})
 
 IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
-  # Detect Debian/Ubuntu multiarch library path (e.g. /usr/lib/aarch64-linux-gnu)
-  # so that find_library() works on ARM64 and other non-x86 architectures
-  execute_process(
-    COMMAND dpkg-architecture -qDEB_HOST_MULTIARCH
-    OUTPUT_VARIABLE DEB_HOST_MULTIARCH
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-  )
-  if(DEB_HOST_MULTIARCH)
-    list(APPEND CMAKE_LIBRARY_PATH /usr/lib/${DEB_HOST_MULTIARCH})
-  endif()
+  # Use pkg-config to find dependencies which is more robust on Arch/CachyOS
+  pkg_check_modules(XML REQUIRED libxml-2.0)
+  pkg_check_modules(LZMA REQUIRED liblzma)
+  pkg_check_modules(ZLIB REQUIRED zlib)
+  pkg_check_modules(UUID REQUIRED uuid)
+  pkg_check_modules(ICU_I18N REQUIRED icu-i18n)
+  pkg_check_modules(ICU_UC REQUIRED icu-uc)
+  # ctemplate doesn't always have a .pc file, we'll find it manually if needed
+
+  include_directories(${XML_INCLUDE_DIRS})
+  include_directories(${LZMA_INCLUDE_DIRS})
+  include_directories(${ZLIB_INCLUDE_DIRS})
+  include_directories(${UUID_INCLUDE_DIRS})
+  include_directories(${ICU_I18N_INCLUDE_DIRS})
+  include_directories(${ICU_UC_INCLUDE_DIRS})
 
   set(additional_includes
     /usr/include/tidy
@@ -38,6 +44,7 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   link_directories(/opt/openssl/lib)
   link_directories(Vendor/mailcore2/build/src)
+  link_directories(Vendor/libetpan/src/.libs)
   include_directories(Vendor/mailcore2/build/src/include)
 
   include_directories(Vendor)
@@ -67,34 +74,24 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   target_link_libraries(mailsync libMailCore.a)
   target_link_libraries(mailsync ${GLIB_LIBRARIES})
   target_link_libraries(mailsync libetpan.a)
-
-  find_library(XML_LIB NAMES libxml2.a libxml2)
-  target_link_libraries(mailsync ${XML_LIB})
-  target_include_directories(mailsync PRIVATE /usr/include/libxml2)
-
-  find_library(LZMA_LIB NAMES liblzma.a liblzma)
-  target_link_libraries(mailsync ${LZMA_LIB})
-
-  find_library(Z_LIB NAMES libz.a libz)
-  target_link_libraries(mailsync ${Z_LIB})
+  target_link_libraries(mailsync ${XML_LIBRARIES})
+  target_link_libraries(mailsync ${LZMA_LIBRARIES})
+  target_link_libraries(mailsync ${ZLIB_LIBRARIES})
+  target_link_libraries(mailsync ${UUID_LIBRARIES})
+  target_link_libraries(mailsync ${ICU_I18N_LIBRARIES})
+  target_link_libraries(mailsync ${ICU_UC_LIBRARIES})
 
   find_library(RESOLV_LIB NAMES libresolv.a libresolv)
   target_link_libraries(mailsync ${RESOLV_LIB})
 
-  find_library(CTEMPLATE_LIB NAMES libctemplate.a libctemplate)
+  find_library(CTEMPLATE_LIB NAMES libctemplate.a libctemplate ctemplate)
   target_link_libraries(mailsync ${CTEMPLATE_LIB})
 
-  find_library(UUID_LIB NAMES libuuid.a libuuid)
-  target_link_libraries(mailsync ${UUID_LIB})
-
-  find_library(ICUI18N_LIB NAMES libicui18n.a libicui18n)
-  target_link_libraries(mailsync ${ICUI18N_LIB})
-
-  find_library(ICUUC_LIB NAMES libicuuc.a libicuuc)
-  target_link_libraries(mailsync ${ICUUC_LIB})
-
-  find_library(ICUDATA_LIB NAMES libicudata.a libicudata)
-  target_link_libraries(mailsync ${ICUDATA_LIB})
+  find_library(CRYPTO_LIB NAMES libcrypto.a crypto)
+  target_link_libraries(mailsync ${CRYPTO_LIB})
+  
+  find_library(SSL_LIB NAMES libssl.a ssl)
+  target_link_libraries(mailsync ${SSL_LIB})
 
   pkg_check_modules(CARES REQUIRED libcares)
   target_link_libraries(mailsync ${CARES_LINK_LIBRARIES})
