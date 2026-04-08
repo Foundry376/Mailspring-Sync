@@ -60,7 +60,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   MULTIARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH)
   cp /usr/lib/${MULTIARCH}/sasl2/* "$APP_ROOT_DIR"
 
-  printf "#!/bin/bash\nset -e\nset -o pipefail\nSCRIPTPATH=\"\$( cd \"\$(dirname \"\$0\")\" >/dev/null 2>&1 ; pwd -P )\"\nSASL_PATH=\"\$SCRIPTPATH\" LD_LIBRARY_PATH=\"\$SCRIPTPATH:\$LD_LIBRARY_PATH\" \"\$SCRIPTPATH/mailsync.bin\" \"\$@\"" > "$APP_ROOT_DIR/mailsync"
+  printf "#!/bin/bash\nset -e\nset -o pipefail\nSCRIPTPATH=\"\$( cd \"\$(dirname \"\$0\")\" >/dev/null 2>&1 ; pwd -P )\"\nexport SASL_PATH=\"\$SCRIPTPATH\"\nexport LD_LIBRARY_PATH=\"\$SCRIPTPATH:\$LD_LIBRARY_PATH\"\nexec \"\$SCRIPTPATH/mailsync.bin\" \"\$@\"" > "$APP_ROOT_DIR/mailsync"
   chmod +x "$APP_ROOT_DIR/mailsync"
 
   # Zip this stuff up so we can push it to S3 as a single artifacts
