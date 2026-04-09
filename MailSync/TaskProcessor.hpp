@@ -97,7 +97,10 @@ private:
 
     void performRemoteExpungeAllInFolder(Task * task);
     void performRemoteGetMessageRFC2822(Task * task);
+    void performRemoteGetManyRFC2822(Task * task);
     void performRemoteSendRSVP(Task * task);
+
+    static string sanitizeEmlFilename(string subject, time_t date, int index);
 
 };
 
