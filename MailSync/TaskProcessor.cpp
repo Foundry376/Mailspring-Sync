@@ -30,6 +30,9 @@
 
 #include <sstream>
 #include <algorithm>
+#include <iomanip>
+#include <thread>
+#include <chrono>
 
 #if defined(_MSC_VER)
 #include <direct.h>
@@ -434,6 +437,9 @@ void TaskProcessor::performLocal(Task * task) {
         } else if (cname == "GetMessageRFC2822Task") {
             // nothing
 
+        } else if (cname == "GetManyRFC2822Task") {
+            // nothing — all work happens in performRemote
+
         } else if (cname == "EventRSVPTask") {
             // nothing
 
@@ -530,6 +536,9 @@ void TaskProcessor::performRemote(Task * task) {
 
             } else if (cname == "GetMessageRFC2822Task") {
                 performRemoteGetMessageRFC2822(task);
+
+            } else if (cname == "GetManyRFC2822Task") {
+                performRemoteGetManyRFC2822(task);
 
             } else if (cname == "EventRSVPTask") {
                 performRemoteSendRSVP(task);
@@ -1846,7 +1855,190 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
 #endif
 }
 
+std::string TaskProcessor::sanitizeEmlFilename(const std::string & subject, time_t date, int index) {
+    // Start with the subject, or "untitled" if empty
+    std::string safe = subject.empty() ? "untitled" : subject;
 
+    // Truncate to 80 characters (respecting multi-byte boundaries isn't critical
+    // since illegal chars are replaced anyway, and truncation mid-char produces
+    // a replacement underscore at worst)
+    if (safe.size() > 80) {
+        safe.resize(80);
+    }
+
+    // Replace filesystem-illegal characters and control characters with '_'
+    for (size_t i = 0; i < safe.size(); i++) {
+        unsigned char c = static_cast<unsigned char>(safe[i]);
+        if (c <= 0x1f || c == 0x7f ||
+            safe[i] == '/' || safe[i] == '?' || safe[i] == '<' || safe[i] == '>' ||
+            safe[i] == '\\' || safe[i] == ':' || safe[i] == '*' || safe[i] == '|' || safe[i] == '"') {
+            safe[i] = '_';
+        }
+    }
+
+    // Strip trailing dots and spaces (Windows requirement)
+    while (!safe.empty() && (safe.back() == '.' || safe.back() == ' ')) {
+        safe.pop_back();
+    }
+    if (safe.empty()) {
+        safe = "untitled";
+    }
+
+    // Format date as YYYY-MM-DD in UTC
+    char dateBuf[16];
+    struct tm utc;
+#ifdef _MSC_VER
+    gmtime_s(&utc, &date);
+#else
+    gmtime_r(&date, &utc);
+#endif
+    strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", &utc);
+
+    // Build filename: {index} - {subject} - {date}.eml
+    std::ostringstream oss;
+    oss << std::setw(5) << std::setfill('0') << index
+        << " - " << safe << " - " << dateBuf << ".eml";
+
+    std::string filename = oss.str();
+
+#ifdef _MSC_VER
+    // Clamp to 200 characters for Windows MAX_PATH safety
+    if (filename.size() > 200) {
+        // Rebuild with a truncated subject to fit
+        size_t overhead = 5 + 3 + 3 + strlen(dateBuf) + 4; // index + " - " + " - " + date + ".eml"
+        size_t maxSubject = 200 - overhead;
+        if (safe.size() > maxSubject) {
+            safe.resize(maxSubject);
+            // Re-strip trailing dots/spaces after truncation
+            while (!safe.empty() && (safe.back() == '.' || safe.back() == ' ')) {
+                safe.pop_back();
+            }
+            if (safe.empty()) safe = "untitled";
+        }
+        oss.str("");
+        oss.clear();
+        oss << std::setw(5) << std::setfill('0') << index
+            << " - " << safe << " - " << dateBuf << ".eml";
+        filename = oss.str();
+    }
+#endif
+
+    return filename;
+}
+
+void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
+    const auto folderId = task->data()["folderId"].get<string>();
+    const auto folderPath = task->data()["folderPath"].get<string>();
+    const auto outputDir = task->data()["outputDir"].get<string>();
+
+    // Query all messages in the folder
+    auto all = store->findAll<Message>(
+        Query().equal("accountId", task->accountId()).equal("remoteFolderId", folderId));
+
+    // Initialize or resume progress
+    int resumeIndex = 0;
+    if (task->data().count("progress") && task->data()["progress"].count("exported")) {
+        resumeIndex = task->data()["progress"]["exported"].get<int>();
+    }
+
+    json progress;
+    progress["total"] = (int)all.size();
+    progress["exported"] = resumeIndex;
+    progress["failed"] = 0;
+    progress["errors"] = json::array();
+
+    // If resuming, carry forward previous error count and errors
+    if (task->data().count("progress")) {
+        if (task->data()["progress"].count("failed")) {
+            progress["failed"] = task->data()["progress"]["failed"];
+        }
+        if (task->data()["progress"].count("errors")) {
+            progress["errors"] = task->data()["progress"]["errors"];
+        }
+    }
+
+    int total = (int)all.size();
+    int exported = resumeIndex;
+    int failed = progress["failed"].get<int>();
+    const int chunkSize = 50;
+
+    for (int i = resumeIndex; i < total; i++) {
+        {
+            AutoreleasePool pool;
+            auto & msg = all[i];
+            std::string filename = sanitizeEmlFilename(msg->subject(), msg->date(), i);
+            std::string filepath = outputDir + FS_PATH_SEP + filename;
+
+            IMAPProgress cb;
+            ErrorCode err = ErrorNone;
+
+            try {
+                Data * data = session->fetchMessageByUID(
+                    AS_MCSTR(folderPath), msg->remoteUID(), &cb, &err);
+
+                if (err != ErrorNone) {
+                    throw SyncException(err, "GetManyRFC2822 fetch");
+                }
+                if (data == nullptr) {
+                    throw SyncException(ErrorFetch, "GetManyRFC2822 - null data");
+                }
+
+#ifdef _MSC_VER
+                wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+                data->writeToFile(AS_WIDE_MCSTR(convert.from_bytes(filepath)));
+#else
+                data->writeToFile(AS_MCSTR(filepath));
+#endif
+                exported++;
+            } catch (SyncException & ex) {
+                logger->error("GetManyRFC2822: failed to export message {} (UID {}): {}",
+                    msg->id(), msg->remoteUID(), ex.toJSON().dump());
+                failed++;
+                json errEntry;
+                errEntry["messageId"] = msg->id();
+                errEntry["subject"] = msg->subject();
+                errEntry["error"] = ex.toJSON()["error"];
+                progress["errors"].push_back(errEntry);
+            }
+        } // AutoreleasePool scope
+
+        // After each chunk of 50, save progress and check for cancellation
+        if ((i + 1) % chunkSize == 0 || i == total - 1) {
+            progress["exported"] = exported;
+            progress["failed"] = failed;
+            task->data()["progress"] = progress;
+            store->save(task);
+
+            // Re-read task from DB to check for cancellation
+            auto refreshed = store->find<Task>(Query().equal("id", task->id()));
+            if (refreshed != nullptr && refreshed->shouldCancel()) {
+                progress["cancelled"] = true;
+                task->data()["progress"] = progress;
+                store->save(task);
+                logger->info("GetManyRFC2822: cancelled after exporting {} of {} messages", exported, total);
+                return;
+            }
+
+            // Sleep to let sync and other tasks breathe
+            if (i < total - 1) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        }
+    }
+
+    // Write final result
+    json result;
+    result["total"] = total;
+    result["exported"] = exported;
+    result["failed"] = failed;
+    result["outputDir"] = outputDir;
+    result["errors"] = progress["errors"];
+    task->data()["result"] = result;
+    store->save(task);
+
+    logger->info("GetManyRFC2822: completed. Exported {} of {} messages ({} failed)",
+        exported, total, failed);
+}
 
 void TaskProcessor::performRemoteSendRSVP(Task * task) {
     AutoreleasePool pool;
