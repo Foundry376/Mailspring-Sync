@@ -19,7 +19,7 @@ using namespace std;
 
 // TODO: figure out how to use templates for this
 
-Query::Query() noexcept : _clauses({}), _limit(0), _offset(0), _orderBy(""), _orderDir("ASC") {
+Query::Query() noexcept : _clauses({}), _limit(0), _orderBy(""), _orderDir("ASC") {
 }
 
 Query & Query::equal(string col, string val) {
@@ -70,11 +70,6 @@ Query & Query::limit(int l) {
     return *this;
 }
 
-Query & Query::offset(int o) {
-    _offset = o;
-    return *this;
-}
-
 Query & Query::orderBy(string col, string dir) {
     _orderBy = col;
     _orderDir = dir;
@@ -83,10 +78,6 @@ Query & Query::orderBy(string col, string dir) {
 
 int Query::getLimit() {
     return _limit;
-}
-
-int Query::getOffset() {
-    return _offset;
 }
 
 string Query::getSQL() {

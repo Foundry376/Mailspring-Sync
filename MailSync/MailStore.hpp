@@ -138,12 +138,6 @@ public:
         if (query.getLimit() != 0) {
             sql = sql + " LIMIT " + to_string(query.getLimit());
         }
-        if (query.getOffset() != 0) {
-            if (query.getLimit() == 0) {
-                sql = sql + " LIMIT -1";
-            }
-            sql = sql + " OFFSET " + to_string(query.getOffset());
-        }
         SQLite::Statement statement(this->_db, sql);
         query.bind(statement);
         

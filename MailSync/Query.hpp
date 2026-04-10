@@ -24,7 +24,6 @@ using namespace std;
 class Query {
     json _clauses;
     int _limit;
-    int _offset;
     string _orderBy;
     string _orderDir;
 
@@ -42,11 +41,9 @@ public:
     Query & lte(string col, double val);
 
     Query & limit(int l);
-    Query & offset(int o);
     Query & orderBy(string col, string dir = "ASC");
 
     int getLimit();
-    int getOffset();
     std::string getSQL();
 
     void bind(SQLite::Statement & query);
