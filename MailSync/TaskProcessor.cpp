@@ -1970,6 +1970,8 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
     // to avoid skipping/duplicating messages if the folder changes during export.
     // This uses the MessageUIDScanIndex (accountId, remoteFolderId, remoteUID).
     while (true) {
+        AutoreleasePool pool;
+
         auto chunkQuery = Query()
             .equal("accountId", task->accountId())
             .equal("remoteFolderId", folderId)
@@ -1983,7 +1985,6 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
         }
 
         for (auto & msg : messages) {
-            AutoreleasePool pool;
             std::string filename = sanitizeEmlFilename(msg->subject(), msg->date(), globalIndex);
             std::string filepath = outputDir + FS_PATH_SEP + filename;
 
