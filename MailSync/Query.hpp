@@ -24,10 +24,12 @@ using namespace std;
 class Query {
     json _clauses;
     int _limit;
-    
+    string _orderBy;
+    string _orderDir;
+
 public:
     Query() noexcept;
-    
+
     Query & equal(string col, string val);
     Query & equal(string col, double val);
     Query & equal(string col, vector<string> & val);
@@ -39,6 +41,7 @@ public:
     Query & lte(string col, double val);
 
     Query & limit(int l);
+    Query & orderBy(string col, string dir = "ASC");
 
     int getLimit();
     std::string getSQL();

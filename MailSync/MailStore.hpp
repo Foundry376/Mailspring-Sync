@@ -150,6 +150,16 @@ public:
     }
     
     
+    template<typename ModelClass>
+    int count(Query & query) {
+        assertCorrectThread();
+        string sql = "SELECT COUNT(*) FROM " + ModelClass::TABLE_NAME + query.getSQL();
+        SQLite::Statement statement(this->_db, sql);
+        query.bind(statement);
+        statement.executeStep();
+        return statement.getColumn(0).getInt();
+    }
+
     /**
      Handles dividing a large set into small chunks of <1000 and re-aggregating the results so SQLite can handle it.
      */
