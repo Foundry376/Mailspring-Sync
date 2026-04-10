@@ -1931,9 +1931,9 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
     const auto folderPath = task->data()["folderPath"].get<string>();
     const auto outputDir = task->data()["outputDir"].get<string>();
 
-    // Query all messages in the folder
-    auto all = store->findAll<Message>(
-        Query().equal("accountId", task->accountId()).equal("remoteFolderId", folderId));
+    // Get total count without loading all message objects into memory
+    auto countQuery = Query().equal("accountId", task->accountId()).equal("remoteFolderId", folderId);
+    int total = store->count<Message>(countQuery);
 
     // Initialize or resume progress
     int resumeIndex = 0;
@@ -1942,7 +1942,7 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
     }
 
     json progress;
-    progress["total"] = (int)all.size();
+    progress["total"] = total;
     progress["exported"] = resumeIndex;
     progress["failed"] = 0;
     progress["errors"] = json::array();
@@ -1957,16 +1957,23 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
         }
     }
 
-    int total = (int)all.size();
     int exported = resumeIndex;
     int failed = progress["failed"].get<int>();
     const int chunkSize = 50;
+    int globalIndex = resumeIndex;
 
-    for (int i = resumeIndex; i < total; i++) {
-        {
+    for (int chunkStart = resumeIndex; chunkStart < total; chunkStart += chunkSize) {
+        // Load one chunk of messages at a time via LIMIT/OFFSET
+        auto chunkQuery = Query()
+            .equal("accountId", task->accountId())
+            .equal("remoteFolderId", folderId)
+            .limit(chunkSize)
+            .offset(chunkStart);
+        auto messages = store->findAll<Message>(chunkQuery);
+
+        for (auto & msg : messages) {
             AutoreleasePool pool;
-            auto & msg = all[i];
-            std::string filename = sanitizeEmlFilename(msg->subject(), msg->date(), i);
+            std::string filename = sanitizeEmlFilename(msg->subject(), msg->date(), globalIndex);
             std::string filepath = outputDir + FS_PATH_SEP + filename;
 
             IMAPProgress cb;
@@ -2000,29 +2007,29 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
                 errEntry["error"] = ex.toJSON()["error"];
                 progress["errors"].push_back(errEntry);
             }
-        } // AutoreleasePool scope
 
-        // After each chunk of 50, save progress and check for cancellation
-        if ((i + 1) % chunkSize == 0 || i == total - 1) {
-            progress["exported"] = exported;
-            progress["failed"] = failed;
+            globalIndex++;
+        }
+
+        // After each chunk, save progress and check for cancellation
+        progress["exported"] = exported;
+        progress["failed"] = failed;
+        task->data()["progress"] = progress;
+        store->save(task);
+
+        // Re-read task from DB to check for cancellation
+        auto refreshed = store->find<Task>(Query().equal("id", task->id()));
+        if (refreshed != nullptr && refreshed->shouldCancel()) {
+            progress["cancelled"] = true;
             task->data()["progress"] = progress;
             store->save(task);
+            logger->info("GetManyRFC2822: cancelled after exporting {} of {} messages", exported, total);
+            return;
+        }
 
-            // Re-read task from DB to check for cancellation
-            auto refreshed = store->find<Task>(Query().equal("id", task->id()));
-            if (refreshed != nullptr && refreshed->shouldCancel()) {
-                progress["cancelled"] = true;
-                task->data()["progress"] = progress;
-                store->save(task);
-                logger->info("GetManyRFC2822: cancelled after exporting {} of {} messages", exported, total);
-                return;
-            }
-
-            // Sleep to let sync and other tasks breathe
-            if (i < total - 1) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-            }
+        // Sleep to let sync and other tasks breathe
+        if (chunkStart + chunkSize < total) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }
 

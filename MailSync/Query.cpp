@@ -19,7 +19,7 @@ using namespace std;
 
 // TODO: figure out how to use templates for this
 
-Query::Query() noexcept : _clauses({}), _limit(0) {
+Query::Query() noexcept : _clauses({}), _limit(0), _offset(0) {
 }
 
 Query & Query::equal(string col, string val) {
@@ -70,8 +70,17 @@ Query & Query::limit(int l) {
     return *this;
 }
 
+Query & Query::offset(int o) {
+    _offset = o;
+    return *this;
+}
+
 int Query::getLimit() {
     return _limit;
+}
+
+int Query::getOffset() {
+    return _offset;
 }
 
 string Query::getSQL() {

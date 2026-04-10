@@ -138,6 +138,12 @@ public:
         if (query.getLimit() != 0) {
             sql = sql + " LIMIT " + to_string(query.getLimit());
         }
+        if (query.getOffset() != 0) {
+            if (query.getLimit() == 0) {
+                sql = sql + " LIMIT -1";
+            }
+            sql = sql + " OFFSET " + to_string(query.getOffset());
+        }
         SQLite::Statement statement(this->_db, sql);
         query.bind(statement);
         
@@ -150,6 +156,16 @@ public:
     }
     
     
+    template<typename ModelClass>
+    int count(Query & query) {
+        assertCorrectThread();
+        string sql = "SELECT COUNT(*) FROM " + ModelClass::TABLE_NAME + query.getSQL();
+        SQLite::Statement statement(this->_db, sql);
+        query.bind(statement);
+        statement.executeStep();
+        return statement.getColumn(0).getInt();
+    }
+
     /**
      Handles dividing a large set into small chunks of <1000 and re-aggregating the results so SQLite can handle it.
      */
