@@ -25,6 +25,8 @@ class Query {
     json _clauses;
     int _limit;
     int _offset;
+    string _orderBy;
+    string _orderDir;
 
 public:
     Query() noexcept;
@@ -41,6 +43,7 @@ public:
 
     Query & limit(int l);
     Query & offset(int o);
+    Query & orderBy(string col, string dir = "ASC");
 
     int getLimit();
     int getOffset();

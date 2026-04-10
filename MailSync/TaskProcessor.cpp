@@ -1936,40 +1936,51 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
     int total = store->count<Message>(countQuery);
 
     // Initialize or resume progress
-    int resumeIndex = 0;
-    if (task->data().count("progress") && task->data()["progress"].count("exported")) {
-        resumeIndex = task->data()["progress"]["exported"].get<int>();
-    }
-
     json progress;
     progress["total"] = total;
-    progress["exported"] = resumeIndex;
+    progress["exported"] = 0;
     progress["failed"] = 0;
     progress["errors"] = json::array();
 
-    // If resuming, carry forward previous error count and errors
+    // If resuming, carry forward previous progress
+    uint32_t cursorUID = 0;
+    int globalIndex = 0;
     if (task->data().count("progress")) {
-        if (task->data()["progress"].count("failed")) {
-            progress["failed"] = task->data()["progress"]["failed"];
+        auto & prev = task->data()["progress"];
+        if (prev.count("exported")) {
+            progress["exported"] = prev["exported"];
+            globalIndex = prev["exported"].get<int>();
         }
-        if (task->data()["progress"].count("errors")) {
-            progress["errors"] = task->data()["progress"]["errors"];
+        if (prev.count("failed")) {
+            progress["failed"] = prev["failed"];
+        }
+        if (prev.count("errors")) {
+            progress["errors"] = prev["errors"];
+        }
+        if (prev.count("lastUID")) {
+            cursorUID = prev["lastUID"].get<uint32_t>();
         }
     }
 
-    int exported = resumeIndex;
+    int exported = progress["exported"].get<int>();
     int failed = progress["failed"].get<int>();
     const int chunkSize = 50;
-    int globalIndex = resumeIndex;
 
-    for (int chunkStart = resumeIndex; chunkStart < total; chunkStart += chunkSize) {
-        // Load one chunk of messages at a time via LIMIT/OFFSET
+    // Paginate through messages ordered by remoteUID ascending, using a cursor
+    // to avoid skipping/duplicating messages if the folder changes during export.
+    // This uses the MessageUIDScanIndex (accountId, remoteFolderId, remoteUID).
+    while (true) {
         auto chunkQuery = Query()
             .equal("accountId", task->accountId())
             .equal("remoteFolderId", folderId)
-            .limit(chunkSize)
-            .offset(chunkStart);
+            .gt("remoteUID", (double)cursorUID)
+            .orderBy("remoteUID", "ASC")
+            .limit(chunkSize);
         auto messages = store->findAll<Message>(chunkQuery);
+
+        if (messages.empty()) {
+            break;
+        }
 
         for (auto & msg : messages) {
             AutoreleasePool pool;
@@ -2008,12 +2019,14 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
                 progress["errors"].push_back(errEntry);
             }
 
+            cursorUID = msg->remoteUID();
             globalIndex++;
         }
 
-        // After each chunk, save progress and check for cancellation
+        // After each chunk, save progress (including cursor) and check for cancellation
         progress["exported"] = exported;
         progress["failed"] = failed;
+        progress["lastUID"] = cursorUID;
         task->data()["progress"] = progress;
         store->save(task);
 
@@ -2028,7 +2041,7 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
         }
 
         // Sleep to let sync and other tasks breathe
-        if (chunkStart + chunkSize < total) {
+        if ((int)messages.size() == chunkSize) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }
