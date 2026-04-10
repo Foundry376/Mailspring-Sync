@@ -38,11 +38,31 @@
 #include <direct.h>
 #include <codecvt>
 #include <locale>
+#include <sys/utime.h>
+#else
+#include <sys/time.h>
 #endif
 
 using namespace std;
 using namespace mailcore;
 using namespace nlohmann;
+
+static void setFileModificationTime(const string & filepath, time_t timestamp) {
+#ifdef _MSC_VER
+    wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+    struct _utimbuf times;
+    times.actime = timestamp;
+    times.modtime = timestamp;
+    _wutime(convert.from_bytes(filepath).c_str(), &times);
+#else
+    struct timeval times[2];
+    times[0].tv_sec = timestamp;
+    times[0].tv_usec = 0;
+    times[1].tv_sec = timestamp;
+    times[1].tv_usec = 0;
+    utimes(filepath.c_str(), times);
+#endif
+}
 
 // A helper function that can move messages between folders and update the provided
 // messages remoteUIDs, even if UIDPLUS and/or MOVE extensions are not present.
@@ -1853,6 +1873,7 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
 #else
     data->writeToFile(AS_MCSTR(filepath));
 #endif
+    setFileModificationTime(filepath, msg->date());
 }
 
 std::string TaskProcessor::sanitizeEmlFilename(const std::string & subject, time_t date, int index) {
@@ -2008,6 +2029,7 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
 #else
                 data->writeToFile(AS_MCSTR(filepath));
 #endif
+                setFileModificationTime(filepath, msg->date());
                 exported++;
             } catch (SyncException & ex) {
                 logger->error("GetManyRFC2822: failed to export message {} (UID {}): {}",
