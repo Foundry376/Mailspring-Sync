@@ -53,6 +53,24 @@
 
 #include "mailstream_cfstream.h"
 
+struct mailimap_ssl_callback_data {
+  void (* callback)(struct mailstream_ssl_context * ssl_context, void * data);
+  void * data;
+  const char * server;
+};
+
+static void mailimap_ssl_sni_callback(struct mailstream_ssl_context * ssl_context, void * data)
+{
+  struct mailimap_ssl_callback_data * callback_data = (struct mailimap_ssl_callback_data *) data;
+
+  if (callback_data != NULL && callback_data->server != NULL) {
+    mailstream_ssl_set_server_name(ssl_context, callback_data->server);
+  }
+  if (callback_data != NULL && callback_data->callback != NULL) {
+    callback_data->callback(ssl_context, callback_data->data);
+  }
+}
+
 #define DEFAULT_IMAPS_PORT 993
 #define SERVICE_NAME_IMAPS "imaps"
 #define SERVICE_TYPE_TCP "tcp"
@@ -72,6 +90,7 @@ int mailimap_ssl_connect_voip_with_callback(mailimap * f, const char * server, u
 {
   int s;
   mailstream * stream;
+  struct mailimap_ssl_callback_data callback_data;
 
 #if HAVE_CFNETWORK
   if (mailstream_cfstream_enabled) {
@@ -92,7 +111,11 @@ int mailimap_ssl_connect_voip_with_callback(mailimap * f, const char * server, u
   if (s == -1)
     return MAILIMAP_ERROR_CONNECTION_REFUSED;
 
-  stream = mailstream_ssl_open_with_callback_timeout(s, f->imap_timeout, callback, data);
+  callback_data.callback = callback;
+  callback_data.data = data;
+  callback_data.server = server;
+  stream = mailstream_ssl_open_with_callback_timeout(s, f->imap_timeout,
+    mailimap_ssl_sni_callback, &callback_data);
   if (stream == NULL) {
 #ifdef WIN32
 	closesocket(s);
