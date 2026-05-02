@@ -1550,8 +1550,8 @@ carray * mailstream_low_ssl_get_certificate_chain(mailstream_low * s)
   }
   
   result = carray_new(4);
-  for(skpos = 0 ; skpos < sk_num(skx) ; skpos ++) {
-    X509 * x = (X509 *) sk_value(skx, skpos);
+  for(skpos = 0 ; skpos < sk_num((const OPENSSL_STACK*)skx) ; skpos ++) {
+    X509 * x = (X509 *) sk_value((const OPENSSL_STACK*)skx, skpos);
     unsigned char * p;
     MMAPString * str;
     int length = i2d_X509(x, NULL);
