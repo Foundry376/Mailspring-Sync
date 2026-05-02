@@ -25,7 +25,7 @@ IF(APPLE)
   set(mac_libraries iconv)
   
 ELSEIF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-  set(CMAKE_CXX_FLAGS "-std=gnu++0x")
+  set(CMAKE_CXX_FLAGS "-std=gnu++17")
   
   set(additional_includes
     /usr/include/tidy
