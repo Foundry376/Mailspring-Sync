@@ -1,7 +1,7 @@
 cmake_minimum_required (VERSION 3.1 FATAL_ERROR)
 project (mailsync) 
 
-SET (CMAKE_CXX_FLAGS   "-Wno-unknown-pragmas")
+SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-pragmas")
 
 #Set Linker flags
 set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
