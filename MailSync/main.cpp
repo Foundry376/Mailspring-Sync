@@ -357,7 +357,32 @@ int runTestAuth(shared_ptr<Account> account) {
             alogger.log("\nmailsmtp Last Error Location: " + to_string(smtp.lastLibetpanErrorLocation()));
             alogger.log("\nmailsmtp Last Auth Type: " + to_string(smtp.authType()));
         }
-        goto done;
+
+        // Microsoft is increasingly disabling SMTP on new Outlook/Office365
+        // tenants while keeping IMAP and Graph enabled. If SMTP fails on a
+        // Microsoft account, the account is still usable for sending if its
+        // refresh token has the Mail.Send scope — mailsync will route sends
+        // through Microsoft Graph at runtime. Treat that as a passing test.
+        if (account->provider() == "office365" || account->provider() == "outlook") {
+            alogger.log("\n\n----------MICROSOFT GRAPH FALLBACK----------\n");
+            alogger.log("SMTP failed. For Microsoft accounts, mailsync can also send via Microsoft Graph.\nProbing for a Mail.Send-scoped token...\n");
+            try {
+                auto parts = SharedXOAuth2TokenManager()->partsForAccount(account, XOAuth2ScopeKind::GRAPH_MAIL_SEND);
+                if (parts.accessToken != "") {
+                    alogger.log("Microsoft Graph Mail.Send token acquired. This account will send via Graph.\n");
+                    err = ErrorNone;
+                }
+            } catch (std::exception & gex) {
+                alogger.log("Microsoft Graph Mail.Send unavailable: ");
+                alogger.log(gex.what());
+                alogger.log("\n");
+                // err stays as the original SMTP failure
+            }
+        }
+
+        if (err != ErrorNone) {
+            goto done;
+        }
     }
     
 done:
