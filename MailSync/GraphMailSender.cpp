@@ -433,7 +433,27 @@ void runStrategyB(shared_ptr<Account> account,
 
 } // namespace
 
-void sendViaGraph(shared_ptr<Account> account,
+// Microsoft's OAuth refresh endpoint returns these AADSTS error codes when
+// the refresh_token is valid but doesn't cover the requested scope (i.e. the
+// user authorized before Mail.Send was added to consent). We treat these as
+// "Graph not available for this account yet — fall back to SMTP" rather than
+// hard failures, so sending continues to work for users mid-upgrade.
+static bool isScopeNotConsentedError(const string & errMessage) {
+    static const char * markers[] = {
+        "AADSTS65001",      // user/admin has not consented to use the application
+        "AADSTS50173",      // refresh token was issued for different scopes
+        "AADSTS70011",      // invalid scope value
+        "AADSTS70008",      // refresh token expired/revoked, but tied to scope mismatch
+        "invalid_scope",
+        "consent_required",
+    };
+    for (const char * m : markers) {
+        if (errMessage.find(m) != string::npos) return true;
+    }
+    return false;
+}
+
+bool sendViaGraph(shared_ptr<Account> account,
                   Message & draft,
                   const string & body,
                   bool plaintext,
@@ -445,11 +465,16 @@ void sendViaGraph(shared_ptr<Account> account,
     try {
         parts = SharedXOAuth2TokenManager()->partsForAccount(account, XOAuth2ScopeKind::GRAPH_MAIL_SEND);
     } catch (SyncException & e) {
-        // Surface a clearer message: this is almost always because the user
-        // consented before Mail.Send was added to the scope set.
-        throw SyncException("send-failed",
-                            "Sending via Microsoft Graph requires re-authentication. Please remove and re-add this account in Mailspring's preferences. (" + string(e.what()) + ")",
-                            false);
+        // If the failure is "this account didn't consent to Mail.Send yet",
+        // signal the caller to fall back to SMTP. The user will transition to
+        // Graph automatically next time they re-auth and pick up the new
+        // scope. Any other failure (network, server, revoked refresh token,
+        // etc.) is a real problem and should propagate.
+        if (isScopeNotConsentedError(e.what())) {
+            logger->info("-- Graph token unavailable for account ({}); falling back to SMTP", e.what());
+            return false;
+        }
+        throw;
     }
     string authorization = "Bearer " + parts.accessToken;
 
@@ -458,9 +483,10 @@ void sendViaGraph(shared_ptr<Account> account,
     // different body.
     if (recipientOverride == nullptr) {
         if (tryStrategyA(draft, authorization)) {
-            return;
+            return true;
         }
     }
 
     runStrategyB(account, draft, body, plaintext, saveToSentItems, recipientOverride, authorization);
+    return true;
 }

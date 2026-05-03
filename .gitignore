@@ -20,3 +20,9 @@ CMakeCache.txt
 CMakeFiles/
 Makefile
 cmake_install.cmake
+
+# Mailcore2's CMake configure flattens its public headers into Vendor/mailcore2/src/
+# alongside the originals in src/core/, src/async/, etc. The build references
+# Vendor/mailcore2/build/src/include, not these flat copies, so they're noise.
+/Vendor/mailcore2/src/*.h
+!/Vendor/mailcore2/src/MailCore.h

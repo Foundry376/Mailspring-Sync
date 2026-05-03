@@ -21,7 +21,17 @@
 class Account;
 class Message;
 
-// Sends a draft via Microsoft Graph.
+// Sends a draft via Microsoft Graph. Returns `true` if the message was sent
+// via Graph; returns `false` if the account's OAuth refresh token doesn't
+// have the `Mail.Send` scope yet (the caller should fall back to SMTP).
+// Throws SyncException for any other failure (network, permission, server
+// error).
+//
+// This bool-return-on-missing-scope behavior is intentional: it lets us roll
+// out Graph-based sending without breaking accounts that authorized before
+// `Mail.Send` was added to the consent flow. Once a user re-auths and gets a
+// refresh token with the new scope, future sends transition to Graph
+// transparently.
 //
 // Strategy A (preferred when possible): if the draft was already APPEND'd to
 // the IMAP Drafts folder (`draft.remoteUID() != 0`) and `recipientOverride` is
@@ -38,7 +48,7 @@ class Message;
 // `to` recipient — used for per-recipient body customization (link/open
 // tracking). For multisend callers, also pass `saveToSentItems = false` and
 // then APPEND a single canonical copy to Sent via the existing IMAP path.
-void sendViaGraph(std::shared_ptr<Account> account,
+bool sendViaGraph(std::shared_ptr<Account> account,
                   Message & draft,
                   const std::string & body,
                   bool plaintext,

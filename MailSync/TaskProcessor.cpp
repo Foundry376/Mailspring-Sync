@@ -1542,36 +1542,69 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     */
 
     string succeeded;
-    const bool useGraph = (account->provider() == "office365" || account->provider() == "outlook");
+    bool tryGraph = (account->provider() == "office365" || account->provider() == "outlook");
+    bool sentViaGraph = false;
 
-    if (useGraph) {
+    if (tryGraph) {
         // Microsoft is disabling SMTP on new Outlook/Office365 tenants while
-        // keeping IMAP enabled, so route the wire-send through Graph. The
+        // keeping IMAP enabled, so route the wire-send through Graph when the
+        // account's refresh token has the Mail.Send scope. Accounts that
+        // authorized before that scope was added will get a `false` back from
+        // sendViaGraph and quietly fall through to the SMTP path below — they
+        // transition to Graph automatically the next time they re-auth. The
         // pre-built `messageDataForSent` is still used below for the
         // multisend canonical APPEND and the MessageParser pass.
         if (multisend) {
-            logger->info("-- Sending customized message bodies to each recipient via Microsoft Graph:");
-            for (json::iterator it = perRecipientBodies.begin(); it != perRecipientBodies.end(); ++it) {
-                if (it.key() == "self") continue;
-                logger->info("--- Sending to {}", it.key());
-                string recipient = it.key();
-                try {
-                    sendViaGraph(account, draft, it.value().get<string>(), plaintext,
-                                 /*saveToSentItems*/ false, &recipient);
-                } catch (SyncException & ex) {
-                    if (succeeded.size() > 0) {
-                        throw SyncException("send-partially-failed", string(ex.what()) + ":::" + succeeded, false);
+            // Probe with the first per-recipient call. If Graph isn't
+            // available, fall back to SMTP for the entire multisend (we
+            // haven't sent anything yet, so this is safe). If the first call
+            // succeeds, the token is cached and subsequent calls won't need
+            // to re-probe; any failure on a later call is a real error.
+            auto it = perRecipientBodies.begin();
+            while (it != perRecipientBodies.end() && it.key() == "self") ++it;
+            if (it != perRecipientBodies.end()) {
+                logger->info("-- Probing Microsoft Graph for first recipient {}", it.key());
+                string firstRecipient = it.key();
+                bool ok = sendViaGraph(account, draft, it.value().get<string>(), plaintext,
+                                       /*saveToSentItems*/ false, &firstRecipient);
+                if (ok) {
+                    sentViaGraph = true;
+                    succeeded += "\n - " + firstRecipient;
+                    ++it;
+                    for (; it != perRecipientBodies.end(); ++it) {
+                        if (it.key() == "self") continue;
+                        logger->info("--- Sending to {} via Microsoft Graph", it.key());
+                        string recipient = it.key();
+                        try {
+                            sendViaGraph(account, draft, it.value().get<string>(), plaintext,
+                                         /*saveToSentItems*/ false, &recipient);
+                        } catch (SyncException & ex) {
+                            if (succeeded.size() > 0) {
+                                throw SyncException("send-partially-failed", string(ex.what()) + ":::" + succeeded, false);
+                            }
+                            throw;
+                        }
+                        succeeded += "\n - " + recipient;
                     }
-                    throw;
                 }
-                succeeded += "\n - " + recipient;
+            } else {
+                // No real recipients — fall through to SMTP which handles
+                // the (degenerate) empty case identically to today.
             }
         } else {
             logger->info("-- Sending a single message via Microsoft Graph:");
-            sendViaGraph(account, draft, body, plaintext,
-                         /*saveToSentItems*/ true, nullptr);
+            sentViaGraph = sendViaGraph(account, draft, body, plaintext,
+                                        /*saveToSentItems*/ true, nullptr);
         }
-    } else {
+
+        if (!sentViaGraph) {
+            logger->info("-- Falling back to SMTP because Graph token is not available for this account.");
+            // Reset partial-success state — SMTP retry covers all recipients.
+            succeeded.clear();
+        }
+    }
+
+    if (!sentViaGraph) {
         SMTPSession smtp;
         SMTPProgress sprogress;
         MailUtils::configureSessionForAccount(smtp, account);
