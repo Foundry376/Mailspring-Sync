@@ -19,6 +19,7 @@
 #include "DAVWorker.hpp"
 #include "DAVUtils.hpp"
 #include "GoogleContactsWorker.hpp"
+#include "GraphMailSender.hpp"
 #include "File.hpp"
 #include "ContactGroup.hpp"
 #include "Event.hpp"
@@ -1540,47 +1541,78 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     the task as failed, but keep track of who got the message.
     */
 
-    SMTPSession smtp;
-    SMTPProgress sprogress;
-    MailUtils::configureSessionForAccount(smtp, account);
     string succeeded;
+    const bool useGraph = (account->provider() == "office365" || account->provider() == "outlook");
 
-    if (multisend) {
-        logger->info("-- Sending customized message bodies to each recipient:");
+    if (useGraph) {
+        // Microsoft is disabling SMTP on new Outlook/Office365 tenants while
+        // keeping IMAP enabled, so route the wire-send through Graph. The
+        // pre-built `messageDataForSent` is still used below for the
+        // multisend canonical APPEND and the MessageParser pass.
+        if (multisend) {
+            logger->info("-- Sending customized message bodies to each recipient via Microsoft Graph:");
+            for (json::iterator it = perRecipientBodies.begin(); it != perRecipientBodies.end(); ++it) {
+                if (it.key() == "self") continue;
+                logger->info("--- Sending to {}", it.key());
+                string recipient = it.key();
+                try {
+                    sendViaGraph(account, draft, it.value().get<string>(), plaintext,
+                                 /*saveToSentItems*/ false, &recipient);
+                } catch (SyncException & ex) {
+                    if (succeeded.size() > 0) {
+                        throw SyncException("send-partially-failed", string(ex.what()) + ":::" + succeeded, false);
+                    }
+                    throw;
+                }
+                succeeded += "\n - " + recipient;
+            }
+        } else {
+            logger->info("-- Sending a single message via Microsoft Graph:");
+            sendViaGraph(account, draft, body, plaintext,
+                         /*saveToSentItems*/ true, nullptr);
+        }
+    } else {
+        SMTPSession smtp;
+        SMTPProgress sprogress;
+        MailUtils::configureSessionForAccount(smtp, account);
 
-        for (json::iterator it = perRecipientBodies.begin(); it != perRecipientBodies.end(); ++it) {
-            if (it.key() == "self") {
-                continue;
+        if (multisend) {
+            logger->info("-- Sending customized message bodies to each recipient:");
+
+            for (json::iterator it = perRecipientBodies.begin(); it != perRecipientBodies.end(); ++it) {
+                if (it.key() == "self") {
+                    continue;
+                }
+
+                logger->info("--- Sending to {}", it.key());
+                if (plaintext) {
+                    builder.setTextBody(AS_MCSTR(it.value().get<string>()));
+                } else {
+                    builder.setHTMLBody(AS_MCSTR(it.value().get<string>()));
+                }
+                Address * to = Address::addressWithMailbox(AS_MCSTR(it.key()));
+                Data * messageData = builder.data();
+                smtp.sendMessage(builder.header()->from(), Array::arrayWithObject(to), messageData, &sprogress, &err);
+                if (err != ErrorNone) {
+                    break;
+                }
+                succeeded += "\n - " + it.key();
             }
-            
-            logger->info("--- Sending to {}", it.key());
-            if (plaintext) {
-                builder.setTextBody(AS_MCSTR(it.value().get<string>()));
-            } else {
-                builder.setHTMLBody(AS_MCSTR(it.value().get<string>()));
-            }
-            Address * to = Address::addressWithMailbox(AS_MCSTR(it.key()));
-            Data * messageData = builder.data();
-            smtp.sendMessage(builder.header()->from(), Array::arrayWithObject(to), messageData, &sprogress, &err);
-            if (err != ErrorNone) {
-                break;
-            }
-            succeeded += "\n - " + it.key();
+
+        } else {
+            logger->info("-- Sending a single message body to all recipients:");
+            smtp.sendMessage(messageDataForSent, &sprogress, &err);
         }
 
-    } else {
-        logger->info("-- Sending a single message body to all recipients:");
-        smtp.sendMessage(messageDataForSent, &sprogress, &err);
-    }
-    
-    if (err != ErrorNone) {
-        int e = smtp.lastLibetpanError();
-        string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : to_string(e);
-        logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], es);
-        if (succeeded.size() > 0) {
-            throw SyncException("send-partially-failed", ErrorCodeToTypeMap[err] + ":::" + succeeded, false);
-        } else {
-            throw SyncException("send-failed", ErrorCodeToTypeMap[err], false);
+        if (err != ErrorNone) {
+            int e = smtp.lastLibetpanError();
+            string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : to_string(e);
+            logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], es);
+            if (succeeded.size() > 0) {
+                throw SyncException("send-partially-failed", ErrorCodeToTypeMap[err] + ":::" + succeeded, false);
+            } else {
+                throw SyncException("send-failed", ErrorCodeToTypeMap[err], false);
+            }
         }
     }
     

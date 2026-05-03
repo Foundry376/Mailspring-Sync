@@ -43,6 +43,7 @@
 		4378B8341F439EE700C65630 /* error.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4378B8321F439EE700C65630 /* error.cpp */; };
 		4378B8371F439FAD00C65630 /* GenericException.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4378B8361F439FAD00C65630 /* GenericException.cpp */; };
 		4385C98D233AA6FE00E5A357 /* GoogleContactsWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4385C98C233AA6FE00E5A357 /* GoogleContactsWorker.cpp */; };
+		AABB001124E0000000E5A357 /* GraphMailSender.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AABB001024E0000000E5A357 /* GraphMailSender.cpp */; };
 		4385C98F233AC65200E5A357 /* ContactGroup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4385C98E233AC65200E5A357 /* ContactGroup.cpp */; };
 		43A687DF220EB14C000D75CC /* Event.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A687DE220EB14C000D75CC /* Event.cpp */; };
 		43A687EA220EB40F000D75CC /* types.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A687E1220EB40F000D75CC /* types.cpp */; };
@@ -226,6 +227,8 @@
 		4378B8361F439FAD00C65630 /* GenericException.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GenericException.cpp; sourceTree = "<group>"; };
 		4385C98B233AA6FD00E5A357 /* GoogleContactsWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = GoogleContactsWorker.hpp; sourceTree = "<group>"; };
 		4385C98C233AA6FE00E5A357 /* GoogleContactsWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GoogleContactsWorker.cpp; sourceTree = "<group>"; };
+		AABB000F24E0000000E5A357 /* GraphMailSender.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = GraphMailSender.hpp; sourceTree = "<group>"; };
+		AABB001024E0000000E5A357 /* GraphMailSender.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GraphMailSender.cpp; sourceTree = "<group>"; };
 		4385C98E233AC65200E5A357 /* ContactGroup.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ContactGroup.cpp; sourceTree = "<group>"; };
 		4385C990233AC65900E5A357 /* ContactGroup.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = ContactGroup.hpp; sourceTree = "<group>"; };
 		439F24392455FFA400104D7B /* static.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = static.h; sourceTree = "<group>"; };
@@ -387,6 +390,8 @@
 				43C127D3234AB218004DDDC4 /* DAVUtils.cpp */,
 				4385C98B233AA6FD00E5A357 /* GoogleContactsWorker.hpp */,
 				4385C98C233AA6FE00E5A357 /* GoogleContactsWorker.cpp */,
+				AABB000F24E0000000E5A357 /* GraphMailSender.hpp */,
+				AABB001024E0000000E5A357 /* GraphMailSender.cpp */,
 				4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */,
 				432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */,
 				432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */,
@@ -726,6 +731,7 @@
 				4364898C1EF2F905007816EC /* Statement.cpp in Sources */,
 				43A687EB220EB40F000D75CC /* date.cpp in Sources */,
 				4385C98D233AA6FE00E5A357 /* GoogleContactsWorker.cpp in Sources */,
+				AABB001124E0000000E5A357 /* GraphMailSender.cpp in Sources */,
 				432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */,
 				4364898B1EF2F905007816EC /* Exception.cpp in Sources */,
 				4364898D1EF2F905007816EC /* Transaction.cpp in Sources */,

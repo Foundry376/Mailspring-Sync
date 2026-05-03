@@ -34,10 +34,24 @@ XOAuth2TokenManager::~XOAuth2TokenManager() {
 }
 
 
+static string scopeOverrideForKind(const string & provider, XOAuth2ScopeKind kind) {
+    if (kind == XOAuth2ScopeKind::GRAPH_MAIL_SEND && (provider == "office365" || provider == "outlook")) {
+        return "https://graph.microsoft.com/Mail.Send https://graph.microsoft.com/Mail.ReadWrite offline_access";
+    }
+    return "";
+}
 
-XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
-    string key = account->id();
-    
+static const char * scopeKindLabel(XOAuth2ScopeKind kind) {
+    switch (kind) {
+        case XOAuth2ScopeKind::IMAP_SMTP: return "imap_smtp";
+        case XOAuth2ScopeKind::GRAPH_MAIL_SEND: return "graph_mail_send";
+    }
+    return "unknown";
+}
+
+XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, XOAuth2ScopeKind scopeKind) {
+    string key = account->id() + ":" + scopeKindLabel(scopeKind);
+
     // There's not much of a point to having two threads request the same token at once.
     // Only allow one thread to access / update the cache and make others wait until it
     // exits.
@@ -54,8 +68,9 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
     auto refreshClientId = account->refreshClientId();
     json updated {};
     if (refreshClientId != "") {
-        spdlog::get("logger")->info("Fetching XOAuth2 access token ({}) for {}", account->provider(), account->id());
-        updated = MakeOAuthRefreshRequest(account->provider(), refreshClientId, account->refreshToken());
+        spdlog::get("logger")->info("Fetching XOAuth2 access token ({}, scope={}) for {}", account->provider(), scopeKindLabel(scopeKind), account->id());
+        string scopeOverride = scopeOverrideForKind(account->provider(), scopeKind);
+        updated = MakeOAuthRefreshRequest(account->provider(), refreshClientId, account->refreshToken(), scopeOverride);
         updated["expiry_date"] = time(0) + updated["expires_in"].get<int>();
     } else {
         throw SyncException("invalid-xoauth2-resp", "XOAuth2 token expired and Mailspring no longer does server-side token refresh.", false);

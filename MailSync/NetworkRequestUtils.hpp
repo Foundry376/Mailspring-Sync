@@ -29,7 +29,10 @@ void CleanupCurlRequest(CURL * curl_handle);
 CURL * CreateJSONRequest(string url, string method = "GET", string authorization = "", const char * payloadChars = nullptr);
 CURL * CreateCalDavRequest(string url, string method = "GET", const char * payloadChars = nullptr);
 
-const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken);
+// `scopeOverride` allows callers to request a token for a non-default resource
+// (e.g. Microsoft Graph) using the same refresh token. Pass an empty string for
+// the provider's default IMAP/SMTP scope set.
+const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken, string scopeOverride = "");
 
 const string PerformRequest(CURL * curl_handle);
 const json PerformJSONRequest(CURL * curl_handle);

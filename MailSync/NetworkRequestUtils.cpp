@@ -56,7 +56,7 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
     return real_size;
 }
 
-const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken) {
+const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken, string scopeOverride) {
     CURL * curl_handle = curl_easy_init();
     const char * url =
           provider == "gmail" ? "https://www.googleapis.com/oauth2/v4/token"
@@ -76,7 +76,12 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
         // workaround the fact that Microsoft's OAUTH flow allows you to authorize many scopes, but you
         // have to get a separate token for outlook (email + IMAP) and contacts / calendar / Microsoft Graph APIs
         // separately. The same refresh token will give you access tokens, but the access tokens are different.
-        payload += "&scope=https%3A%2F%2Foutlook.office.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send";
+        string scope = scopeOverride != ""
+            ? scopeOverride
+            : "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send";
+        char * s = curl_easy_escape(curl_handle, scope.c_str(), 0);
+        payload += "&scope=" + string(s);
+        curl_free(s);
     }
 
     string gmailClientId = MailUtils::getEnvUTF8("GMAIL_CLIENT_ID");

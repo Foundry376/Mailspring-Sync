@@ -28,6 +28,15 @@ struct XOAuth2Parts {
     time_t expiryDate;
 };
 
+// Microsoft access tokens are per-resource, so the same refresh token yields
+// different access tokens depending on which scopes we request. Default
+// preserves the previous IMAP+SMTP behavior; GRAPH_MAIL_SEND requests a
+// Microsoft Graph token suitable for /me/sendMail and /me/messages.
+enum class XOAuth2ScopeKind {
+    IMAP_SMTP,
+    GRAPH_MAIL_SEND,
+};
+
 class XOAuth2TokenManager  {
     map<string, XOAuth2Parts> _cache;
     mutex _cacheLock;
@@ -35,7 +44,7 @@ class XOAuth2TokenManager  {
 public:
     XOAuth2TokenManager();
     ~XOAuth2TokenManager();
-    XOAuth2Parts partsForAccount(shared_ptr<Account> account);
+    XOAuth2Parts partsForAccount(shared_ptr<Account> account, XOAuth2ScopeKind scopeKind = XOAuth2ScopeKind::IMAP_SMTP);
 };
 
 
