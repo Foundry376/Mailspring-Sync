@@ -1509,7 +1509,22 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
 
     json & fromP = draft.from().at(0);
     builder.header()->setFrom(MailUtils::addressFromContactJSON(fromP));
-    
+
+    // Inject importance/priority headers for max client compatibility.
+    // Front-end stores the canonical value under `hImportance` ("high" | "low" | "normal").
+    if (draft._data.count("hImportance") && draft._data["hImportance"].is_string()) {
+        string importance = draft._data["hImportance"].get<string>();
+        if (importance == "high") {
+            builder.header()->setExtraHeader(MCSTR("Importance"), MCSTR("high"));
+            builder.header()->setExtraHeader(MCSTR("X-Priority"), MCSTR("1 (Highest)"));
+            builder.header()->setExtraHeader(MCSTR("X-MSMail-Priority"), MCSTR("High"));
+        } else if (importance == "low") {
+            builder.header()->setExtraHeader(MCSTR("Importance"), MCSTR("low"));
+            builder.header()->setExtraHeader(MCSTR("X-Priority"), MCSTR("5 (Lowest)"));
+            builder.header()->setExtraHeader(MCSTR("X-MSMail-Priority"), MCSTR("Low"));
+        }
+    }
+
     for (json & fileJSON : draft.files()) {
         File file{fileJSON};
         string root = MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "files";
