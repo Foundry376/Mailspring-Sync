@@ -15,6 +15,9 @@
 #include "File.hpp"
 #include "constants.h"
 
+#include <algorithm>
+#include <cctype>
+
 #if defined(_MSC_VER)
 #include <direct.h>
 #include <codecvt>
@@ -280,6 +283,56 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     }
 }
 
+namespace {
+
+// Lowercase + trim ASCII whitespace. Uses unsigned-char lambdas because
+// the C ctype functions are UB on negative `char` values, and these headers
+// can carry arbitrary bytes from the public Internet.
+std::string lowerTrimmed(const std::string & s) {
+    auto isWs = [](unsigned char c) { return std::isspace(c) != 0; };
+    auto first = std::find_if_not(s.begin(), s.end(), isWs);
+    auto last  = std::find_if_not(s.rbegin(), s.rend(), isWs).base();
+    if (first >= last) return {};
+    std::string out(first, last);
+    std::transform(out.begin(), out.end(), out.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return out;
+}
+
+// Classify an Importance / X-MSMail-Priority value to one of
+// "high" / "low" / "normal", or empty if unrecognized. Token-based to avoid
+// substring false positives like "abnormal" matching "normal" or
+// "highly recommended" matching "high".
+std::string classifyImportanceText(const std::string & raw) {
+    std::string v = lowerTrimmed(raw);
+    if (v.empty()) return {};
+    // Outlook/MAPI extended values that some gateways pass through verbatim.
+    if (v.compare(0, 12, "above normal") == 0) return "high";
+    if (v.compare(0, 12, "below normal") == 0) return "low";
+    // Otherwise compare the first whitespace/comment-delimited token.
+    auto cut = v.find_first_of(" \t(,;");
+    std::string token = (cut == std::string::npos) ? v : v.substr(0, cut);
+    if (token == "high")   return "high";
+    if (token == "low")    return "low";
+    if (token == "normal") return "normal";
+    return {};
+}
+
+// X-Priority: numeric scale 1-5 per RFC 2076. Other digits and non-digit
+// values are treated as unrecognized so the caller can fall through.
+std::string classifyXPriority(const std::string & raw) {
+    std::string v = lowerTrimmed(raw);
+    if (v.empty() || !std::isdigit(static_cast<unsigned char>(v[0]))) return {};
+    switch (v[0]) {
+        case '1': case '2': return "high";
+        case '3':           return "normal";
+        case '4': case '5': return "low";
+        default:            return {};
+    }
+}
+
+} // namespace
+
 void MailProcessor::retrievedMessageBody(Message * message, MessageParser * parser) {
     CleanHTMLBodyRendererTemplateCallback * htmlCallback = new CleanHTMLBodyRendererTemplateCallback();
     const char * bodyRepresentation;
@@ -400,8 +453,6 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         if (msgHeader != nullptr) {
             String * listUnsub = msgHeader->extraHeaderValueForName(MCSTR("List-Unsubscribe"));
             String * listUnsubPost = msgHeader->extraHeaderValueForName(MCSTR("List-Unsubscribe-Post"));
-            String * xPriority = msgHeader->extraHeaderValueForName(MCSTR("X-Priority"));
-            String * importance = msgHeader->extraHeaderValueForName(MCSTR("Importance"));
 
             if (listUnsub != nullptr) {
                 message->_data["hListUnsub"] = listUnsub->UTF8Characters();
@@ -409,11 +460,27 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
             if (listUnsubPost != nullptr) {
                 message->_data["hListUnsubPost"] = listUnsubPost->UTF8Characters();
             }
-            if (xPriority != nullptr) {
-                message->_data["hXPriority"] = xPriority->UTF8Characters();
+
+            // Resolve message importance to a canonical "high" / "low" / "normal".
+            // Precedence: Importance > X-Priority > X-MSMail-Priority. The Importance
+            // header is authoritative when present — if its value is unrecognized we
+            // stop the chain rather than fall through to lower-precedence headers
+            // that might contradict an explicitly-set Importance.
+            string importance;
+            if (String * h = msgHeader->extraHeaderValueForName(MCSTR("Importance"))) {
+                importance = classifyImportanceText(h->UTF8Characters());
+            } else {
+                if (String * h = msgHeader->extraHeaderValueForName(MCSTR("X-Priority"))) {
+                    importance = classifyXPriority(h->UTF8Characters());
+                }
+                if (importance.empty()) {
+                    if (String * h = msgHeader->extraHeaderValueForName(MCSTR("X-MSMail-Priority"))) {
+                        importance = classifyImportanceText(h->UTF8Characters());
+                    }
+                }
             }
-            if (importance != nullptr) {
-                message->_data["hImportance"] = importance->UTF8Characters();
+            if (!importance.empty()) {
+                message->_data["hImportance"] = importance;
             }
         }
 
