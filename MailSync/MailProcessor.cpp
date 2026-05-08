@@ -15,6 +15,9 @@
 #include "File.hpp"
 #include "constants.h"
 
+#include <algorithm>
+#include <cctype>
+
 #if defined(_MSC_VER)
 #include <direct.h>
 #include <codecvt>
@@ -400,8 +403,6 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         if (msgHeader != nullptr) {
             String * listUnsub = msgHeader->extraHeaderValueForName(MCSTR("List-Unsubscribe"));
             String * listUnsubPost = msgHeader->extraHeaderValueForName(MCSTR("List-Unsubscribe-Post"));
-            String * xPriority = msgHeader->extraHeaderValueForName(MCSTR("X-Priority"));
-            String * importance = msgHeader->extraHeaderValueForName(MCSTR("Importance"));
 
             if (listUnsub != nullptr) {
                 message->_data["hListUnsub"] = listUnsub->UTF8Characters();
@@ -409,11 +410,44 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
             if (listUnsubPost != nullptr) {
                 message->_data["hListUnsubPost"] = listUnsubPost->UTF8Characters();
             }
-            if (xPriority != nullptr) {
-                message->_data["hXPriority"] = xPriority->UTF8Characters();
+
+            // Resolve message importance to a canonical "high" / "low" / "normal" value.
+            // Precedence: Importance > X-Priority > X-MSMail-Priority.
+            string importance = "";
+            String * importanceHeader = msgHeader->extraHeaderValueForName(MCSTR("Importance"));
+            if (importanceHeader != nullptr) {
+                string v = importanceHeader->UTF8Characters();
+                std::transform(v.begin(), v.end(), v.begin(), ::tolower);
+                if (v.find("high") != string::npos) importance = "high";
+                else if (v.find("low") != string::npos) importance = "low";
+                else if (v.find("normal") != string::npos) importance = "normal";
             }
-            if (importance != nullptr) {
-                message->_data["hImportance"] = importance->UTF8Characters();
+            if (importance == "") {
+                String * xPriority = msgHeader->extraHeaderValueForName(MCSTR("X-Priority"));
+                if (xPriority != nullptr) {
+                    string v = xPriority->UTF8Characters();
+                    size_t i = 0;
+                    while (i < v.size() && isspace((unsigned char)v[i])) i++;
+                    if (i < v.size() && isdigit((unsigned char)v[i])) {
+                        char d = v[i];
+                        if (d == '1' || d == '2') importance = "high";
+                        else if (d == '3') importance = "normal";
+                        else if (d == '4' || d == '5') importance = "low";
+                    }
+                }
+            }
+            if (importance == "") {
+                String * xMsMail = msgHeader->extraHeaderValueForName(MCSTR("X-MSMail-Priority"));
+                if (xMsMail != nullptr) {
+                    string v = xMsMail->UTF8Characters();
+                    std::transform(v.begin(), v.end(), v.begin(), ::tolower);
+                    if (v.find("high") != string::npos) importance = "high";
+                    else if (v.find("low") != string::npos) importance = "low";
+                    else if (v.find("normal") != string::npos) importance = "normal";
+                }
+            }
+            if (importance != "") {
+                message->_data["hImportance"] = importance;
             }
         }
 
