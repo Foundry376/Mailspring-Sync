@@ -136,6 +136,23 @@ static void testMessageParser(mailcore::Data * data)
     MCLog("%s", MCUTF8(parser->plainTextBodyRendering(false)));
 }
 
+static void testOutlookDetection()
+{
+    MCLog("testing Outlook detection");
+    mailcore::IMAPSession * session = new mailcore::IMAPSession();
+    
+    session->setHostname(MCSTR("imap.gmail.com"));
+    MCAssert(!session->isOutlookServer());
+    
+    session->setHostname(MCSTR("imap-mail.outlook.com"));
+    MCAssert(session->isOutlookServer());
+    
+    session->setHostname(MCSTR("outlook.office365.com"));
+    MCAssert(session->isOutlookServer());
+
+    session->release();
+}
+
 static void testIMAP()
 {
     mailcore::IMAPSession * session;
@@ -499,6 +516,8 @@ void testAll()
     mailcore::AutoreleasePool * pool = new mailcore::AutoreleasePool();
     MCLogEnabled = 1;
     
+    testOutlookDetection();
+
     //mailcore::Data * data = testMessageBuilder();
     //testMessageParser(data);
     //testSMTP(data);
