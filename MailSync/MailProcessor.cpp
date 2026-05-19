@@ -526,11 +526,14 @@ void MailProcessor::unlinkMessagesMatchingQuery(Query & query, int phase)
                 // we unlinked this message in a previous cycle and it will be deleted momentarily.
                 continue;
             }
-            
+
             // don't spam the logs when a zillion messages are being deleted
             if (logSubjects) {
                 logger->info("-- Unlinking \"{}\" ({})", msg->subject(), msg->id());
             }
+            // Only remoteUID is changing, which doesn't affect thread counters
+            // (not in MessageSnapshot). Skip the expensive afterSave thread update.
+            msg->_skipThreadUpdatesAfterSave = true;
             msg->setRemoteUID(UINT32_MAX - phase);
             store->save(msg.get());
         }
