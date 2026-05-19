@@ -1894,6 +1894,18 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         return false;
     }
 
+    // Pre-load all events for this calendar into an in-memory map.
+    // This avoids per-event store->find() queries inside write transactions.
+    // Key: "icsUID\0recurrenceId" (null separator avoids ambiguity)
+    map<string, shared_ptr<Event>> existingEvents;
+    {
+        auto allEvents = store->findAll<Event>(Query().equal("calendarId", calendarId));
+        for (auto & e : allEvents) {
+            string key = e->icsUID() + '\0' + e->recurrenceId();
+            existingEvents[key] = e;
+        }
+    }
+
     // Process direct data (from incremental sync with full calendar-data)
     if (!directData.empty()) {
         // Phase 1: Parse ICS data OUTSIDE the transaction
@@ -1924,14 +1936,10 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 string icsUID = pe.icsEvent->UID;
                 string recurrenceId = pe.icsEvent->RecurrenceId;
 
-                // Look up existing event by icsUID + recurrenceId to update in place (preserves stable ID)
-                auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
-                if (!recurrenceId.empty()) {
-                    query.equal("recurrenceId", recurrenceId);
-                } else {
-                    query.equal("recurrenceId", "");
-                }
-                auto existing = store->find<Event>(query);
+                // Look up existing event from pre-loaded map
+                string key = icsUID + '\0' + recurrenceId;
+                auto it = existingEvents.find(key);
+                auto existing = (it != existingEvents.end()) ? it->second : nullptr;
 
                 if (existing) {
                     existing->applyICSEventData(pe.etag, pe.href, pe.icsData, pe.icsEvent);
@@ -1996,14 +2004,10 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 string icsUID = pe.icsEvent->UID;
                 string recurrenceId = pe.icsEvent->RecurrenceId;
 
-                // Look up existing event by icsUID + recurrenceId to update in place (preserves stable ID)
-                auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
-                if (!recurrenceId.empty()) {
-                    query.equal("recurrenceId", recurrenceId);
-                } else {
-                    query.equal("recurrenceId", "");
-                }
-                auto existing = store->find<Event>(query);
+                // Look up existing event from pre-loaded map
+                string key = icsUID + '\0' + recurrenceId;
+                auto it = existingEvents.find(key);
+                auto existing = (it != existingEvents.end()) ? it->second : nullptr;
 
                 if (existing) {
                     existing->applyICSEventData(pe.etag, pe.href, pe.icsData, pe.icsEvent);
@@ -2024,49 +2028,45 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         }
     }
 
-    // Delete removed items - load all events once, then find matches
+    // Delete removed items - identify deletions outside the transaction, then remove inside
     if (!deletedHrefs.empty()) {
-        MailStoreTransaction transaction{store, "syncToken:deletions"};
-
-        // Load all events from this calendar once (href is in JSON data column, can't query directly)
-        auto allEvents = store->findAll<Event>(Query().equal("calendarId", calendarId));
-
         // Build a set of normalized hrefs for O(1) lookup
         set<string> deletedHrefSet;
         for (auto & href : deletedHrefs) {
             deletedHrefSet.insert(normalizeHref(href));
         }
 
-        // Track master event icsUIDs for cascade deletion of exceptions
+        // Use the pre-loaded existingEvents map to find events to delete by href.
+        // href is in the JSON data column (not directly queryable), so we scan the map.
+        vector<shared_ptr<Event>> eventsToDelete;
         set<string> deletedMasterUIDs;
 
-        // Find and delete matching events
-        for (auto & e : allEvents) {
-            string eventHref = normalizeHref(e->href());
-            if (deletedHrefSet.count(eventHref)) {
-                // If this is a master event (no recurrenceId), track its icsUID
-                // so we can cascade delete any exceptions
+        for (auto & pair : existingEvents) {
+            auto & e = pair.second;
+            if (deletedHrefSet.count(normalizeHref(e->href()))) {
                 if (e->recurrenceId().empty()) {
                     deletedMasterUIDs.insert(e->icsUID());
                 }
-                store->remove(e.get());
+                eventsToDelete.push_back(e);
             }
         }
 
-        // Cascade delete: remove any exceptions whose master was deleted
-        // (exceptions may be in separate ICS files with different hrefs)
+        // Cascade: remove exceptions whose master was deleted
         if (!deletedMasterUIDs.empty()) {
-            for (auto & e : allEvents) {
-                // Skip if already deleted (href matched above)
+            for (auto & pair : existingEvents) {
+                auto & e = pair.second;
                 if (deletedHrefSet.count(normalizeHref(e->href()))) continue;
-
-                // If this is an exception and its master was deleted, delete it too
                 if (!e->recurrenceId().empty() && deletedMasterUIDs.count(e->icsUID())) {
-                    store->remove(e.get());
+                    eventsToDelete.push_back(e);
                 }
             }
         }
 
+        // Short transaction: only remove() calls
+        MailStoreTransaction transaction{store, "syncToken:deletions"};
+        for (auto & e : eventsToDelete) {
+            store->remove(e.get());
+        }
         transaction.commit();
     }
 
