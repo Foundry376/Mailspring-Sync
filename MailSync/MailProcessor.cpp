@@ -164,7 +164,7 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         transaction.commit();
     }
 
-    {
+    if (msg->isSentByUser()) {
         // Index contacts for autocomplete. We do this separately in a transaction that does not
         // emit any deltas, since the client doesn't need to be bothered with contacts changes.
         MailStoreTransaction transaction{store, "insertMessage:contacts"};
