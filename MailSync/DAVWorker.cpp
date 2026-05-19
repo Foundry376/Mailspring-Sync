@@ -1951,9 +1951,10 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                     time_t eventEnd = endOf(pe.icsEvent).toUnix();
 
                     if (eventOverlapsRange(eventStart, eventEnd, range)) {
-                        auto event = Event(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
-                        event.setHref(pe.href);
-                        store->save(&event);
+                        auto newEvent = make_shared<Event>(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
+                        newEvent->setHref(pe.href);
+                        store->save(newEvent.get());
+                        existingEvents[key] = newEvent;
                     }
                     // else: quietly ignore - event is outside our sync window
                 }
@@ -2018,9 +2019,10 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                     time_t eventEnd = endOf(pe.icsEvent).toUnix();
 
                     if (eventOverlapsRange(eventStart, eventEnd, range)) {
-                        auto event = Event(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
-                        event.setHref(pe.href);
-                        store->save(&event);
+                        auto newEvent = make_shared<Event>(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
+                        newEvent->setHref(pe.href);
+                        store->save(newEvent.get());
+                        existingEvents[key] = newEvent;
                     }
                 }
             }

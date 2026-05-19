@@ -149,13 +149,19 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         
         msg->setThreadId(thread->id());
 
+        // Apply the new message's attributes to the thread (folder/label refcounts,
+        // unread/starred counters, timestamps) BEFORE saving the thread. This avoids
+        // Message::afterSave re-loading and re-saving the thread a second time.
+        auto allLabels = store->allLabelsCache(msg->accountId());
+        MessageSnapshot empty = MessageEmptySnapshot;
+        thread->applyMessageAttributeChanges(empty, msg.get(), allLabels);
+        msg->captureSnapshot();
+        msg->_skipThreadUpdatesAfterSave = true;
+
         // Index the thread metadata for search. We only do this once and it'd
         // be costly to make it part of the save hooks.
         appendToThreadSearchContent(thread.get(), msg.get(), nullptr);
         store->save(thread.get());
-
-        // Save the message - this will automatically find and update the counters
-        // on the thread we just created. Kind of a shame to find it twice but oh well.
         store->save(msg.get());
         
         // Make the thread accessible by all of the message references
@@ -164,14 +170,8 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         transaction.commit();
     }
 
-    if (msg->isSentByUser()) {
-        // Index contacts for autocomplete. We do this separately in a transaction that does not
-        // emit any deltas, since the client doesn't need to be bothered with contacts changes.
-        MailStoreTransaction transaction{store, "insertMessage:contacts"};
-        upsertContacts(msg.get());
-        store->unsafeEraseTransactionDeltas();
-        transaction.commit();
-    }
+    upsertContacts(msg.get());
+
     return msg;
 }
 
@@ -689,7 +689,7 @@ void MailProcessor::upsertContacts(Message * message) {
     if (!message->isSentByUser()) {
         return;
     }
-
+    
     map<string, json> byEmail{};
     for (auto & c : message->to()) {
         if (c.count("email")) {
@@ -716,43 +716,48 @@ void MailProcessor::upsertContacts(Message * message) {
     for (auto const& imap: byEmail) {
         emails.push_back(imap.first);
     }
-
+    
     if (emails.size() > 25) {
         // I think it's safe to say mass emails shouldn't create contacts.
         return;
     }
-
-    Query query = Query().equal("email", emails).equal("source", CONTACT_SOURCE_MAIL);
-    auto results = store->findAll<Contact>(query);
     
-    // update refcounts of existing items if this is a sent message
-    for (auto & result : results) {
-        if (result->refs() < CONTACT_MAX_REFS) {
-            result->incrementRefs();
-            store->save(result.get());
+    {
+        // Index contacts for autocomplete. We do this separately in a transaction that does not
+        // emit any deltas, since the client doesn't need to be bothered with contacts changes.
+        MailStoreTransaction transaction{store, "insertMessage:contacts"};
+
+        Query query = Query().equal("email", emails).equal("source", CONTACT_SOURCE_MAIL);
+        auto results = store->findAll<Contact>(query);
+        
+        // update refcounts of existing items if this is a sent message
+        for (auto & result : results) {
+            if (result->refs() < CONTACT_MAX_REFS) {
+                result->incrementRefs();
+                store->save(result.get());
+            }
+            byEmail.erase(result->email());
         }
-        byEmail.erase(result->email());
-    }
-    
-    if (byEmail.size() == 0) {
-        return;
-    }
+        
+        // insert remaining items (contacts not yet in the database)
+        for (auto & result : byEmail) {
+            string name = result.second.count("name") ? result.second["name"].get<string>() : "";
+            string email = result.second.count("email") ? result.second["email"].get<string>() : "";
 
-    // insert remaining items
-    for (auto & result : byEmail) {
-        string name = result.second.count("name") ? result.second["name"].get<string>() : "";
-        string email = result.second.count("email") ? result.second["email"].get<string>() : "";
+            // "Mailspring Team" is used in the welcome email sent from the user's own address.
+            // Skip creating the contact to avoid saving the wrong display name.
+            if (name == "Mailspring Team" && email.find("@getmailspring.com") == string::npos) {
+                continue;
+            }
 
-        // "Mailspring Team" is used in the welcome email sent from the user's own address.
-        // Skip creating the contact to avoid saving the wrong display name.
-        if (name == "Mailspring Team" && email.find("@getmailspring.com") == string::npos) {
-            continue;
+            auto c = make_shared<Contact>(result.first, message->accountId(), result.first, 0, CONTACT_SOURCE_MAIL);
+            c->setName(name);
+            c->incrementRefs();
+            store->save(c.get());
         }
-
-        auto c = make_shared<Contact>(result.first, message->accountId(), result.first, 0, CONTACT_SOURCE_MAIL);
-        c->setName(name);
-        c->incrementRefs();
-        store->save(c.get());
+        
+        store->unsafeEraseTransactionDeltas();
+        transaction.commit();
     }
 }
 

@@ -40,6 +40,7 @@ static vector<string> unworthyPrefixes = {
     "auto-reply",
     "inmail-hit-reply",
     "updates@",
+    "unsubscribe@",
     "mailman-owner",
     "email_notifier",
     "announcement",

@@ -155,6 +155,10 @@ MessageSnapshot Message::getSnapshot() {
     return s;
 }
 
+void Message::captureSnapshot() {
+    _lastSnapshot = getSnapshot();
+}
+
 bool Message::supportsMetadata() {
     return true;
 }

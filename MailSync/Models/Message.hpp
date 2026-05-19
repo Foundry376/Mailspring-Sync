@@ -64,7 +64,8 @@ public:
     // mutable attributes
 
     MessageSnapshot getSnapshot();
-    
+    void captureSnapshot();
+
     bool isDeletionPlaceholder();
     bool isHiddenReminder();
 
