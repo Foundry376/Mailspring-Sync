@@ -9,6 +9,7 @@
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
 #include <algorithm>
+#include <set>
 
 #include "SyncWorker.hpp"
 #include "MailUtils.hpp"
@@ -631,14 +632,21 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     vector<shared_ptr<Folder>> foldersToSync{};
 
     {
-        MailStoreTransaction transaction{store, "syncFoldersAndLabels"};
-        
+        // Phase 1: Read local state and compute diff OUTSIDE the transaction
+        // to minimize write-lock hold time on the shared SQLite database.
         Query q = Query().equal("accountId", account->id());
         bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
         auto unusedLocalFolders = store->findAllMap<Folder>(q, "id");
         auto unusedLocalLabels = store->findAllMap<Label>(q, "id");
         map<string, shared_ptr<Folder>> allFoundCategories {};
-        
+        set<string> labelIds {}; // track which IDs are labels vs folders
+
+        // New folders/labels to INSERT (version == 0, no stale data risk)
+        vector<shared_ptr<Folder>> toCreate {};
+        // Role assignments for existing folders (reload fresh inside transaction)
+        struct RoleUpdate { string id; string role; };
+        vector<RoleUpdate> roleUpdates {};
+
         // Eliminate unselectable folders
         for (int ii = ((int)remoteFolders->count()) - 1; ii >= 0; ii--) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
@@ -664,6 +672,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             shared_ptr<Folder> local;
 
             if (isLabel) {
+                labelIds.insert(remoteId);
                 // Treat as a label
                 if (unusedLocalLabels.count(remoteId) > 0) {
                     local = unusedLocalLabels[remoteId];
@@ -671,7 +680,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 } else {
                     local = make_shared<Label>(remoteId, account->id(), 0);
                     local->setPath(remotePath);
-                    store->save(local.get());
+                    toCreate.push_back(local);
                 }
 
             } else {
@@ -682,11 +691,11 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 } else {
                     local = make_shared<Folder>(remoteId, account->id(), 0);
                     local->setPath(remotePath);
-                    store->save(local.get());
+                    toCreate.push_back(local);
                 }
                 foldersToSync.push_back(local);
             }
-            
+
             allFoundCategories[remoteId] = local;
         }
 
@@ -703,7 +712,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             if (found) {
                 continue;
             }
-            
+
             // find a folder that matches the flags
             for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
                 IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
@@ -716,16 +725,21 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                     logger->warn("-X found folder for role, couldn't find local object for {}", role);
                     continue;
                 }
-                allFoundCategories[remoteId]->setRole(role);
-                store->save(allFoundCategories[remoteId].get());
+                auto & cat = allFoundCategories[remoteId];
+                cat->setRole(role);
+                // If this is a newly created item, role is already set on the in-memory object.
+                // For existing items, record the update to reload fresh inside the transaction.
+                if (cat->version() > 0) {
+                    roleUpdates.push_back({remoteId, role});
+                }
                 found = true;
                 break;
             }
-                    
+
             if (found) {
                 continue;
             }
-            
+
             // find a folder that matches the name
             for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
                 IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
@@ -738,21 +752,42 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                     logger->warn("-X found folder for role, couldn't find local object for {}", role);
                     continue;
                 }
-                allFoundCategories[remoteId]->setRole(role);
-                store->save(allFoundCategories[remoteId].get());
+                auto & cat = allFoundCategories[remoteId];
+                cat->setRole(role);
+                if (cat->version() > 0) {
+                    roleUpdates.push_back({remoteId, role});
+                }
                 found = true;
                 break;
             }
         }
-        
-        // delete any folders / labels no longer present on the remote
-        for (auto const item : unusedLocalFolders) {
+
+        // Phase 2: SHORT transaction with only writes.
+        // Existing items are reloaded fresh to avoid overwriting concurrent changes.
+        MailStoreTransaction transaction{store, "syncFoldersAndLabels"};
+
+        for (auto & item : toCreate) {
+            store->save(item.get());
+        }
+        for (auto & ru : roleUpdates) {
+            shared_ptr<Folder> fresh;
+            if (labelIds.count(ru.id)) {
+                fresh = store->find<Label>(Query().equal("id", ru.id));
+            } else {
+                fresh = store->find<Folder>(Query().equal("id", ru.id));
+            }
+            if (fresh) {
+                fresh->setRole(ru.role);
+                store->save(fresh.get());
+            }
+        }
+        // remove() only needs the id and tableName for DELETE — safe to use stale objects
+        for (auto const & item : unusedLocalFolders) {
             store->remove(item.second.get());
         }
-        for (auto const item : unusedLocalLabels) {
+        for (auto const & item : unusedLocalLabels) {
             store->remove(item.second.get());
         }
-        
         transaction.commit();
     }
 

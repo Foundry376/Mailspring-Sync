@@ -107,6 +107,25 @@ bool eventOverlapsRange(time_t eventStart, time_t eventEnd, const CalendarSyncRa
     return eventEnd >= range.start && eventStart <= range.end;
 }
 
+// Structs for two-phase transaction pattern: parse data outside the transaction,
+// then perform DB operations inside a short transaction.
+struct ParsedContact {
+    string id;
+    string etag;
+    string href;
+    string vcardString;
+    string email;
+    string name;
+    bool isGroup;
+};
+
+struct ParsedCalEvent {
+    string etag;
+    string href;
+    string icsData;
+    ICalendarEvent * icsEvent; // owned by a corresponding ICalendar kept alive in parsedCalendars
+};
+
 static string firstPropVal(json attrs, string key, string fallback = "") {
     if (!attrs.count(key)) return fallback;
     if (!attrs[key].size()) return fallback;
@@ -760,6 +779,7 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
             auto serverside = ingestAddressDataNode(abDoc, node, isGroup);
             if (!serverside) {
                 logger->warn("Not able to inflate contact from REPORT response after sending.");
+                return;
             }
             serverside->setBookId(ab->id());
             if (isGroup) {
@@ -865,41 +885,78 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
         for (auto & href : chunk) {
             payload += "<d:href>" + href + "</d:href>";
         }
-        
+
         // Fetch the data
         auto abDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop>" + payload + "</c:addressbook-multiget>");
-        
-        // Insert the event objects and remove deleted events within the same transaction.
-        // Most of the time, this results in an event being replaced within a single transaction.
+
+        // Phase 1: Parse XML and VCard data OUTSIDE the transaction
+        vector<ParsedContact> parsed;
+        int responsesFound = 0;
+
+        abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+            responsesFound++;
+            auto etag = abDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+            auto href = abDoc->nodeContentAtXPath(".//D:href/text()", node);
+            auto vcardString = abDoc->nodeContentAtXPath(".//carddav:address-data/text()", node);
+            if (vcardString == "") {
+                logger->info("Received addressbook entry {} with an empty body", etag);
+                return;
+            }
+            auto vcard = make_shared<VCard>(vcardString);
+            if (vcard->incomplete()) {
+                logger->info("Unable to decode vcard: {}", vcardString);
+                return;
+            }
+            string id = vcard->getUniqueId()->getValue();
+            if (id == "") id = MailUtils::idForCalendar(account->id(), href);
+            string email = vcard->getEmails().front()->getValue();
+            string name = vcard->getFormattedName()->getValue();
+            if (name == "") name = vcard->getName()->getValue();
+            bool isGroup = DAVUtils::isGroupCard(vcard);
+            parsed.push_back({id, etag, href, vcardString, email, name, isGroup});
+        }));
+
+        if (responsesFound == 0 && !chunk.empty()) {
+            logger->warn("Multiget for {} hrefs returned 0 D:response nodes - server response may be malformed or empty", chunk.size());
+        }
+
+        // Phase 2: Insert/update contacts and process deletions within the same transaction.
+        // Most of the time, this results in a contact being replaced within a single transaction.
         {
-            MailStoreTransaction transaction {store, "runForAddressBook"};
-            
+            MailStoreTransaction transaction{store, "runForAddressBook"};
+
             if (deleted.size()) {
                 ingestContactDeletions(ab, deleted);
                 deleted.clear();
             }
-            
-            abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
-                bool isGroup = false;
-                auto contact = ingestAddressDataNode(abDoc, node, isGroup);
-                if (!contact) return;
+
+            for (auto & p : parsed) {
+                auto contact = store->find<Contact>(Query().equal("id", p.id));
+                if (!contact) {
+                    contact = make_shared<Contact>(p.id, account->id(), p.email, CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
+                }
+                contact->setInfo(json::object({{"vcf", p.vcardString}, {"href", p.href}}));
+                contact->setName(p.name);
+                contact->setEmail(p.email);
+                contact->setEtag(p.etag);
                 contact->setBookId(ab->id());
-                if (isGroup) {
+                if (p.isGroup) {
+                    contact->setHidden(true);
                     updatedGroups.push_back(contact);
                 } else {
                     store->save(contact.get());
                 }
-            }));
-            
+            }
             transaction.commit();
         }
     }
 
-    // The code above only procsses deletions if it's also processing upserts, so we need to do
-    // a final check for deletions here.
+    // Process any remaining deletions if there were no multiget chunks to piggyback on
     if (deleted.size()) {
+        MailStoreTransaction transaction{store, "runForAddressBook:deletions"};
         ingestContactDeletions(ab, deleted);
         deleted.clear();
+        transaction.commit();
     }
     
     // We need to write updated groups last so that they can update the contacts that they reference
@@ -1086,27 +1143,58 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
                 "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\">"
                 "<d:prop><d:getetag /><c:address-data /></d:prop>" + payload + "</c:addressbook-multiget>");
 
+            // Phase 1: Parse XML and VCard data OUTSIDE the transaction
+            vector<ParsedContact> parsed;
             int responsesFound = 0;
-            MailStoreTransaction transaction{store, "syncToken:contacts:multiget"};
+
             abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
                 responsesFound++;
-                bool isGroup = false;
-                auto contact = ingestAddressDataNode(abDoc, node, isGroup);
-                if (contact) {
-                    contact->setBookId(ab->id());
-                    if (isGroup) {
-                        updatedGroups.push_back(contact);
-                    } else {
-                        store->save(contact.get());
-                    }
+                auto etag = abDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+                auto href = abDoc->nodeContentAtXPath(".//D:href/text()", node);
+                auto vcardString = abDoc->nodeContentAtXPath(".//carddav:address-data/text()", node);
+                if (vcardString == "") {
+                    logger->info("Received addressbook entry {} with an empty body", etag);
+                    return;
                 }
+                auto vcard = make_shared<VCard>(vcardString);
+                if (vcard->incomplete()) {
+                    logger->info("Unable to decode vcard: {}", vcardString);
+                    return;
+                }
+                string id = vcard->getUniqueId()->getValue();
+                if (id == "") id = MailUtils::idForCalendar(account->id(), href);
+                string email = vcard->getEmails().front()->getValue();
+                string name = vcard->getFormattedName()->getValue();
+                if (name == "") name = vcard->getName()->getValue();
+                bool isGroup = DAVUtils::isGroupCard(vcard);
+                parsed.push_back({id, etag, href, vcardString, email, name, isGroup});
             }));
-            transaction.commit();
 
-            if (responsesFound == 0) {
+            if (responsesFound == 0 && !chunk.empty()) {
                 logger->warn("Multiget for {} hrefs returned 0 D:response nodes - server response may be malformed or empty", chunk.size());
                 multigetHadEmptyResponse = true;
             }
+
+            // Phase 2: DB operations INSIDE a short transaction
+            MailStoreTransaction transaction{store, "syncToken:contacts:multiget"};
+            for (auto & p : parsed) {
+                auto contact = store->find<Contact>(Query().equal("id", p.id));
+                if (!contact) {
+                    contact = make_shared<Contact>(p.id, account->id(), p.email, CONTACT_MAX_REFS, CARDDAV_SYNC_SOURCE);
+                }
+                contact->setInfo(json::object({{"vcf", p.vcardString}, {"href", p.href}}));
+                contact->setName(p.name);
+                contact->setEmail(p.email);
+                contact->setEtag(p.etag);
+                contact->setBookId(ab->id());
+                if (p.isGroup) {
+                    contact->setHidden(true);
+                    updatedGroups.push_back(contact);
+                } else {
+                    store->save(contact.get());
+                }
+            }
+            transaction.commit();
         }
     }
 
@@ -1561,7 +1649,15 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
         logger->info("  needed: {}", neededHrefs.size());
     }
 
-    auto deletionChunks = MailUtils::chunksOfVector(deletedIcsUIDs, 100);
+    // Process deletions in their own short transactions before multiget
+    for (auto & deletionChunk : MailUtils::chunksOfVector(deletedIcsUIDs, 100)) {
+        MailStoreTransaction transaction{store, "runForCalendar:deletions"};
+        auto deletionEvents = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("icsuid", deletionChunk));
+        for (auto & e : deletionEvents) {
+            store->remove(e.get());
+        }
+        transaction.commit();
+    }
 
     for (auto chunk : MailUtils::chunksOfVector(neededHrefs, 90)) {
         string payload = "";
@@ -1572,80 +1668,66 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
         // Fetch the data (rate limiting is now handled in performXMLRequest)
         auto icsDoc = performXMLRequest(url, "REPORT", "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
 
-        // Insert/update events and remove deleted events within the same transaction.
+        // Phase 1: Parse ICS data OUTSIDE the transaction
+        vector<shared_ptr<ICalendar>> parsedCalendars;
+        vector<ParsedCalEvent> parsedEvents;
+
+        icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+            auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
+            auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
+
+            // Skip empty responses (Google sometimes returns empty data)
+            if (etag == "" || icsData == "") {
+                if (etag != "") {
+                    logger->info("Received calendar event {} with an empty body", etag);
+                }
+                return;
+            }
+
+            auto cal = make_shared<ICalendar>(icsData);
+            if (cal->Events.empty()) return;
+            parsedCalendars.push_back(cal);
+
+            auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
+
+            // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions)
+            for (auto icsEvent : cal->Events) {
+                if (icsEvent->DtStart.IsEmpty()) {
+                    logger->info("Received calendar event but it has no start time?\n\n{}\n\n", icsData);
+                    continue;
+                }
+                parsedEvents.push_back({etag, href, icsData, icsEvent});
+            }
+        }));
+
+        // Phase 2: DB operations INSIDE a short transaction
         {
-            MailStoreTransaction transaction {store, "runForCalendar:insertions"};
+            MailStoreTransaction transaction{store, "runForCalendar:insertions"};
+            for (auto & pe : parsedEvents) {
+                string icsUID = pe.icsEvent->UID;
+                string recurrenceId = pe.icsEvent->RecurrenceId;
 
-            icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
-                auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-                auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
-
-                // Skip empty responses (Google sometimes returns empty data)
-                if (etag == "" || icsData == "") {
-                    if (etag != "") {
-                        logger->info("Received calendar event {} with an empty body", etag);
-                    }
-                    return;
+                // Look up existing event by icsUID + recurrenceId to update in place
+                // Master events have empty recurrenceId, exceptions have the occurrence date
+                auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
+                if (!recurrenceId.empty()) {
+                    query.equal("recurrenceId", recurrenceId);
+                } else {
+                    query.equal("recurrenceId", "");
                 }
+                auto existing = store->find<Event>(query);
 
-                ICalendar cal(icsData);
-                if (cal.Events.empty()) return;
-
-                auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
-
-                // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions)
-                for (auto icsEvent : cal.Events) {
-                    if (icsEvent->DtStart.IsEmpty()) {
-                        logger->info("Received calendar event but it has no start time?\n\n{}\n\n", icsData);
-                        continue;
-                    }
-
-                    string icsUID = icsEvent->UID;
-                    string recurrenceId = icsEvent->RecurrenceId;
-
-                    // Look up existing event by icsUID + recurrenceId to update in place
-                    // Master events have empty recurrenceId, exceptions have the occurrence date
-                    auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
-                    if (!recurrenceId.empty()) {
-                        query.equal("recurrenceId", recurrenceId);
-                    } else {
-                        query.equal("recurrenceId", "");
-                    }
-                    auto existing = store->find<Event>(query);
-
-                    if (existing) {
-                        existing->applyICSEventData(etag, href, icsData, icsEvent);
-                        store->save(existing.get());
-                    } else {
-                        auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                        event.setHref(href);
-                        store->save(&event);
-                    }
-                }
-            }));
-
-            if (!deletionChunks.empty()) {
-                auto deletionChunk = deletionChunks.back();
-                deletionChunks.pop_back();
-                auto deletionEvents = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("icsuid", deletionChunk));
-                for (auto & e : deletionEvents) {
-                    store->remove(e.get());
+                if (existing) {
+                    existing->applyICSEventData(pe.etag, pe.href, pe.icsData, pe.icsEvent);
+                    store->save(existing.get());
+                } else {
+                    auto event = Event(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
+                    event.setHref(pe.href);
+                    store->save(&event);
                 }
             }
             transaction.commit();
         }
-    }
-
-    // Delete any remaining events
-    {
-        MailStoreTransaction transaction {store, "runForCalendar:deletions"};
-        for (auto & deletionChunk : deletionChunks) {
-            auto deletionEvents = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("icsuid", deletionChunk));
-            for (auto & e : deletionEvents) {
-                store->remove(e.get());
-            }
-        }
-        transaction.commit();
     }
 }
 
@@ -1814,24 +1896,33 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
 
     // Process direct data (from incremental sync with full calendar-data)
     if (!directData.empty()) {
-        MailStoreTransaction transaction{store, "syncToken:direct"};
+        // Phase 1: Parse ICS data OUTSIDE the transaction
+        vector<shared_ptr<ICalendar>> parsedCalendars;
+        vector<ParsedCalEvent> parsedEvents;
 
         for (auto & pair : directData) {
             string href = pair.first;
             string icsData = pair.second.second;
             if (icsData == "") continue;
 
-            ICalendar cal(icsData);
-            if (cal.Events.empty()) continue;
+            auto cal = make_shared<ICalendar>(icsData);
+            if (cal->Events.empty()) continue;
+            parsedCalendars.push_back(cal);
 
             string etag = pair.second.first;
-
-            // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions)
-            for (auto icsEvent : cal.Events) {
+            for (auto icsEvent : cal->Events) {
                 if (icsEvent->DtStart.IsEmpty()) continue;
+                parsedEvents.push_back({etag, href, icsData, icsEvent});
+            }
+        }
 
-                string icsUID = icsEvent->UID;
-                string recurrenceId = icsEvent->RecurrenceId;
+        // Phase 2: DB operations INSIDE a short transaction
+        if (!parsedEvents.empty()) {
+            auto range = getCalendarSyncRange();
+            MailStoreTransaction transaction{store, "syncToken:direct"};
+            for (auto & pe : parsedEvents) {
+                string icsUID = pe.icsEvent->UID;
+                string recurrenceId = pe.icsEvent->RecurrenceId;
 
                 // Look up existing event by icsUID + recurrenceId to update in place (preserves stable ID)
                 auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
@@ -1843,25 +1934,24 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 auto existing = store->find<Event>(query);
 
                 if (existing) {
-                    existing->applyICSEventData(etag, href, icsData, icsEvent);
+                    existing->applyICSEventData(pe.etag, pe.href, pe.icsData, pe.icsEvent);
                     store->save(existing.get());
                 } else {
                     // New event from sync-token - only create if within our time range
                     // This prevents accumulating events outside the range when they're modified
-                    auto range = getCalendarSyncRange();
-                    time_t eventStart = icsEvent->DtStart.toUnix();
-                    time_t eventEnd = endOf(icsEvent).toUnix();
+                    time_t eventStart = pe.icsEvent->DtStart.toUnix();
+                    time_t eventEnd = endOf(pe.icsEvent).toUnix();
 
                     if (eventOverlapsRange(eventStart, eventEnd, range)) {
-                        auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                        event.setHref(href);
+                        auto event = Event(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
+                        event.setHref(pe.href);
                         store->save(&event);
                     }
                     // else: quietly ignore - event is outside our sync window
                 }
             }
+            transaction.commit();
         }
-        transaction.commit();
     }
 
     // Fetch needed items (from initial sync) using multiget in chunks
@@ -1878,50 +1968,58 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
                 "<d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
 
-            MailStoreTransaction transaction{store, "syncToken:multiget"};
+            // Phase 1: Parse ICS data OUTSIDE the transaction
+            vector<shared_ptr<ICalendar>> parsedCalendars;
+            vector<ParsedCalEvent> parsedEvents;
+
             icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
                 auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
                 auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
                 if (icsData == "" || etag == "") return;
 
-                ICalendar cal(icsData);
-                if (cal.Events.empty()) return;
+                auto cal = make_shared<ICalendar>(icsData);
+                if (cal->Events.empty()) return;
+                parsedCalendars.push_back(cal);
 
                 auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
 
-                // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions)
-                for (auto icsEvent : cal.Events) {
+                for (auto icsEvent : cal->Events) {
                     if (icsEvent->DtStart.IsEmpty()) continue;
-
-                    string icsUID = icsEvent->UID;
-                    string recurrenceId = icsEvent->RecurrenceId;
-
-                    // Look up existing event by icsUID + recurrenceId to update in place (preserves stable ID)
-                    auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
-                    if (!recurrenceId.empty()) {
-                        query.equal("recurrenceId", recurrenceId);
-                    } else {
-                        query.equal("recurrenceId", "");
-                    }
-                    auto existing = store->find<Event>(query);
-
-                    if (existing) {
-                        existing->applyICSEventData(etag, href, icsData, icsEvent);
-                        store->save(existing.get());
-                    } else {
-                        // New event - only create if within our time range
-                        auto range = getCalendarSyncRange();
-                        time_t eventStart = icsEvent->DtStart.toUnix();
-                        time_t eventEnd = endOf(icsEvent).toUnix();
-
-                        if (eventOverlapsRange(eventStart, eventEnd, range)) {
-                            auto event = Event(etag, account->id(), calendarId, icsData, icsEvent);
-                            event.setHref(href);
-                            store->save(&event);
-                        }
-                    }
+                    parsedEvents.push_back({etag, href, icsData, icsEvent});
                 }
             }));
+
+            // Phase 2: DB operations INSIDE a short transaction
+            auto range = getCalendarSyncRange();
+            MailStoreTransaction transaction{store, "syncToken:multiget"};
+            for (auto & pe : parsedEvents) {
+                string icsUID = pe.icsEvent->UID;
+                string recurrenceId = pe.icsEvent->RecurrenceId;
+
+                // Look up existing event by icsUID + recurrenceId to update in place (preserves stable ID)
+                auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
+                if (!recurrenceId.empty()) {
+                    query.equal("recurrenceId", recurrenceId);
+                } else {
+                    query.equal("recurrenceId", "");
+                }
+                auto existing = store->find<Event>(query);
+
+                if (existing) {
+                    existing->applyICSEventData(pe.etag, pe.href, pe.icsData, pe.icsEvent);
+                    store->save(existing.get());
+                } else {
+                    // New event - only create if within our time range
+                    time_t eventStart = pe.icsEvent->DtStart.toUnix();
+                    time_t eventEnd = endOf(pe.icsEvent).toUnix();
+
+                    if (eventOverlapsRange(eventStart, eventEnd, range)) {
+                        auto event = Event(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
+                        event.setHref(pe.href);
+                        store->save(&event);
+                    }
+                }
+            }
             transaction.commit();
         }
     }
