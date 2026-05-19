@@ -40,11 +40,14 @@ void MailStoreTransaction::commit()
         mCommited = true;
 
         auto now = system_clock::now();
-        auto elapsed = now - mStart;
-        long long milliseconds = duration_cast<std::chrono::milliseconds>(elapsed).count();
-        if (milliseconds > 80) { // 80ms
-            long long waiting = duration_cast<std::chrono::milliseconds>(mBegan - mStart).count();
-            spdlog::get("logger")->warn("[SLOW] Transaction={} > 80ms ({}ms, {} waiting to aquire)", mNameHint, milliseconds, waiting);
+        long long waitingMs = duration_cast<std::chrono::milliseconds>(mBegan - mStart).count();
+        long long selfMs = duration_cast<std::chrono::milliseconds>(now - mBegan).count();
+
+        if (waitingMs > 1000) {
+            spdlog::get("logger")->warn("[BUSY] Transaction={} waited {}ms to acquire write lock", mNameHint, waitingMs);
+        }
+        if (selfMs > 100) {
+            spdlog::get("logger")->warn("[SLOW] Transaction={} held write lock for {}ms", mNameHint, selfMs);
         }
         
     } else {
