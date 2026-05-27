@@ -1761,19 +1761,36 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     
     logger->info("-- Synced sent message (Sent UID {} = Local ID {})", sentFolderMessageUID, localMessage->id());
     
-    // retrieve the new message and queue metadata tasks on it
+    // retrieve the new message and queue metadata tasks on it.
+    // Metadata entries whose pluginId starts with "thread:" are promoted to the
+    // thread (with the prefix stripped) rather than attached to the message.
+    // This lets plugins declare thread-level intent at draft-write time.
+    static const string THREAD_PREFIX = "thread:";
     for (const auto & m : draft.metadata()) {
         auto pluginId = m["pluginId"].get<string>();
-        logger->info("-- Queueing task to attach {} draft metadata to new message.", pluginId);
-        
-        Task mTask{"SyncbackMetadataTask", account->id(), {
-            {"modelId", localMessage->id()},
-            {"modelClassName", "message"},
-            {"modelHeaderMessageId", localMessage->headerMessageId()},
-            {"pluginId", pluginId},
-            {"value", m["value"]},
-        }};
-        performLocal(&mTask); // will call save
+
+        if (pluginId.substr(0, THREAD_PREFIX.size()) == THREAD_PREFIX) {
+            string actualPluginId = pluginId.substr(THREAD_PREFIX.size());
+            string threadId = localMessage->threadId();
+            logger->info("-- Queueing task to attach {} draft metadata to thread {} (thread: prefix).", actualPluginId, threadId);
+            Task mTask{"SyncbackMetadataTask", account->id(), {
+                {"modelId", threadId},
+                {"modelClassName", "thread"},
+                {"pluginId", actualPluginId},
+                {"value", m["value"]},
+            }};
+            performLocal(&mTask); // will call save
+        } else {
+            logger->info("-- Queueing task to attach {} draft metadata to new message.", pluginId);
+            Task mTask{"SyncbackMetadataTask", account->id(), {
+                {"modelId", localMessage->id()},
+                {"modelClassName", "message"},
+                {"modelHeaderMessageId", localMessage->headerMessageId()},
+                {"pluginId", pluginId},
+                {"value", m["value"]},
+            }};
+            performLocal(&mTask); // will call save
+        }
     }
 }
 
