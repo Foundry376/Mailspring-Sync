@@ -672,7 +672,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# copy mailsync and it's DYSM into the ../app directory\ncp \"${BUILT_PRODUCTS_DIR}/mailsync\" \"${PROJECT_DIR}/../app\"\necho \"Copied to app dir\"\n\n# explicitly codesign the binary because the codesigning build\n# phase is /AFTER/ this script is run. WTF.\ncodesign -s \"Mac Developer:\" -f \"${PROJECT_DIR}/../app/mailsync\"\necho \"Codesigned\"\n\nif [ -e \"${BUILT_PRODUCTS_DIR}/mailsync.dSYM\" ]\n  then cd \"${BUILT_PRODUCTS_DIR}\" && /usr/bin/zip -r \"${PROJECT_DIR}/../app/mailsync.dSYM.zip\" \"mailsync.dSYM\"\nfi\n";
+			shellScript = "# copy mailsync and it's DYSM into the ../app directory\ncp \"${BUILT_PRODUCTS_DIR}/mailsync\" \"${PROJECT_DIR}/../app\"\necho \"Copied to app dir\"\n\n# explicitly codesign the binary because the codesigning build\n# phase is /AFTER/ this script is run. WTF.\n# Try the developer identity, but fall back to ad-hoc signing (-s -) when it\n# isn't available so the copied binary still runs: macOS kills unsigned arm64\n# binaries on launch. Release builds are re-signed by electron-osx-sign.\ncodesign -s \"Mac Developer:\" -f \"${PROJECT_DIR}/../app/mailsync\" 2>/dev/null || codesign -s - -f \"${PROJECT_DIR}/../app/mailsync\"\necho \"Codesigned\"\n\nif [ -e \"${BUILT_PRODUCTS_DIR}/mailsync.dSYM\" ]\n  then cd \"${BUILT_PRODUCTS_DIR}\" && /usr/bin/zip -r \"${PROJECT_DIR}/../app/mailsync.dSYM.zip\" \"mailsync.dSYM\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
