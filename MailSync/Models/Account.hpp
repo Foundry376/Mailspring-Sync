@@ -57,6 +57,8 @@ public:
     string SMTPPassword();
     string SMTPSecurity();
     bool SMTPAllowInsecureSSL();
+    string SMTPVerification();
+    bool createHelperFolders();
 
     string tableName();
     string constructorName();

@@ -587,7 +587,13 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     // create required Mailspring folders if they don't exist
     // TODO: Consolidate this into role association code below, and make it
     // use the same business logic as creating / updating folders from tasks.
-    vector<string> mailspringFolders{"Snoozed"};
+    // Accounts with create_helper_folders=false (e.g. O365 shared mailboxes, where
+    // any folder we create is visible to every member of the mailbox) are skipped;
+    // features depending on these folders (snooze) are unavailable there.
+    vector<string> mailspringFolders{};
+    if (account->createHelperFolders()) {
+        mailspringFolders.push_back("Snoozed");
+    }
 
     for (string mailspringFolder : mailspringFolders) {
         string mailspringRole = mailspringFolder;

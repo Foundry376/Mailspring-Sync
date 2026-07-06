@@ -818,7 +818,11 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
 void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account) {
     if (account->refreshToken() != "") {
         XOAuth2Parts parts = SharedXOAuth2TokenManager()->partsForAccount(account);
-        session.setUsername(AS_MCSTR(parts.username));
+        // O365 shared mailboxes authenticate IMAP as the shared mailbox, but SMTP AUTH
+        // only accepts the signed-in user's identity, so a distinct smtp_username must
+        // take precedence over the IMAP-derived XOAuth2 username here.
+        string smtpUsername = account->SMTPUsername() != "" ? account->SMTPUsername() : parts.username;
+        session.setUsername(AS_MCSTR(smtpUsername));
         session.setOAuth2Token(AS_MCSTR(parts.accessToken));
         session.setAuthType(AuthTypeXOAuth2);
     } else {

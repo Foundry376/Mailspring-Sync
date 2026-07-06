@@ -152,6 +152,16 @@ bool Account::SMTPAllowInsecureSSL() {
     return _data["settings"]["smtp_allow_insecure_ssl"].get<bool>();
 }
 
+string Account::SMTPVerification() {
+    json & s = _data["settings"];
+    return s.count("smtp_verification") ? s["smtp_verification"].get<string>() : "";
+}
+
+bool Account::createHelperFolders() {
+    json & s = _data["settings"];
+    return s.count("create_helper_folders") ? s["create_helper_folders"].get<bool>() : true;
+}
+
 string Account::constructorName() {
     return _data["__cls"].get<string>();
 }

@@ -340,7 +340,15 @@ int runTestAuth(shared_ptr<Account> account) {
     errorService = "smtp";
     smtp.setConnectionLogger(&alogger);
     MailUtils::configureSessionForAccount(smtp, account);
-    smtp.checkAccount(from, &err);
+    if (account->SMTPVerification() == "login") {
+        // checkAccount() transmits a real test email, which is wrong for accounts that
+        // may not have send rights (e.g. O365 shared mailboxes without "Send As") and
+        // would be visible to every member of a shared mailbox. Verify the connection
+        // and credentials only; send permission is exercised on first real send.
+        smtp.loginIfNeeded(&err);
+    } else {
+        smtp.checkAccount(from, &err);
+    }
     if (err != ErrorNone) {
         alogger.log("\n\nSASL_PATH: " + MailUtils::getEnvUTF8("SASL_PATH"));
 
