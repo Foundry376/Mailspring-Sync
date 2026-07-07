@@ -588,8 +588,18 @@ void TaskProcessor::performRemote(Task * task) {
                 logger->error("Unsure of how to process this task type {}", cname);
             }
 
-            logger->info("[{}] -- Succeeded. Changing status to `complete`", task->id());
-            task->setStatus("complete");
+            // A long-running task (e.g. GetManyRFC2822Task) can observe a
+            // cancel request while it runs and stop early, setting should_cancel
+            // on the task. Honor that here so it ends up "cancelled" rather than
+            // "complete"; the pre-run check above only covers cancels that
+            // arrive before the task starts.
+            if (task->shouldCancel()) {
+                logger->info("[{}] -- Cancelled. Changing status to `cancelled`", task->id());
+                task->setStatus("cancelled");
+            } else {
+                logger->info("[{}] -- Succeeded. Changing status to `complete`", task->id());
+                task->setStatus("complete");
+            }
         }
     } catch (SyncException & ex) {
         logger->error("[{}] -- Failed ({}). Changing status to `complete`", task->id(), ex.toJSON().dump());
@@ -2078,19 +2088,39 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
             globalIndex++;
         }
 
-        // After each chunk, save progress (including cursor) and check for cancellation
+        // After each chunk, persist progress and check for a cancel request in
+        // a single write transaction.
+        //
+        // Electron sets should_cancel on this same Task row from the main
+        // thread (TaskProcessor::cancel), using a different MailStore
+        // connection. Previously this code saved our in-memory task copy — in
+        // which should_cancel is false — and only then re-read the row, so the
+        // progress save clobbered a concurrently-set cancel flag and the
+        // re-read almost never saw it: once the export had started it could not
+        // be cancelled. Re-reading and saving inside one BEGIN IMMEDIATE
+        // transaction serializes against that cancel write, so a request is
+        // either already visible here or ordered strictly after our commit and
+        // seen on the next chunk — never lost.
         progress["exported"] = exported;
         progress["failed"] = failed;
         progress["lastUID"] = cursorUID;
-        task->data()["progress"] = progress;
-        store->save(task);
 
-        // Re-read task from DB to check for cancellation
-        auto refreshed = store->find<Task>(Query().equal("id", task->id()));
-        if (refreshed != nullptr && refreshed->shouldCancel()) {
-            progress["cancelled"] = true;
+        bool cancelled = false;
+        {
+            MailStoreTransaction transaction{store, "GetManyRFC2822 progress"};
+            auto refreshed = store->find<Task>(Query().equal("id", task->id()));
+            if (refreshed != nullptr && refreshed->shouldCancel()) {
+                cancelled = true;
+                progress["cancelled"] = true;
+                // Carry the flag onto our in-memory copy so this save preserves
+                // it and performRemote marks the task cancelled, not complete.
+                task->setShouldCancel();
+            }
             task->data()["progress"] = progress;
             store->save(task);
+            transaction.commit();
+        }
+        if (cancelled) {
             logger->info("GetManyRFC2822: cancelled after exporting {} of {} messages", exported, total);
             return;
         }
