@@ -413,6 +413,7 @@ int runInstallCheck() {
         {"imap_check", nullptr},
         {"smtp_check", nullptr},
         {"tidy_check", nullptr},
+        {"legacy_tls_check", nullptr},
         {"log", nullptr}
     };
 
@@ -544,6 +545,38 @@ int runInstallCheck() {
         resp["smtp_check"] = {{"success", true}};
     }
 
+    // Step 3b: Check TLS against a server that still uses legacy encryption.
+    // imap.shaw.ca negotiates parameters that Apple's Security.framework
+    // accepts but that modern OpenSSL rejects out of the box, so this check is
+    // expected to pass on macOS and fail on the OpenSSL platforms (Windows,
+    // Linux) until the connection code learns to fall back.
+    string legacyTLSError = "";
+    alogger.log("\n\n----------LEGACY TLS----------\n");
+    try {
+        IMAPSession session;
+        session.setHostname(MCSTR("imap.shaw.ca"));
+        session.setPort(993);
+        session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+        session.setConnectionLogger(&alogger);
+        // No username/password - we just want to verify the handshake works
+
+        ErrorCode err = ErrorNone;
+        session.connect(&err);
+
+        if (err != ErrorNone && err != ErrorAuthentication && err != ErrorAuthenticationRequired) {
+            legacyTLSError = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : ("legacy TLS error code: " + to_string(err));
+        }
+        session.disconnect();
+    } catch (std::exception & ex) {
+        legacyTLSError = ex.what();
+    }
+
+    if (legacyTLSError != "") {
+        resp["legacy_tls_check"] = {{"error", legacyTLSError}};
+    } else {
+        resp["legacy_tls_check"] = {{"success", true}};
+    }
+
     // Step 4: Check libtidy by actually processing HTML (Linux only)
     string tidyError = "";
 #if defined(__linux__)
@@ -605,7 +638,7 @@ int runInstallCheck() {
     }
 
     // Determine overall success
-    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "");
+    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "" && legacyTLSError == "");
     if (!success) {
         resp["error"] = "One or more checks failed";
     }
