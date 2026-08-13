@@ -778,6 +778,29 @@ class MailcoreSPDLogger : public ConnectionLogger {
     }
 };
 
+string MailUtils::tlsFailureAdvice(mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed) {
+    if (tlsErrorDescription == nullptr) {
+        return "";
+    }
+
+    // OpenSSL reports "error:0A00018A:SSL routines::dh key too small". Only the
+    // reason after the last "::" is worth showing; the full string stays in the
+    // connection log.
+    string reason = tlsErrorDescription->UTF8Characters();
+    size_t sep = reason.rfind("::");
+    if (sep != string::npos && sep + 2 < reason.size()) {
+        reason = reason.substr(sep + 2);
+    }
+
+    string advice = "The server rejected the secure connection (" + reason + "). ";
+    advice += "This server uses outdated encryption.";
+
+    if (!obsoleteTLSAllowed) {
+        advice += " Enabling \"Allow insecure SSL\" in this account's settings may allow Mailspring to connect.";
+    }
+    return advice;
+}
+
 void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Account> account) {
     if (account->refreshToken() != "") {
         XOAuth2Parts parts = SharedXOAuth2TokenManager()->partsForAccount(account);

@@ -294,6 +294,7 @@ int runTestAuth(shared_ptr<Account> account) {
     ErrorCode err = ErrorNone;
     Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
     string errorService = "imap";
+    string tlsAdvice = "";
     string containerFolderPath = account->containerFolder();
     string mainPrefix = "";
     
@@ -304,6 +305,10 @@ int runTestAuth(shared_ptr<Account> account) {
     session.setConnectionLogger(&alogger);
     session.connect(&err);
     if (err != ErrorNone) {
+        tlsAdvice = MailUtils::tlsFailureAdvice(session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed());
+        if (tlsAdvice != "") {
+            alogger.log("\n\n" + tlsAdvice + "\n");
+        }
         goto done;
     }
     folders = session.fetchAllFolders(&err);
@@ -350,6 +355,10 @@ int runTestAuth(shared_ptr<Account> account) {
         smtp.checkAccount(from, &err);
     }
     if (err != ErrorNone) {
+        tlsAdvice = MailUtils::tlsFailureAdvice(smtp.lastTLSErrorDescription(), smtp.isObsoleteTLSAllowed());
+        if (tlsAdvice != "") {
+            alogger.log("\n\n" + tlsAdvice + "\n");
+        }
         alogger.log("\n\nSASL_PATH: " + MailUtils::getEnvUTF8("SASL_PATH"));
 
         if (smtp.lastSMTPResponse()) {
@@ -381,6 +390,9 @@ done:
         return 0;
     } else {
         resp["error"] = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : "Unknown";
+        if (tlsAdvice != "") {
+            resp["error_advice"] = tlsAdvice;
+        }
         cout << resp.dump();
         return 1;
     }

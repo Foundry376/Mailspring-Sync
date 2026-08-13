@@ -86,6 +86,15 @@ public:
     static void enableVerboseLogging();
     static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
     static void configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account);
+
+    // Explains a connection that failed during the TLS handshake, e.g. because
+    // the server offers a DH group or certificate that OpenSSL rejects. When the
+    // account has not enabled "Allow insecure SSL", the advice mentions it,
+    // because that is what lets the connection fall back far enough to succeed.
+    // Returns an empty string when the failure was not a TLS rejection, so it
+    // can be appended unconditionally.
+    // Pass session.lastTLSErrorDescription() and session.isObsoleteTLSAllowed().
+    static string tlsFailureAdvice(mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed);
     
     static IMAPMessagesRequestKind messagesRequestKindFor(IndexSet * capabilities, bool heavyOrNeedToComputeIDs);
 

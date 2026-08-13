@@ -63,9 +63,11 @@ namespace mailcore {
         virtual void setObsoleteTLSAllowed(bool allowed);
         virtual bool isObsoleteTLSAllowed();
 
-        // Reason reported by the TLS backend for the last failed handshake,
-        // e.g. "dh key too small". NULL when the last connect did not fail
-        // during the handshake.
+        // Reason reported by the TLS backend for the most recent rejected
+        // handshake, e.g. "dh key too small". This stays set when a later
+        // compatibility level went on to succeed, so it explains why the
+        // fallback happened; pair it with the connect error to decide whether
+        // the connection actually failed. NULL when no handshake was rejected.
         virtual String * lastTLSErrorDescription();
 
         // Compatibility level the last connect() settled on. See
