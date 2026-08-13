@@ -374,6 +374,9 @@ void SMTPSession::connect(ErrorCode * pError)
         }
 
         if (!mailstream_ssl_has_last_error()) {
+            // See IMAPSession::connect - don't report a reason recorded at an
+            // earlier level for a failure that wasn't a TLS rejection.
+            MC_SAFE_RELEASE(mLastTLSErrorDescription);
             return;
         }
 

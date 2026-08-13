@@ -735,6 +735,10 @@ void IMAPSession::connect(ErrorCode * pError)
         if (!mailstream_ssl_has_last_error()) {
             // Not a negotiation failure - the host is unreachable, refused the
             // connection or dropped it. Retrying with weaker crypto cannot help.
+            // Drop any reason recorded at an earlier level so callers don't
+            // report a stale rejection for a failure that wasn't one. It stays
+            // in the log either way.
+            MC_SAFE_RELEASE(mLastTLSErrorDescription);
             return;
         }
 
