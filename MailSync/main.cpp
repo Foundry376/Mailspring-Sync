@@ -546,10 +546,12 @@ int runInstallCheck() {
     }
 
     // Step 3b: Check TLS against a server that still uses legacy encryption.
-    // imap.shaw.ca negotiates parameters that Apple's Security.framework
-    // accepts but that modern OpenSSL rejects out of the box, so this check is
-    // expected to pass on macOS and fail on the OpenSSL platforms (Windows,
-    // Linux) until the connection code learns to fall back.
+    // imap.shaw.ca offers a DH group that modern OpenSSL rejects ("dh key too
+    // small") while Apple's Security.framework accepts it, which is why the
+    // account works on macOS and fails on Windows and Linux. This exercises the
+    // compatibility fallback in IMAPSession::connect and reports the level it
+    // settled on, so a server needing the obsolete tier is visible rather than
+    // silently absorbed.
     string legacyTLSError = "";
     alogger.log("\n\n----------LEGACY TLS----------\n");
     try {
@@ -558,13 +560,27 @@ int runInstallCheck() {
         session.setPort(993);
         session.setConnectionType(ConnectionType::ConnectionTypeTLS);
         session.setConnectionLogger(&alogger);
-        // No username/password - we just want to verify the handshake works
+        // Exercise the whole ladder. Real accounts only reach the obsolete tier
+        // when the user has enabled "Allow insecure SSL".
+        session.setObsoleteTLSAllowed(true);
 
         ErrorCode err = ErrorNone;
         session.connect(&err);
 
-        if (err != ErrorNone && err != ErrorAuthentication && err != ErrorAuthenticationRequired) {
-            legacyTLSError = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : ("legacy TLS error code: " + to_string(err));
+        int level = session.tlsCompatibilityLevel();
+
+        if (err == ErrorNone || err == ErrorAuthentication || err == ErrorAuthenticationRequired) {
+            alogger.log("\nConnected at TLS compatibility level " + to_string(level) + "\n");
+            resp["legacy_tls_check"] = {{"success", true}, {"compatibility_level", level}};
+        } else if (session.lastTLSErrorDescription() != NULL) {
+            // The handshake itself was rejected at every level - the fallback
+            // is not doing its job. That is the regression this check catches.
+            legacyTLSError = string("TLS handshake rejected: ") + session.lastTLSErrorDescription()->UTF8Characters();
+        } else {
+            // Unreachable, refused or timed out. That is the server or the
+            // network rather than our TLS configuration, so don't fail here.
+            alogger.log("\nimap.shaw.ca unreachable, skipping legacy TLS check\n");
+            resp["legacy_tls_check"] = {{"skipped", "host unreachable"}};
         }
         session.disconnect();
     } catch (std::exception & ex) {
@@ -573,8 +589,6 @@ int runInstallCheck() {
 
     if (legacyTLSError != "") {
         resp["legacy_tls_check"] = {{"error", legacyTLSError}};
-    } else {
-        resp["legacy_tls_check"] = {{"success", true}};
     }
 
     // Step 4: Check libtidy by actually processing HTML (Linux only)

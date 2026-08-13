@@ -109,6 +109,33 @@
 #include "mmapstring.h"
 #include "mailstream_cancel.h"
 
+/* Thread-local description of the last TLS handshake failure. Handshakes for
+   different accounts run on different threads, so this must not be shared. */
+#ifdef WIN32
+#define MAILSTREAM_THREAD_LOCAL __declspec(thread)
+#else
+#define MAILSTREAM_THREAD_LOCAL __thread
+#endif
+
+static MAILSTREAM_THREAD_LOCAL char mailstream_ssl_last_error[256] = { 0 };
+static MAILSTREAM_THREAD_LOCAL int mailstream_ssl_last_error_set = 0;
+
+const char * mailstream_ssl_get_last_error(void)
+{
+  return mailstream_ssl_last_error;
+}
+
+int mailstream_ssl_has_last_error(void)
+{
+  return mailstream_ssl_last_error_set;
+}
+
+static void mailstream_ssl_clear_last_error(void)
+{
+  mailstream_ssl_last_error[0] = '\0';
+  mailstream_ssl_last_error_set = 0;
+}
+
 struct mailstream_ssl_context
 {
   int fd;
@@ -468,6 +495,8 @@ static struct mailstream_ssl_data * ssl_data_new_full(int fd, time_t timeout,
 #endif
 
   mailstream_ssl_init();
+  mailstream_ssl_clear_last_error();
+  ERR_clear_error();
 
   tmp_ctx = SSL_CTX_new(method);
   if (tmp_ctx == NULL) {
@@ -535,17 +564,22 @@ again:
   if (r <= 0) {
     unsigned long ssl_err = ERR_get_error();
     if (ssl_err != 0) {
-      char err_buf[256];
-      ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
-      fprintf(stderr, "SSL_connect failed: %s\n", err_buf);
-      /* Log additional errors in the queue */
-      while ((ssl_err = ERR_get_error()) != 0) {
-        ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
-        fprintf(stderr, "SSL error: %s\n", err_buf);
-      }
+      /* Record the first (most specific) reason so the caller can report
+         "dh key too small" rather than an opaque error code, and can decide
+         whether retrying at a lower compatibility level is worthwhile. */
+      ERR_error_string_n(ssl_err, mailstream_ssl_last_error,
+        sizeof(mailstream_ssl_last_error));
+      mailstream_ssl_last_error_set = 1;
+      ERR_clear_error();
     } else {
       int ssl_error = SSL_get_error(ssl_conn, r);
-      fprintf(stderr, "SSL_connect failed with SSL_ERROR: %d\n", ssl_error);
+      snprintf(mailstream_ssl_last_error, sizeof(mailstream_ssl_last_error),
+        "SSL_connect failed with SSL_ERROR %d", ssl_error);
+      /* SSL_ERROR_SYSCALL / SSL_ERROR_ZERO_RETURN with an empty error queue
+         means the peer went away rather than rejecting our parameters, so it
+         is not treated as a negotiation failure. */
+      mailstream_ssl_last_error_set =
+        (ssl_error != SSL_ERROR_SYSCALL) && (ssl_error != SSL_ERROR_ZERO_RETURN);
     }
     goto free_ssl_conn;
   }
@@ -639,7 +673,8 @@ static struct mailstream_ssl_data * ssl_data_new(int fd, time_t timeout,
   unsigned int timeout_value;
   
   mailstream_ssl_init();
-  
+  mailstream_ssl_clear_last_error();
+
   if (gnutls_certificate_allocate_credentials (&xcred) != 0)
     return NULL;
 
@@ -1521,6 +1556,48 @@ void * mailstream_ssl_get_openssl_ssl_ctx(struct mailstream_ssl_context * ssl_co
 int mailstream_ssl_get_fd(struct mailstream_ssl_context * ssl_context)
 {
   return ssl_context->fd;
+}
+
+int mailstream_ssl_set_compatibility_level(struct mailstream_ssl_context * ssl_context,
+    int level)
+{
+#if defined(USE_SSL) && !defined(USE_GNUTLS)
+  SSL_CTX * ctx;
+
+  if (ssl_context == NULL)
+    return -1;
+
+  ctx = ssl_context->openssl_ssl_ctx;
+  if (ctx == NULL)
+    return -1;
+
+  if (level == MAILSTREAM_SSL_COMPAT_DEFAULT)
+    return 0;
+
+  /* Old servers predate RFC 5746. OpenSSL 3 refuses them by default; allowing
+     the initial handshake does not allow unsafe renegotiation afterwards. */
+  SSL_CTX_set_options(ctx, SSL_OP_LEGACY_SERVER_CONNECT);
+
+#ifdef SSL_CTX_set_min_proto_version
+  SSL_CTX_set_min_proto_version(ctx, TLS1_VERSION);
+#endif
+
+  if (level >= MAILSTREAM_SSL_COMPAT_OBSOLETE) {
+    SSL_CTX_set_security_level(ctx, 0);
+    SSL_CTX_set_cipher_list(ctx, "ALL:@SECLEVEL=0");
+  }
+  else {
+    SSL_CTX_set_security_level(ctx, 1);
+    SSL_CTX_set_cipher_list(ctx, "DEFAULT:@SECLEVEL=1");
+  }
+
+  return 0;
+#else
+  /* CFStream and GnuTLS builds negotiate legacy servers without help. */
+  (void) ssl_context;
+  (void) level;
+  return 0;
+#endif
 }
 
 static struct mailstream_cancel * mailstream_low_ssl_get_cancel(mailstream_low * s)

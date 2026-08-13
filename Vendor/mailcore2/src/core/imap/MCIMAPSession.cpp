@@ -377,6 +377,9 @@ void IMAPSession::init()
     mAuthType = AuthTypeSASLNone;
     mConnectionType = ConnectionTypeClear;
     mCheckCertificateEnabled = true;
+    mObsoleteTLSAllowed = false;
+    mTLSCompatibilityLevel = MAILSTREAM_SSL_COMPAT_DEFAULT;
+    mLastTLSErrorDescription = NULL;
     mVoIPEnabled = true;
     mDelimiter = 0;
     
@@ -446,6 +449,7 @@ IMAPSession::~IMAPSession()
     MC_SAFE_RELEASE(mWelcomeString);
     MC_SAFE_RELEASE(mDefaultNamespace);
     MC_SAFE_RELEASE(mCurrentFolder);
+    MC_SAFE_RELEASE(mLastTLSErrorDescription);
     pthread_mutex_destroy(&mIdleLock);
     pthread_mutex_destroy(&mConnectionLoggerLock);
 }
@@ -538,6 +542,26 @@ void IMAPSession::setCheckCertificateEnabled(bool enabled)
 bool IMAPSession::isCheckCertificateEnabled()
 {
     return mCheckCertificateEnabled;
+}
+
+void IMAPSession::setObsoleteTLSAllowed(bool allowed)
+{
+    mObsoleteTLSAllowed = allowed;
+}
+
+bool IMAPSession::isObsoleteTLSAllowed()
+{
+    return mObsoleteTLSAllowed;
+}
+
+String * IMAPSession::lastTLSErrorDescription()
+{
+    return mLastTLSErrorDescription;
+}
+
+int IMAPSession::tlsCompatibilityLevel()
+{
+    return mTLSCompatibilityLevel;
 }
 
 void IMAPSession::setVoIPEnabled(bool enabled)
@@ -636,12 +660,15 @@ static bool isIPAddress(const char * hostname)
 
 static void ssl_callback(struct mailstream_ssl_context * ssl_context, void * data)
 {
+    IMAPSession * session = (IMAPSession *) data;
+
     // Set the Server Name Indication (SNI) for TLS connections
     // SNI only makes sense for hostnames, not IP addresses
-    const char * hostname = (const char *) data;
+    const char * hostname = session->hostname() != NULL ? MCUTF8(session->hostname()) : NULL;
     if (hostname != NULL && !isIPAddress(hostname)) {
         mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
     }
+    mailstream_ssl_set_compatibility_level(ssl_context, session->mTLSCompatibilityLevel);
 }
 
 void IMAPSession::setup()
@@ -678,8 +705,56 @@ void IMAPSession::unsetup()
 
 void IMAPSession::connect(ErrorCode * pError)
 {
+    MC_SAFE_RELEASE(mLastTLSErrorDescription);
+
+    if (mConnectionType == ConnectionTypeClear) {
+        mTLSCompatibilityLevel = MAILSTREAM_SSL_COMPAT_DEFAULT;
+        connectWithCurrentCompatibilityLevel(pError);
+        return;
+    }
+
+    // Modern OpenSSL rejects handshakes that older mail servers still require,
+    // while Apple's Security.framework accepts them - which is why such servers
+    // work on macOS and fail elsewhere. Start strict and relax only after the
+    // backend itself rejected the negotiation, so a healthy server is never
+    // downgraded and an unreachable one is not retried pointlessly.
+    int maxLevel = mObsoleteTLSAllowed ? MAILSTREAM_SSL_COMPAT_OBSOLETE : MAILSTREAM_SSL_COMPAT_LEGACY;
+
+    for (int level = MAILSTREAM_SSL_COMPAT_DEFAULT; level <= maxLevel; level++) {
+        mTLSCompatibilityLevel = level;
+        connectWithCurrentCompatibilityLevel(pError);
+
+        if (* pError == ErrorNone) {
+            if (level != MAILSTREAM_SSL_COMPAT_DEFAULT) {
+                MCLog("%s uses outdated encryption, connected at TLS compatibility level %i",
+                      MCUTF8(mHostname), level);
+            }
+            return;
+        }
+
+        if (!mailstream_ssl_has_last_error()) {
+            // Not a negotiation failure - the host is unreachable, refused the
+            // connection or dropped it. Retrying with weaker crypto cannot help.
+            return;
+        }
+
+        MC_SAFE_REPLACE_RETAIN(String, mLastTLSErrorDescription,
+                               String::stringWithUTF8Characters(mailstream_ssl_get_last_error()));
+
+        MCLog("TLS handshake with %s rejected at compatibility level %i: %s",
+              MCUTF8(mHostname), level, mailstream_ssl_get_last_error());
+    }
+
+    if (!mObsoleteTLSAllowed) {
+        MCLog("%s requires obsolete TLS. Enable \"Allow insecure SSL\" for this account to connect anyway.",
+              MCUTF8(mHostname));
+    }
+}
+
+void IMAPSession::connectWithCurrentCompatibilityLevel(ErrorCode * pError)
+{
     int r;
-    
+
     setup();
 
     MCLog("connect %s", MCUTF8DESC(this));
@@ -700,9 +775,9 @@ void IMAPSession::connect(ErrorCode * pError)
             goto close;
         }
 
-        r = mailimap_socket_starttls_with_callback(mImap, ssl_callback, (void *) MCUTF8(mHostname));
+        r = mailimap_socket_starttls_with_callback(mImap, ssl_callback, this);
         if (hasError(r)) {
-            MCLog("no TLS %i", r);
+            MCLog("no TLS %i (%s)", r, mailstream_ssl_get_last_error());
             * pError = ErrorTLSNotAvailable;
             goto close;
         }
@@ -716,10 +791,10 @@ void IMAPSession::connect(ErrorCode * pError)
 
         case ConnectionTypeTLS:
         r = mailimap_ssl_connect_voip_with_callback(mImap, MCUTF8(mHostname), mPort, isVoIPEnabled(),
-            ssl_callback, (void *) MCUTF8(mHostname));
+            ssl_callback, this);
         MCLog("TLS ssl connect %s %u %u", MCUTF8(mHostname), mPort, r);
         if (hasError(r)) {
-            MCLog("connect error %i", r);
+            MCLog("connect error %i (%s)", r, mailstream_ssl_get_last_error());
             * pError = ErrorConnection;
             goto close;
         }

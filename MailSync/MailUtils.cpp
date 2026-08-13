@@ -799,6 +799,9 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
     }
     if (account->IMAPAllowInsecureSSL()) {
         session.setCheckCertificateEnabled(false);
+        // Also let the handshake itself fall back to OpenSSL security level 0,
+        // for servers still using SHA-1 certificates or undersized DH groups.
+        session.setObsoleteTLSAllowed(true);
     }
 
     // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
@@ -840,6 +843,7 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     }
     if (account->SMTPAllowInsecureSSL()) {
         session.setCheckCertificateEnabled(false);
+        session.setObsoleteTLSAllowed(true);
     }
 
     if (_verboseLogging) {
