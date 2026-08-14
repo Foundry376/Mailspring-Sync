@@ -121,6 +121,39 @@ bool Account::IMAPAllowInsecureSSL() {
     return _data["settings"]["imap_allow_insecure_ssl"].get<bool>();
 }
 
+string Account::CalDAVHost() {
+    json & s = _data["settings"];
+    return s.count("caldav_host") ? s["caldav_host"].get<string>() : "";
+}
+
+string Account::CardDAVHost() {
+    json & s = _data["settings"];
+    if (s.count("carddav_host") && !s["carddav_host"].get<string>().empty()) {
+        return s["carddav_host"].get<string>();
+    }
+    return CalDAVHost();
+}
+
+string Account::CalDAVUsername() {
+    json & s = _data["settings"];
+    // Calendar authentication deliberately inherits the working IMAP login.
+    // A separate value is only an opt-in override for servers that require it.
+    if (s.count("caldav_username") && s["caldav_username"].is_string()) {
+        string configured = s["caldav_username"].get<string>();
+        if (!configured.empty()) return configured;
+    }
+    return IMAPUsername();
+}
+
+string Account::CalDAVPassword() {
+    json & s = _data["settings"];
+    if (s.count("caldav_password") && s["caldav_password"].is_string()) {
+        string configured = s["caldav_password"].get<string>();
+        if (!configured.empty()) return configured;
+    }
+    return IMAPPassword();
+}
+
 bool Account::isICloud() {
     return IMAPHost().find("imap.mail.me.com") != string::npos;
 }

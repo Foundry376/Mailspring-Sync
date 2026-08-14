@@ -9,6 +9,7 @@
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
 #include <algorithm>
+#include <functional>
 #include <set>
 
 #include "SyncWorker.hpp"
@@ -30,6 +31,7 @@
 #define DEEP_SCAN_INTERVAL          60 * 10
 
 #define MAX_FULL_HEADERS_REQUEST_SIZE  1024
+#define FULL_HEADERS_BATCH_SIZE        100
 #define MODSEQ_TRUNCATION_THRESHOLD 4000
 #define MODSEQ_TRUNCATION_UID_COUNT 12000
 
@@ -819,7 +821,7 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
 
     AutoreleasePool pool;
     IndexSet * set = IndexSet::indexSetWithRange(range);
-    IndexSet * heavyNeeded = IndexSet::indexSet();
+    vector<uint32_t> heavyNeededUIDs {};
     IMAPProgress cb;
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(remotePath));
@@ -834,7 +836,9 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
 
     // Step 2: Fetch the remote attributes (unread, starred, etc.) for the same UID range
     time_t syncDataTimestamp = time(0);
-    auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), heavyInitialRequest);
+    // Always discover changes with a lightweight FLAGS request first. Full-header requests are
+    // performed below in retryable batches so one malformed message cannot reject the entire range.
+    auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), false);
     Array * remote = session.fetchMessagesByUID(&path, kind, set, &cb, &err);
     if (err) {
         throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID");
@@ -868,24 +872,17 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
             // but we can only query for 500 at a time, it /feels/ nasty, and we /could/ always
             // hit the exception anyway since another thread could be IDLEing and retrieving
             // the messages alongside us.
-            if (heavyInitialRequest) {
-                auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
-                if (syncedMessages != nullptr) {
-                    syncedMessages->push_back(local);
-                }
-            } else {
-                if (heavyNeededIdeal < MAX_FULL_HEADERS_REQUEST_SIZE) {
-                    heavyNeeded->addIndex(remoteUID);
-                }
-                heavyNeededIdeal += 1;
+            if (heavyNeededIdeal < MAX_FULL_HEADERS_REQUEST_SIZE) {
+                heavyNeededUIDs.push_back(remoteUID);
             }
+            heavyNeededIdeal += 1;
         }
         
         local.erase(remoteUID);
     }
     
-    if (!heavyInitialRequest && heavyNeeded->count() > 0) {
-        logger->info("- Fetching full headers for {} (of {} needed)", heavyNeeded->count(), heavyNeededIdeal);
+    if (heavyNeededUIDs.size() > 0) {
+        logger->info("- Fetching full headers for {} (of {} needed)", heavyNeededUIDs.size(), heavyNeededIdeal);
 
         // Note: heavyNeeded could be enormous if the user added a zillion items to a folder, if it's been
         // years since the app was launched, or if a sync bug caused us to delete messages we shouldn't have.
@@ -896,18 +893,47 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         // sync X more.
         //
         syncDataTimestamp = time(0);
-        auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
-        remote = session.fetchMessagesByUID(&path, kind, heavyNeeded, &cb, &err);
-        if (err != ErrorNone) {
-            throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID (heavy)");
-        }
-        for (int ii = ((int)remote->count()) - 1; ii >= 0; ii--) {
-            IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
-            auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
-            if (syncedMessages != nullptr) {
-                syncedMessages->push_back(local);
+        auto heavyKind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
+
+        std::function<void(const vector<uint32_t> &)> fetchHeavyBatch;
+        fetchHeavyBatch = [&](const vector<uint32_t> & batch) {
+            IndexSet * batchSet = IndexSet::indexSet();
+            for (uint32_t uid : batch) {
+                batchSet->addIndex(uid);
             }
-            remote->removeLastObject();
+
+            ErrorCode fetchErr(ErrorCode::ErrorNone);
+            Array * batchRemote = session.fetchMessagesByUID(&path, heavyKind, batchSet, &cb, &fetchErr);
+            if (fetchErr == ErrorCode::ErrorParse) {
+                if (batch.size() == 1) {
+                    logger->error("- Could not parse full headers for UID {} in {}; deferring only this message", batch[0], remotePath);
+                    return;
+                }
+
+                size_t midpoint = batch.size() / 2;
+                vector<uint32_t> left(batch.begin(), batch.begin() + midpoint);
+                vector<uint32_t> right(batch.begin() + midpoint, batch.end());
+                logger->warn("- Full-header fetch failed to parse for {} UIDs in {}; retrying as {} and {}", batch.size(), remotePath, left.size(), right.size());
+                fetchHeavyBatch(left);
+                fetchHeavyBatch(right);
+                return;
+            }
+            if (fetchErr != ErrorNone) {
+                throw SyncException(fetchErr, "syncFolderUIDRange - fetchMessagesByUID (heavy)");
+            }
+
+            for (int ii = ((int)batchRemote->count()) - 1; ii >= 0; ii--) {
+                IMAPMessage * remoteMsg = (IMAPMessage *)(batchRemote->objectAtIndex(ii));
+                auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
+                if (syncedMessages != nullptr) {
+                    syncedMessages->push_back(local);
+                }
+            }
+        };
+
+        vector<uint32_t> remainingUIDs = heavyNeededUIDs;
+        for (vector<uint32_t> batch : MailUtils::chunksOfVector(remainingUIDs, FULL_HEADERS_BATCH_SIZE)) {
+            fetchHeavyBatch(batch);
         }
     }
 
@@ -962,7 +988,30 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     
     auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
     IMAPSyncResult * result = session.syncMessagesByUID(&path, kind, uids, modseq, &cb, &err);
-    if (err != ErrorCode::ErrorNone) {
+    bool flagsOnlyFallback = false;
+    bool gmailFlagsFallback = false;
+
+    // A malformed header in a single changed message can make libetpan reject the
+    // entire FETCH response. Retrying the same CHANGEDSINCE request without headers
+    // still lets us apply flag changes (notably \\Seen) to messages already stored
+    // locally. This keeps read state synchronized while leaving the folder checkpoint
+    // unchanged if the response also contains a new message whose headers we need.
+    if (err == ErrorCode::ErrorParse) {
+        logger->warn("syncFolderChangesViaCondstore - full fetch failed to parse for {}; retrying flags only", folder.path());
+        ErrorCode fallbackErr = ErrorCode::ErrorNone;
+        auto flagsKind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), false);
+        gmailFlagsFallback = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
+        if (gmailFlagsFallback) {
+            // Gmail messages may be stored locally under All Mail while this worker
+            // IDLEs on Inbox, so folder + UID is not a stable cross-folder key.
+            flagsKind = IMAPMessagesRequestKind(flagsKind | IMAPMessagesRequestKindGmailMessageID);
+        }
+        result = session.syncMessagesByUID(&path, flagsKind, uids, modseq, &cb, &fallbackErr);
+        if (fallbackErr != ErrorCode::ErrorNone) {
+            throw SyncException(err, "syncFolderChangesViaCondstore - syncMessagesByUID");
+        }
+        flagsOnlyFallback = true;
+    } else if (err != ErrorCode::ErrorNone) {
         throw SyncException(err, "syncFolderChangesViaCondstore - syncMessagesByUID");
     }
 
@@ -973,14 +1022,27 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     logger->info("syncFolderChangesViaCondstore - Changes since HMODSEQ {}: {} changed, {} vanished",
                  modseq, modifiedOrAdded->count(), (vanished != nullptr) ? vanished->count() : 0);
 
+    unsigned int unresolvedMessages = 0;
     for (unsigned int ii = 0; ii < modifiedOrAdded->count(); ii ++) {
         IMAPMessage * msg = (IMAPMessage *)modifiedOrAdded->objectAtIndex(ii);
-        string id = MailUtils::idForMessage(folder.accountId(), folder.path(), msg);
-
-        Query query = Query().equal("id", id);
+        Query query;
+        if (gmailFlagsFallback) {
+            query = Query().equal("accountId", folder.accountId()).equal("gMsgId", to_string(msg->gmailMessageID()));
+        } else if (flagsOnlyFallback) {
+            query = Query().equal("remoteFolderId", folder.id()).equal("remoteUID", msg->uid());
+        } else {
+            string id = MailUtils::idForMessage(folder.accountId(), folder.path(), msg);
+            query = Query().equal("id", id);
+        }
         auto local = store->find<Message>(query);
         
         if (local == nullptr) {
+            if (flagsOnlyFallback) {
+                // Headers were intentionally omitted, so this message cannot be
+                // constructed yet. Preserve the old checkpoint and retry later.
+                unresolvedMessages += 1;
+                continue;
+            }
             // Found message with an ID we've never seen in any folder. Add it!
             processor->insertFallbackToUpdateMessage(msg, folder, syncDataTimestamp);
         } else {
@@ -1000,8 +1062,12 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
         }
     }
 
-    folder.localStatus()[LS_UIDNEXT] = remoteUIDNext;
-    folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
+    if (unresolvedMessages == 0) {
+        folder.localStatus()[LS_UIDNEXT] = remoteUIDNext;
+        folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
+    } else {
+        logger->warn("syncFolderChangesViaCondstore - recovered flags for existing messages but deferred {} new messages with unparseable headers", unresolvedMessages);
+    }
 }
 
 void SyncWorker::cleanMessageCache(Folder & folder) {

@@ -719,8 +719,28 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 if (runningCalendarSync.compare_exchange_strong(expected, true)) {
                     std::thread([account]() {
                         SetThreadName("calendar");
-                        auto worker = DAVWorker(account);
-                        worker.run();
+                        try {
+                            auto worker = DAVWorker(account);
+                            worker.run();
+                        } catch (SyncException & ex) {
+                            // Calendar capability and credentials are independent
+                            // of IMAP. A manual calendar failure must never terminate
+                            // mailsync or put an otherwise healthy mail account into
+                            // sync_error.
+                            spdlog::get("logger")->warn(
+                                "Manual calendar sync failed ({}); mail sync will continue",
+                                ex.key
+                            );
+                        } catch (std::exception & ex) {
+                            spdlog::get("logger")->warn(
+                                "Manual calendar sync failed ({}); mail sync will continue",
+                                ex.what()
+                            );
+                        } catch (...) {
+                            spdlog::get("logger")->warn(
+                                "Manual calendar sync failed; mail sync will continue"
+                            );
+                        }
                         runningCalendarSync = false;
                     }).detach();
                 }
@@ -749,16 +769,6 @@ string exectuablePath = argv[0];
 
     // Note: On Windows, SASL plugin path is configured in libetpan's mailsasl.c
     // It defaults to the executable directory, but can be overridden via SASL_PATH env var.
-
-#ifndef DEBUG
-    // check path to executable in an obtuse way, prevent re-use of
-    // Mailspring-Sync in products / forks not called Mailspring.
-    transform(exectuablePath.begin(), exectuablePath.end(), exectuablePath.begin(), ::tolower);
-    string headerMessageId = string(USAGE_STRING).substr(59, 4) + string(USAGE_IDENTITY).substr(33, 6);
-    if (exectuablePath.find(headerMessageId) == string::npos) {
-        return 2;
-    }
-#endif
 
     // initialize the stanford exception handler
     exceptions::setProgramNameForStackTrace(exectuablePath.c_str());

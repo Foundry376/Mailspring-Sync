@@ -33,6 +33,7 @@
 #include <iomanip>
 #include <thread>
 #include <chrono>
+#include <set>
 
 #if defined(_MSC_VER)
 #include <direct.h>
@@ -460,6 +461,9 @@ void TaskProcessor::performLocal(Task * task) {
         } else if (cname == "GetManyRFC2822Task") {
             // nothing — all work happens in performRemote
 
+        } else if (cname == "CrossAccountMoveFolderTask") {
+            // Both phases perform network I/O in performRemote.
+
         } else if (cname == "EventRSVPTask") {
             // nothing
 
@@ -559,6 +563,9 @@ void TaskProcessor::performRemote(Task * task) {
 
             } else if (cname == "GetManyRFC2822Task") {
                 performRemoteGetManyRFC2822(task);
+
+            } else if (cname == "CrossAccountMoveFolderTask") {
+                performRemoteCrossAccountMoveFolder(task);
 
             } else if (cname == "EventRSVPTask") {
                 performRemoteSendRSVP(task);
@@ -2143,6 +2150,204 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
 
     logger->info("GetManyRFC2822: completed. Exported {} of {} messages ({} failed)",
         exported, total, failed);
+}
+
+void TaskProcessor::performRemoteCrossAccountMoveFolder(Task * task) {
+    if (!task->data().count("phase") || !task->data()["phase"].is_string()) {
+        throw SyncException("missing-json", "Cross-account transfer is missing a phase", false);
+    }
+
+    const string phase = task->data()["phase"].get<string>();
+    if (phase == "prepare") {
+        prepareCrossAccountMoveFolder(task);
+    } else if (phase == "import") {
+        importCrossAccountMoveFolder(task);
+    } else {
+        throw SyncException("invalid-json", "Unknown cross-account transfer phase", false);
+    }
+}
+
+void TaskProcessor::prepareCrossAccountMoveFolder(Task * task) {
+    json & data = task->data();
+    if (!data.count("threadIds") || !data["threadIds"].is_array() ||
+        !data.count("stagingDirectory") || !data["stagingDirectory"].is_string()) {
+        throw SyncException("missing-json", "Cross-account prepare requires threadIds and stagingDirectory", false);
+    }
+
+    const string stagingDirectory = data["stagingDirectory"].get<string>();
+    auto messages = inflateMessages(data).messages;
+    if (messages.empty()) {
+        throw SyncException("not-found", "No source messages were found for the selected conversations", false);
+    }
+
+    json result = data.count("result") && data["result"].is_object()
+        ? data["result"]
+        : json::object();
+    if (!result.count("files") || !result["files"].is_array()) {
+        result["files"] = json::array();
+    }
+
+    set<string> preparedMessageIds;
+    for (auto & entry : result["files"]) {
+        if (entry.count("messageId") && entry["messageId"].is_string()) {
+            preparedMessageIds.insert(entry["messageId"].get<string>());
+        }
+    }
+
+    int index = (int)result["files"].size();
+    for (auto & msg : messages) {
+        if (msg->isDraft() || msg->isDeletionPlaceholder() || msg->remoteUID() == 0) {
+            continue;
+        }
+        if (preparedMessageIds.count(msg->id())) {
+            continue;
+        }
+
+        AutoreleasePool pool;
+        IMAPProgress progress;
+        ErrorCode err = ErrorNone;
+        Data * raw = session->fetchMessageByUID(
+            AS_MCSTR(msg->remoteFolder()["path"].get<string>()), msg->remoteUID(), &progress, &err);
+        if (err != ErrorNone) {
+            throw SyncException(err, "Cross-account source RFC822 fetch");
+        }
+        if (raw == nullptr) {
+            throw SyncException(ErrorFetch, "Cross-account source RFC822 fetch returned no data");
+        }
+
+        const string filepath = stagingDirectory + FS_PATH_SEP +
+            to_string(index++) + "-" + msg->id() + ".eml";
+#ifdef _MSC_VER
+        wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+        ErrorCode writeErr = raw->writeToFile(AS_WIDE_MCSTR(convert.from_bytes(filepath)));
+#else
+        ErrorCode writeErr = raw->writeToFile(AS_MCSTR(filepath));
+#endif
+        if (writeErr != ErrorNone) {
+            throw SyncException(writeErr, "Cross-account staging file write");
+        }
+        setFileModificationTime(filepath, msg->date());
+
+        json entry;
+        entry["filepath"] = filepath;
+        entry["messageId"] = msg->id();
+        entry["headerMessageId"] = msg->headerMessageId();
+        entry["date"] = msg->date();
+        entry["unread"] = msg->isUnread();
+        entry["starred"] = msg->isStarred();
+        result["files"].push_back(entry);
+        result["completed"] = result["files"].size();
+        data["result"] = result;
+        store->save(task);
+    }
+
+    result["total"] = result["files"].size();
+    result["completed"] = result["files"].size();
+    data["result"] = result;
+    if (result["files"].empty()) {
+        throw SyncException("not-found", "The selected conversations contain no transferable messages", false);
+    }
+    store->save(task);
+    logger->info("Cross-account prepare staged {} messages", result["files"].size());
+}
+
+void TaskProcessor::importCrossAccountMoveFolder(Task * task) {
+    json & data = task->data();
+    if (!data.count("files") || !data["files"].is_array() ||
+        !data.count("targetFolder") || !data["targetFolder"].is_object()) {
+        throw SyncException("missing-json", "Cross-account import requires files and targetFolder", false);
+    }
+
+    json & targetFolder = data["targetFolder"];
+    if (!targetFolder.count("aid") || targetFolder["aid"].get<string>() != task->accountId() ||
+        !targetFolder.count("path") || !targetFolder["path"].is_string()) {
+        throw SyncException("bad-accountid", "Cross-account destination folder does not belong to this account", false);
+    }
+    const string targetPathString = targetFolder["path"].get<string>();
+    String * targetPath = AS_MCSTR(targetPathString);
+
+    json result = data.count("result") && data["result"].is_object()
+        ? data["result"]
+        : json::object();
+    if (!result.count("appendedMessageIds") || !result["appendedMessageIds"].is_array()) {
+        result["appendedMessageIds"] = json::array();
+    }
+    if (!result.count("skippedMessageIds") || !result["skippedMessageIds"].is_array()) {
+        result["skippedMessageIds"] = json::array();
+    }
+
+    set<string> completed;
+    for (auto & id : result["appendedMessageIds"]) completed.insert(id.get<string>());
+    for (auto & id : result["skippedMessageIds"]) completed.insert(id.get<string>());
+
+    for (auto & file : data["files"]) {
+        const string messageId = file["messageId"].get<string>();
+        if (completed.count(messageId)) continue;
+
+        AutoreleasePool pool;
+        const string filepath = file["filepath"].get<string>();
+#ifdef _MSC_VER
+        wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
+        Data * raw = Data::dataWithContentsOfFile(AS_WIDE_MCSTR(convert.from_bytes(filepath)));
+#else
+        Data * raw = Data::dataWithContentsOfFile(AS_MCSTR(filepath));
+#endif
+        if (raw == nullptr) {
+            throw SyncException("not-found", "A staged cross-account message file is missing", false);
+        }
+
+        bool alreadyPresent = false;
+        const string headerMessageId = file.count("headerMessageId")
+            ? file["headerMessageId"].get<string>()
+            : "";
+        if (!headerMessageId.empty() && headerMessageId != "no-header-message-id") {
+            ErrorCode searchErr = ErrorNone;
+            IMAPSearchExpression * expr = IMAPSearchExpression::searchHeader(
+                MCSTR("Message-ID"), AS_MCSTR(headerMessageId));
+            IndexSet * existing = session->search(targetPath, expr, &searchErr);
+            if (searchErr == ErrorNone && existing != nullptr && existing->count() > 0) {
+                alreadyPresent = true;
+            } else if (searchErr != ErrorNone) {
+                logger->warn("Cross-account Message-ID deduplication search failed: {}",
+                    ErrorCodeToTypeMap[searchErr]);
+            }
+        }
+
+        if (alreadyPresent) {
+            result["skippedMessageIds"].push_back(messageId);
+        } else {
+            MessageFlag flags = MessageFlagNone;
+            if (file.count("unread") && !file["unread"].get<bool>()) {
+                flags = (MessageFlag)(flags | MessageFlagSeen);
+            }
+            if (file.count("starred") && file["starred"].get<bool>()) {
+                flags = (MessageFlag)(flags | MessageFlagFlagged);
+            }
+            const time_t messageDate = file.count("date")
+                ? (time_t)file["date"].get<long long>()
+                : (time_t)-1;
+            IMAPProgress progress;
+            uint32_t createdUID = 0;
+            ErrorCode appendErr = ErrorNone;
+            session->appendMessageWithCustomFlagsAndDate(
+                targetPath, raw, flags, nullptr, messageDate, &progress, &createdUID, &appendErr);
+            if (appendErr != ErrorNone) {
+                throw SyncException(appendErr, "Cross-account IMAP APPEND");
+            }
+            result["appendedMessageIds"].push_back(messageId);
+        }
+
+        completed.insert(messageId);
+        result["total"] = data["files"].size();
+        result["completed"] = completed.size();
+        data["result"] = result;
+        // Persist after every APPEND so a worker restart can resume without
+        // duplicating messages already committed remotely.
+        store->save(task);
+    }
+
+    logger->info("Cross-account import completed {} of {} messages",
+        completed.size(), data["files"].size());
 }
 
 void TaskProcessor::performRemoteSendRSVP(Task * task) {

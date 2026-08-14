@@ -413,7 +413,24 @@ DAVWorker::DAVWorker(shared_ptr<Account> account) :
 }
 
 void DAVWorker::run() {
-    runContacts();
+    try {
+        runContacts();
+    } catch (SyncException & ex) {
+        // CardDAV and CalDAV share this worker but are independent services.
+        // A broken address book (notably SmarterMail's GAL returning 400) must
+        // not prevent calendar discovery and event sync from running.
+        logger->warn(
+            "CardDAV sync failed ({}); continuing with CalDAV",
+            ex.key
+        );
+    } catch (std::exception & ex) {
+        logger->warn(
+            "CardDAV sync failed ({}); continuing with CalDAV",
+            ex.what()
+        );
+    } catch (...) {
+        logger->warn("CardDAV sync failed; continuing with CalDAV");
+    }
     runCalendars();
 }
 
@@ -577,34 +594,43 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     }
     
     string cardHost = "";
+    string configuredHost = account->CardDAVHost();
     
     // Try to use DNS SRV records to find the principal URL. We do this through a server API so that
     // we don't have to compile C++ that does DNS lookups. On Win it's a pain and on Linux it generates
     // a binary that is bound to a specific version of glibc which generates relocation errors when
     // run on Ubuntu 18.
-    string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
-    string imapHost = account->IMAPHost();
-    json payload = {{"domain", domain}, {"imapHost", imapHost}};
-    json result = PerformJSONRequest(CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str()));
-    
-    if (result.count("carddavHost")) {
-        cardHost = result["carddavHost"].get<string>();
-    }
-    
-    if (cardHost == "") {
-        // No luck.
-        return existing;
-    }
+    string cardRoot = "";
+    if (configuredHost != "") {
+        cardRoot = configuredHost.find("http") == 0
+            ? configuredHost
+            : "https://" + configuredHost;
+        if (cardRoot.back() != '/') cardRoot += "/";
+    } else {
+        string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
+        string imapHost = account->IMAPHost();
+        json payload = {{"domain", domain}, {"imapHost", imapHost}};
+        json result = PerformJSONRequest(CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str()));
 
-    // Use the .well-known convention to try to look up the root path of the carddav service at the host. If this doesn't
-    // work, that's fine with us, we just try the root.
-    string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
-    if (cardRoot == "") {
-        cardRoot = PerformExpectedRedirect("http://" + cardHost + "/.well-known/carddav");
-        if (cardRoot == "" || cardRoot.find("/.well-known") != string::npos) {
-            // if we couldn't find the root or the redirect looks like it was sending us in a circle,
-            // (or redirecting us to https://) fall back to the root.
-            cardRoot = cardHost + "/";
+        if (result.count("carddavHost")) {
+            cardHost = result["carddavHost"].get<string>();
+        }
+
+        if (cardHost == "") {
+            // No luck.
+            return existing;
+        }
+
+        // Use the .well-known convention to try to look up the root path of the carddav service at the host. If this doesn't
+        // work, that's fine with us, we just try the root.
+        cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
+        if (cardRoot == "") {
+            cardRoot = PerformExpectedRedirect("http://" + cardHost + "/.well-known/carddav");
+            if (cardRoot == "" || cardRoot.find("/.well-known") != string::npos) {
+                // if we couldn't find the root or the redirect looks like it was sending us in a circle,
+                // (or redirecting us to https://) fall back to the root.
+                cardRoot = cardHost + "/";
+            }
         }
     }
     
@@ -659,41 +685,89 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
  Throws SyncException on transient errors; caller handles.
 */
 string DAVWorker::resolveCalendarHomeURL() {
-    string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
-    string imapHost = account->IMAPHost();
-    json payload = {{"domain", domain}, {"imapHost", imapHost}};
-    json result = PerformJSONRequest(
-        CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str())
-    );
-
+    string email = account->emailAddress();
+    size_t at = email.find("@");
+    string domain = at == string::npos ? "" : email.substr(at + 1);
+    string configuredHost = account->CalDAVHost();
     string caldavHost = "";
-    if (result.count("caldavHost")) {
-        caldavHost = result["caldavHost"].get<string>();
+
+    // A manually configured URL wins. This lets every account type use a
+    // calendar service that is separate from its IMAP provider.
+    if (configuredHost != "") {
+        string calRoot = configuredHost.find("http") == 0
+            ? configuredHost
+            : "https://" + configuredHost;
+        if (calRoot.back() != '/') calRoot += "/";
+        caldavHost = calRoot;
+    } else {
+        // The identity service knows about providers whose CalDAV host cannot
+        // be inferred from the email domain (for example hosted/custom domains).
+        // Calendar discovery must not depend on that service being available,
+        // though: RFC 6764 defines https://<email-domain>/.well-known/caldav.
+        try {
+            string imapHost = account->IMAPHost();
+            json payload = {{"domain", domain}, {"imapHost", imapHost}};
+            json result = PerformJSONRequest(
+                CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str())
+            );
+            if (result.count("caldavHost")) {
+                caldavHost = result["caldavHost"].get<string>();
+            }
+        } catch (const SyncException & e) {
+            logger->warn("CalDAV host lookup failed ({}); falling back to standard discovery", e.key);
+        }
+
+        if (caldavHost == "") {
+            caldavHost = domain;
+        }
     }
     if (caldavHost == "") {
         return "";
     }
 
-    // .well-known/caldav redirect to find service root
-    string calRoot = PerformExpectedRedirect("https://" + caldavHost + "/.well-known/caldav");
-    if (calRoot == "") {
-        calRoot = PerformExpectedRedirect("http://" + caldavHost + "/.well-known/caldav");
-    }
-    if (calRoot == "" || calRoot.find("/.well-known") != string::npos) {
-        // Include scheme so that replacePath() and performXMLRequest() receive a
-        // consistent full URL regardless of which branch was taken above.
-        calRoot = "https://" + caldavHost + "/";
+    string calRoot;
+    if (configuredHost != "") {
+        // Explicit values may include a non-standard service path. Start there
+        // rather than discarding it and forcing /.well-known/caldav.
+        calRoot = caldavHost;
+    } else {
+        // .well-known/caldav redirect to find service root
+        calRoot = PerformExpectedRedirect("https://" + caldavHost + "/.well-known/caldav");
+        if (calRoot == "") {
+            calRoot = PerformExpectedRedirect("http://" + caldavHost + "/.well-known/caldav");
+        }
+        if (calRoot == "" || calRoot.find("/.well-known") != string::npos) {
+            // Include scheme so that replacePath() and performXMLRequest() receive a
+            // consistent full URL regardless of which branch was taken above.
+            calRoot = "https://" + caldavHost + "/";
+        }
     }
 
     // PROPFIND root → current-user-principal (RFC 5397)
     auto principalDoc = performXMLRequest(calRoot, "PROPFIND",
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        "<A:propfind xmlns:A=\"DAV:\"><A:prop>"
-        "<A:current-user-principal/><A:principal-URL/><A:resourcetype/>"
+        "<A:propfind xmlns:A=\"DAV:\" xmlns:C=\"urn:ietf:params:xml:ns:caldav\"><A:prop>"
+        "<A:current-user-principal/><A:principal-URL/><A:resourcetype/><C:calendar-home-set/>"
         "</A:prop></A:propfind>");
     string calPrincipalURL = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
     if (calPrincipalURL.empty()) {
-        logger->info("CalDAV: server returned no current-user-principal, skipping calendar discovery");
+        // Some servers allow discovery directly from a configured service URL
+        // but omit current-user-principal. Accept a returned home set, or a URL
+        // that is itself a calendar collection.
+        string directHomeSet = principalDoc->nodeContentAtXPath("//caldav:calendar-home-set/D:href/text()");
+        if (!directHomeSet.empty()) {
+            return directHomeSet.find("://") == string::npos
+                ? replacePath(calRoot, directHomeSet)
+                : directHomeSet;
+        }
+        bool isCalendarCollection = false;
+        principalDoc->evaluateXPath("//D:resourcetype/caldav:calendar", ([&](xmlNodePtr) {
+            isCalendarCollection = true;
+        }));
+        if (isCalendarCollection) {
+            return calRoot;
+        }
+        logger->info("CalDAV: server returned no current-user-principal or calendar home-set");
         return "";
     }
     if (calPrincipalURL.find("://") == string::npos) {
@@ -1426,13 +1500,23 @@ void DAVWorker::runCalendars() {
 
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
 
-    // Filter calendars by supported-calendar-component-set to only sync those with VEVENT.
-    // This is the RFC 4791 compliant way to discover event calendars, as opposed to
-    // task lists (VTODO) or journal calendars (VJOURNAL). By filtering at discovery time,
-    // we ensure our subsequent calendar-query requests with <comp-filter name="VEVENT">
-    // will succeed. See comment in runForCalendar() for details on server compatibility
-    // issues when comp-filter is omitted.
-    calendarSetDoc->evaluateXPath("//D:response[./D:propstat/D:prop/caldav:supported-calendar-component-set/caldav:comp[@name='VEVENT']]", ([&](xmlNodePtr node) {
+    // Discover calendar collections first, then use supported-calendar-component-set
+    // when the server supplies it. That property is optional in real-world responses;
+    // treating an omitted value as "no VEVENT support" hides valid calendars on a
+    // number of otherwise compatible CalDAV servers.
+    calendarSetDoc->evaluateXPath("//D:response[.//D:resourcetype/caldav:calendar or .//caldav:supported-calendar-component-set/caldav:comp[translate(@name, 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')='VEVENT']]", ([&](xmlNodePtr node) {
+        bool declaresSupportedComponents = false;
+        bool supportsEvents = false;
+        calendarSetDoc->evaluateXPath(".//caldav:supported-calendar-component-set", ([&](xmlNodePtr) {
+            declaresSupportedComponents = true;
+        }), node);
+        calendarSetDoc->evaluateXPath(".//caldav:supported-calendar-component-set/caldav:comp[translate(@name, 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')='VEVENT']", ([&](xmlNodePtr) {
+            supportsEvents = true;
+        }), node);
+        if (declaresSupportedComponents && !supportsEvents) {
+            return;
+        }
+
         // Make a few xpath queries relative to the "D:response" calendar node (using "./")
         // to retrieve the attributes we're interested in.
         auto name = calendarSetDoc->nodeContentAtXPath(".//D:displayname/text()", node);
@@ -1448,11 +1532,19 @@ void DAVWorker::runCalendars() {
         // Check for write privilege to determine read-only status
         // Use XPath to look for write elements within current-user-privilege-set
         // RFC 3744 defines <D:write/> nested within <D:privilege> elements
+        bool hasPrivilegeSet = false;
         bool hasWritePrivilege = false;
-        calendarSetDoc->evaluateXPath(".//D:current-user-privilege-set//D:write", ([&](xmlNodePtr) {
+        calendarSetDoc->evaluateXPath(".//D:current-user-privilege-set", ([&](xmlNodePtr) {
+            hasPrivilegeSet = true;
+        }), node);
+        calendarSetDoc->evaluateXPath(".//D:current-user-privilege-set//D:write | .//D:current-user-privilege-set//D:write-content", ([&](xmlNodePtr) {
             hasWritePrivilege = true;
         }), node);
-        bool readOnly = !hasWritePrivilege;
+        // ACL support is optional. If a server omits current-user-privilege-set,
+        // do not silently make every calendar read-only; a failed PUT will still
+        // surface a precise server error. An explicit privilege set without write
+        // access remains authoritative.
+        bool readOnly = hasPrivilegeSet && !hasWritePrivilege;
 
         shared_ptr<Calendar> calendar = local[id];
         bool needsSync = true;
@@ -2091,12 +2183,17 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
 // WWW-Authenticate. This is more efficient (avoids an extra round-trip) and sidesteps
 // all server-specific header formatting quirks.
 const string DAVWorker::getAuthorizationHeader() {
-    if (account->refreshToken() != "") {
+    // CalDAVUsername/Password default to the account's IMAP credentials. A user
+    // may explicitly override either value for a separate calendar service.
+    // OAuth accounts (notably Gmail) generally have no stored IMAP password and
+    // use their provider access token instead.
+    string davPassword = account->CalDAVPassword();
+    if (davPassword == "" && account->refreshToken() != "") {
         auto parts = SharedXOAuth2TokenManager()->partsForAccount(account);
         return "Authorization: Bearer " + parts.accessToken;
     }
 
-    string plain = account->IMAPUsername() + ":" + account->IMAPPassword();
+    string plain = account->CalDAVUsername() + ":" + davPassword;
     string encoded = MailUtils::toBase64(plain.c_str(), strlen(plain.c_str()));
     return "Authorization: Basic " + encoded;
 }

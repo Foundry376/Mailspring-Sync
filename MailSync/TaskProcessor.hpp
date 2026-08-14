@@ -98,6 +98,9 @@ private:
     void performRemoteExpungeAllInFolder(Task * task);
     void performRemoteGetMessageRFC2822(Task * task);
     void performRemoteGetManyRFC2822(Task * task);
+    void performRemoteCrossAccountMoveFolder(Task * task);
+    void prepareCrossAccountMoveFolder(Task * task);
+    void importCrossAccountMoveFolder(Task * task);
     void performRemoteSendRSVP(Task * task);
 
 public:

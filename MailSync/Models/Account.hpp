@@ -49,6 +49,11 @@ public:
     string IMAPSecurity();
     bool IMAPAllowInsecureSSL();
 
+    string CalDAVHost();
+    string CardDAVHost();
+    string CalDAVUsername();
+    string CalDAVPassword();
+
     bool isICloud();
 
     unsigned int SMTPPort();
