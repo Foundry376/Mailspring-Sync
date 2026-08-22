@@ -1038,6 +1038,22 @@ void IMAPSession::login(ErrorCode * pError)
     enableFeatures();
 
     if (isAutomaticConfigurationEnabled()) {
+        // Some providers (notably NetEase 163/126/yeah.net) accept LOGIN but
+        // reject SELECT with "Unsafe Login" until the client sends RFC 2971 ID.
+        // Only perform the exchange when the caller supplied identity fields;
+        // the default identity is empty, preserving compatibility with servers
+        // whose malformed ID responses cannot be parsed by MailCore.
+        if (isIdentityEnabled() && clientIdentity()->allInfoKeys()->count() > 0) {
+            IMAPIdentity * serverIdentity = identity(clientIdentity(), pError);
+            if (* pError != ErrorNone) {
+                MCLog("fetch identity failed");
+                return;
+            }
+            else {
+                MC_SAFE_REPLACE_RETAIN(IMAPIdentity, mServerIdentity, serverIdentity);
+            }
+        }
+
         bool hasDefaultNamespace = false;
         if (isNamespaceEnabled()) {
             HashMap * result = fetchNamespace(pError);
@@ -1079,22 +1095,6 @@ void IMAPSession::login(ErrorCode * pError)
             setDefaultNamespace(defaultNamespace);
         }
         
-#if 0
-/* This code is sensitive to the escaping of fields in the identity response,
- (breaks ProtonMail support) and isn't used anywhere in Mailspring. See
- https://github.com/Foundry376/Mailspring/issues/429
-*/
-        if (isIdentityEnabled()) {
-            IMAPIdentity * serverIdentity = identity(clientIdentity(), pError);
-            if (* pError != ErrorNone) {
-                // Ignore identity errors
-                MCLog("fetch identity failed");
-            }
-            else {
-                MC_SAFE_REPLACE_RETAIN(IMAPIdentity, mServerIdentity, serverIdentity);
-            }
-        }
-#endif
     }
     else {
         // TODO: namespace should be shared with other sessions for non automatic namespace.

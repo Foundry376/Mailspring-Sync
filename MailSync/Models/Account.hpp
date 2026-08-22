@@ -50,6 +50,7 @@ public:
     bool IMAPAllowInsecureSSL();
 
     bool isICloud();
+    bool isNetEase();
 
     unsigned int SMTPPort();
     string SMTPHost();

@@ -790,6 +790,22 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
     }
     session.setHostname(AS_MCSTR(account->IMAPHost()));
     session.setPort(account->IMAPPort());
+
+    // NetEase's IMAP servers advertise RFC 2971 ID support and require clients
+    // to identify themselves after authentication. Without this, LOGIN, LIST,
+    // and STATUS succeed but SELECT is rejected with "Unsafe Login".
+    //
+    // MailCore's automatic ID exchange is enabled only when the client identity
+    // is non-empty, so providers with known-bad ID responses remain unaffected.
+    if (account->isNetEase()) {
+        IMAPIdentity clientIdentity;
+        clientIdentity.setName(MCSTR("Mailspring"));
+        clientIdentity.setVersion(MCSTR("1.0"));
+        clientIdentity.setVendor(MCSTR("Foundry 376"));
+        clientIdentity.setInfoForKey(MCSTR("support-email"), MCSTR("support@getmailspring.com"));
+        session.setClientIdentity(&clientIdentity);
+    }
+
     if (account->IMAPSecurity() == "SSL / TLS") {
         session.setConnectionType(ConnectionType::ConnectionTypeTLS);
     } else if (account->IMAPSecurity() == "STARTTLS") {
