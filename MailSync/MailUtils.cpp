@@ -778,8 +778,18 @@ class MailcoreSPDLogger : public ConnectionLogger {
     }
 };
 
-string MailUtils::tlsFailureAdvice(mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed) {
+string MailUtils::tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed) {
     if (tlsErrorDescription == nullptr) {
+        return "";
+    }
+
+    // Only speak up when establishing the connection is what failed. Anything
+    // later - authentication above all - has its own cause, and a handshake
+    // reason recorded during a successful fallback would be a red herring.
+    if (err != mailcore::ErrorConnection &&
+        err != mailcore::ErrorTLSNotAvailable &&
+        err != mailcore::ErrorStartTLSNotAvailable &&
+        err != mailcore::ErrorCertificate) {
         return "";
     }
 

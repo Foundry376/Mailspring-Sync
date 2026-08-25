@@ -137,7 +137,7 @@ void SyncWorker::idleCycleIteration()
     ErrorCode err = ErrorCode::ErrorNone;
     session.connectIfNeeded(&err);
     if (err != ErrorCode::ErrorNone) {
-        string advice = MailUtils::tlsFailureAdvice(session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed());
+        string advice = MailUtils::tlsFailureAdvice(err, session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed());
         if (advice != "") {
             logger->error("{}", advice);
             throw SyncException(err, "connectIfNeeded: " + advice);

@@ -91,10 +91,17 @@ public:
     // the server offers a DH group or certificate that OpenSSL rejects. When the
     // account has not enabled "Allow insecure SSL", the advice mentions it,
     // because that is what lets the connection fall back far enough to succeed.
-    // Returns an empty string when the failure was not a TLS rejection, so it
-    // can be appended unconditionally.
-    // Pass session.lastTLSErrorDescription() and session.isObsoleteTLSAllowed().
-    static string tlsFailureAdvice(mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed);
+    //
+    // Returns an empty string unless `err` says the connection itself failed, so
+    // it can be appended unconditionally. That check belongs here rather than in
+    // the caller: a recorded reason outlives a successful fallback by design, so
+    // callers that bundle connect with a later step - SMTPSession::loginIfNeeded
+    // bundles it with authentication - would otherwise blame outdated encryption
+    // for a wrong password.
+    //
+    // Pass the error from the call, session.lastTLSErrorDescription() and
+    // session.isObsoleteTLSAllowed().
+    static string tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed);
     
     static IMAPMessagesRequestKind messagesRequestKindFor(IndexSet * capabilities, bool heavyOrNeedToComputeIDs);
 

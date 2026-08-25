@@ -305,7 +305,7 @@ int runTestAuth(shared_ptr<Account> account) {
     session.setConnectionLogger(&alogger);
     session.connect(&err);
     if (err != ErrorNone) {
-        tlsAdvice = MailUtils::tlsFailureAdvice(session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed());
+        tlsAdvice = MailUtils::tlsFailureAdvice(err, session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed());
         if (tlsAdvice != "") {
             alogger.log("\n\n" + tlsAdvice + "\n");
         }
@@ -355,7 +355,7 @@ int runTestAuth(shared_ptr<Account> account) {
         smtp.checkAccount(from, &err);
     }
     if (err != ErrorNone) {
-        tlsAdvice = MailUtils::tlsFailureAdvice(smtp.lastTLSErrorDescription(), smtp.isObsoleteTLSAllowed());
+        tlsAdvice = MailUtils::tlsFailureAdvice(err, smtp.lastTLSErrorDescription(), smtp.isObsoleteTLSAllowed());
         if (tlsAdvice != "") {
             alogger.log("\n\n" + tlsAdvice + "\n");
         }
