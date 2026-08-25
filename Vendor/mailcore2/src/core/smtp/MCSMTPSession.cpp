@@ -397,6 +397,9 @@ void SMTPSession::connectWithCurrentCompatibilityLevel(ErrorCode * pError)
 {
     int r;
 
+    // See IMAPSession::connectWithCurrentCompatibilityLevel.
+    mailstream_ssl_clear_last_error();
+
     setup();
 
     switch (mConnectionType) {

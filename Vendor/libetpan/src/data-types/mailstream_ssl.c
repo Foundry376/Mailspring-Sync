@@ -130,7 +130,7 @@ int mailstream_ssl_has_last_error(void)
   return mailstream_ssl_last_error_set;
 }
 
-static void mailstream_ssl_clear_last_error(void)
+void mailstream_ssl_clear_last_error(void)
 {
   mailstream_ssl_last_error[0] = '\0';
   mailstream_ssl_last_error_set = 0;

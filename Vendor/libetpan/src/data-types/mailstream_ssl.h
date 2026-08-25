@@ -179,6 +179,16 @@ const char * mailstream_ssl_get_last_error(void);
 LIBETPAN_EXPORT
 int mailstream_ssl_has_last_error(void);
 
+/*
+  Forget any recorded failure on the calling thread. The handshake itself
+  resets this, but only once it is reached: a connection that fails earlier, at
+  the TCP level, leaves the previous handshake's reason in place. Callers that
+  ask about a specific attempt must clear this before making it, or a stale
+  reason will be read as belonging to the new attempt.
+*/
+LIBETPAN_EXPORT
+void mailstream_ssl_clear_last_error(void);
+
 LIBETPAN_EXPORT
 int mailstream_ssl_get_fd(struct mailstream_ssl_context * ssl_context);
 

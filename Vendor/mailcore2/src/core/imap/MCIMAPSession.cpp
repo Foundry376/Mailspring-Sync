@@ -759,6 +759,11 @@ void IMAPSession::connectWithCurrentCompatibilityLevel(ErrorCode * pError)
 {
     int r;
 
+    // The handshake resets this, but a connection that fails before reaching it
+    // would otherwise leave the previous attempt's reason in place, and the
+    // caller would read it as belonging to this one.
+    mailstream_ssl_clear_last_error();
+
     setup();
 
     MCLog("connect %s", MCUTF8DESC(this));
