@@ -778,6 +778,39 @@ class MailcoreSPDLogger : public ConnectionLogger {
     }
 };
 
+string MailUtils::tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed) {
+    if (tlsErrorDescription == nullptr) {
+        return "";
+    }
+
+    // Only speak up when establishing the connection is what failed. Anything
+    // later - authentication above all - has its own cause, and a handshake
+    // reason recorded during a successful fallback would be a red herring.
+    if (err != mailcore::ErrorConnection &&
+        err != mailcore::ErrorTLSNotAvailable &&
+        err != mailcore::ErrorStartTLSNotAvailable &&
+        err != mailcore::ErrorCertificate) {
+        return "";
+    }
+
+    // OpenSSL reports "error:0A00018A:SSL routines::dh key too small". Only the
+    // reason after the last "::" is worth showing; the full string stays in the
+    // connection log.
+    string reason = tlsErrorDescription->UTF8Characters();
+    size_t sep = reason.rfind("::");
+    if (sep != string::npos && sep + 2 < reason.size()) {
+        reason = reason.substr(sep + 2);
+    }
+
+    string advice = "The server rejected the secure connection (" + reason + "). ";
+    advice += "This server uses outdated encryption.";
+
+    if (!obsoleteTLSAllowed) {
+        advice += " Enabling \"Allow insecure SSL\" in this account's settings may allow Mailspring to connect.";
+    }
+    return advice;
+}
+
 void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Account> account) {
     if (account->refreshToken() != "") {
         XOAuth2Parts parts = SharedXOAuth2TokenManager()->partsForAccount(account);
@@ -799,6 +832,9 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
     }
     if (account->IMAPAllowInsecureSSL()) {
         session.setCheckCertificateEnabled(false);
+        // Also let the handshake itself fall back to OpenSSL security level 0,
+        // for servers still using SHA-1 certificates or undersized DH groups.
+        session.setObsoleteTLSAllowed(true);
     }
 
     // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
@@ -840,6 +876,7 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     }
     if (account->SMTPAllowInsecureSSL()) {
         session.setCheckCertificateEnabled(false);
+        session.setObsoleteTLSAllowed(true);
     }
 
     if (_verboseLogging) {

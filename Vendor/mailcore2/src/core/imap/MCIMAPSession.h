@@ -56,7 +56,24 @@ namespace mailcore {
         
         virtual void setCheckCertificateEnabled(bool enabled);
         virtual bool isCheckCertificateEnabled();
-        
+
+        // When enabled, a TLS handshake that fails at every safer setting is
+        // retried with OpenSSL's security level 0, which permits SHA-1 signed
+        // certificates and undersized RSA/DH parameters. Off by default.
+        virtual void setObsoleteTLSAllowed(bool allowed);
+        virtual bool isObsoleteTLSAllowed();
+
+        // Reason reported by the TLS backend for the most recent rejected
+        // handshake, e.g. "dh key too small". This stays set when a later
+        // compatibility level went on to succeed, so it explains why the
+        // fallback happened; pair it with the connect error to decide whether
+        // the connection actually failed. NULL when no handshake was rejected.
+        virtual String * lastTLSErrorDescription();
+
+        // Compatibility level the last connect() settled on. See
+        // MAILSTREAM_SSL_COMPAT_* in libetpan's mailstream_ssl.h.
+        virtual int tlsCompatibilityLevel();
+
         virtual void setVoIPEnabled(bool enabled);
         virtual bool isVoIPEnabled();
         
@@ -245,6 +262,9 @@ namespace mailcore {
         virtual void unlockConnectionLogger();
         virtual ConnectionLogger * connectionLoggerNoLock();
 
+        // Read by the TLS handshake callback, which is a plain C callback.
+        int mTLSCompatibilityLevel;
+
     private:
         String * mHostname;
         unsigned int mPort;
@@ -254,6 +274,8 @@ namespace mailcore {
         AuthType mAuthType;
         ConnectionType mConnectionType;
         bool mCheckCertificateEnabled;
+        bool mObsoleteTLSAllowed;
+        String * mLastTLSErrorDescription;
         bool mVoIPEnabled;
         char mDelimiter;
         IMAPNamespace * mDefaultNamespace;
@@ -313,6 +335,7 @@ namespace mailcore {
         static void items_progress(size_t current, size_t maximum, void * context);
         void setup();
         void unsetup();
+        void connectWithCurrentCompatibilityLevel(ErrorCode * pError);
         char fetchDelimiterIfNeeded(char defaultDelimiter, ErrorCode * pError);
         IMAPSyncResult * fetchMessages(String * folder, IMAPMessagesRequestKind requestKind,
                                        bool fetchByUID, struct mailimap_set * imapset,

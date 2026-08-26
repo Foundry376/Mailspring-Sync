@@ -294,6 +294,7 @@ int runTestAuth(shared_ptr<Account> account) {
     ErrorCode err = ErrorNone;
     Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
     string errorService = "imap";
+    string tlsAdvice = "";
     string containerFolderPath = account->containerFolder();
     string mainPrefix = "";
     
@@ -304,6 +305,10 @@ int runTestAuth(shared_ptr<Account> account) {
     session.setConnectionLogger(&alogger);
     session.connect(&err);
     if (err != ErrorNone) {
+        tlsAdvice = MailUtils::tlsFailureAdvice(err, session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed());
+        if (tlsAdvice != "") {
+            alogger.log("\n\n" + tlsAdvice + "\n");
+        }
         goto done;
     }
     folders = session.fetchAllFolders(&err);
@@ -350,6 +355,10 @@ int runTestAuth(shared_ptr<Account> account) {
         smtp.checkAccount(from, &err);
     }
     if (err != ErrorNone) {
+        tlsAdvice = MailUtils::tlsFailureAdvice(err, smtp.lastTLSErrorDescription(), smtp.isObsoleteTLSAllowed());
+        if (tlsAdvice != "") {
+            alogger.log("\n\n" + tlsAdvice + "\n");
+        }
         alogger.log("\n\nSASL_PATH: " + MailUtils::getEnvUTF8("SASL_PATH"));
 
         if (smtp.lastSMTPResponse()) {
@@ -381,6 +390,9 @@ done:
         return 0;
     } else {
         resp["error"] = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : "Unknown";
+        if (tlsAdvice != "") {
+            resp["error_advice"] = tlsAdvice;
+        }
         cout << resp.dump();
         return 1;
     }
@@ -413,6 +425,7 @@ int runInstallCheck() {
         {"imap_check", nullptr},
         {"smtp_check", nullptr},
         {"tidy_check", nullptr},
+        {"legacy_tls_check", nullptr},
         {"log", nullptr}
     };
 
@@ -544,6 +557,52 @@ int runInstallCheck() {
         resp["smtp_check"] = {{"success", true}};
     }
 
+    // Step 3b: Check TLS against a server that still uses legacy encryption.
+    // imap.shaw.ca offers a DH group that modern OpenSSL rejects ("dh key too
+    // small") while Apple's Security.framework accepts it, which is why the
+    // account works on macOS and fails on Windows and Linux. This exercises the
+    // compatibility fallback in IMAPSession::connect and reports the level it
+    // settled on, so a server needing the obsolete tier is visible rather than
+    // silently absorbed.
+    string legacyTLSError = "";
+    alogger.log("\n\n----------LEGACY TLS----------\n");
+    try {
+        IMAPSession session;
+        session.setHostname(MCSTR("imap.shaw.ca"));
+        session.setPort(993);
+        session.setConnectionType(ConnectionType::ConnectionTypeTLS);
+        session.setConnectionLogger(&alogger);
+        // Exercise the whole ladder. Real accounts only reach the obsolete tier
+        // when the user has enabled "Allow insecure SSL".
+        session.setObsoleteTLSAllowed(true);
+
+        ErrorCode err = ErrorNone;
+        session.connect(&err);
+
+        int level = session.tlsCompatibilityLevel();
+
+        if (err == ErrorNone || err == ErrorAuthentication || err == ErrorAuthenticationRequired) {
+            alogger.log("\nConnected at TLS compatibility level " + to_string(level) + "\n");
+            resp["legacy_tls_check"] = {{"success", true}, {"compatibility_level", level}};
+        } else if (session.lastTLSErrorDescription() != NULL) {
+            // The handshake itself was rejected at every level - the fallback
+            // is not doing its job. That is the regression this check catches.
+            legacyTLSError = string("TLS handshake rejected: ") + session.lastTLSErrorDescription()->UTF8Characters();
+        } else {
+            // Unreachable, refused or timed out. That is the server or the
+            // network rather than our TLS configuration, so don't fail here.
+            alogger.log("\nimap.shaw.ca unreachable, skipping legacy TLS check\n");
+            resp["legacy_tls_check"] = {{"skipped", "host unreachable"}};
+        }
+        session.disconnect();
+    } catch (std::exception & ex) {
+        legacyTLSError = ex.what();
+    }
+
+    if (legacyTLSError != "") {
+        resp["legacy_tls_check"] = {{"error", legacyTLSError}};
+    }
+
     // Step 4: Check libtidy by actually processing HTML (Linux only)
     string tidyError = "";
 #if defined(__linux__)
@@ -605,7 +664,7 @@ int runInstallCheck() {
     }
 
     // Determine overall success
-    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "");
+    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "" && legacyTLSError == "");
     if (!success) {
         resp["error"] = "One or more checks failed";
     }

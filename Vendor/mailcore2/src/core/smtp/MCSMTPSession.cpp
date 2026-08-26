@@ -43,6 +43,9 @@ void SMTPSession::init()
     mConnectionType = ConnectionTypeClear;
     mTimeout = 30;
     mCheckCertificateEnabled = true;
+    mObsoleteTLSAllowed = false;
+    mTLSCompatibilityLevel = MAILSTREAM_SSL_COMPAT_DEFAULT;
+    mLastTLSErrorDescription = NULL;
     mUseHeloIPEnabled = false;
     mShouldDisconnect = false;
     mSendingCancelled = false;
@@ -78,6 +81,7 @@ SMTPSession::~SMTPSession()
     MC_SAFE_RELEASE(mUsername);
     MC_SAFE_RELEASE(mPassword);
     MC_SAFE_RELEASE(mOAuth2Token);
+    MC_SAFE_RELEASE(mLastTLSErrorDescription);
 }
 
 void SMTPSession::setHostname(String * hostname)
@@ -177,6 +181,26 @@ bool SMTPSession::isCheckCertificateEnabled()
     return mCheckCertificateEnabled;
 }
 
+void SMTPSession::setObsoleteTLSAllowed(bool allowed)
+{
+    mObsoleteTLSAllowed = allowed;
+}
+
+bool SMTPSession::isObsoleteTLSAllowed()
+{
+    return mObsoleteTLSAllowed;
+}
+
+String * SMTPSession::lastTLSErrorDescription()
+{
+    return mLastTLSErrorDescription;
+}
+
+int SMTPSession::tlsCompatibilityLevel()
+{
+    return mTLSCompatibilityLevel;
+}
+
 bool SMTPSession::checkCertificate()
 {
     if (!isCheckCertificateEnabled())
@@ -273,12 +297,15 @@ static bool isIPAddress(const char * hostname)
 
 static void ssl_callback(struct mailstream_ssl_context * ssl_context, void * data)
 {
+    SMTPSession * session = (SMTPSession *) data;
+
     // Set the Server Name Indication (SNI) for TLS connections
     // SNI only makes sense for hostnames, not IP addresses
-    const char * hostname = (const char *) data;
+    const char * hostname = session->hostname() != NULL ? MCUTF8(session->hostname()) : NULL;
     if (hostname != NULL && !isIPAddress(hostname)) {
         mailstream_ssl_set_server_name(ssl_context, (char *) hostname);
     }
+    mailstream_ssl_set_compatibility_level(ssl_context, session->mTLSCompatibilityLevel);
 }
 
 void SMTPSession::setup()
@@ -322,8 +349,57 @@ void SMTPSession::connectIfNeeded(ErrorCode * pError)
 
 void SMTPSession::connect(ErrorCode * pError)
 {
+    MC_SAFE_RELEASE(mLastTLSErrorDescription);
+
+    if (mConnectionType == ConnectionTypeClear) {
+        mTLSCompatibilityLevel = MAILSTREAM_SSL_COMPAT_DEFAULT;
+        connectWithCurrentCompatibilityLevel(pError);
+        return;
+    }
+
+    // See IMAPSession::connect - start strict, relax only when the TLS backend
+    // itself rejected the negotiation.
+    int maxLevel = mObsoleteTLSAllowed ? MAILSTREAM_SSL_COMPAT_OBSOLETE : MAILSTREAM_SSL_COMPAT_LEGACY;
+
+    for (int level = MAILSTREAM_SSL_COMPAT_DEFAULT; level <= maxLevel; level++) {
+        mTLSCompatibilityLevel = level;
+        connectWithCurrentCompatibilityLevel(pError);
+
+        if (* pError == ErrorNone) {
+            if (level != MAILSTREAM_SSL_COMPAT_DEFAULT) {
+                MCLog("%s uses outdated encryption, connected at TLS compatibility level %i",
+                      MCUTF8(mHostname), level);
+            }
+            return;
+        }
+
+        if (!mailstream_ssl_has_last_error()) {
+            // See IMAPSession::connect - don't report a reason recorded at an
+            // earlier level for a failure that wasn't a TLS rejection.
+            MC_SAFE_RELEASE(mLastTLSErrorDescription);
+            return;
+        }
+
+        MC_SAFE_REPLACE_RETAIN(String, mLastTLSErrorDescription,
+                               String::stringWithUTF8Characters(mailstream_ssl_get_last_error()));
+
+        MCLog("TLS handshake with %s rejected at compatibility level %i: %s",
+              MCUTF8(mHostname), level, mailstream_ssl_get_last_error());
+    }
+
+    if (!mObsoleteTLSAllowed) {
+        MCLog("%s requires obsolete TLS. Enable \"Allow insecure SSL\" for this account to connect anyway.",
+              MCUTF8(mHostname));
+    }
+}
+
+void SMTPSession::connectWithCurrentCompatibilityLevel(ErrorCode * pError)
+{
     int r;
-    
+
+    // See IMAPSession::connectWithCurrentCompatibilityLevel.
+    mailstream_ssl_clear_last_error();
+
     setup();
 
     switch (mConnectionType) {
@@ -354,7 +430,7 @@ void SMTPSession::connect(ErrorCode * pError)
             }
             
             MCLog("start TLS");
-            r = mailsmtp_socket_starttls_with_callback(mSmtp, ssl_callback, (void *) MCUTF8(mHostname));
+            r = mailsmtp_socket_starttls_with_callback(mSmtp, ssl_callback, this);
             saveLastResponse();
             mLastLibetpanError = r;
             mLastErrorLocation = 3;
@@ -387,7 +463,7 @@ void SMTPSession::connect(ErrorCode * pError)
             
         case ConnectionTypeTLS:
             r = mailsmtp_ssl_connect_with_callback(mSmtp, MCUTF8(mHostname), port(),
-                ssl_callback, (void *) MCUTF8(mHostname));
+                ssl_callback, this);
             saveLastResponse();
             mLastLibetpanError = r;
             mLastErrorLocation = 5;
