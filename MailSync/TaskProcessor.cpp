@@ -1235,8 +1235,6 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
         store->save(existing.get());
         task->data()["event"]["id"] = existing->id();
     } else {
-        // CREATE: Generate new event with temporary ID
-        string tempId = MailUtils::idRandomlyGenerated();
         string icsData = eventJSON["ics"].get<string>();
         ICalendar cal(icsData);
 
@@ -1244,14 +1242,27 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
             throw SyncException("invalid-ics", "ICS data does not contain any events", false);
         }
 
-        // For new event creation, use the first VEVENT (typically only one)
-        // The Event constructor now handles recurrenceId from the ICalendarEvent
         auto icsEvent = cal.Events.front();
-        Event event("", account->id(), calendarId, icsData, icsEvent);
-        event._data["id"] = tempId;  // Temporary ID until server assigns etag
-        store->save(&event);
 
-        task->data()["event"]["id"] = tempId;
+        // The client picks its own id for an event it has just composed, so a create can name
+        // an event the calendar already holds - answering an invitation that has already
+        // synced down, for one. Reconcile on UID and RECURRENCE-ID within the calendar, as
+        // runForCalendar() does, so that lands as an update rather than an insert against an
+        // id the Event constructor derives from those same fields.
+        auto byUID = store->find<Event>(Query()
+                                            .equal("calendarId", calendarId)
+                                            .equal("icsuid", icsEvent->UID)
+                                            .equal("recurrenceId", icsEvent->RecurrenceId));
+        if (byUID) {
+            byUID->applyICSEventData(byUID->etag(), byUID->href(), icsData, icsEvent);
+            store->save(byUID.get());
+            task->data()["event"]["id"] = byUID->id();
+        } else {
+            Event event("", account->id(), calendarId, icsData, icsEvent);
+            store->save(&event);
+            // Hand the id back: the client composed the event without knowing it.
+            task->data()["event"]["id"] = event.id();
+        }
     }
 
     store->save(task);
@@ -1270,14 +1281,11 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
 }
 
 void TaskProcessor::performLocalDestroyEvent(Task * task) {
-    vector<string> eventIds {};
-    for (json & e : task->data()["events"]) {
-        eventIds.push_back(e["id"].get<string>());
-    }
-
-    // Mark events as hidden locally (they'll be fully removed after remote delete succeeds)
-    // Note: Unlike contacts, we don't have a "hidden" field on events, so we just
-    // leave them in place until performRemote completes.
+    // Nothing to do locally. Removing the rows here would mean the calendar updated a moment
+    // sooner, at the cost of a delete that cannot be undone if the server refuses it: the
+    // collection's ctag is unchanged by a failed DELETE, so runCalendars() skips it and no
+    // later sync restores what was removed. The rows go in performRemote once the server has
+    // accepted, and DestroyEventTask refreshes the calendar on success.
 }
 
 void TaskProcessor::performRemoteDestroyEvent(Task * task) {
@@ -1287,13 +1295,16 @@ void TaskProcessor::performRemoteDestroyEvent(Task * task) {
     }
 
     auto events = store->findLargeSet<Event>("id", eventIds);
-    auto dav = make_shared<DAVWorker>(account);
+    if (events.size() != eventIds.size()) {
+        logger->warn("Destroying {} of {} requested events; the rest are no longer present",
+                     events.size(), eventIds.size());
+    }
 
+    auto dav = make_shared<DAVWorker>(account);
     for (auto & event : events) {
         dav->deleteEvent(event);
     }
 }
-
 
 void TaskProcessor::performLocalSyncbackCategory(Task * task) {
     
@@ -2162,13 +2173,23 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
         ? task->data()["icsRSVPStatus"].get<string>()
         : "ACCEPTED";
 
+    // The iTIP method being sent to the organizer. REPLY answers the invitation; COUNTER
+    // proposes a different time (RFC 5546 section 3.2.7). Absent means REPLY, so a client
+    // older than counter-proposal support keeps working unchanged.
+    string method = task->data().count("method")
+        ? task->data()["method"].get<string>()
+        : "REPLY";
+    if (method != "REPLY" && method != "COUNTER") {
+        throw SyncException("invalid-ics", "Unsupported iTIP method: " + method, false);
+    }
+
     // =========================================================================
     // RFC 5546/6047 Validation
     // =========================================================================
 
-    // Validation 1: Check ICS contains METHOD:REPLY (RFC 5546 requirement)
-    if (ics.find("METHOD:REPLY") == string::npos) {
-        throw SyncException("invalid-ics", "ICS data must contain METHOD:REPLY for an RSVP response", false);
+    // Validation 1: the ICS must declare the method we're sending it as (RFC 5546)
+    if (ics.find("METHOD:" + method) == string::npos) {
+        throw SyncException("invalid-ics", "ICS data must contain METHOD:" + method, false);
     }
 
     // Parse the ICS to validate and extract event information
@@ -2183,34 +2204,46 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     // Validation 2: UID is required (RFC 5546 Section 3.2.3 - MUST match original REQUEST)
     if (event->UID.empty()) {
         throw SyncException("invalid-ics",
-            "ICS REPLY must contain UID property matching the original invitation", false);
+            "ICS " + method + " must contain UID property matching the original invitation", false);
     }
 
     // Validation 3: DTSTAMP is required (RFC 5546 Section 3.2.3)
     if (event->DtStamp.IsEmpty()) {
         throw SyncException("invalid-ics",
-            "ICS REPLY must contain DTSTAMP property", false);
+            "ICS " + method + " must contain DTSTAMP property", false);
     }
 
     // Validation 4: ORGANIZER is required (RFC 5546 Section 3.2.3)
     if (event->Organizer.empty()) {
         throw SyncException("invalid-ics",
-            "ICS REPLY must contain ORGANIZER property", false);
+            "ICS " + method + " must contain ORGANIZER property", false);
     }
 
-    // Validation 5: REPLY must contain exactly one ATTENDEE (RFC 5546 Section 3.2.3)
-    if (event->Attendees.size() != 1) {
+    // Validation 5: a REPLY carries exactly one ATTENDEE, the person replying (RFC 5546
+    // Section 3.2.3). A COUNTER carries the proposing attendee and may repeat the rest of
+    // the guest list, so it only needs at least one (Section 3.2.7).
+    if (method == "REPLY" && event->Attendees.size() != 1) {
         throw SyncException("invalid-ics",
             "ICS REPLY must contain exactly one ATTENDEE (the replying user), found " + to_string(event->Attendees.size()), false);
     }
-
-    // Validation 6: Check ATTENDEE has valid PARTSTAT (RFC 5545 Section 3.2.12)
-    bool hasValidPartstat = (ics.find("PARTSTAT=ACCEPTED") != string::npos ||
-                             ics.find("PARTSTAT=DECLINED") != string::npos ||
-                             ics.find("PARTSTAT=TENTATIVE") != string::npos);
-    if (!hasValidPartstat) {
+    if (method == "COUNTER" && event->Attendees.empty()) {
         throw SyncException("invalid-ics",
-            "ATTENDEE must have valid PARTSTAT parameter (ACCEPTED, DECLINED, or TENTATIVE)", false);
+            "ICS COUNTER must contain the ATTENDEE making the proposal", false);
+    }
+
+    // Validation 6: a REPLY states a participation status (RFC 5545 Section 3.2.12); a
+    // COUNTER states a time instead, so it needs DTSTART rather than a PARTSTAT.
+    if (method == "REPLY") {
+        bool hasValidPartstat = (ics.find("PARTSTAT=ACCEPTED") != string::npos ||
+                                 ics.find("PARTSTAT=DECLINED") != string::npos ||
+                                 ics.find("PARTSTAT=TENTATIVE") != string::npos);
+        if (!hasValidPartstat) {
+            throw SyncException("invalid-ics",
+                "ATTENDEE must have valid PARTSTAT parameter (ACCEPTED, DECLINED, or TENTATIVE)", false);
+        }
+    } else if (event->DtStart.IsEmpty()) {
+        throw SyncException("invalid-ics",
+            "ICS COUNTER must contain the proposed DTSTART", false);
     }
 
     // Extract attendee email for From address validation
@@ -2248,7 +2281,15 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
 
     // Generate human-readable text based on RSVP status (per RFC 6047 recommendation)
     string humanReadableText;
-    if (icsRSVPStatus == "ACCEPTED") {
+    if (method == "COUNTER") {
+        humanReadableText = fromEmail + " proposed a new time for: " + eventSummary;
+        if (task->data().count("comment")) {
+            string comment = task->data()["comment"].get<string>();
+            if (!comment.empty()) {
+                humanReadableText += "\r\n\r\n" + comment;
+            }
+        }
+    } else if (icsRSVPStatus == "ACCEPTED") {
         humanReadableText = fromEmail + " has accepted the invitation to: " + eventSummary;
     } else if (icsRSVPStatus == "DECLINED") {
         humanReadableText = fromEmail + " has declined the invitation to: " + eventSummary;
@@ -2259,7 +2300,7 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     }
 
     // Generate a unique boundary for multipart message
-    string boundary = "----=_Mailspring_RSVP_" + to_string(time(0)) + "_" + to_string(rand());
+    string boundary = "----=_Mailspring_" + method + "_" + to_string(time(0)) + "_" + to_string(rand());
 
     // Base64 encode the ICS data (RFC 6047 recommends base64 for maximum compatibility)
     Data * icsData = AS_MCSTR(ics)->dataUsingEncoding("utf-8");
@@ -2284,13 +2325,19 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     stringstream mimeBody;
     mimeBody << "--" << boundary << "\r\n";
     mimeBody << "Content-Type: text/plain; charset=UTF-8\r\n";
-    mimeBody << "Content-Transfer-Encoding: 7bit\r\n";
+    // Base64, not 7bit: this part carries the event's summary and the user's own note, both
+    // UTF-8 and both routinely non-ASCII - an accented name is enough. Declaring 7bit over
+    // 8-bit bytes violates RFC 2045 section 6.2, and a relay without the 8BITMIME extension
+    // (RFC 6152) is entitled to mangle or refuse it. Base64 is 7-bit clean on every path and
+    // is already what the calendar part below uses.
+    mimeBody << "Content-Transfer-Encoding: base64\r\n";
     mimeBody << "\r\n";
-    mimeBody << humanReadableText << "\r\n";
+    mimeBody << AS_MCSTR(humanReadableText)->dataUsingEncoding("utf-8")->base64String()->UTF8Characters() << "\r\n";
     mimeBody << "\r\n";
     mimeBody << "--" << boundary << "\r\n";
-    // Critical: Content-Type MUST include method=REPLY parameter (RFC 6047 Section 2.4)
-    mimeBody << "Content-Type: text/calendar; method=REPLY; charset=UTF-8\r\n";
+    // Critical: Content-Type MUST include the method parameter (RFC 6047 Section 2.4), and
+    // it MUST agree with the METHOD inside the ICS or receiving calendars discard it.
+    mimeBody << "Content-Type: text/calendar; method=" << method << "; charset=UTF-8\r\n";
     mimeBody << "Content-Transfer-Encoding: base64\r\n";
     // Use inline disposition, not attachment (RFC 6047 Section 2.4)
     mimeBody << "Content-Disposition: inline; filename=\"invite.ics\"\r\n";
@@ -2351,7 +2398,7 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     SMTPProgress sprogress;
     MailUtils::configureSessionForAccount(smtp, account);
 
-    logger->info("-- Sending RFC 6047-compliant RSVP ({}) to organizer {}", icsRSVPStatus, organizer);
+    logger->info("-- Sending RFC 6047-compliant {} ({}) to organizer {}", method, icsRSVPStatus, organizer);
     smtp.sendMessage(messageData, &sprogress, &err);
 
     if (err != ErrorNone) {
@@ -2361,5 +2408,5 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
         throw SyncException("send-failed", ErrorCodeToTypeMap[err], false);
     }
 
-    logger->info("-- RSVP sent successfully");
+    logger->info("-- {} sent successfully", method);
 }

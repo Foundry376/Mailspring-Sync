@@ -23,12 +23,20 @@ Date &Date::operator =(const string &Text) {
 		if (Text.length() >= 15) {
 			sscanf(Text.c_str()+9, "%2hd%2hd%2hd", &Data[HOUR], &Data[MINUTE], &Data[SECOND]);
 			WithTime = true;
+			// A trailing "Z" makes the value UTC (RFC 5545 section 3.3.5); toUnix() needs it.
+			// Scan back over trailing whitespace: GetSubProperty() hands over RRULE parts such
+			// as UNTIL with the line's carriage return still attached, unlike GetProperty().
+			size_t last = Text.find_last_not_of(" \t\r\n");
+			IsUTC = (last != string::npos && (Text[last] == 'Z' || Text[last] == 'z'));
 		} else {
 			Data[HOUR] = Data[MINUTE] = Data[SECOND] = 0;
 			WithTime = false;
+			IsUTC = false;
 		}
-	} else
+	} else {
 		Data[YEAR] = Data[MONTH] = Data[DAY] = 0;
+		IsUTC = false;
+	}
 	return *this;
 }
 
@@ -128,6 +136,7 @@ void Date::SetToNow() {
 	Data[SECOND] = CurrentTime->tm_sec;
 	
 	WithTime = true;
+	IsUTC = false; // localtime() above gives a local wall-clock, not a UTC one
 }
 
 Date::DatePart &Date::DatePart::operator +=(short Value) {
