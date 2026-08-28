@@ -84,6 +84,7 @@ public:
     static XOAuth2Parts userAndTokenFromXOAuth2(string xoauth2);
 
     static void enableVerboseLogging();
+    static bool isVerboseLoggingEnabled();
     static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
     static void configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account);
 
