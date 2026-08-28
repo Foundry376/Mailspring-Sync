@@ -1447,7 +1447,14 @@ static string calendarOwnership(shared_ptr<DavXML> doc, xmlNodePtr responseNode,
     if (owner.empty()) {
         return "";
     }
-    return normalizeHref(owner) == principalPath ? "mine" : "other";
+
+    // Google's CalDAV principal resource is "<calendar-home>/user", so the owner href of an
+    // account's own calendar is the principal path with "/user" appended - the Gmail branch
+    // synthesises calPrincipal without it. On a server we discovered properly,
+    // cachedCalPrincipalPath is the real DAV:current-user-principal and matches outright.
+    const string normalized = normalizeHref(owner);
+    const bool mine = normalized == principalPath || normalized == principalPath + "/user";
+    return mine ? "mine" : "other";
 }
 
 void DAVWorker::runCalendars() {
@@ -1532,6 +1539,9 @@ void DAVWorker::runCalendars() {
     vector<string> writableNames {};
     vector<string> readOnlyNames {};
     vector<string> noPrivilegeSetNames {};
+    // Which calendars the server actually listed this pass, so the ones it didn't can be
+    // pruned below.
+    set<string> seenIds {};
 
     // Filter calendars by supported-calendar-component-set to only sync those with VEVENT.
     // This is the RFC 4791 compliant way to discover event calendars, as opposed to
@@ -1543,9 +1553,14 @@ void DAVWorker::runCalendars() {
         // Make a few xpath queries relative to the "D:response" calendar node (using "./")
         // to retrieve the attributes we're interested in.
         auto name = calendarSetDoc->nodeContentAtXPath(".//D:displayname/text()", node);
-        auto path = calendarSetDoc->nodeContentAtXPath(".//D:href/text()", node);
+        // The response's OWN href, as a direct child. Not ".//D:href": nodeContentAtXPath
+        // keeps the last node it visits, and DAV:owner carries a nested href, so a
+        // descendant search returns the owning principal's URL and every calendar ends up
+        // pointed at a principal instead of its own collection.
+        auto path = calendarSetDoc->nodeContentAtXPath("./D:href/text()", node);
         auto ctag = calendarSetDoc->nodeContentAtXPath(".//cs:getctag/text()", node);
         auto id = MailUtils::idForCalendar(account->id(), path);
+        seenIds.insert(id);
 
         // Extract calendar metadata
         auto color = calendarSetDoc->nodeContentAtXPath(".//ical:calendar-color/text()", node);
@@ -1669,6 +1684,38 @@ void DAVWorker::runCalendars() {
                  writableNames.size(), readOnlyNames.size(), noPrivilegeSetNames.size());
     for (auto & n : readOnlyNames) {
         logger->info("  read-only: {}", n);
+    }
+
+    /*
+     Drop calendars the server no longer lists, and their events.
+
+     Nothing removed them before: `local` was read and then only ever used to look calendars
+     up, so a calendar deleted or unshared in Google stayed in the sidebar indefinitely, and
+     its events stayed in range queries - counting towards conflicts and free/busy for a
+     calendar the user cannot see any more.
+
+     Guarded on having seen at least one calendar. Reaching here already means the multistatus
+     parsed, since every failure path above returns early, but pruning against an empty result
+     would erase every calendar on the account and re-download them, so the cheap check earns
+     its place.
+     */
+    if (!seenIds.empty()) {
+        for (auto & pair : local) {
+            if (seenIds.count(pair.first)) {
+                continue;
+            }
+            auto events = store->findAll<Event>(Query().equal("calendarId", pair.first));
+            {
+                MailStoreTransaction transaction{store, "pruneCalendar"};
+                for (auto & event : events) {
+                    store->remove(event.get());
+                }
+                store->remove(pair.second.get());
+                transaction.commit();
+            }
+            logger->info("Removed calendar '{}' and its {} events; the server no longer lists it",
+                         pair.second->name(), events.size());
+        }
     }
 }
 
