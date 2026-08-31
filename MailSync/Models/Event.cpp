@@ -105,7 +105,10 @@ string Event::icsUID()
 
 string Event::etag()
 {
-    return _data["etag"].get<string>();
+    // Absent on an Event deserialised from client JSON, which carries no etag: reading it as
+    // required would throw json::type_error, which is not a SyncException and so aborts the
+    // process rather than failing the task.
+    return _data.count("etag") ? _data["etag"].get<string>() : "";
 }
 
 void Event::setEtag(string etag)

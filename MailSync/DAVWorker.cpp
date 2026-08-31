@@ -257,6 +257,25 @@ static string hrefForNewEvent(const string & calendarPath, shared_ptr<Event> eve
     return calendarPath + uid + ".ics";
 }
 
+// Escape text destined for an XML text node, so an href taken from a server response cannot
+// close its element and introduce siblings. Hrefs are echoed straight back into the body of a
+// multiget, and they arrive from the server rather than from us.
+static string xmlEscape(const string & text) {
+    string out;
+    out.reserve(text.size());
+    for (char c : text) {
+        switch (c) {
+            case '&': out += "&amp;"; break;
+            case '<': out += "&lt;"; break;
+            case '>': out += "&gt;"; break;
+            case '"': out += "&quot;"; break;
+            case '\'': out += "&apos;"; break;
+            default: out += c;
+        }
+    }
+    return out;
+}
+
 // Rate limiting constants (RFC 6585/7231 compliance)
 static const int MAX_BACKOFF_MS = 60000;  // 1 minute max backoff
 static const int MIN_BACKOFF_MS = 100;    // 100ms minimum when backing off
@@ -883,7 +902,7 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
     for (auto chunk : MailUtils::chunksOfVector(needed, 90)) {
         string payload = "";
         for (auto & href : chunk) {
-            payload += "<d:href>" + href + "</d:href>";
+            payload += "<d:href>" + xmlEscape(href) + "</d:href>";
         }
 
         // Fetch the data
@@ -904,7 +923,7 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
             }
             auto vcard = make_shared<VCard>(vcardString);
             if (vcard->incomplete()) {
-                logger->info("Unable to decode vcard: {}", vcardString);
+                logger->info("Unable to decode vcard ({} bytes)", vcardString.size());
                 return;
             }
             string id = vcard->getUniqueId()->getValue();
@@ -1136,7 +1155,7 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
         for (auto chunk : MailUtils::chunksOfVector(neededHrefs, 90)) {
             string payload = "";
             for (auto & href : chunk) {
-                payload += "<d:href>" + href + "</d:href>";
+                payload += "<d:href>" + xmlEscape(href) + "</d:href>";
             }
 
             auto abDoc = performXMLRequest(ab->url(), "REPORT",
@@ -1158,7 +1177,7 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
                 }
                 auto vcard = make_shared<VCard>(vcardString);
                 if (vcard->incomplete()) {
-                    logger->info("Unable to decode vcard: {}", vcardString);
+                    logger->info("Unable to decode vcard ({} bytes)", vcardString.size());
                     return;
                 }
                 string id = vcard->getUniqueId()->getValue();
@@ -1287,7 +1306,7 @@ shared_ptr<Contact> DAVWorker::ingestAddressDataNode(shared_ptr<DavXML> doc, xml
     
     auto vcard = make_shared<VCard>(vcardString);
     if (vcard->incomplete()) {
-        logger->info("Unable to decode vcard: {}", vcardString);
+        logger->info("Unable to decode vcard ({} bytes)", vcardString.size());
         return nullptr;
     }
     string id = vcard->getUniqueId()->getValue();
@@ -1662,7 +1681,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     for (auto chunk : MailUtils::chunksOfVector(neededHrefs, 90)) {
         string payload = "";
         for (auto & href : chunk) {
-            payload += "<d:href>" + href + "</d:href>";
+            payload += "<d:href>" + xmlEscape(href) + "</d:href>";
         }
 
         // Fetch the data (rate limiting is now handled in performXMLRequest)
@@ -1693,7 +1712,8 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
             // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions)
             for (auto icsEvent : cal->Events) {
                 if (icsEvent->DtStart.IsEmpty()) {
-                    logger->info("Received calendar event but it has no start time?\n\n{}\n\n", icsData);
+                    logger->info("Received calendar event with no start time: {} ({} bytes)",
+                                 href, icsData.size());
                     continue;
                 }
                 parsedEvents.push_back({etag, href, icsData, icsEvent});
@@ -2177,7 +2197,11 @@ string DAVWorker::performVCardRequest(string _url, string method, string vcard, 
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
     
-    logger->info("{}: {} {}", _url, vcard, existingEtag);
+    if (MailUtils::isVerboseLoggingEnabled()) {
+        logger->info("{}: {} {}", _url, vcard, existingEtag);
+    } else {
+        logger->info("{}: {} bytes etag:{}", _url, vcard.size(), existingEtag);
+    }
     string result = PerformRequest(curl_handle);
     return result;
 }
@@ -2203,7 +2227,13 @@ string DAVWorker::performICSRequest(string _url, string method, string icsData, 
     curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
 
-    logger->info("performICSRequest: {} {} etag:{}, data: {}", method, _url, existingEtag, icsData);
+    // The ICS body carries the event's title, attendees and description, so it only goes to
+    // the log when the user has explicitly turned on verbose logging to debug a sync problem.
+    if (MailUtils::isVerboseLoggingEnabled()) {
+        logger->info("performICSRequest: {} {} etag:{}, data: {}", method, _url, existingEtag, icsData);
+    } else {
+        logger->info("performICSRequest: {} {} etag:{}, {} bytes", method, _url, existingEtag, icsData.size());
+    }
     string result = PerformRequest(curl_handle);
     return result;
 }
@@ -2243,7 +2273,7 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
     auto icsDoc = performXMLRequest(calendarUrl, "REPORT",
         "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
         "<d:prop><d:getetag /><c:calendar-data /></d:prop>"
-        "<d:href>" + href + "</d:href>"
+        "<d:href>" + xmlEscape(href) + "</d:href>"
         "</c:calendar-multiget>");
 
     // 5. Parse response and update local event

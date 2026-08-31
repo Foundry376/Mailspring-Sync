@@ -197,7 +197,12 @@ void MailStore::assertCorrectThread() {
      prepare half the values, and execute it, creating a rediculous data inconsistency.
      */
     if (spdlog::details::os::thread_id() != _owningThread) {
-        spdlog::get("logger")->error("MailStore thread assertion failure: function called on {} instead of {}", spdlog::details::os::thread_id(), _owningThread);
+        // Null before main() registers the logger, which the --mode migrate path never
+        // reaches. The throw below is what actually reports this; losing the log line is
+        // better than turning an assertion into a segfault. See MailStoreTransaction::commit.
+        if (auto logger = spdlog::get("logger")) {
+            logger->error("MailStore thread assertion failure: function called on {} instead of {}", spdlog::details::os::thread_id(), _owningThread);
+        }
         throw SyncException("assertion-failure", "MailStore thread assertion failure", false);
     }
 }

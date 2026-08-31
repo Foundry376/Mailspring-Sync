@@ -22,3 +22,6 @@ Makefile
 cmake_install.cmake
 /mailsync
 /Vendor/mailcore2/build/
+
+# Local build prefix for vendored libetpan (see BUILDING.md)
+/Vendor/_install/

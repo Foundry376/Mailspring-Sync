@@ -736,6 +736,10 @@ void MailUtils::enableVerboseLogging() {
     _verboseLogging = true;
 }
 
+bool MailUtils::isVerboseLoggingEnabled() {
+    return _verboseLogging;
+}
+
 class MailcoreSPDLogger : public ConnectionLogger {
   public:
     void log(string str) {

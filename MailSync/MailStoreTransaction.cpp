@@ -43,11 +43,19 @@ void MailStoreTransaction::commit()
         long long waitingMs = duration_cast<std::chrono::milliseconds>(mBegan - mStart).count();
         long long selfMs = duration_cast<std::chrono::milliseconds>(now - mBegan).count();
 
-        if (waitingMs > 1000) {
-            spdlog::get("logger")->warn("[BUSY] Transaction={} waited {}ms to acquire write lock", mNameHint, waitingMs);
-        }
-        if (selfMs > 100) {
-            spdlog::get("logger")->warn("[SLOW] Transaction={} held write lock for {}ms", mNameHint, selfMs);
+        // spdlog::get returns null until main() registers the logger, and it does that only
+        // after the --mode migrate path has already run to completion. These timings are
+        // diagnostics, so an absent logger means skip them rather than crash: dereferencing
+        // it here segfaulted the schema migration on any calendar big enough to hold the
+        // write lock for 100ms, which is every real one.
+        auto logger = spdlog::get("logger");
+        if (logger) {
+            if (waitingMs > 1000) {
+                logger->warn("[BUSY] Transaction={} waited {}ms to acquire write lock", mNameHint, waitingMs);
+            }
+            if (selfMs > 100) {
+                logger->warn("[SLOW] Transaction={} held write lock for {}ms", mNameHint, selfMs);
+            }
         }
         
     } else {

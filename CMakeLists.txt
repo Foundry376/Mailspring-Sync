@@ -70,34 +70,41 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   target_link_libraries(mailsync libMailCore.a)
   target_link_libraries(mailsync ${GLIB_LIBRARIES})
-  target_link_libraries(mailsync libetpan.a)
+  # Static only: build.sh bundles no libetpan, and its ldd sweep collects just libsasl2, so a
+  # shared match would produce a binary that cannot start on a machine without libetpan.
+  find_library(ETPAN_LIB NAMES libetpan.a REQUIRED)
+  target_link_libraries(mailsync ${ETPAN_LIB})
 
-  find_library(XML_LIB NAMES libxml2.a libxml2)
+  # Prefer the static archive, fall back to the shared library. The fallback must be the bare
+  # name ("xml2"): CMake treats a NAMES entry carrying the platform prefix as a literal
+  # filename and stops trying suffixes, so "libxml2" matches nothing where only libxml2.so
+  # is installed.
+  find_library(XML_LIB NAMES libxml2.a xml2 REQUIRED)
   target_link_libraries(mailsync ${XML_LIB})
   target_include_directories(mailsync PRIVATE /usr/include/libxml2)
 
-  find_library(LZMA_LIB NAMES liblzma.a liblzma)
+  find_library(LZMA_LIB NAMES liblzma.a lzma REQUIRED)
   target_link_libraries(mailsync ${LZMA_LIB})
 
-  find_library(Z_LIB NAMES libz.a libz)
+  find_library(Z_LIB NAMES libz.a z REQUIRED)
   target_link_libraries(mailsync ${Z_LIB})
 
-  find_library(RESOLV_LIB NAMES libresolv.a libresolv)
+  find_library(RESOLV_LIB NAMES libresolv.a resolv REQUIRED)
   target_link_libraries(mailsync ${RESOLV_LIB})
 
-  find_library(CTEMPLATE_LIB NAMES libctemplate.a libctemplate)
+  find_library(CTEMPLATE_LIB NAMES libctemplate.a ctemplate REQUIRED)
   target_link_libraries(mailsync ${CTEMPLATE_LIB})
 
-  find_library(UUID_LIB NAMES libuuid.a libuuid)
+  find_library(UUID_LIB NAMES libuuid.a uuid REQUIRED)
   target_link_libraries(mailsync ${UUID_LIB})
 
-  find_library(ICUI18N_LIB NAMES libicui18n.a libicui18n)
+  find_library(ICUI18N_LIB NAMES libicui18n.a icui18n REQUIRED)
   target_link_libraries(mailsync ${ICUI18N_LIB})
 
-  find_library(ICUUC_LIB NAMES libicuuc.a libicuuc)
+  find_library(ICUUC_LIB NAMES libicuuc.a icuuc REQUIRED)
   target_link_libraries(mailsync ${ICUUC_LIB})
 
-  find_library(ICUDATA_LIB NAMES libicudata.a libicudata)
+  find_library(ICUDATA_LIB NAMES libicudata.a icudata REQUIRED)
   target_link_libraries(mailsync ${ICUDATA_LIB})
 
   pkg_check_modules(CARES REQUIRED libcares)
