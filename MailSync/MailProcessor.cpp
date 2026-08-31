@@ -187,16 +187,17 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
 
     // Priority folder check: prevent lower-priority folders from claiming messages
     // that already belong to higher-priority folders. This fixes "flickering" on
-    // iCloud where the same message genuinely exists in multiple folders simultaneously.
+    // iCloud and NetEase where the same message genuinely exists in multiple folders
+    // simultaneously (for example, a message sent to yourself appears in Inbox and Sent).
     //
     // On standard IMAP servers (FastMail, etc.), messages MOVE between folders
     // (DELETE from source + APPEND to destination). The "latest folder wins" behavior
-    // is correct for these servers. The priority check is only needed for iCloud's
-    // non-standard behavior where the same message appears in multiple folders at once.
+    // is correct for these servers. The priority check is only needed for providers
+    // known to expose the same message in multiple folders at once.
     string currentFolderId = local->remoteFolderId();
-    bool isICloud = account->isICloud();
+    bool useFolderPriority = account->isICloud() || account->isNetEase();
 
-    if (isICloud && folder.id() != currentFolderId && !currentFolderId.empty()) {
+    if (useFolderPriority && folder.id() != currentFolderId && !currentFolderId.empty()) {
         bool isUnlinked = local->remoteUID() > UINT32_MAX - 5;
 
         if (isUnlinked) {

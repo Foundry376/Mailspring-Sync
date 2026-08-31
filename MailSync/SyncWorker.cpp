@@ -9,6 +9,7 @@
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
 #include <algorithm>
+#include <map>
 #include <set>
 
 #include "SyncWorker.hpp"
@@ -47,6 +48,9 @@
 #define LS_HIGHESTMODSEQ            "highestmodseq"
 #define LS_UIDVALIDITY              "uidvalidity"
 #define LS_UIDVALIDITY_RESET_COUNT  "uidvalidityResetCount"
+#define LS_MESSAGE_COUNT            "messageCount"
+#define LS_UNSEEN_COUNT             "unseenCount"
+#define LS_RECENT_COUNT             "recentCount"
 
 using namespace mailcore;
 using namespace std;
@@ -324,20 +328,47 @@ bool SyncWorker::syncNow()
         ptrdiff_t rhsRank = find(roleOrder.begin(), roleOrder.end(), rhs->role()) - roleOrder.begin();
         return lhsRank < rhsRank;
     });
-    
+
+    // Fetch STATUS for every folder before syncing any of them. NetEase omits
+    // UIDNEXT, so if one folder's lightweight status changes we must deep-scan
+    // all folders in the same pass. This gives a lower-priority duplicate (such
+    // as Sent) a chance to reclaim a message unlinked from Inbox before phase
+    // cleanup deletes it.
+    map<string, IMAPFolderStatus *> remoteStatuses;
+    bool forceNetEaseDeepScan = false;
     for (auto & folder : folders) {
-        json & localStatus = folder->localStatus();
-        json initialLocalStatus = localStatus; // note: json not json&
-        
         String path = AS_MCSTR(folder->path());
         ErrorCode err = ErrorCode::ErrorNone;
-        IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
-        bool firstChunk = false;
-
+        IMAPFolderStatus * remoteStatus = session.folderStatus(&path, &err);
         if (err != ErrorNone) {
             logger->warn("SyncNow: unable to get folder status for {} ({}), skipping...", folder->path(), ErrorCodeToTypeMap[err]);
             continue;
         }
+
+        remoteStatuses[folder->id()] = remoteStatus;
+        if (account->isNetEase() && remoteStatus->uidNext() == 0) {
+            json & localStatus = folder->localStatus();
+            auto changed = [&localStatus](const char * key, uint32_t value) {
+                return !localStatus.count(key) || !localStatus[key].is_number() ||
+                       localStatus[key].get<uint32_t>() != value;
+            };
+            forceNetEaseDeepScan = forceNetEaseDeepScan ||
+                                   changed(LS_MESSAGE_COUNT, remoteStatus->messageCount()) ||
+                                   changed(LS_UNSEEN_COUNT, remoteStatus->unseenCount()) ||
+                                   changed(LS_RECENT_COUNT, remoteStatus->recentCount());
+        }
+    }
+
+    for (auto & folder : folders) {
+        auto remoteStatusIt = remoteStatuses.find(folder->id());
+        if (remoteStatusIt == remoteStatuses.end()) {
+            continue;
+        }
+
+        json & localStatus = folder->localStatus();
+        json initialLocalStatus = localStatus; // note: json not json&
+        IMAPFolderStatus & remoteStatus = *remoteStatusIt->second;
+        bool firstChunk = false;
         
         // Step 1: Check folder UIDValidity
         if (localStatus.empty() || localStatus[LS_UIDVALIDITY].is_null()) {
@@ -365,6 +396,9 @@ bool SyncWorker::syncNow()
             localStatus[LS_BODIES_WANTED] = 0; // pretend we want no message contents
             localStatus[LS_SYNCED_MIN_UID] = 1; // pretend we have scanned all the way to the oldest message
             localStatus[LS_UIDNEXT] = remoteStatus.uidNext();
+            localStatus[LS_MESSAGE_COUNT] = remoteStatus.messageCount();
+            localStatus[LS_UNSEEN_COUNT] = remoteStatus.unseenCount();
+            localStatus[LS_RECENT_COUNT] = remoteStatus.recentCount();
             store->saveFolderStatus(folder.get(), initialLocalStatus);
             continue;
         }
@@ -401,6 +435,9 @@ bool SyncWorker::syncNow()
             localStatus[LS_SYNCED_MIN_UID] = 1;
             localStatus[LS_LAST_SHALLOW] = time(0);
             localStatus[LS_LAST_DEEP] = time(0);
+            localStatus[LS_MESSAGE_COUNT] = remoteStatus.messageCount();
+            localStatus[LS_UNSEEN_COUNT] = remoteStatus.unseenCount();
+            localStatus[LS_RECENT_COUNT] = remoteStatus.recentCount();
             
             store->saveFolderStatus(folder.get(), initialLocalStatus);
             continue;
@@ -435,7 +472,9 @@ bool SyncWorker::syncNow()
             uint32_t remoteUidnext = remoteStatus.uidNext();
             uint32_t localUidnext = localStatus[LS_UIDNEXT].get<uint32_t>();
             bool newMessages = remoteUidnext > localUidnext;
-            bool timeForDeepScan = (iterationsSinceLaunch > 0) && (time(0) - localStatus[LS_LAST_DEEP].get<time_t>() > DEEP_SCAN_INTERVAL);
+            bool timeForDeepScan = (forceNetEaseDeepScan && remoteUidnext == 0) ||
+                                   ((iterationsSinceLaunch > 0) &&
+                                    (time(0) - localStatus[LS_LAST_DEEP].get<time_t>() > DEEP_SCAN_INTERVAL));
             bool timeForShallowScan = !timeForDeepScan && (time(0) - localStatus[LS_LAST_SHALLOW].get<time_t>() > SHALLOW_SCAN_INTERVAL);
 
             // Okay. If there are new messages in the folder (UIDnext has increased), do a heavy fetch of
@@ -481,11 +520,19 @@ bool SyncWorker::syncNow()
             
             if (timeForDeepScan) {
                 syncFolderUIDRange(*folder, RangeMake(syncedMinUID, UINT64_MAX), false);
+                if (syncedMinUID == 0) {
+                    syncedMinUID = 1;
+                    localStatus[LS_SYNCED_MIN_UID] = 1;
+                }
                 localStatus[LS_LAST_SHALLOW] = time(0);
                 localStatus[LS_LAST_DEEP] = time(0);
                 localStatus[LS_UIDNEXT] = remoteUidnext;
             }
         }
+
+        localStatus[LS_MESSAGE_COUNT] = remoteStatus.messageCount();
+        localStatus[LS_UNSEEN_COUNT] = remoteStatus.unseenCount();
+        localStatus[LS_RECENT_COUNT] = remoteStatus.recentCount();
         
         bool moreToDo = false;
 

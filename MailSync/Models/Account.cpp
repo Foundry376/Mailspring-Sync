@@ -9,6 +9,7 @@
 //  in 'LICENSE.md', which is part of the Mailspring-Sync package.
 //
 
+#include <algorithm>
 #include "Account.hpp"
 #include "MailUtils.hpp"
 #include "Thread.hpp"
@@ -123,6 +124,12 @@ bool Account::IMAPAllowInsecureSSL() {
 
 bool Account::isICloud() {
     return IMAPHost().find("imap.mail.me.com") != string::npos;
+}
+
+bool Account::isNetEase() {
+    string imapHost = IMAPHost();
+    transform(imapHost.begin(), imapHost.end(), imapHost.begin(), ::tolower);
+    return imapHost == "imap.163.com" || imapHost == "imap.126.com" || imapHost == "imap.yeah.net";
 }
 
 unsigned int Account::SMTPPort() {
