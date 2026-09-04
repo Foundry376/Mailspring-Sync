@@ -1294,10 +1294,15 @@ void TaskProcessor::performRemoteDestroyEvent(Task * task) {
         eventIds.push_back(e["id"].get<string>());
     }
 
+    // findLargeSet chunks through MailUtils::chunksOfVector, which erases from the vector it
+    // is handed, so eventIds is empty once the lookup returns. Read the count before the call
+    // or this compares against zero and warns on every successful delete.
+    const size_t requested = eventIds.size();
+
     auto events = store->findLargeSet<Event>("id", eventIds);
-    if (events.size() != eventIds.size()) {
+    if (events.size() != requested) {
         logger->warn("Destroying {} of {} requested events; the rest are no longer present",
-                     events.size(), eventIds.size());
+                     events.size(), requested);
     }
 
     auto dav = make_shared<DAVWorker>(account);
