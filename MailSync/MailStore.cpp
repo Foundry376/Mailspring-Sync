@@ -149,10 +149,17 @@ void MailStore::recomputeEventTimes() {
             if (cal.Events.empty()) continue;
 
             // One file holds the master and its exceptions; match the VEVENT this row is.
+            // The UID is part of the identity: a resource can hold unrelated events, and two
+            // masters both carry an empty RECURRENCE-ID, so matching on that alone would give
+            // every one of them the first master's times.
             string rid = data.count("rid") ? data["rid"].get<string>() : "";
+            string uid = data.count("icsuid") ? data["icsuid"].get<string>() : "";
             ICalendarEvent * match = nullptr;
             for (auto e : cal.Events) {
-                if (e->RecurrenceId == rid) { match = e; break; }
+                if (e->RecurrenceId != rid) continue;
+                if (!uid.empty() && !e->UID.empty() && e->UID != uid) continue;
+                match = e;
+                break;
             }
             if (!match) match = cal.Events.front();
             if (match->DtStart.IsEmpty()) continue;

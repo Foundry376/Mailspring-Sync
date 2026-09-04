@@ -270,7 +270,12 @@ static string hrefForNewEvent(const string & calendarPath, shared_ptr<Event> eve
     if (safe && uid.find("..") != string::npos) {
         safe = false;
     }
-    return calendarPath + (safe ? uid : MailUtils::idRandomlyGenerated()) + ".ics";
+    // The fallback has to be a function of the event, not a fresh random id: writeAndResyncEvent
+    // and deleteEvent both call this to reconstruct an href they never stored, so two calls that
+    // disagree create a second resource with the same UID - which SabreDAV and Radicale reject
+    // with no-uid-conflict (RFC 4791 section 5.3.2) - and then leave the event undeletable.
+    // event->id() is already a hash of accountId, calendarId, UID and RECURRENCE-ID, in base58.
+    return calendarPath + (safe ? uid : event->id()) + ".ics";
 }
 
 // Escape text destined for an XML text node, so an href taken from a server response cannot
@@ -1551,8 +1556,18 @@ void DAVWorker::runCalendars() {
     vector<string> readOnlyNames {};
     vector<string> noPrivilegeSetNames {};
     // Which calendars the server actually listed this pass, so the ones it didn't can be
-    // pruned below.
-    set<string> seenIds {};
+    // pruned below. This is deliberately every response in the multistatus, not just the ones
+    // that passed the VEVENT filter: a 207 is per-resource (RFC 4918 section 9.1), so one
+    // calendar's properties can come back in an error propstat while its neighbours succeed,
+    // and treating that as "the server no longer lists it" would delete a calendar and every
+    // event on it over a transient failure.
+    set<string> listedIds {};
+    calendarSetDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+        auto path = calendarSetDoc->nodeContentAtXPath("./D:href/text()", node);
+        if (!path.empty()) {
+            listedIds.insert(MailUtils::idForCalendar(account->id(), path));
+        }
+    }));
 
     // Filter calendars by supported-calendar-component-set to only sync those with VEVENT.
     // This is the RFC 4791 compliant way to discover event calendars, as opposed to
@@ -1571,7 +1586,6 @@ void DAVWorker::runCalendars() {
         auto path = calendarSetDoc->nodeContentAtXPath("./D:href/text()", node);
         auto ctag = calendarSetDoc->nodeContentAtXPath(".//cs:getctag/text()", node);
         auto id = MailUtils::idForCalendar(account->id(), path);
-        seenIds.insert(id);
 
         // Extract calendar metadata
         auto color = calendarSetDoc->nodeContentAtXPath(".//ical:calendar-color/text()", node);
@@ -1705,14 +1719,14 @@ void DAVWorker::runCalendars() {
      its events stayed in range queries - counting towards conflicts and free/busy for a
      calendar the user cannot see any more.
 
-     Guarded on having seen at least one calendar. Reaching here already means the multistatus
+     Guarded on the server having listed at least one calendar. Reaching here already means the multistatus
      parsed, since every failure path above returns early, but pruning against an empty result
      would erase every calendar on the account and re-download them, so the cheap check earns
      its place.
      */
-    if (!seenIds.empty()) {
+    if (!listedIds.empty()) {
         for (auto & pair : local) {
-            if (seenIds.count(pair.first)) {
+            if (listedIds.count(pair.first)) {
                 continue;
             }
             auto events = store->findAll<Event>(Query().equal("calendarId", pair.first));

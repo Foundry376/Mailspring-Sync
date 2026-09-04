@@ -501,6 +501,27 @@ void TaskProcessor::performLocal(Task * task) {
     store->save(task);
 }
 
+/*
+ Break a base64 body into CRLF-terminated lines.
+
+ mailcore's base64String() emits one unbroken line (MCEncodeBase64 in
+ Vendor/mailcore2/src/core/basetypes/MCBase64.c writes no line breaks at all), which exceeds
+ RFC 2045 section 6.8's 76-character limit and, past about 740 input bytes, RFC 5321's
+ 1000-octet line limit. A counter-proposal carries the full guest list plus the user's own
+ note, so it reaches that length easily, and an MTA enforcing the limit is entitled to refuse
+ or truncate the message.
+ */
+static string base64Wrapped(const string & encoded) {
+    const size_t width = 76;
+    string out;
+    out.reserve(encoded.size() + (encoded.size() / width + 1) * 2);
+    for (size_t i = 0; i < encoded.size(); i += width) {
+        out += encoded.substr(i, width);
+        out += "\r\n";
+    }
+    return out;
+}
+
 // PerformRemote is run from the foreground worker
 
 void TaskProcessor::performRemote(Task * task) {
@@ -1306,8 +1327,29 @@ void TaskProcessor::performRemoteDestroyEvent(Task * task) {
     }
 
     auto dav = make_shared<DAVWorker>(account);
+    // One event that cannot be deleted must not strand the rest: performLocalDestroyEvent is
+    // deliberately a no-op, so this loop is the only thing that removes any of these rows.
+    // A 404 or 410 means the resource is already gone, which is the outcome asked for - drop
+    // the local row and carry on rather than failing the batch.
+    vector<string> failures {};
     for (auto & event : events) {
-        dav->deleteEvent(event);
+        try {
+            dav->deleteEvent(event);
+        } catch (SyncException & ex) {
+            if (ex.key.find("404") != string::npos || ex.key.find("410") != string::npos) {
+                logger->info("Event {} was already gone from the server; removing locally", event->id());
+                store->remove(event.get());
+                continue;
+            }
+            logger->error("Could not delete event {}: {}", event->id(), ex.toJSON().dump());
+            failures.push_back(event->id());
+        }
+    }
+    if (!failures.empty()) {
+        throw SyncException("delete-failed",
+                            "Could not delete " + to_string(failures.size()) + " of " +
+                                to_string(events.size()) + " events",
+                            false);
     }
 }
 
@@ -2337,7 +2379,8 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     // is already what the calendar part below uses.
     mimeBody << "Content-Transfer-Encoding: base64\r\n";
     mimeBody << "\r\n";
-    mimeBody << AS_MCSTR(humanReadableText)->dataUsingEncoding("utf-8")->base64String()->UTF8Characters() << "\r\n";
+    mimeBody << base64Wrapped(
+        AS_MCSTR(humanReadableText)->dataUsingEncoding("utf-8")->base64String()->UTF8Characters());
     mimeBody << "\r\n";
     mimeBody << "--" << boundary << "\r\n";
     // Critical: Content-Type MUST include the method parameter (RFC 6047 Section 2.4), and
@@ -2347,7 +2390,7 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     // Use inline disposition, not attachment (RFC 6047 Section 2.4)
     mimeBody << "Content-Disposition: inline; filename=\"invite.ics\"\r\n";
     mimeBody << "\r\n";
-    mimeBody << icsBase64->UTF8Characters() << "\r\n";
+        mimeBody << base64Wrapped(icsBase64->UTF8Characters());
     mimeBody << "--" << boundary << "--\r\n";
 
     // Build the complete message by getting headers and appending our body
