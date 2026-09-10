@@ -1235,8 +1235,6 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
         store->save(existing.get());
         task->data()["event"]["id"] = existing->id();
     } else {
-        // CREATE: Generate new event with temporary ID
-        string tempId = MailUtils::idRandomlyGenerated();
         string icsData = eventJSON["ics"].get<string>();
         ICalendar cal(icsData);
 
@@ -1244,14 +1242,27 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
             throw SyncException("invalid-ics", "ICS data does not contain any events", false);
         }
 
-        // For new event creation, use the first VEVENT (typically only one)
-        // The Event constructor now handles recurrenceId from the ICalendarEvent
         auto icsEvent = cal.Events.front();
-        Event event("", account->id(), calendarId, icsData, icsEvent);
-        event._data["id"] = tempId;  // Temporary ID until server assigns etag
-        store->save(&event);
 
-        task->data()["event"]["id"] = tempId;
+        // The client picks its own id for an event it has just composed, so a create can name
+        // an event the calendar already holds - answering an invitation that has already
+        // synced down, for one. Reconcile on UID and RECURRENCE-ID within the calendar, as
+        // runForCalendar() does, so that lands as an update rather than an insert against an
+        // id the Event constructor derives from those same fields.
+        auto byUID = store->find<Event>(Query()
+                                            .equal("calendarId", calendarId)
+                                            .equal("icsuid", icsEvent->UID)
+                                            .equal("recurrenceId", icsEvent->RecurrenceId));
+        if (byUID) {
+            byUID->applyICSEventData(byUID->etag(), byUID->href(), icsData, icsEvent);
+            store->save(byUID.get());
+            task->data()["event"]["id"] = byUID->id();
+        } else {
+            Event event("", account->id(), calendarId, icsData, icsEvent);
+            store->save(&event);
+            // Hand the id back: the client composed the event without knowing it.
+            task->data()["event"]["id"] = event.id();
+        }
     }
 
     store->save(task);
