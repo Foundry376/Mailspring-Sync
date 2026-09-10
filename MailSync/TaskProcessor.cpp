@@ -501,6 +501,27 @@ void TaskProcessor::performLocal(Task * task) {
     store->save(task);
 }
 
+/*
+ Break a base64 body into CRLF-terminated lines.
+
+ mailcore's base64String() emits one unbroken line (MCEncodeBase64 in
+ Vendor/mailcore2/src/core/basetypes/MCBase64.c writes no line breaks at all), which exceeds
+ RFC 2045 section 6.8's 76-character limit and, past about 740 input bytes, RFC 5321's
+ 1000-octet line limit. A counter-proposal carries the full guest list plus the user's own
+ note, so it reaches that length easily, and an MTA enforcing the limit is entitled to refuse
+ or truncate the message.
+ */
+static string base64Wrapped(const string & encoded) {
+    const size_t width = 76;
+    string out;
+    out.reserve(encoded.size() + (encoded.size() / width + 1) * 2);
+    for (size_t i = 0; i < encoded.size(); i += width) {
+        out += encoded.substr(i, width);
+        out += "\r\n";
+    }
+    return out;
+}
+
 // PerformRemote is run from the foreground worker
 
 void TaskProcessor::performRemote(Task * task) {
@@ -2284,9 +2305,15 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     stringstream mimeBody;
     mimeBody << "--" << boundary << "\r\n";
     mimeBody << "Content-Type: text/plain; charset=UTF-8\r\n";
-    mimeBody << "Content-Transfer-Encoding: 7bit\r\n";
+    // Base64, not 7bit: this part carries the event's summary and the user's own note, both
+    // UTF-8 and both routinely non-ASCII - an accented name is enough. Declaring 7bit over
+    // 8-bit bytes violates RFC 2045 section 6.2, and a relay without the 8BITMIME extension
+    // (RFC 6152) is entitled to mangle or refuse it. Base64 is 7-bit clean on every path and
+    // is already what the calendar part below uses.
+    mimeBody << "Content-Transfer-Encoding: base64\r\n";
     mimeBody << "\r\n";
-    mimeBody << humanReadableText << "\r\n";
+    mimeBody << base64Wrapped(
+        AS_MCSTR(humanReadableText)->dataUsingEncoding("utf-8")->base64String()->UTF8Characters());
     mimeBody << "\r\n";
     mimeBody << "--" << boundary << "\r\n";
     // Critical: Content-Type MUST include method=REPLY parameter (RFC 6047 Section 2.4)
@@ -2295,7 +2322,7 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     // Use inline disposition, not attachment (RFC 6047 Section 2.4)
     mimeBody << "Content-Disposition: inline; filename=\"invite.ics\"\r\n";
     mimeBody << "\r\n";
-    mimeBody << icsBase64->UTF8Characters() << "\r\n";
+        mimeBody << base64Wrapped(icsBase64->UTF8Characters());
     mimeBody << "--" << boundary << "--\r\n";
 
     // Build the complete message by getting headers and appending our body
