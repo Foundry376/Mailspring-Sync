@@ -1298,8 +1298,6 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
         store->save(existing.get());
         task->data()["event"]["id"] = existing->id();
     } else {
-        // CREATE: Generate new event with temporary ID
-        string tempId = MailUtils::idRandomlyGenerated();
         string icsData = eventJSON["ics"].get<string>();
         ICalendar cal(icsData);
 
@@ -1307,14 +1305,68 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
             throw SyncException("invalid-ics", "ICS data does not contain any events", false);
         }
 
-        // For new event creation, use the first VEVENT (typically only one)
-        // The Event constructor now handles recurrenceId from the ICalendarEvent
-        auto icsEvent = cal.Events.front();
-        Event event("", account->id(), calendarId, icsData, icsEvent);
-        event._data["id"] = tempId;  // Temporary ID until server assigns etag
-        store->save(&event);
+        // The series master is the event's identity; the file may also carry RECURRENCE-ID
+        // overrides, in any order.
+        ICalendarEvent * icsEvent = cal.Events.front();
+        for (auto & vevent : cal.Events) {
+            if (vevent->RecurrenceId.empty()) {
+                icsEvent = vevent;
+                break;
+            }
+        }
+        // The UID is the resource name and part of the row id, so without one the event can
+        // neither be written to the server nor told apart from the next UID-less one. The
+        // vendored parser (icalendarlib) substitutes a one-byte counter, "\0", "\1"..., for a
+        // missing or empty UID, so that shape is what "no UID" looks like here.
+        const string & uid = icsEvent->UID;
+        if (uid.empty() || (uid.size() == 1 && (unsigned char)uid[0] < 0x20)) {
+            throw SyncException("invalid-ics", "VEVENT has no UID", false);
+        }
 
-        task->data()["event"]["id"] = tempId;
+        // A create can name an event the calendar already holds: the client answers an
+        // invitation that has already synced down by sending the whole resource back with its
+        // own PARTSTAT. Reconcile on UID and RECURRENCE-ID within the calendar, as
+        // runForCalendar() does, so that lands as an update of the existing row and a PUT to
+        // its href rather than a second resource the server answers with 409 no-uid-conflict.
+        auto existing = store->find<Event>(Query()
+                                               .equal("calendarId", calendarId)
+                                               .equal("icsuid", icsEvent->UID)
+                                               .equal("recurrenceId", icsEvent->RecurrenceId));
+        if (!existing) {
+            // The Event constructor derives the id from account, calendar, UID and
+            // RECURRENCE-ID; a row can already hold that id if its UID columns were rewritten
+            // by an earlier update. Saving over it is right; inserting would violate the
+            // primary key and abort the process.
+            Event derived("", account->id(), calendarId, icsData, icsEvent);
+            existing = store->find<Event>(Query().equal("id", derived.id()));
+        }
+
+        if (existing) {
+            // Each row stores the whole resource. A file with fewer VEVENTs for this UID than
+            // the stored one would, once PUT, erase the server's exceptions to the series.
+            size_t stored = 0, incoming = 0;
+            ICalendar storedResource(existing->icsData());
+            for (auto & vevent : storedResource.Events) {
+                if (vevent->UID == icsEvent->UID) stored++;
+            }
+            for (auto & vevent : cal.Events) {
+                if (vevent->UID == icsEvent->UID) incoming++;
+            }
+            if (incoming < stored) {
+                throw SyncException("ics-incomplete",
+                                    "The calendar already holds this series with exceptions; "
+                                    "send the whole resource",
+                                    false);
+            }
+            existing->applyICSEventData(existing->etag(), existing->href(), icsData, icsEvent);
+            store->save(existing.get());
+            task->data()["event"]["id"] = existing->id();
+        } else {
+            Event event("", account->id(), calendarId, icsData, icsEvent);
+            store->save(&event);
+            // Hand the id back: the client composed the event without knowing it.
+            task->data()["event"]["id"] = event.id();
+        }
     }
 
     store->save(task);
