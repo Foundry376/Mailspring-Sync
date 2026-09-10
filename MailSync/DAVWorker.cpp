@@ -740,6 +740,8 @@ string DAVWorker::resolveCalendarHomeURL() {
         calPrincipalURL = replacePath(calRoot, calPrincipalURL);
     }
 
+    cachedCalPrincipalPath = normalizeHref(calPrincipalURL);
+
     // PROPFIND principal → calendar-home-set (RFC 4791 §6.2.1). Depth 0: at Depth 1 Nextcloud also
     // answers for the principal's calendar-proxy-read/-write children, and the last home set wins.
     auto homeSetDoc = performXMLRequest(calPrincipalURL, "PROPFIND",
@@ -1430,6 +1432,45 @@ static bool calendarIsWritable(shared_ptr<DavXML> doc, xmlNodePtr responseNode, 
     return writable;
 }
 
+static string lowercased(string value) {
+    transform(value.begin(), value.end(), value.begin(),
+              [](unsigned char c) { return (char)tolower(c); });
+    return value;
+}
+
+/*
+ Whether this calendar belongs to the account we are syncing, rather than being one somebody
+ else has shared with it.
+
+ DAV:owner (RFC 3744 section 5.1) names the principal that owns the collection, which is the
+ server's own answer to the question. It matters because the client uses "is this calendar
+ mine" to pick which copy of an invitation to write an RSVP onto, and the alternative signal
+ - the calendar's display name - is text any sharer chooses. Someone who shares a writable
+ calendar named after the recipient's own address would otherwise capture their replies.
+
+ Returns "mine", "other", or "" when the server declines to say. runCalendars() only trusts
+ "other" when some calendar on the account came back "mine"; see there.
+ */
+static string calendarOwnership(shared_ptr<DavXML> doc, xmlNodePtr responseNode,
+                                const string & principalPath) {
+    if (principalPath.empty()) {
+        return "";
+    }
+    const string ownerPath =
+        "./D:propstat[contains(./D:status, '200')]/D:prop/D:owner/D:href/text()";
+    string owner = doc->nodeContentAtXPath(ownerPath, responseNode);
+    if (owner.empty()) {
+        return "";
+    }
+
+    // Google names the principal "<calendar-home>/user", one segment below the calPrincipal the
+    // Gmail branch builds. Case-folded: principalPath keeps the case the user typed.
+    const string normalized = lowercased(normalizeHref(owner));
+    const string principal = lowercased(principalPath);
+    const bool mine = normalized == principal || normalized == principal + "/user";
+    return mine ? "mine" : "other";
+}
+
 void DAVWorker::runCalendars() {
     // Gmail uses calHost/calPrincipal set in constructor.
     // All other accounts use dynamic discovery (cached after first run).
@@ -1479,6 +1520,7 @@ void DAVWorker::runCalendars() {
         "<ical:calendar-color />"
         "<c:calendar-description />"
         "<d:current-user-privilege-set />"
+        "<d:owner />"
         "<ical:calendar-order />"
         "</d:prop>"
         "</d:propfind>";
@@ -1529,6 +1571,30 @@ void DAVWorker::runCalendars() {
         }
     }));
 
+    // calPrincipal is the Gmail path's principal; cachedCalPrincipalPath the discovered one.
+    // Exactly one is ever set.
+    const string principalPath = calHost != "" ? normalizeHref(calPrincipal) : cachedCalPrincipalPath;
+
+    // Owners named and none of them ours means the principal is wrong (an alias, or a Workspace
+    // address the server echoes as the primary), so ownership stays unknown for the pass.
+    const string vevent_calendars =
+        "//D:response[./D:propstat/D:prop/caldav:supported-calendar-component-set/caldav:comp[@name='VEVENT']]";
+    map<string, string> ownershipByPath {};
+    bool anyMine = false;
+    bool anyOwnerNamed = false;
+    calendarSetDoc->evaluateXPath(vevent_calendars, ([&](xmlNodePtr node) {
+        auto path = calendarSetDoc->nodeContentAtXPath("./D:href/text()", node);
+        auto ownership = calendarOwnership(calendarSetDoc, node, principalPath);
+        ownershipByPath[path] = ownership;
+        anyMine = anyMine || ownership == "mine";
+        anyOwnerNamed = anyOwnerNamed || !ownership.empty();
+    }));
+    if (anyOwnerNamed && !anyMine) {
+        logger->warn("Server named an owner for every calendar and none is principal '{}'; "
+                     "leaving ownership unknown", principalPath);
+        ownershipByPath.clear();
+    }
+
     // Filter calendars by supported-calendar-component-set to only sync those with VEVENT.
     // This is the RFC 4791 compliant way to discover event calendars, as opposed to
     // task lists (VTODO) or journal calendars (VJOURNAL). By filtering at discovery time,
@@ -1543,7 +1609,8 @@ void DAVWorker::runCalendars() {
         // Make a few xpath queries relative to the "D:response" calendar node (using "./")
         // to retrieve the attributes we're interested in.
         auto name = calendarSetDoc->nodeContentAtXPath(".//D:displayname/text()", node);
-        auto path = calendarSetDoc->nodeContentAtXPath(".//D:href/text()", node);
+        // Direct child only: DAV:owner nests an href, and nodeContentAtXPath keeps the last match.
+        auto path = calendarSetDoc->nodeContentAtXPath("./D:href/text()", node);
         auto ctag = calendarSetDoc->nodeContentAtXPath(".//cs:getctag/text()", node);
         auto id = MailUtils::idForCalendar(account->id(), path);
 
@@ -1557,6 +1624,7 @@ void DAVWorker::runCalendars() {
         // said, on discovery and on change, for when the UI is inert.
         bool advertisedPrivileges = false;
         bool readOnly = !calendarIsWritable(calendarSetDoc, node, advertisedPrivileges);
+        auto ownership = ownershipByPath.count(path) ? ownershipByPath[path] : "";
 
         shared_ptr<Calendar> calendar = local[id];
         bool needsSync = true;
@@ -1587,6 +1655,12 @@ void DAVWorker::runCalendars() {
                 metadataChanged = true;
                 logger->info("Calendar '{}' is now {}", name, readOnly ? "read-only" : "writable");
             }
+            // Only overwrite a known answer with another known answer: a server that stops
+            // returning DAV:owner shouldn't erase what it told us last time.
+            if (!ownership.empty() && calendar->ownership() != ownership) {
+                calendar->setOwnership(ownership);
+                metadataChanged = true;
+            }
             if (!orderStr.empty()) {
                 try {
                     int order = std::stoi(orderStr);
@@ -1611,6 +1685,7 @@ void DAVWorker::runCalendars() {
             }
             calendar->setDescription(description);
             calendar->setReadOnly(readOnly);
+            calendar->setOwnership(ownership);
             const char * writability = readOnly ? "read-only"
                                      : advertisedPrivileges ? "writable"
                                      : "writable, server advertises no privilege set";
