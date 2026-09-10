@@ -52,6 +52,11 @@ public:
     bool readOnly();
     void setReadOnly(bool readOnly);
 
+    // "mine" when DAV:owner named this account's own principal, "other" when it named
+    // somebody else's, and "" when the server didn't say. See calendarOwnership().
+    string ownership();
+    void setOwnership(string ownership);
+
     int order();
     void setOrder(int order);
 
