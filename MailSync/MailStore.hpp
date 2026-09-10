@@ -94,6 +94,9 @@ public:
 
     void migrate();
 
+    /** Rebuilds cached event start/end times from stored ICS. See the definition. */
+    void recomputeEventTimes();
+
     SQLite::Database & db();
 
     void resetForAccount(string accountId);

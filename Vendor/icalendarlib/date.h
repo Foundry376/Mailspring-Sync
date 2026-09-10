@@ -33,6 +33,14 @@ public:
 		Clear();
 	}
 	
+    /*
+     An iCalendar DATE-TIME is one of three things (RFC 5545 section 3.3.5): UTC when it ends
+     in "Z", a wall-clock time in a named zone when the property carries TZID, or floating.
+     Only UTC is unambiguous here, so only UTC uses timegm(); the other two resolve against
+     the local zone, which is correct for a floating time and for a TZID matching this
+     machine. tm_isdst is -1 so the C library determines daylight saving rather than assuming
+     standard time, which is an hour out for half the year.
+    */
     int toUnix() {
         struct tm timeinfo {};
         memset(&timeinfo, 0, sizeof(struct tm));
@@ -40,6 +48,14 @@ public:
         sprintf(Temp, "%.4d%.2d%.2dT%.2d%.2d%.2d", Data[YEAR], Data[MONTH], Data[DAY], Data[HOUR], Data[MINUTE], Data[SECOND]);
         std::istringstream ss(Temp);
         ss >> std::get_time(&timeinfo, "%Y%m%dT%H%M%S");
+        timeinfo.tm_isdst = -1; // let the C library work out DST for local times
+        if (IsUTC) {
+#ifdef _MSC_VER
+            return (int)_mkgmtime(&timeinfo);
+#else
+            return (int)timegm(&timeinfo);
+#endif
+        }
         return (int)mktime(&timeinfo);
     }
 
@@ -88,9 +104,12 @@ public:
 		
 		Data[HOUR] = Data[MINUTE] = Data[SECOND] = 0;
 		WithTime = false;
+		IsUTC = false;
 	}
 	
 	bool WithTime;
+	/** True when the value was written in UTC, i.e. ended in "Z". */
+	bool IsUTC;
 };
 
 class Date::DatePart {
