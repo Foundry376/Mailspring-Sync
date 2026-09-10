@@ -778,8 +778,16 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 if (runningCalendarSync.compare_exchange_strong(expected, true)) {
                     std::thread([account]() {
                         SetThreadName("calendar");
-                        auto worker = DAVWorker(account);
-                        worker.run();
+                        try {
+                            // Calendars only: contact sync spends a separate, scarcer API
+                            // quota and has no ctag early-out, so it keeps its own cadence
+                            // rather than riding every manual calendar refresh.
+                            DAVWorker(account).runCalendars();
+                        } catch (...) {
+                            // A refresh failing must not take the process down; the periodic
+                            // worker retries on its own schedule.
+                            exceptions::logCurrentExceptionWithStackTrace();
+                        }
                         runningCalendarSync = false;
                     }).detach();
                 }
