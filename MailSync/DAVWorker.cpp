@@ -2333,14 +2333,33 @@ void DAVWorker::deleteEvent(shared_ptr<Event> event) {
         href = hrefForNewEvent(calendar->path(), event);
     }
 
+    // 3. A series and its RECURRENCE-ID exceptions share one resource, so a DELETE here takes
+    // the whole series; one occurrence is removed by a PUT that adds an EXDATE instead.
+    if (!event->recurrenceId().empty()) {
+        size_t vevents = 0;
+        ICalendar resource(event->icsData());
+        for (auto & vevent : resource.Events) {
+            if (vevent->UID == event->icsUID()) vevents++;
+        }
+        // Sibling rows too, in case ingestion skipped a VEVENT (one with no DTSTART).
+        auto siblings = store->findAll<Event>(
+            Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()));
+        if (vevents > 1 || siblings.size() > 1) {
+            throw SyncException("shared-resource",
+                                "Cannot delete a single occurrence by removing its calendar "
+                                "resource; the rest of the series shares it",
+                                false);
+        }
+    }
+
     string calendarUrl = resolvedCalendarURL(calendar->path());
     string fullUrl = replacePath(calendarUrl, href);
 
-    // 3. Perform DELETE request with If-Match header if we have an etag
+    // 4. Perform DELETE request with If-Match header if we have an etag
     string existingEtag = event->etag();
     performICSRequest(fullUrl, "DELETE", "", existingEtag);
 
-    // 4. Remove from local database
+    // 5. Remove from local database, only now that the server has accepted
     store->remove(event.get());
     logger->info("Event deleted successfully: {}", href);
 }
