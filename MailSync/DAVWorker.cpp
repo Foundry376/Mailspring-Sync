@@ -2333,14 +2333,33 @@ void DAVWorker::deleteEvent(shared_ptr<Event> event) {
         href = hrefForNewEvent(calendar->path(), event);
     }
 
+    // 3. A master and each of its RECURRENCE-ID exceptions are separate rows that share one
+    // href, because runForCalendar creates a row per VEVENT in the resource. DELETE removes
+    // the resource, so deleting an exception this way would take the whole series with it -
+    // on a real account 27 resources hold more than one row and the largest holds 22. Refuse
+    // rather than destroy. Deleting the master is still a DELETE: removing the series is
+    // what that means. Removing one occurrence belongs in a PUT that drops the overriding
+    // VEVENT and adds an EXDATE, which is how the client's "this occurrence" path already
+    // does it.
+    if (!event->recurrenceId().empty()) {
+        auto siblings = store->findAll<Event>(
+            Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()));
+        if (siblings.size() > 1) {
+            throw SyncException("shared-resource",
+                                "Cannot delete a single occurrence by removing its calendar "
+                                "resource; the rest of the series shares it",
+                                false);
+        }
+    }
+
     string calendarUrl = resolvedCalendarURL(calendar->path());
     string fullUrl = replacePath(calendarUrl, href);
 
-    // 3. Perform DELETE request with If-Match header if we have an etag
+    // 4. Perform DELETE request with If-Match header if we have an etag
     string existingEtag = event->etag();
     performICSRequest(fullUrl, "DELETE", "", existingEtag);
 
-    // 4. Remove from local database
+    // 5. Remove from local database, only now that the server has accepted
     store->remove(event.get());
     logger->info("Event deleted successfully: {}", href);
 }
