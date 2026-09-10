@@ -15,6 +15,8 @@
 #include "SyncException.hpp"
 #include "constants.h"
 
+#include "Event.hpp"
+#include "icalendar.h"
 #include "Folder.hpp"
 #include "Message.hpp"
 #include "Thread.hpp"
@@ -100,9 +102,100 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA main.synchronous = NORMAL").exec();
 }
 
-static int CURRENT_VERSION = 9;
+static int CURRENT_VERSION = 10;
 static string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 30 * 24 * 60 * 60; // 30 days
+
+/*
+ Rebuilds every event's cached start and end from its stored ICS.
+
+ Those values are written only when an event is fetched, and fetches are gated on ctag and
+ etag, so an event unchanged on the server is never recomputed. A correction to how an ICS
+ timestamp is read would otherwise apply to newly fetched events alone, leaving the table
+ holding two conventions at once and the calendar's range queries selecting across both.
+
+ The indexed recurrenceStart/recurrenceEnd columns are what those queries read, so they are
+ rewritten alongside the data blob; updating the blob by itself would change nothing that is
+ actually queried.
+*/
+void MailStore::recomputeEventTimes() {
+    vector<pair<string, string>> rows;
+    {
+        SQLite::Statement events(_db, "SELECT id, data FROM Event");
+        while (events.executeStep()) {
+            rows.push_back({events.getColumn("id").getString(), events.getColumn("data").getString()});
+        }
+    }
+    if (rows.empty()) {
+        return;
+    }
+
+    cout << "\nRunning Migration";
+    cout.flush();
+
+    // One transaction for the batch: a separate implicit one per row would fsync thousands
+    // of times on a calendar of any size.
+    MailStoreTransaction transaction{this, "recomputeEventTimes"};
+    SQLite::Statement update(
+        _db, "UPDATE Event SET data = ?, recurrenceStart = ?, recurrenceEnd = ? WHERE id = ?");
+
+    int updated = 0;
+    int skipped = 0;
+    for (auto & row : rows) {
+        // Everything for one row, the UPDATE included, is inside the try: a row this cannot
+        // read or write is skipped, because an exception escaping here rolls the batch back,
+        // leaves user_version below 10, and makes every later launch fail the same way.
+        try {
+            json data = json::parse(row.second);
+            ICalendar cal(data.count("ics") ? data["ics"].get<string>() : "");
+            if (cal.Events.empty()) {
+                skipped++;
+                continue;
+            }
+
+            // One file holds the master and its exceptions; match the VEVENT this row is.
+            // The UID is part of the identity: a resource can hold unrelated events, and two
+            // masters both carry an empty RECURRENCE-ID, so matching on that alone would give
+            // every one of them the first master's times.
+            string rid = data.count("rid") ? data["rid"].get<string>() : "";
+            string uid = data.count("icsuid") ? data["icsuid"].get<string>() : "";
+            ICalendarEvent * match = nullptr;
+            for (auto e : cal.Events) {
+                if (e->RecurrenceId != rid) continue;
+                if (!uid.empty() && !e->UID.empty() && e->UID != uid) continue;
+                match = e;
+                break;
+            }
+            if (!match) match = cal.Events.front();
+            if (match->DtStart.IsEmpty()) {
+                skipped++;
+                continue;
+            }
+
+            int start = match->DtStart.toUnix();
+            int end = endOf(match).toUnix();
+            data["rs"] = start;
+            data["re"] = end;
+
+            update.reset();
+            update.clearBindings();
+            update.bind(1, data.dump());
+            update.bind(2, start);
+            update.bind(3, end);
+            update.bind(4, row.first);
+            update.exec();
+            updated++;
+        } catch (...) {
+            skipped++;
+        }
+    }
+    transaction.commit();
+
+    // The logger is null in migrate mode (see MailStoreTransaction.cpp), so this goes to the
+    // same stream as the "Running Migration" line above.
+    cout << " (" << updated << " events recomputed, " << skipped << " left as they were)";
+    cout.flush();
+}
 
 void MailStore::migrate() {
     SQLite::Statement uv(_db, "PRAGMA user_version");
@@ -154,6 +247,9 @@ void MailStore::migrate() {
         for (string sql : V9_SETUP_QUERIES) {
             SQLite::Statement(_db, sql).exec();
         }
+    }
+    if (version < 10) {
+        recomputeEventTimes();
     }
 
     // Update the version flag. Note that we don't want to go from v3 back to v2
