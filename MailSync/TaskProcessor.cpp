@@ -2208,6 +2208,28 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
         exported, total, failed);
 }
 
+/*
+ The body of a base64 MIME part: 76-character lines, each CRLF-terminated, per RFC 2045
+ section 6.8. mailcore's base64String() (MCEncodeBase64 in
+ Vendor/mailcore2/src/core/basetypes/MCBase64.c) writes no line breaks at all, so a calendar
+ part of a few hundred bytes already exceeds that limit, and past about 740 input bytes the one
+ line also exceeds RFC 5321's 1000-octet line limit, which an MTA may enforce by refusing or
+ truncating the message. A guest list and a description get an invitation there easily.
+ */
+static string base64PartBody(String * text) {
+    Data * data = text ? text->dataUsingEncoding("utf-8") : NULL;
+    String * encoded = data ? data->base64String() : NULL;
+    string bytes = encoded ? encoded->UTF8Characters() : "";
+    const size_t width = 76;
+    string out;
+    out.reserve(bytes.size() + (bytes.size() / width + 1) * 2);
+    for (size_t i = 0; i < bytes.size(); i += width) {
+        out += bytes.substr(i, width);
+        out += "\r\n";
+    }
+    return out;
+}
+
 void TaskProcessor::performRemoteSendRSVP(Task * task) {
     AutoreleasePool pool;
     ErrorCode err = ErrorNone;
@@ -2324,10 +2346,6 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     // Generate a unique boundary for multipart message
     string boundary = "----=_Mailspring_RSVP_" + to_string(time(0)) + "_" + to_string(rand());
 
-    // Base64 encode the ICS data (RFC 6047 recommends base64 for maximum compatibility)
-    Data * icsData = AS_MCSTR(ics)->dataUsingEncoding("utf-8");
-    String * icsBase64 = icsData->base64String();
-
     // Build MIME headers
     MessageBuilder builder;
     builder.header()->setSubject(AS_MCSTR(subject));
@@ -2347,10 +2365,14 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     stringstream mimeBody;
     mimeBody << "--" << boundary << "\r\n";
     mimeBody << "Content-Type: text/plain; charset=UTF-8\r\n";
-    mimeBody << "Content-Transfer-Encoding: 7bit\r\n";
+    // Base64, not 7bit: this part carries the event's summary and the user's own note, both
+    // UTF-8 and both routinely non-ASCII - an accented name is enough. Declaring 7bit over
+    // 8-bit bytes violates RFC 2045 section 6.2, and a relay without the 8BITMIME extension
+    // (RFC 6152) is entitled to mangle or refuse it. Base64 is 7-bit clean on every path and
+    // is already what the calendar part below uses.
+    mimeBody << "Content-Transfer-Encoding: base64\r\n";
     mimeBody << "\r\n";
-    mimeBody << humanReadableText << "\r\n";
-    mimeBody << "\r\n";
+    mimeBody << base64PartBody(AS_MCSTR(humanReadableText));
     mimeBody << "--" << boundary << "\r\n";
     // Critical: Content-Type MUST include method=REPLY parameter (RFC 6047 Section 2.4)
     mimeBody << "Content-Type: text/calendar; method=REPLY; charset=UTF-8\r\n";
@@ -2358,7 +2380,7 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     // Use inline disposition, not attachment (RFC 6047 Section 2.4)
     mimeBody << "Content-Disposition: inline; filename=\"invite.ics\"\r\n";
     mimeBody << "\r\n";
-    mimeBody << icsBase64->UTF8Characters() << "\r\n";
+    mimeBody << base64PartBody(AS_MCSTR(ics));
     mimeBody << "--" << boundary << "--\r\n";
 
     // Build the complete message by getting headers and appending our body
