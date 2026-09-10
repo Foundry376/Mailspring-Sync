@@ -1445,6 +1445,27 @@ void DAVWorker::runCalendars() {
 
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
 
+    // Which calendars the server actually listed this pass, so the ones it didn't can be
+    // pruned below. This is deliberately every response in the multistatus, not just the ones
+    // that passed the VEVENT filter: a 207 is per-resource (RFC 4918 section 9.1), so one
+    // calendar's properties can come back in an error propstat while its neighbours succeed,
+    // and treating that as "the server no longer lists it" would delete a calendar and every
+    // event on it over a transient failure.
+    //
+    // The home collection answers for itself too, as the first response. It is not a
+    // calendar and must not count as one: with it in the set, a listing that names no
+    // calendars at all would pass the emptiness guard below and prune every calendar on
+    // the account.
+    const string homePath = normalizeHref(
+        calendarHomeURL.find("://") == string::npos ? "https://" + calendarHomeURL : calendarHomeURL);
+    set<string> listedIds {};
+    calendarSetDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+        auto path = calendarSetDoc->nodeContentAtXPath("./D:href/text()", node);
+        if (!path.empty() && normalizeHref(path) != homePath) {
+            listedIds.insert(MailUtils::idForCalendar(account->id(), path));
+        }
+    }));
+
     // Filter calendars by supported-calendar-component-set to only sync those with VEVENT.
     // This is the RFC 4791 compliant way to discover event calendars, as opposed to
     // task lists (VTODO) or journal calendars (VJOURNAL). By filtering at discovery time,
@@ -1560,6 +1581,38 @@ void DAVWorker::runCalendars() {
             }
         }
     }));
+
+    /*
+     Drop calendars the server no longer lists, and their events.
+
+     Nothing removed them before: `local` was read and then only ever used to look calendars
+     up, so a calendar deleted or unshared in Google stayed in the sidebar indefinitely, and
+     its events stayed in range queries - counting towards conflicts and free/busy for a
+     calendar the user cannot see any more.
+
+     Guarded on the server having listed at least one calendar. Reaching here already means
+     the multistatus parsed, since every failure path above returns early, but pruning against
+     an empty result would erase every calendar on the account and re-download them, so the
+     cheap check earns its place.
+     */
+    if (!listedIds.empty()) {
+        for (auto & pair : local) {
+            if (listedIds.count(pair.first)) {
+                continue;
+            }
+            auto events = store->findAll<Event>(Query().equal("calendarId", pair.first));
+            {
+                MailStoreTransaction transaction{store, "pruneCalendar"};
+                for (auto & event : events) {
+                    store->remove(event.get());
+                }
+                store->remove(pair.second.get());
+                transaction.commit();
+            }
+            logger->info("Removed calendar '{}' and its {} events; the server no longer lists it",
+                         pair.second->name(), events.size());
+        }
+    }
 }
 
 void DAVWorker::runForCalendar(string calendarId, string name, string url) {
