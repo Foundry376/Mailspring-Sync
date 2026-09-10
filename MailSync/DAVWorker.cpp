@@ -247,14 +247,35 @@ static string normalizeHref(const string & href) {
 
 // Generate the CalDAV resource href for a new event that has no stored href yet.
 //
-// Returns the CalDAV resource href for an event. Exceptions are embedded inline in
-// the master's VCALENDAR (RFC 4791 §4.1), so all events use "{uid}.ics".
+// Exceptions are embedded inline in the master's VCALENDAR (RFC 4791 section 4.1), so all
+// events use "{uid}.ics".
+//
+// The UID reaches us from an ICS the user did not write - an invitation attached to any
+// message can be stored on a calendar - and it lands in a request path and in the body of a
+// calendar-multiget. A UID carrying dot segments or a slash would address a different
+// resource once libcurl normalises the path, so anything outside the unreserved set earns a
+// generated name instead. The UID inside the ICS is untouched; only the resource name here
+// is constrained, which RFC 4791 section 5.3.2 leaves to the client.
 static string hrefForNewEvent(const string & calendarPath, shared_ptr<Event> event) {
     string uid = event->icsUID();
-    if (uid.empty()) {
-        uid = MailUtils::idRandomlyGenerated();
+    bool safe = !uid.empty() && uid.size() <= 200;
+    for (char c : uid) {
+        if (!(isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.' || c == '@')) {
+            safe = false;
+            break;
+        }
     }
-    return calendarPath + uid + ".ics";
+    // A leading dot cannot begin a traversal on its own once the above holds, but ".." is
+    // still a name worth refusing outright.
+    if (safe && uid.find("..") != string::npos) {
+        safe = false;
+    }
+    // The fallback has to be a function of the event, not a fresh random id: writeAndResyncEvent
+    // and deleteEvent both call this to reconstruct an href they never stored, so two calls that
+    // disagree create a second resource with the same UID - which SabreDAV and Radicale reject
+    // with no-uid-conflict (RFC 4791 section 5.3.2) - and then leave the event undeletable.
+    // event->id() is already a hash of accountId, calendarId, UID and RECURRENCE-ID, in base58.
+    return calendarPath + (safe ? uid : event->id()) + ".ics";
 }
 
 // Escape text destined for an XML text node, so an href taken from a server response cannot
