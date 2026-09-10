@@ -95,6 +95,14 @@ void Calendar::setReadOnly(bool readOnly) {
     _data["read_only"] = readOnly;
 }
 
+string Calendar::ownership() {
+    return _data.count("owner") ? _data["owner"].get<string>() : "";
+}
+
+void Calendar::setOwnership(string ownership) {
+    _data["owner"] = ownership;
+}
+
 int Calendar::order() {
     return _data.count("order") ? _data["order"].get<int>() : 0;
 }
