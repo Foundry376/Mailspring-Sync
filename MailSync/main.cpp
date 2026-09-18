@@ -410,9 +410,16 @@ done:
 // is a crash, and both are exactly what --mode test exists to report. Every other failure
 // mode here - a bad password, an unreachable IMAP host, a rejected TLS handshake - is
 // already reported as JSON, so report these the same way.
+//
+// error_offline carries the flag the client used to recover by pattern-matching the
+// terminate handler's stack trace for "offline":true, which only worked because the
+// process crashed. It distinguishes "this machine cannot reach the network" from the
+// other connection failures, so the client can keep saying so rather than blaming a
+// server and port the user never entered.
 int runTestAuthReportingExceptions(shared_ptr<Account> account) {
     string errorService = "imap";
     string error = "";
+    bool offline = false;
 
     try {
         return runTestAuth(account, errorService);
@@ -421,6 +428,7 @@ int runTestAuthReportingExceptions(shared_ptr<Account> account) {
         // the way" apart from "the provider refused these credentials", and those map onto
         // the two error codes the client has localized strings for.
         error = ex.isRetryable() ? "ErrorConnection" : "ErrorAuthentication";
+        offline = ex.isOffline();
         alogger.log("\n\n" + ex.key + ": " + ex.debuginfo + "\n");
     } catch (std::exception & ex) {
         // Not a failure the engine classified, so pass it through unrecognized: the client
@@ -430,9 +438,16 @@ int runTestAuthReportingExceptions(shared_ptr<Account> account) {
         error = "Unknown error";
     }
 
+    if (error == "") {
+        // An exception with an empty what() would otherwise reach the client as a blank
+        // error message, which is worse to receive a bug report about than a vague one.
+        error = "Unknown error";
+    }
+
     json resp = {
         {"error", error},
         {"error_service", errorService},
+        {"error_offline", offline},
         {"log", alogger.accumulated},
         {"account", nullptr}
     };
