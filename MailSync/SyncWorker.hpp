@@ -71,6 +71,7 @@ public:
 private:
     
     void ensureRootMailspringFolder(vector<string> containerFolderComponents, Array * remoteFolders);
+    void removeDuplicateFolders(Array * remoteFolders);
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
         

@@ -628,6 +628,31 @@ void SyncWorker::ensureRootMailspringFolder(vector<string> containerFolderCompon
     }
 }
 
+// Some servers, IMAP gateways especially (DavMail, Proton Bridge, Zoho), list a mailbox twice:
+// a repeated LIST line, or two names MailCore collapses when it normalizes "Inbox" to "INBOX".
+// Both hash to one folder ID, and the second insert aborts mailsync with "UNIQUE constraint
+// failed: Folder.id" before any folder is saved - on every launch. Keeps the first copy, merging
+// the others' flags so role detection doesn't depend on the order the server used. Runs after
+// unselectable folders are dropped, so the merge can't reintroduce NoSelect.
+void SyncWorker::removeDuplicateFolders(Array * remoteFolders)
+{
+    map<string, IMAPFolder *> remotesById {};
+
+    for (int ii = 0; ii < (int)remoteFolders->count(); ii++) {
+        IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+        string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+        auto existing = remotesById.find(remoteId);
+        if (existing == remotesById.end()) {
+            remotesById[remoteId] = remote;
+            continue;
+        }
+        logger->warn("-X the server listed {} more than once - ignoring the duplicate.", remote->path()->UTF8Characters());
+        existing->second->setFlags((IMAPFolderFlag)(existing->second->flags() | remote->flags()));
+        remoteFolders->removeObjectAtIndex(ii);
+        ii -= 1;
+    }
+}
+
 vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 {
     // allocated mailcore objects freed when `pool` is removed from the stack
@@ -736,6 +761,9 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 continue;
             }
         }
+
+        // Eliminate folders the server listed more than once
+        removeDuplicateFolders(remoteFolders);
 
         // Find / create local folders and labels to match the remote ones
         // Note: We don't assign roles, just create the objects here.
@@ -848,7 +876,17 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         MailStoreTransaction transaction{store, "syncFoldersAndLabels"};
 
         for (auto & item : toCreate) {
-            store->save(item.get());
+            // Never let a folder that already exists take the process down. De-duplication
+            // should make this unreachable, but the row is present either way and the next
+            // pass picks it up - the insert-then-recover shape MailProcessor uses.
+            try {
+                store->save(item.get());
+            } catch (SQLite::Exception & ex) {
+                if (ex.getErrorCode() != 19) { // constraint failed
+                    throw;
+                }
+                logger->error("-X could not create {} {}: {}. Continuing.", item->tableName(), item->path(), ex.what());
+            }
         }
         for (auto & ru : roleUpdates) {
             shared_ptr<Folder> fresh;
