@@ -82,6 +82,8 @@ private:
     void fetchRangeInFolder(String * folder, std::string folderId, Range range);
 
     void cleanMessageCache(Folder & folder);
+
+    void unlinkVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source);
     
     long long countBodiesDownloaded(Folder & folder);
     long long countBodiesNeeded(Folder & folder);
