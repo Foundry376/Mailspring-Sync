@@ -309,6 +309,7 @@ bool SyncWorker::syncNow()
     vector<shared_ptr<Folder>> folders = syncFoldersAndLabels();
     bool hasCondstore = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
     bool hasQResync = session.storedCapabilities()->containsIndex(IMAPCapabilityQResync);
+    bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
 
     // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
     // responses and doesn't send the ENABLED untagged response per RFC. This causes
@@ -386,11 +387,33 @@ bool SyncWorker::syncNow()
         }
         
         // Step 1.5: Should we skip this folder?
-        // On ProtonMail we use a container folder, all messages are duplicated into All Mail.
-        // They need to be skipped and added to that folder on the client side if necessary.
-        // Note: Check for containerFolder so Gmail "All Mail" is still synced.
-        if (account->containerFolder() != "" && folder->path() == "All Mail") {
-            logger->info("SyncNow: skipped ProtonMail global folder {}", folder->path());
+        //
+        // An \All mailbox (role "all") is a *duplicate view* of messages that also live
+        // in Inbox / Sent / Archive - ProtonMail Bridge's "All Mail" is the common case.
+        // Mailspring's data model gives each message exactly one folder and message IDs
+        // are derived from headers, so the All Mail copy and the real copy collapse onto
+        // the same row. With "latest folder wins" the two folders take turns claiming
+        // every message on each sync pass, which empties out Inbox and Sent and makes
+        // messages flicker between folders. Skip the folder so the real folders own the
+        // messages; the folder itself is still created so the client can archive into it.
+        //
+        // Gmail is the one provider where All Mail is the *primary* message store rather
+        // than a duplicate view: there we sync only all/spam/trash and derive the rest
+        // from X-GM-LABELS, so it must keep syncing.
+        //
+        // Note: this used to be keyed on `containerFolder() != "" && path == "All Mail"`,
+        // which only held for ProtonMail accounts that the client had tagged with a
+        // container folder. Accounts that reach the engine without one (any @proton.me
+        // or custom-domain Bridge account, since the client's provider table only lists
+        // protonmail.com / protonmail.ch / pm.me) fell through and hit the bug.
+        // The legacy `containerFolder` clause is kept so that a Bridge build which does
+        // not advertise SPECIAL-USE (leaving "All Mail" without a role) keeps the exact
+        // behaviour it has today.
+        bool isDuplicateAllMail = (!isGmail && folder->role() == "all") ||
+                                  (account->containerFolder() != "" && folder->path() == "All Mail");
+
+        if (isDuplicateAllMail) {
+            logger->info("SyncNow: skipped duplicate \\All folder {}", folder->path());
             localStatus[LS_LAST_SHALLOW] = time(0); // pretend we synced now
             localStatus[LS_LAST_DEEP] = time(0);
             localStatus[LS_BODIES_WANTED] = 0; // pretend we want no message contents
