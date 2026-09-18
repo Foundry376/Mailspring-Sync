@@ -203,6 +203,37 @@ bool MailUtils::setEnvUTF8(string key, string value) {
 #endif
 }
 
+// Length of the well-formed UTF-8 sequence starting at `p` (RFC 3629), or 0 if the bytes
+// there are not one. Rejects the same things nlohmann's serializer rejects: overlong forms,
+// values above U+10FFFF, and the surrogate range U+D800-U+DFFF.
+static size_t utf8SequenceLength(const unsigned char * p, size_t remaining) {
+    auto cont = [&](size_t i, unsigned char lo, unsigned char hi) {
+        return i < remaining && p[i] >= lo && p[i] <= hi;
+    };
+    const unsigned char c = p[0];
+    if (c <= 0x7F) return 1;
+    if (c >= 0xC2 && c <= 0xDF) return cont(1, 0x80, 0xBF) ? 2 : 0;
+    if (c == 0xE0)              return cont(1, 0xA0, 0xBF) && cont(2, 0x80, 0xBF) ? 3 : 0;
+    if (c >= 0xE1 && c <= 0xEC) return cont(1, 0x80, 0xBF) && cont(2, 0x80, 0xBF) ? 3 : 0;
+    if (c == 0xED)              return cont(1, 0x80, 0x9F) && cont(2, 0x80, 0xBF) ? 3 : 0;
+    if (c >= 0xEE && c <= 0xEF) return cont(1, 0x80, 0xBF) && cont(2, 0x80, 0xBF) ? 3 : 0;
+    if (c == 0xF0)              return cont(1, 0x90, 0xBF) && cont(2, 0x80, 0xBF) && cont(3, 0x80, 0xBF) ? 4 : 0;
+    if (c >= 0xF1 && c <= 0xF3) return cont(1, 0x80, 0xBF) && cont(2, 0x80, 0xBF) && cont(3, 0x80, 0xBF) ? 4 : 0;
+    if (c == 0xF4)              return cont(1, 0x80, 0x8F) && cont(2, 0x80, 0xBF) && cont(3, 0x80, 0xBF) ? 4 : 0;
+    return 0;
+}
+
+bool MailUtils::isWellFormedUTF8(const string & input) {
+    const unsigned char * bytes = (const unsigned char *)input.data();
+    size_t i = 0;
+    while (i < input.size()) {
+        size_t seq = utf8SequenceLength(bytes + i, input.size() - i);
+        if (seq == 0) return false;
+        i += seq;
+    }
+    return true;
+}
+
 json MailUtils::merge(const json &a, const json &b)
 {
     json result = a.flatten();

@@ -43,6 +43,16 @@ public:
     static string getEnvUTF8(string key);
     static bool setEnvUTF8(string key, string value);
 
+    // True when `input` is well-formed UTF-8 by the same rules nlohmann's serializer applies
+    // (RFC 3629: no overlong forms, nothing above U+10FFFF, no surrogates).
+    //
+    // Callers should not need this. Ill-formed UTF-8 does not reach Mailspring code, because
+    // mailcore's String::UTF8Characters() substitutes U+FFFD, and it cannot leave through the
+    // serializer, because nlohmann's dump() does the same. Both of those are local
+    // modifications to vendored libraries - see docs/vendor-update-workflow.md - and this
+    // exists so runInstallCheck() can assert the first one is still in place.
+    static bool isWellFormedUTF8(const string & input);
+
     static json merge(const json &a, const json &b);
     static json contactJSONFromAddress(Address * addr);
     static Address * addressFromContactJSON(json & j);

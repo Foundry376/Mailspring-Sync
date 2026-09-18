@@ -1049,9 +1049,67 @@ const UChar * String::unicodeCharacters()
     return mUnicodeChars;
 }
 
+/*
+ MAILSPRING LOCAL MODIFICATION - see docs/vendor-update-workflow.md.
+
+ ConvertUTF16toUTF8() with lenientConversion passes an unpaired surrogate straight through
+ and encodes it as three-byte CESU-8 (ED A0 80 .. ED BF BF). Those bytes are not valid
+ UTF-8, but UTF8Characters() is the boundary at which mailcore hands text to the rest of
+ Mailspring, and everything downstream - the JSON serializer above all - is entitled to
+ assume that what comes out of a method with this name is UTF-8.
+
+ A mailbox can put an unpaired surrogate in that buffer without trying: ICU's UTF-7 and
+ IMAP-mailbox-name converters both decode one to a lone surrogate without reporting an
+ error, so a MIME part labelled charset=utf-7 is enough.
+
+ Substituting U+FFFD is what ConvertUTF16toUTF8's lenient mode already does for values
+ above U+10FFFF, and what ConvertUTF8toUTF16 already does in the other direction for a
+ surrogate encoded in UTF-8. This makes the UTF-16 -> UTF-8 direction agree with both.
+
+ The scan is the only cost paid by well-formed text, which is all of it in practice; the
+ copy happens only when there is something to replace.
+ */
+static bool hasUnpairedSurrogate(const UChar * chars, unsigned int length)
+{
+    for (unsigned int i = 0; i < length; i ++) {
+        UChar c = chars[i];
+        if (c >= 0xD800 && c <= 0xDBFF) {
+            // High surrogate: well-formed only if a low surrogate follows.
+            if ((i + 1 >= length) || (chars[i + 1] < 0xDC00) || (chars[i + 1] > 0xDFFF)) {
+                return true;
+            }
+            i ++;
+        }
+        else if (c >= 0xDC00 && c <= 0xDFFF) {
+            // Low surrogate that no high surrogate introduced.
+            return true;
+        }
+    }
+    return false;
+}
+
 const char * String::UTF8Characters()
 {
-    const UTF16 * source = (const UTF16 *) mUnicodeChars;
+    const UChar * chars = mUnicodeChars;
+    UChar * repaired = NULL;
+
+    if (hasUnpairedSurrogate(mUnicodeChars, mLength)) {
+        repaired = (UChar *) malloc(mLength * sizeof(* repaired));
+        memcpy(repaired, mUnicodeChars, mLength * sizeof(* repaired));
+        for (unsigned int i = 0; i < mLength; i ++) {
+            UChar c = repaired[i];
+            if ((c >= 0xD800) && (c <= 0xDBFF) && (i + 1 < mLength) &&
+                (repaired[i + 1] >= 0xDC00) && (repaired[i + 1] <= 0xDFFF)) {
+                i ++; // a well-formed pair, leave both halves alone
+            }
+            else if ((c >= 0xD800) && (c <= 0xDFFF)) {
+                repaired[i] = 0xFFFD; // REPLACEMENT CHARACTER
+            }
+        }
+        chars = repaired;
+    }
+
+    const UTF16 * source = (const UTF16 *) chars;
     UTF8 * target = (UTF8 *) malloc(mLength * 6 + 1);
     UTF8 * targetStart = target;
     ConvertUTF16toUTF8(&source, source + mLength,
@@ -1060,6 +1118,7 @@ const char * String::UTF8Characters()
     target[utf8length] = 0;
     Data * data = Data::dataWithBytes((const char *) target, utf8length + 1);
     free(target);
+    free(repaired);
     
     return data->bytes();
 }

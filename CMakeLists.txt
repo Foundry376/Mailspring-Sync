@@ -68,7 +68,15 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   add_definitions(-DSQLITE_ENABLE_FTS5=1 -DHAVE_USLEEP=1 -DSQLITE_OMIT_LOAD_EXTENSION=1)
 
-  target_link_libraries(mailsync libMailCore.a)
+  # Full path rather than the bare name "libMailCore.a": with a bare name CMake does not treat
+  # the archive as a file-level dependency, so editing mailcore2 and rebuilding relinks
+  # nothing and mailsync keeps the previous archive. That silently defeats the utf8_check in
+  # runInstallCheck(), which exists to catch exactly a lost mailcore2 patch. REQUIRED matches
+  # the find_library calls below: a missing archive fails at configure time, naming it.
+  find_library(MAILCORE_LIB NAMES libMailCore.a
+               PATHS ${CMAKE_CURRENT_SOURCE_DIR}/Vendor/mailcore2/build/src
+               NO_DEFAULT_PATH REQUIRED)
+  target_link_libraries(mailsync ${MAILCORE_LIB})
   target_link_libraries(mailsync ${GLIB_LIBRARIES})
   # Static only: build.sh bundles no libetpan, and its ldd sweep collects just libsasl2, so a
   # shared match would produce a binary that cannot start on a machine without libetpan.

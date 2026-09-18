@@ -426,6 +426,7 @@ int runInstallCheck() {
         {"smtp_check", nullptr},
         {"tidy_check", nullptr},
         {"legacy_tls_check", nullptr},
+        {"utf8_check", nullptr},
         {"log", nullptr}
     };
 
@@ -663,8 +664,52 @@ int runInstallCheck() {
         resp["tidy_check"] = {{"success", true}};
     }
 
+    // Step 6: Check that ill-formed UTF-8 still cannot abort the process.
+    //
+    // Two local modifications to vendored libraries hold this up, and the rest of the
+    // codebase depends on both without ever naming them: mailcore's String::UTF8Characters()
+    // substitutes U+FFFD for an unpaired surrogate instead of emitting CESU-8, and nlohmann's
+    // dump() defaults to error_handler_t::replace instead of throwing. Both live in files a
+    // routine vendor update would overwrite, and neither has a call site that would start
+    // failing visibly if it did - the symptom is a SIGABRT on one user's mailbox, months
+    // later. So assert them here, where CI already runs install-check on every platform we
+    // ship. See docs/vendor-update-workflow.md.
+    string utf8Error = "";
+
+    // A UTF-16 buffer holding an unpaired surrogate, built directly rather than decoded from
+    // a charset: ICU's UTF-7 converter is one way a mail server puts one there, but CoreText
+    // and ICU disagree about what they will decode, and this has to test UTF8Characters()
+    // itself the same way on every platform.
+    const UChar loneSurrogate[] = { 'a', 0xD800, 'b' };
+    String * s = String::stringWithCharacters(loneSurrogate, 3);
+    string converted = s != NULL ? s->UTF8Characters() : "";
+    if (converted.size() != 5 || !MailUtils::isWellFormedUTF8(converted)) {
+        // Expect "a" + U+FFFD (3 bytes) + "b". Anything else means the surrogate came through
+        // as CESU-8, or was dropped.
+        utf8Error = "mailcore String::UTF8Characters() did not substitute U+FFFD for an "
+                    "unpaired surrogate - the fix in Vendor/mailcore2 MCString.cpp has been lost";
+    }
+
+    if (utf8Error == "") {
+        try {
+            // Raw ill-formed bytes, as an HTTP response body or a vCard can carry.
+            json probe = {{"value", string("\xED\xA0\x80\xE9")}};
+            (void)probe.dump();
+        } catch (std::exception & ex) {
+            utf8Error = string("json::dump() threw on ill-formed UTF-8 (") + ex.what() +
+                        ") - the error_handler_t::replace default in Vendor/nlohmann/json.hpp "
+                        "has been lost";
+        }
+    }
+
+    if (utf8Error != "") {
+        resp["utf8_check"] = {{"error", utf8Error}};
+    } else {
+        resp["utf8_check"] = {{"success", true}};
+    }
+
     // Determine overall success
-    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "" && legacyTLSError == "");
+    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "" && legacyTLSError == "" && utf8Error == "");
     if (!success) {
         resp["error"] = "One or more checks failed";
     }
