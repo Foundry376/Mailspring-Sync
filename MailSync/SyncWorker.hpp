@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 #include <MailCore/MailCore.h>
@@ -37,7 +38,12 @@ class SyncWorker {
 
     int unlinkPhase;
     std::atomic<bool> idleShouldReloop{false};
-    int iterationsSinceLaunch;
+    int iterationsSinceLaunch = 0;
+
+    // Per-folder count of messages the last truncated full-folder scan still needed, used to tell
+    // a draining backlog (count falls each pass) from one that can never drain (count stays put).
+    // Not persisted: it only has to survive between iterations of the same process.
+    std::map<std::string, size_t> lastTruncatedScanNeeded {};
     vector<string> idleFetchBodyIDs;
     std::mutex idleMtx;
     std::condition_variable idleCv;
@@ -82,7 +88,11 @@ private:
     struct UIDRangeSyncResult {
         bool truncated = false;
         uint32_t syncedMinUID = 1;
+        // Total messages in the range that needed full headers, before any truncation.
+        size_t needed = 0;
     };
+
+    bool shouldRetryTruncatedScan(Folder & folder, UIDRangeSyncResult const & scan);
 
     UIDRangeSyncResult syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
 

@@ -497,6 +497,13 @@ bool SyncWorker::syncNow()
             }
             localStatus[LS_SYNCED_MIN_UID] = chunkMinUID;
             syncedMinUID = chunkMinUID;
+
+            if (chunkMinUID <= 1) {
+                // The walk just covered the whole folder, so record it as a completed deep pass.
+                // Without this a brand new account immediately follows initial sync with a
+                // redundant full-folder scan, because lastDeep is still 0 on the CONDSTORE branch.
+                localStatus[LS_LAST_DEEP] = time(0);
+            }
         }
         
         // Step 3: A) Retrieve new messages  B) update existing messages  C) delete missing messages
@@ -515,12 +522,22 @@ bool SyncWorker::syncNow()
                                 ? localStatus[LS_LAST_DEEP].get<time_t>() : 0;
             if ((syncedMinUID <= 1) && (iterationsSinceLaunch > 0) &&
                 (time(0) - lastDeep > CONDSTORE_GAP_SCAN_INTERVAL)) {
-                auto deep = syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
-                // If there were more gaps than one pass can fill, leave lastDeep alone and set
-                // deepScanIncomplete so we come back immediately rather than in another day.
-                if (deep.truncated) {
-                    deepScanIncomplete = true;
-                } else {
+                // Note: a failure here must not abort the whole folder loop. This scan is a
+                // consistency check on top of an otherwise complete CONDSTORE sync, and letting it
+                // throw would skip every folder after this one and retry forever.
+                try {
+                    auto deep = syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
+                    // If there were more gaps than one pass can fill, leave lastDeep alone so we
+                    // come back immediately rather than in another day - but only while the
+                    // backlog is actually shrinking.
+                    if (deep.truncated && shouldRetryTruncatedScan(*folder, deep)) {
+                        deepScanIncomplete = true;
+                    } else {
+                        localStatus[LS_LAST_DEEP] = time(0);
+                    }
+                } catch (SyncException & ex) {
+                    logger->warn("- {}: gap scan failed ({}), will retry after the normal interval.",
+                                 folder->path(), ex.toJSON().dump());
                     localStatus[LS_LAST_DEEP] = time(0);
                 }
             }
@@ -585,7 +602,7 @@ bool SyncWorker::syncNow()
                 // Only mark the deep scan done if it got through the backlog. Otherwise keep
                 // scanning on subsequent iterations instead of waiting out DEEP_SCAN_INTERVAL
                 // between every MAX_FULL_HEADERS_REQUEST_SIZE messages.
-                if (deep.truncated) {
+                if (deep.truncated && shouldRetryTruncatedScan(*folder, deep)) {
                     deepScanIncomplete = true;
                 } else {
                     localStatus[LS_LAST_DEEP] = time(0);
@@ -615,7 +632,11 @@ bool SyncWorker::syncNow()
         // these queries are expensive so we do this infrequently and increment
         // blindly as we download bodies.
         time_t lastCleanup = localStatus.count(LS_LAST_CLEANUP) ? localStatus[LS_LAST_CLEANUP].get<time_t>() : 0;
-        if (syncedMinUID == 1 && (time(0) - lastCleanup > CACHE_CLEANUP_INTERVAL)) {
+        // Note: <= 1, not == 1. syncedMinUID is seeded from UIDNEXT, which some servers report as
+        // 0, and only the non-CONDSTORE deep scan normalises 0 to 1 - so on a CONDSTORE folder it
+        // can sit at 0 forever, and == 1 would mean the body cache is never trimmed and
+        // LS_BODIES_WANTED (the UI's progress denominator) is never written.
+        if (syncedMinUID <= 1 && (time(0) - lastCleanup > CACHE_CLEANUP_INTERVAL)) {
             cleanMessageCache(*folder);
             localStatus[LS_LAST_CLEANUP] = time(0);
         }
@@ -918,6 +939,26 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     return foldersToSync;
 }
 
+// A truncated full-folder scan normally means "we ingested a batch, come straight back for the
+// rest". But some messages can never be ingested - MailProcessor::updateMessage returns without
+// applying anything when the local row is newer, and when a higher-priority folder already owns
+// the message - so they are reported as needing full headers on every single pass. Without a
+// progress check that turns into an unthrottled loop (the background worker runs syncNow in a
+// `while (moreToSync)` with no sleep) that also starves other folders. Only come straight back if
+// the backlog actually shrank; otherwise treat the scan as done so we wait out the normal interval.
+bool SyncWorker::shouldRetryTruncatedScan(Folder & folder, UIDRangeSyncResult const & scan)
+{
+    auto it = lastTruncatedScanNeeded.find(folder.id());
+    bool draining = (it == lastTruncatedScanNeeded.end()) || (scan.needed < it->second);
+    lastTruncatedScanNeeded[folder.id()] = scan.needed;
+    if (!draining) {
+        logger->warn("- {}: {} messages still need full headers after a full pass and the count is "
+                     "not falling. Backing off instead of rescanning immediately.",
+                     folder.path(), scan.needed);
+    }
+    return draining;
+}
+
 SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages)
 {
     std::string remotePath = folder.path();
@@ -937,7 +978,11 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
     UIDRangeSyncResult result;
     result.syncedMinUID = (uint32_t)range.location;
 
-    logger->info("syncFolderUIDRange for {}, UIDs: {} - {}, Heavy: {}", remotePath, range.location, range.location + range.length, heavyInitialRequest);
+    // Note: an open-ended range is requested as `location:*`, and location + length would wrap.
+    string rangeDesc = (range.length == UINT64_MAX)
+        ? std::to_string(range.location) + " - *"
+        : std::to_string(range.location) + " - " + std::to_string(range.location + range.length);
+    logger->info("syncFolderUIDRange for {}, UIDs: {}, Heavy: {}", remotePath, rangeDesc, heavyInitialRequest);
 
     AutoreleasePool pool;
     IndexSet * set = IndexSet::indexSetWithRange(range);
@@ -1015,6 +1060,7 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
         // down to the lowest UID we took, so the caller comes back for the rest.
         //
         size_t heavyNeededIdeal = heavyNeededUIDs.size();
+        result.needed = heavyNeededIdeal;
         std::sort(heavyNeededUIDs.begin(), heavyNeededUIDs.end());
         if (heavyNeededUIDs.size() > MAX_FULL_HEADERS_REQUEST_SIZE) {
             // Keep the highest (newest) UIDs, which keeps the un-synced remainder a contiguous
