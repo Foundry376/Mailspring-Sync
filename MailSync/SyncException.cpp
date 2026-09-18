@@ -10,16 +10,17 @@
 //
 
 #include "SyncException.hpp"
+#include "MailUtils.hpp"
 #include "constants.h"
 
 SyncException::SyncException(string key, string di, bool retryable) :
-    key(key), debuginfo(di), retryable(retryable), GenericException()
+    key(MailUtils::sanitizeUTF8(key)), debuginfo(MailUtils::sanitizeUTF8(di)), retryable(retryable), GenericException()
 {
     
 }
 
 SyncException::SyncException(CURLcode c, string di) :
-    key(curl_easy_strerror(c)), debuginfo(di), GenericException()
+    key(curl_easy_strerror(c)), debuginfo(MailUtils::sanitizeUTF8(di)), GenericException()
 {
     if ((c == CURLE_COULDNT_RESOLVE_PROXY) ||
         (c == CURLE_COULDNT_RESOLVE_HOST) ||
@@ -43,7 +44,7 @@ SyncException::SyncException(CURLcode c, string di) :
 }
 
 SyncException::SyncException(mailcore::ErrorCode c, string di) :
-    key(""), debuginfo(di.c_str()), GenericException()
+    key(""), debuginfo(MailUtils::sanitizeUTF8(di)), GenericException()
 {
     if (ErrorCodeToTypeMap.count(c)) {
         key = ErrorCodeToTypeMap[c];

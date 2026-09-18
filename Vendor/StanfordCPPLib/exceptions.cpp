@@ -704,7 +704,10 @@ void logCurrentExceptionWithStackTrace() {
          signalHandlerDisable();   // don't want both a signal AND a terminate() call
          throw;   // re-throws the exception that already occurred
     } catch (GenericException& ex) {
-        FILL_IN_AND_LOG_MSG(ex, "An exception", ex.toJSON().dump());
+        // Not plain dump(): the exception being reported can carry a server response or a
+        // header that is not valid UTF-8, and a json::type_error thrown from inside this
+        // handler escapes the catch that called us - std::terminate instead of a retry.
+        FILL_IN_AND_LOG_MSG(ex, "An exception", ex.toJSON().dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
         ex.printStackTrace();
     } catch (const nlohmann::json::exception& ex) {
          FILL_IN_AND_LOG_MSG(ex, "A JSON exception", insertStarsBeforeEachLine(ex.what()));

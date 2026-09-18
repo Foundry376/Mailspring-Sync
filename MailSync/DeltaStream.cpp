@@ -10,6 +10,7 @@
 //
 
 #include "DeltaStream.hpp"
+#include "MailUtils.hpp"
 #include "ThreadUtils.h"
 #include "StanfordCPPLib/exceptions.h"
 
@@ -103,7 +104,7 @@ string DeltaStreamItem::dump() const {
         {"modelJSONs", modelJSONs},
         {"modelClass", modelClass}
     };
-    return j.dump();
+    return MailUtils::safeDump(j);
 }
 
 // Class

@@ -51,7 +51,7 @@ MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
     bool trashSpamLabelPresent = false;
     if (labels != nullptr) {
         for (unsigned int ii = 0; ii < labels->count(); ii ++) {
-            string str = ((String *)labels->objectAtIndex(ii))->UTF8Characters();
+            string str = MailUtils::toUTF8((String *)labels->objectAtIndex(ii));
             // Gmail exposes Trash and Spam as folders and labels. We want them
             // to be folders so we ignore their presence as labels.
             if ((str == "\\Trash") || (str == "\\Spam")) {
@@ -559,7 +559,7 @@ void MailStore::saveDetachedPluginMetadata(Metadata & m) {
     st.bind(2, m.objectType);
     st.bind(3, m.accountId);
     st.bind(4, m.pluginId);
-    st.bind(5, m.value.dump());
+    st.bind(5, MailUtils::safeDump(m.value));
     st.bind(6, m.version);
     st.exec();
 }

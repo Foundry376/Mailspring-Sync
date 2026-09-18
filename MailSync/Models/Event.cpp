@@ -187,7 +187,7 @@ vector<string> Event::columnsForQuery()
 void Event::bindToQuery(SQLite::Statement *query)
 {
     query->bind(":id", id());
-    query->bind(":data", this->toJSON().dump());
+    query->bind(":data", MailUtils::safeDump(this->toJSON()));
     query->bind(":icsuid", icsUID());
     query->bind(":recurrenceId", recurrenceId());
     query->bind(":accountId", accountId());

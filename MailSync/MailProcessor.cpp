@@ -135,7 +135,9 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
                     tQuery.bind(3 + i, "");
                     continue;
                 }
-                tQuery.bind(3 + i, ref->UTF8Characters());
+                // Sanitized like Message.hMsgId, which is the other half of this comparison:
+                // a reference and the message id it points at have to normalize the same way.
+                tQuery.bind(3 + i, MailUtils::toUTF8(ref));
             }
             if (tQuery.executeStep()) {
                 thread = make_shared<Thread>(tQuery);
@@ -256,7 +258,7 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     }
     if (jlabels != local->remoteXGMLabels()) {
         if (noChanges) logger->info("- Updating message {}", local->id());
-        logger->info("-- XGMLabels ({} to {})", local->remoteXGMLabels().dump(), jlabels.dump());
+        logger->info("-- XGMLabels ({} to {})", MailUtils::safeDump(local->remoteXGMLabels()), MailUtils::safeDump(jlabels));
         noChanges = false;
     }
 
@@ -336,7 +338,9 @@ std::string classifyXPriority(const std::string & raw) {
 
 void MailProcessor::retrievedMessageBody(Message * message, MessageParser * parser) {
     CleanHTMLBodyRendererTemplateCallback * htmlCallback = new CleanHTMLBodyRendererTemplateCallback();
-    const char * bodyRepresentation;
+    // Holds the body by value: MailUtils::toUTF8 may have had to rewrite it, and the
+    // mailcore buffer it came from belongs to the autorelease pool either way.
+    string bodyRepresentation;
     bool bodyIsPlaintext;
     
     Array * partAttachments = Array::array();
@@ -355,7 +359,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
 
     if (html->hasPrefix(MCSTR("PLAINTEXT:"))) {
         text = html->substringFromIndex(10);
-        bodyRepresentation = text->UTF8Characters();
+        bodyRepresentation = MailUtils::toUTF8(text);
         bodyIsPlaintext = true;
     } else {
         String * flattenedHTML = html->flattenHTML();
@@ -365,7 +369,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
             // flattenHTML failed, use empty string to avoid crash
             text = MCSTR("");
         }
-        bodyRepresentation = html->UTF8Characters();
+        bodyRepresentation = MailUtils::toUTF8(html);
         bodyIsPlaintext = false;
     }
     MC_SAFE_RELEASE(htmlCallback);
@@ -391,9 +395,9 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         
         bool duplicate = false;
         for (auto & other : files) {
-            if (other.partId() == string(a->partID()->UTF8Characters())) {
+            if (other.partId() == MailUtils::toUTF8(a->partID())) {
                 duplicate = true;
-                logger->info("Attachment is duplicate: {}", f.toJSON().dump());
+                logger->info("Attachment is duplicate: {}", MailUtils::safeDump(f.toJSON()));
                 break;
             }
         }
@@ -401,7 +405,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         // Sometimes the HTML will reference "cid:filename.png@123123garbage" and the file will
         // not have a contentId. The client does not support this, so if cid:filename.png appears
         // in the body we manually make it the contentId
-        if (f.contentId().is_null() && strstr(bodyRepresentation, ("cid:" + f.filename()).c_str()) != nullptr) {
+        if (f.contentId().is_null() && bodyRepresentation.find("cid:" + f.filename()) != string::npos) {
             f.setContentId(f.filename());
         }
 
@@ -443,7 +447,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         }
 
         // write the message snippet. This also gives us the database trigger!
-        message->setSnippet(text->substringToIndex(400)->UTF8Characters());
+        message->setSnippet(MailUtils::toUTF8(text->substringToIndex(400)));
         message->setPlaintext(bodyIsPlaintext);
         message->setBodyForDispatch(bodyRepresentation);
         message->setFiles(files);
@@ -456,10 +460,10 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
             String * listUnsubPost = msgHeader->extraHeaderValueForName(MCSTR("List-Unsubscribe-Post"));
 
             if (listUnsub != nullptr) {
-                message->_data["hListUnsub"] = listUnsub->UTF8Characters();
+                message->_data["hListUnsub"] = MailUtils::toUTF8(listUnsub);
             }
             if (listUnsubPost != nullptr) {
-                message->_data["hListUnsubPost"] = listUnsubPost->UTF8Characters();
+                message->_data["hListUnsubPost"] = MailUtils::toUTF8(listUnsubPost);
             }
 
             // Resolve message importance to a canonical "high" / "low" / "normal".
@@ -623,7 +627,7 @@ void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messa
     }
     
     if (bodyToAppendOrNull != nullptr) {
-        body = body + " " + bodyToAppendOrNull->substringToIndex(5000)->UTF8Characters();
+        body = body + " " + MailUtils::toUTF8(bodyToAppendOrNull->substringToIndex(5000));
     }
     
     if (thread->searchRowId()) {
@@ -666,7 +670,7 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
     // Index first reference (thread root)
     if (count > 0) {
         String * firstRef = (String*)references->objectAtIndex(0);
-        query.bind(3, firstRef->UTF8Characters());
+        query.bind(3, MailUtils::toUTF8(firstRef));
         query.exec();
         query.reset(); // does not clear bindings 1 and 2! https://sqlite.org/c3ref/reset.html
     }
@@ -678,7 +682,7 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
         if (address == nullptr) {
             continue;
         }
-        query.bind(3, address->UTF8Characters());
+        query.bind(3, MailUtils::toUTF8(address));
         query.exec();
         query.reset();
     }

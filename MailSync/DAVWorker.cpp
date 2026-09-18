@@ -604,7 +604,7 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     string domain = account->emailAddress().substr(account->emailAddress().find("@") + 1);
     string imapHost = account->IMAPHost();
     json payload = {{"domain", domain}, {"imapHost", imapHost}};
-    json result = PerformJSONRequest(CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str()));
+    json result = PerformJSONRequest(CreateIdentityRequest("/api/resolve-dav-hosts", "POST", MailUtils::safeDump(payload).c_str()));
     
     if (result.count("carddavHost")) {
         cardHost = result["carddavHost"].get<string>();
@@ -682,7 +682,7 @@ string DAVWorker::resolveCalendarHomeURL() {
     string imapHost = account->IMAPHost();
     json payload = {{"domain", domain}, {"imapHost", imapHost}};
     json result = PerformJSONRequest(
-        CreateIdentityRequest("/api/resolve-dav-hosts", "POST", payload.dump().c_str())
+        CreateIdentityRequest("/api/resolve-dav-hosts", "POST", MailUtils::safeDump(payload).c_str())
     );
 
     string caldavHost = "";

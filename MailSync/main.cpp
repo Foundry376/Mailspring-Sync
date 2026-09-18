@@ -386,14 +386,14 @@ done:
     };
     if (err == ErrorNone) {
         resp["account"] = account->toJSON();
-        cout << resp.dump();
+        cout << MailUtils::safeDump(resp);
         return 0;
     } else {
         resp["error"] = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : "Unknown";
         if (tlsAdvice != "") {
             resp["error_advice"] = tlsAdvice;
         }
-        cout << resp.dump();
+        cout << MailUtils::safeDump(resp);
         return 1;
     }
 }
@@ -407,7 +407,7 @@ int runSingleFunctionAndExit(std::function<void()> fn) {
         resp["error"] = ex.what();
         code = 1;
     }
-    cout << "\n" << resp.dump();
+    cout << "\n" << MailUtils::safeDump(resp);
     return code;
 }
 
@@ -672,7 +672,7 @@ int runInstallCheck() {
     // Include accumulated log for diagnostics
     resp["log"] = alogger.accumulated;
 
-    cout << resp.dump();
+    cout << MailUtils::safeDump(resp);
     return success ? 0 : 1;
 }
 
@@ -693,8 +693,8 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             packet = SharedDeltaStream()->waitForJSON();
         } catch (std::invalid_argument & ex) {
             json resp = {{"error", ex.what()}};
-            spdlog::get("logger")->error(resp.dump());
-            cout << "\n" << resp.dump() << "\n";
+            spdlog::get("logger")->error(MailUtils::safeDump(resp));
+            cout << "\n" << MailUtils::safeDump(resp) << "\n";
             continue;
         }
 
@@ -882,14 +882,14 @@ string exectuablePath = argv[0];
         account = make_shared<Account>(json::parse(accountJSON));
     } catch (json::exception& e) {
         json resp = { { "error", "Invalid Account JSON: " + string(e.what()) }, { "log", accountJSON } };
-        cout << "\n" << resp.dump();
+        cout << "\n" << MailUtils::safeDump(resp);
         return 1;
     }
 
 
 	if (account->valid() != "") {
 		json resp = { { "error", "Account is missing required fields:" + account->valid() } };
-		cout << "\n" << resp.dump();
+		cout << "\n" << MailUtils::safeDump(resp);
 		return 1;
 	}
     
@@ -917,13 +917,13 @@ string exectuablePath = argv[0];
         }
     } catch (json::exception& e) {
         json resp = { { "error", "Invalid Identity JSON: " + string(e.what()) }, { "log", identityJSON } };
-        cout << "\n" << resp.dump();
+        cout << "\n" << MailUtils::safeDump(resp);
         return 1;
     }
 
 	if (Identity::GetGlobal() && !Identity::GetGlobal()->valid()) {
 		json resp = { { "error", "ErrorIdentityMissingFields" } };
-		cout << "\n" << resp.dump();
+		cout << "\n" << MailUtils::safeDump(resp);
 		return 1;
 	}
     
@@ -956,7 +956,7 @@ string exectuablePath = argv[0];
         }
     } catch (spdlog::spdlog_ex& e) {
         json resp = { { "error", "Setup Failed: " + string(e.what()) } };
-        cout << "\n" << resp.dump();
+        cout << "\n" << MailUtils::safeDump(resp);
         return 1;
     }
 

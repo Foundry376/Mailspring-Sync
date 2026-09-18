@@ -718,8 +718,14 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         // Note: We don't assign roles, just create the objects here.
         for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-            string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
-            string remotePath = remote->path()->UTF8Characters();
+            // Servers that ignore RFC 3501 and put raw 8-bit bytes in a mailbox name would
+            // otherwise put them straight into Folder.path, which is dumped on every save.
+            // The id is derived from the same sanitized path so the two cannot disagree;
+            // a path that is already valid UTF-8 - every folder on a working install, since
+            // the alternative used to abort the process - is returned unchanged, so no
+            // existing folder id moves.
+            string remotePath = MailUtils::toUTF8(remote->path());
+            string remoteId = MailUtils::idForFolder(account->id(), remotePath);
 
             bool isLabel = false;
             if (isGmail) {
@@ -778,7 +784,8 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 if (cr != role) {
                     continue;
                 }
-                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+                // Same sanitized path the Folder was keyed by above, so the lookup matches.
+                string remoteId = MailUtils::idForFolder(account->id(), MailUtils::toUTF8(remote->path()));
                 if (!allFoundCategories.count(remoteId)) {
                     logger->warn("-X found folder for role, couldn't find local object for {}", role);
                     continue;
@@ -805,7 +812,8 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 if (cr != role) {
                     continue;
                 }
-                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+                // Same sanitized path the Folder was keyed by above, so the lookup matches.
+                string remoteId = MailUtils::idForFolder(account->id(), MailUtils::toUTF8(remote->path()));
                 if (!allFoundCategories.count(remoteId)) {
                     logger->warn("-X found folder for role, couldn't find local object for {}", role);
                     continue;

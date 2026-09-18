@@ -166,7 +166,9 @@ const json PerformJSONRequest(CURL * curl_handle) {
     try {
         resultJSON = json::parse(result);
     } catch (json::exception &) {
-        resultJSON = {{"text", result}};
+        // Not JSON - an HTML error page, a proxy notice, a truncated body. It is about to be
+        // logged and stored as a JSON string, and nothing guarantees the server sent UTF-8.
+        resultJSON = {{"text", MailUtils::sanitizeUTF8(result)}};
     }
     CleanupCurlRequest(curl_handle);
     return resultJSON;
@@ -195,7 +197,10 @@ void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
             retryable = false;
         }
         
-        string debuginfo = url + " RETURNED " + resp;
+        // `resp` is the raw response body. It reaches json::dump() through
+        // SyncException::toJSON() in the crash reporter and in the task failure log, so it
+        // has to be valid UTF-8 before it goes anywhere near a SyncException.
+        string debuginfo = url + " RETURNED " + MailUtils::sanitizeUTF8(resp);
         throw SyncException("Invalid Response Code: " + to_string(http_code), debuginfo, retryable);
     }
 }
@@ -218,6 +223,6 @@ CURL * CreateIdentityRequest(string path, string method, const char * payloadCha
 }
 
 const json PerformIdentityRequest(string path, string method, const json & payload) {
-    string payloadString = payload.dump();
+    string payloadString = MailUtils::safeDump(payload);
     return PerformJSONRequest(CreateIdentityRequest(path, method, payloadString.c_str()));
 }

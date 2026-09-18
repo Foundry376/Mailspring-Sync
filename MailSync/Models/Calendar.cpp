@@ -113,6 +113,6 @@ vector<string> Calendar::columnsForQuery() {
 
 void Calendar::bindToQuery(SQLite::Statement * query) {
     query->bind(":id", id());
-    query->bind(":data", toJSON().dump());
+    query->bind(":data", MailUtils::safeDump(toJSON()));
     query->bind(":accountId", accountId());
 }
