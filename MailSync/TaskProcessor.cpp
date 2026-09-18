@@ -344,6 +344,37 @@ void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSe
     }
 }
 
+// Task data is JSON the client handed us, so any field can be missing or the wrong
+// type — either because the client had a bug, or because the row was written to the
+// database by an older version of the app and has been sitting there ever since.
+// Reads like data()["to"].get<string>() throw json::type_error when that happens,
+// which is not a SyncException, so it used to travel all the way up to the sync
+// worker's `catch (...) { abort(); }`. The task never reached the `store->save()`
+// at the end of performLocal / performRemote, so it stayed at status=remote and the
+// next launch selected the same row and died on it again.
+//
+// Failing the task the way a SyncException does lets the poison drain: the task is
+// marked `complete` with an error, which the client surfaces via Task.onError().
+static json errorJSONForUnexpectedException(string what) {
+    // This string is stored inside the Task's `data` JSON, which MailStore writes to
+    // SQLite with json::dump(). dump() throws on invalid UTF-8, so scrub the message
+    // down to printable ASCII rather than risk throwing while recording the failure.
+    string safe;
+    safe.reserve(what.size());
+    for (char c : what) {
+        safe += (c >= 0x20 && c <= 0x7E) ? c : '?';
+    }
+    if (safe.size() > 1024) {
+        safe.resize(1024);
+    }
+    return {
+        {"what", safe},
+        {"key", "unhandled-exception"},
+        {"debuginfo", safe},
+        {"retryable", false},
+        {"offline", false},
+    };
+}
 
 TaskProcessor::TaskProcessor(shared_ptr<Account> account, MailStore * store, IMAPSession * session) :
     account(account),
@@ -496,8 +527,29 @@ void TaskProcessor::performLocal(Task * task) {
         logger->flush();
         task->setError(ex.toJSON());
         task->setStatus("complete");
+
+    } catch (SQLite::Exception & ex) {
+        // Database errors are usually transient (another mailsync process holding a
+        // lock, a busy disk) and say nothing about whether this task is runnable, so
+        // keep the existing behavior: leave the task as-is and let it escape, rather
+        // than discarding work the user asked for on a problem that will clear.
+        logger->error("[{}] -- Database error, not marking the task complete: {}", task->id(), ex.what());
+        logger->flush();
+        throw;
+
+    } catch (std::exception & ex) {
+        logger->error("[{}] -- Failed with an unexpected exception ({}). Changing status to `complete`", task->id(), ex.what());
+        logger->flush();
+        task->setError(errorJSONForUnexpectedException(ex.what()));
+        task->setStatus("complete");
+
+    } catch (...) {
+        logger->error("[{}] -- Failed with an unknown exception. Changing status to `complete`", task->id());
+        logger->flush();
+        task->setError(errorJSONForUnexpectedException("Unknown exception"));
+        task->setStatus("complete");
     }
-    
+
     store->save(task);
 }
 
@@ -605,6 +657,25 @@ void TaskProcessor::performRemote(Task * task) {
         logger->error("[{}] -- Failed ({}). Changing status to `complete`", task->id(), ex.toJSON().dump());
         logger->flush();
         task->setError(ex.toJSON());
+        task->setStatus("complete");
+
+    } catch (SQLite::Exception & ex) {
+        // See the note in performLocal: a database error is not the task's fault, so
+        // let it escape and leave the task queued for the next pass / next launch.
+        logger->error("[{}] -- Database error, not marking the task complete: {}", task->id(), ex.what());
+        logger->flush();
+        throw;
+
+    } catch (std::exception & ex) {
+        logger->error("[{}] -- Failed with an unexpected exception ({}). Changing status to `complete`", task->id(), ex.what());
+        logger->flush();
+        task->setError(errorJSONForUnexpectedException(ex.what()));
+        task->setStatus("complete");
+
+    } catch (...) {
+        logger->error("[{}] -- Failed with an unknown exception. Changing status to `complete`", task->id());
+        logger->flush();
+        task->setError(errorJSONForUnexpectedException("Unknown exception"));
         task->setStatus("complete");
     }
     store->save(task);
