@@ -262,6 +262,11 @@ namespace mailcore {
         ErrorTiscaliSimplePassword,
         ErrorInvalidRelaySMTP,
         ErrorNoImplementedAuthMethods,
+        // The server refused the operation for a reason it described as temporary
+        // (an RFC 5530 [UNAVAILABLE] / [INUSE] / [LIMIT] / [SERVERBUG] response code).
+        // Distinct from ErrorAuthentication so callers can retry instead of treating
+        // the credentials as bad. Appended last to keep existing codes stable.
+        ErrorTemporarilyUnavailable,
     };
     
     enum PartType {

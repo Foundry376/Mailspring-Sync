@@ -908,6 +908,42 @@ void IMAPSession::loginIfNeeded(ErrorCode * pError)
     }
 }
 
+static bool responseCodeIndicatesTemporaryFailure(mailimap * session)
+{
+    // libetpan parses the bracketed resp-text-code out of the response and stores
+    // unrecognized atoms (everything outside the IMAP4rev1 core set) here, so this
+    // is the only place the code is still visible. The human-readable text that
+    // ends up in imap_response has the "[CODE]" prefix stripped off already.
+    if (session == NULL) {
+        return false;
+    }
+    if (session->imap_response_info == NULL) {
+        return false;
+    }
+    const char * atom = session->imap_response_info->rsp_atom;
+    if (atom == NULL) {
+        return false;
+    }
+
+    // RFC 5530 response codes that describe a condition the server expects to
+    // resolve on its own. The remaining 5530 codes (AUTHENTICATIONFAILED,
+    // AUTHORIZATIONFAILED, EXPIRED, PRIVACYREQUIRED, ...) all need the user to
+    // act, so they keep falling through to ErrorAuthentication below.
+    static const char * temporaryCodes[] = {
+        "UNAVAILABLE", // a subsystem the server needs is temporarily down
+        "INUSE",       // mailbox is busy / too many concurrent sessions
+        "LIMIT",       // the request tripped a server-side limit
+        "SERVERBUG",   // the server hit an internal error it blames on itself
+    };
+
+    for (unsigned int i = 0; i < sizeof(temporaryCodes) / sizeof(temporaryCodes[0]); i ++) {
+        if (strcasecmp(atom, temporaryCodes[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void IMAPSession::login(ErrorCode * pError)
 {
     int r;
@@ -1077,6 +1113,11 @@ void IMAPSession::login(ErrorCode * pError)
         }
         else if (response->locationOfString(MCSTR("Login to your account via a web browser")) != -1) {
             * pError = ErrorOutlookLoginViaWebBrowser;
+        }
+        else if (responseCodeIndicatesTemporaryFailure(mImap)) {
+            // The server said this failure is its own and temporary. Reporting
+            // ErrorAuthentication here makes callers throw away working credentials.
+            * pError = ErrorTemporarilyUnavailable;
         }
         else {
             * pError = ErrorAuthentication;

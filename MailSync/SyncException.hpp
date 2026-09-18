@@ -26,6 +26,8 @@ using namespace mailcore;
 class SyncException : public GenericException {
     bool retryable = false;
     bool offline = false;
+    bool authentication = false;
+    int retryDelaySec = 120;
     
 public:
     SyncException(string key, string di, bool retryable);
@@ -35,6 +37,17 @@ public:
     string debuginfo;
     bool isRetryable();
     bool isOffline();
+
+    // True when the server rejected our credentials. These are not retryable, but
+    // a worker that has already authenticated successfully treats the first couple
+    // of them as a server hiccup rather than terminating the process. (See main.cpp)
+    bool isAuthentication();
+
+    // How long a worker should wait before trying again. Server-imposed quota and
+    // connection limits get a much longer backoff than the default, because retrying
+    // every two minutes is what keeps an account pinned against the limit.
+    int retryDelay();
+
     json toJSON();
 };
 

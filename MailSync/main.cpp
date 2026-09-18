@@ -141,22 +141,63 @@ const option::Descriptor usage[] =
     {0,0,0,0,0,0}
 };
 
+// Set once any worker in this process completes a sync pass, which means the
+// account's credentials were accepted by the server at least once.
+static atomic<bool> processHasAuthenticated { false };
+
+// Most servers say why a login failed (RFC 5530), and SyncException maps the
+// temporary reasons to retryable errors. Some servers just answer "NO" with no
+// response code, and mailcore has no choice but to report ErrorAuthentication.
+// Terminating on the first of those is what turns a brief server hiccup into a
+// disabled account: the client relaunches us immediately, and five exits in a row
+// make it stop relaunching and ask the user to re-enter a password that was never
+// wrong.
+//
+// So give an auth failure a couple of retries, but only in a process that already
+// authenticated successfully - that's the evidence the credentials are good. A
+// relaunched process starts with processHasAuthenticated false and still exits on
+// the first failure, so a genuinely revoked password reaches the user promptly
+// instead of after five backoffs.
+static const int MAX_SOFT_AUTH_FAILURES = 2;
+static const int SOFT_AUTH_FAILURE_DELAY_SEC = 30;
+
+static bool shouldRetryAfterAuthFailure(SyncException & ex, int & softFailures) {
+    if (!ex.isAuthentication() || !processHasAuthenticated) {
+        return false;
+    }
+    if (softFailures >= MAX_SOFT_AUTH_FAILURES) {
+        return false;
+    }
+    softFailures += 1;
+    spdlog::get("logger")->warn(
+        "Authentication failed, but this account authenticated successfully earlier. "
+        "Assuming a temporary server problem and retrying ({}/{}).",
+        softFailures, MAX_SOFT_AUTH_FAILURES);
+    return true;
+}
+
 void runForegroundSyncWorker() {
+    int softAuthFailures = 0;
+
     while(true) {
         try {
             fgWorker->configure();
             fgWorker->idleCycleIteration();
+            processHasAuthenticated = true;
+            softAuthFailures = 0;
             SharedDeltaStream()->endConnectionError(fgWorker->account->id());
         } catch (SyncException & ex) {
             exceptions::logCurrentExceptionWithStackTrace();
-            if (!ex.isRetryable()) {
+            bool softAuthRetry = shouldRetryAfterAuthFailure(ex, softAuthFailures);
+            if (!ex.isRetryable() && !softAuthRetry) {
                 abort();
             }
-            if (ex.isOffline()) {
+            if (ex.isOffline() || softAuthRetry) {
                 SharedDeltaStream()->beginConnectionError(fgWorker->account->id());
             }
             spdlog::get("logger")->info("--sleeping");
-            MailUtils::sleepWorkerUntilWakeOrSec(120);
+            MailUtils::sleepWorkerUntilWakeOrSec(
+                softAuthRetry ? SOFT_AUTH_FAILURE_DELAY_SEC : ex.retryDelay());
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();
             abort();
@@ -166,6 +207,8 @@ void runForegroundSyncWorker() {
 
 void runBackgroundSyncWorker() {
     bool started = false;
+    int softAuthFailures = 0;
+    int sleepSec = 120;
     
     // wait a few seconds before launching. This avoids database locking caused by many
     // sync workers all trying to open several sqlite references at once.
@@ -184,6 +227,8 @@ void runBackgroundSyncWorker() {
 
             if (!started) {
                 bgWorker->syncFoldersAndLabels();
+                processHasAuthenticated = true;
+                softAuthFailures = 0;
                 SharedDeltaStream()->endConnectionError(bgWorker->account->id());
 
                 // start the "foreground" idle worker after we've completed a single
@@ -206,22 +251,27 @@ void runBackgroundSyncWorker() {
             while(moreToSync) {
                 moreToSync = bgWorker->syncNow();
             }
+            processHasAuthenticated = true;
+            softAuthFailures = 0;
+            sleepSec = 120;
             SharedDeltaStream()->endConnectionError(bgWorker->account->id());
 
         } catch (SyncException & ex) {
             exceptions::logCurrentExceptionWithStackTrace();
-            if (!ex.isRetryable()) {
+            bool softAuthRetry = shouldRetryAfterAuthFailure(ex, softAuthFailures);
+            if (!ex.isRetryable() && !softAuthRetry) {
                 abort();
             }
-            if (ex.isOffline()) {
+            if (ex.isOffline() || softAuthRetry) {
                 SharedDeltaStream()->beginConnectionError(bgWorker->account->id());
             }
+            sleepSec = softAuthRetry ? SOFT_AUTH_FAILURE_DELAY_SEC : ex.retryDelay();
             spdlog::get("logger")->info("--sleeping");
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();
             abort();
         }
-        MailUtils::sleepWorkerUntilWakeOrSec(120);
+        MailUtils::sleepWorkerUntilWakeOrSec(sleepSec);
     }
 }
 
@@ -389,6 +439,14 @@ done:
         cout << resp.dump();
         return 0;
     } else {
+        // ErrorTemporarilyUnavailable exists so the sync workers can tell "the server
+        // is briefly refusing us" apart from "the credentials are wrong" and retry
+        // instead of exiting. The account setup UI has no localized string for it and
+        // reports unknown codes as unexpected errors, so tell it what it already
+        // understands: we could not establish a usable connection.
+        if (err == ErrorTemporarilyUnavailable) {
+            err = ErrorConnection;
+        }
         resp["error"] = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : "Unknown";
         if (tlsAdvice != "") {
             resp["error_advice"] = tlsAdvice;

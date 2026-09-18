@@ -60,6 +60,30 @@ SyncException::SyncException(mailcore::ErrorCode c, string di) :
         // It seems that parsing errors are caused by abrupt connection termination?
         retryable = true;
     }
+    if (c == mailcore::ErrorTemporarilyUnavailable) {
+        // The server told us it could not serve the request right now (RFC 5530
+        // [UNAVAILABLE] / [INUSE] / [LIMIT] / [SERVERBUG]). Nothing about the account
+        // is wrong, so sleep and try again rather than terminating the process.
+        retryable = true;
+        offline = true;
+    }
+    if ((c == mailcore::ErrorGmailTooManySimultaneousConnections) ||
+        (c == mailcore::ErrorGmailExceededBandwidthLimit) ||
+        (c == mailcore::ErrorYahooUnavailable)) {
+        // Provider-imposed limits that clear on their own. Treating these as fatal
+        // used to terminate the process on every launch, which the client counts as
+        // repeated crashes and answers by disabling the account - for a condition
+        // that usually resolves within minutes and often isn't even caused by us
+        // (other IMAP clients signed into the same mailbox consume the connection
+        // cap too). Back off hard instead: retrying every two minutes is precisely
+        // what keeps an account pinned against the limit.
+        retryable = true;
+        offline = true;
+        retryDelaySec = 60 * 10;
+    }
+    if (c == mailcore::ErrorAuthentication) {
+        authentication = true;
+    }
 }
 
 bool SyncException::isRetryable() {
@@ -68,6 +92,14 @@ bool SyncException::isRetryable() {
 
 bool SyncException::isOffline() {
     return offline;
+}
+
+bool SyncException::isAuthentication() {
+    return authentication;
+}
+
+int SyncException::retryDelay() {
+    return retryDelaySec;
 }
 
 json SyncException::toJSON() {

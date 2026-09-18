@@ -377,6 +377,7 @@ static map<ErrorCode, string> ErrorCodeToTypeMap = {
     {ErrorNeedsConnectToWebmail, "ErrorNeedsConnectToWebmail"},
     {ErrorNoValidServerFound, "ErrorNoValidServerFound"},
     {ErrorAuthenticationRequired, "ErrorAuthenticationRequired"},
+    {ErrorTemporarilyUnavailable, "ErrorTemporarilyUnavailable"},
 };
 
 #endif /* constants_h */
