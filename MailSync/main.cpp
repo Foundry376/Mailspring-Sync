@@ -278,7 +278,7 @@ void runCalContactsSyncWorker() {
 }
 
 
-int runTestAuth(shared_ptr<Account> account) {
+int runTestAuth(shared_ptr<Account> account, string & errorService) {
     AutoreleasePool pool;
 
     // Enable very detailed mailcore logging and redirect the messages to our accumulator log
@@ -293,13 +293,13 @@ int runTestAuth(shared_ptr<Account> account) {
     Array * folders;
     ErrorCode err = ErrorNone;
     Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
-    string errorService = "imap";
     string tlsAdvice = "";
     string containerFolderPath = account->containerFolder();
     string mainPrefix = "";
     
     
     // imap
+    errorService = "imap";
     alogger.log("----------IMAP----------\n");
     MailUtils::configureSessionForAccount(session, account);
     session.setConnectionLogger(&alogger);
@@ -396,6 +396,48 @@ done:
         cout << resp.dump();
         return 1;
     }
+}
+
+// runTestAuth reaches the network, and an exception thrown out of it has nowhere to go:
+// main() calls it directly, so it reaches the terminate handler installed at startup and
+// aborts the process. An aborted --mode test writes no JSON at all, so the client has
+// nothing to tell the user beyond "An unknown error has occurred mailsync: <exit code>",
+// with the terminate handler's stack trace attached as the log.
+//
+// The OAuth token refresh in MailUtils::configureSessionForAccount is where this happens:
+// a refresh token the provider has revoked is answered with 400 invalid_grant, and a
+// machine that is offline or behind a captive portal fails the request outright. Neither
+// is a crash, and both are exactly what --mode test exists to report. Every other failure
+// mode here - a bad password, an unreachable IMAP host, a rejected TLS handshake - is
+// already reported as JSON, so report these the same way.
+int runTestAuthReportingExceptions(shared_ptr<Account> account) {
+    string errorService = "imap";
+    string error = "";
+
+    try {
+        return runTestAuth(account, errorService);
+    } catch (SyncException & ex) {
+        // isRetryable() is what the sync workers already use to tell "the network got in
+        // the way" apart from "the provider refused these credentials", and those map onto
+        // the two error codes the client has localized strings for.
+        error = ex.isRetryable() ? "ErrorConnection" : "ErrorAuthentication";
+        alogger.log("\n\n" + ex.key + ": " + ex.debuginfo + "\n");
+    } catch (std::exception & ex) {
+        // Not a failure the engine classified, so pass it through unrecognized: the client
+        // shows it verbatim and still reports it, which is what we want for an actual bug.
+        error = ex.what();
+    } catch (...) {
+        error = "Unknown error";
+    }
+
+    json resp = {
+        {"error", error},
+        {"error_service", errorService},
+        {"log", alogger.accumulated},
+        {"account", nullptr}
+    };
+    cout << resp.dump();
+    return 1;
 }
 
 int runSingleFunctionAndExit(std::function<void()> fn) {
@@ -978,7 +1020,7 @@ string exectuablePath = argv[0];
     curl_global_init(CURL_GLOBAL_ALL);
 
     if (mode == "test") {
-        return runTestAuth(account);
+        return runTestAuthReportingExceptions(account);
     }
 
     if (mode == "sync") {
