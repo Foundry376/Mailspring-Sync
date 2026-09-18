@@ -74,7 +74,17 @@ private:
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
         
-    void syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
+    // Result of syncing a UID range. `truncated` is set when the range contained more
+    // messages needing full headers than we were willing to request at once; in that case
+    // `syncedMinUID` is the lowest UID we actually ingested and everything below it in the
+    // requested range still needs to be fetched. Callers must not record the range as
+    // synced past `syncedMinUID`, or those messages are lost until UIDVALIDITY changes.
+    struct UIDRangeSyncResult {
+        bool truncated = false;
+        uint32_t syncedMinUID = 1;
+    };
+
+    UIDRangeSyncResult syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
 
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus, bool mustSyncAll);
 
