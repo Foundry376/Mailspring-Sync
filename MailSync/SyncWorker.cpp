@@ -35,6 +35,12 @@
 #define CONDSTORE_GAP_SCAN_INTERVAL 60 * 60 * 24
 
 #define MAX_FULL_HEADERS_REQUEST_SIZE  1024
+// How many messages a folder can hold and still be swept in a single UID range during initial
+// sync. This is a separate question from MAX_FULL_HEADERS_REQUEST_SIZE (how many full headers we
+// will ask for at once): a folder with a high UIDNEXT and few messages should be grabbed in one
+// range rather than walked a chunk at a time through mostly-empty UID space. Tying the two
+// together makes a 2,000 message folder with UIDNEXT 200,000 issue ~200 empty round trips.
+#define MAX_SINGLE_RANGE_SWEEP_SIZE    5000
 #define MODSEQ_TRUNCATION_THRESHOLD 4000
 #define MODSEQ_TRUNCATION_UID_COUNT 12000
 
@@ -212,7 +218,10 @@ void SyncWorker::idleCycleIteration()
             throw SyncException("no-inbox", "There is no inbox or all folder to IDLE on.", false);
         }
     }
-    json inboxInitialStatus { inbox->localStatus() };
+    // Note: must be copy-assignment, not brace-init - `json x { obj }` builds a single-element
+    // ARRAY, which makes every saveFolderStatus key comparison below miss and causes this worker
+    // to write its whole stale snapshot back over the row, including syncedMinUID.
+    json inboxInitialStatus = inbox->localStatus();
     
     if (idleShouldReloop) {
         idleShouldReloop = false;
@@ -445,17 +454,24 @@ bool SyncWorker::syncNow()
             localStatus[LS_MESSAGE_COUNT] = remoteStatus.messageCount();
             localStatus[LS_UNSEEN_COUNT] = remoteStatus.unseenCount();
             localStatus[LS_RECENT_COUNT] = remoteStatus.recentCount();
-            
+            // This branch skips the bookkeeping at the end of the loop body, so if the rebuild left
+            // a remainder we have to ask for another iteration here or the remaining messages drain
+            // at one chunk per sleep interval while the folder sits unlinked and half empty.
+            if (rebuilt.truncated) {
+                localStatus[LS_BUSY] = true;
+                syncAgainImmediately = true;
+            }
+
             store->saveFolderStatus(folder.get(), initialLocalStatus);
             continue;
         }
         
         // Step 2: Initial sync. Until we reach UID 1, we grab chunks of messages
         uint32_t syncedMinUID = localStatus[LS_SYNCED_MIN_UID].get<uint32_t>();
-        // Note: the chunk must never be larger than MAX_FULL_HEADERS_REQUEST_SIZE. syncFolderUIDRange
-        // downgrades anything bigger to an attributes-only fetch and then only pulls full headers for
-        // MAX_FULL_HEADERS_REQUEST_SIZE of the messages it finds, so a larger chunk silently leaves
-        // the rest of the chunk unsynced.
+        // Note: the chunk is sized to MAX_FULL_HEADERS_REQUEST_SIZE so it resolves in a single
+        // full-headers request. A larger chunk is no longer incorrect - syncFolderUIDRange reports
+        // how far down it got and we only record that much - but it costs an extra attributes-only
+        // fetch across the whole chunk for every MAX_FULL_HEADERS_REQUEST_SIZE messages ingested.
         uint32_t chunkSize = firstChunk ? 750 : MAX_FULL_HEADERS_REQUEST_SIZE;
 
         if (syncedMinUID > 1) {
@@ -464,7 +480,10 @@ bool SyncWorker::syncNow()
             // go ahead and fetch them all in one chunk. Otherwise, scan the UID space in chunks,
             // ensuring we never bite off more than we can chew.
             uint32_t chunkMinUID = syncedMinUID > chunkSize ? syncedMinUID - chunkSize : 1;
-            if (remoteStatus.messageCount() < chunkSize) {
+            if (remoteStatus.messageCount() < MAX_SINGLE_RANGE_SWEEP_SIZE) {
+                // Note: this can hand syncFolderUIDRange a range holding more messages than one
+                // full-headers request covers. That is safe now - it reports back how far down it
+                // actually got and we only record that much below.
                 chunkMinUID = 1;
             }
             auto chunk = syncFolderUIDRange(*folder, RangeMake(chunkMinUID, syncedMinUID - chunkMinUID), true);
