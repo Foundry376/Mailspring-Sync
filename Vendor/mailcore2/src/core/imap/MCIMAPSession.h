@@ -211,10 +211,16 @@ namespace mailcore {
         virtual bool isQResyncEnabled();
         virtual void setQResyncEnabled(bool enabled);
 
-        /** Returns UIDs of messages that were reported as VANISHED during the last IDLE session.
-            The caller should process these before issuing FETCH CHANGEDSINCE, because the server
-            may not re-report them. Returns NULL if no VANISHED was received. */
-        virtual IndexSet * idleVanishedMessages();
+        /** Returns - and clears - the UIDs the server has reported as VANISHED for `folder`
+            on this connection since the last call, or NULL if there were none.
+
+            A QRESYNC server announces each expunge to a given connection exactly once, and the
+            untagged VANISHED response may ride along with *any* command (an IDLE, a body FETCH,
+            a STORE issued by a task, ...) - not only with the FETCH CHANGEDSINCE ... VANISHED
+            that asked for it. The session therefore accumulates every VANISHED it sees, and the
+            caller must drain and apply them before advancing its stored HIGHESTMODSEQ past the
+            expunge, because the server will not mention those UIDs again. */
+        virtual IndexSet * takeVanishedMessages(String * folder);
         virtual bool isIdentityEnabled();
         virtual bool isXOAuthEnabled();
         virtual bool isNamespaceEnabled();
@@ -309,7 +315,7 @@ namespace mailcore {
         bool mQipServer;
         bool mOutlookServer;
 
-        IndexSet * mIdleVanishedMessages;
+        HashMap * mVanishedMessages; // folder path (String) -> IndexSet of vanished UIDs
         unsigned int mLastFetchedSequenceNumber;
         String * mCurrentFolder;
         pthread_mutex_t mIdleLock;
@@ -328,6 +334,7 @@ namespace mailcore {
         Data * mUnparsedResponseData;
         
         void init();
+        void collectVanishedFromLastResponse();
         void bodyProgress(unsigned int current, unsigned int maximum);
         void itemsProgress(unsigned int current, unsigned int maximum);
         bool checkCertificate();

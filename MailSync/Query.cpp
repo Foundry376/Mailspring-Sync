@@ -65,6 +65,11 @@ Query & Query::lte(string col, double val) {
     return *this;
 }
 
+Query & Query::betweenInclusive(string col, double lo, double hi) {
+    _clauses[col] = {{"op","BETWEEN"}, {"rhs", vector<double>{lo, hi}}};
+    return *this;
+}
+
 Query & Query::limit(int l) {
     _limit = l;
     return *this;
@@ -94,6 +99,10 @@ string Query::getSQL() {
             json & rhs = it.value()["rhs"];
             
             if (rhs.is_array()) {
+                if (op == "BETWEEN") {
+                    result += it.key() + " BETWEEN ? AND ?";
+                    continue;
+                }
                 if (op != "=") {
                     throw SyncException("query-builder", "Cannot use query operator " + op + " with an array of values", true);
                 }

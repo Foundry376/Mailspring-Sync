@@ -95,6 +95,11 @@ void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
 
 void SyncWorker::idleCycleIteration()
 {
+    // allocated mailcore objects freed when `pool` is removed from the stack. (Every other
+    // entry point of this class does the same; this one relies on it for the autoreleased
+    // IndexSet that takeVanishedMessages() hands back below.)
+    AutoreleasePool pool;
+
     // Run body requests from the client
     while (true) {
         string id;
@@ -222,20 +227,15 @@ void SyncWorker::idleCycleIteration()
                                    inbox->localStatus()[LS_SYNCED_MIN_UID].is_number();
 
     if (hasStartedSyncingFolder) {
-        // Process VANISHED notifications received during the previous IDLE session.
-        // The server sends VANISHED during IDLE when messages are expunged, but won't
-        // re-report them in the subsequent FETCH CHANGEDSINCE since it considers this
-        // connection already informed. We must process them here before they're lost.
-        IndexSet * idleVanished = session.idleVanishedMessages();
-        if (idleVanished != NULL && idleVanished->count() > 0) {
-            logger->info("Processing {} VANISHED UIDs from IDLE on {}", idleVanished->count(), inbox->path());
-            vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(inbox->id(), idleVanished);
-            for (Query & query : queries) {
-                this->processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
-            }
-        }
-
         String path = AS_MCSTR(inbox->path());
+
+        // Apply the VANISHED notifications the server has sent us on this connection since
+        // the last pass - during the IDLE we just came out of, but also alongside the body
+        // fetches and the task commands above. A QRESYNC server announces each expunge to a
+        // connection exactly once, so anything we drop here is lost for good: the FETCH
+        // CHANGEDSINCE below will not repeat it, and it will move HIGHESTMODSEQ past it.
+        unlinkVanishedUIDs(*inbox, session.takeVanishedMessages(&path), "this connection");
+
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
 
         // Note: If we have CONDSTORE but don't have QRESYNC, this if/else may result
@@ -992,6 +992,12 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     logger->info("syncFolderChangesViaCondstore - {}: modseq {} to {}, uidnext {} to {}",
                  folder.path(), modseq, remoteModseq, uidnext, remoteUIDNext);
 
+    String path(AS_MCSTR(folder.path()));
+
+    // Anything the server told us out-of-band has to be applied before we decide there is
+    // nothing to do, and before we move LS_HIGHESTMODSEQ forward below.
+    unlinkVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
+
     if (modseq == remoteModseq && uidnext == remoteUIDNext) {
         return;
     }
@@ -1010,8 +1016,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
     IMAPProgress cb;
     ErrorCode err = ErrorCode::ErrorNone;
-    String path(AS_MCSTR(folder.path()));
-    
+
     auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
     IMAPSyncResult * result = session.syncMessagesByUID(&path, kind, uids, modseq, &cb, &err);
     if (err != ErrorCode::ErrorNone) {
@@ -1045,15 +1050,31 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     // for deleted messages, collect UIDs and destroy. Note: vanishedMessages is only
     // populated when QRESYNC is available. IMPORTANT: vanished may include an infinite
     // range, like 12:* so we can't convert it to a fixed array.
-    if (vanished != NULL) {
-        vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), vanished);
-        for (Query & query : queries) {
-            processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
-        }
-    }
+    unlinkVanishedUIDs(folder, vanished, "FETCH CHANGEDSINCE");
+
+    // libetpan only hands the first VANISHED line of the response back to us through the
+    // sync result; a server that expunged several disjoint sets can send more than one, and
+    // an unrelated expunge can arrive untagged while this FETCH is in flight. Drain those
+    // too - this is our last chance before HIGHESTMODSEQ moves past them.
+    unlinkVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
 
     folder.localStatus()[LS_UIDNEXT] = remoteUIDNext;
     folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
+}
+
+void SyncWorker::unlinkVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source) {
+    if (vanished == NULL || vanished->count() == 0) {
+        return;
+    }
+    logger->info("Unlinking {} UID(s) reported VANISHED in {} by {}",
+                 vanished->count(), folder.path(), source);
+
+    // IMPORTANT: vanished may include an infinite range, like 12:*, so we can't convert
+    // it to a fixed array.
+    vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), vanished);
+    for (Query & query : queries) {
+        processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
+    }
 }
 
 void SyncWorker::cleanMessageCache(Folder & folder) {

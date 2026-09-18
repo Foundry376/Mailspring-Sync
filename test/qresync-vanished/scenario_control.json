@@ -1,0 +1,12 @@
+{
+  "note": "Control: nothing is ever expunged. Verifies the VANISHED accumulator never removes messages on its own.",
+  "idle_seconds": 3,
+  "suppress_after_report": true,
+  "mailboxes": [
+    {"name": "INBOX", "attrs": ["\\HasNoChildren"], "messages": 200},
+    {"name": "Archive", "attrs": ["\\HasNoChildren", "\\Archive"], "messages": 40},
+    {"name": "Sent", "attrs": ["\\HasNoChildren", "\\Sent"], "messages": 10},
+    {"name": "Trash", "attrs": ["\\HasNoChildren", "\\Trash"], "messages": 5}
+  ],
+  "events": []
+}

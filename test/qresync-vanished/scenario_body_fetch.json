@@ -1,0 +1,15 @@
+{
+  "note": "While mailsync downloads a message body (UID FETCH ... BODY.PEEK[]), another client expunges UID 150. The QRESYNC server reports '* VANISHED 150' on that same connection. mailsync harvests VANISHED only after IDLE, so this one is dropped - and because the server considers this connection informed, the next CHANGEDSINCE fetch reports nothing while LS_HIGHESTMODSEQ advances past the expunge.",
+  "idle_seconds": 3,
+  "suppress_after_report": true,
+  "mailboxes": [
+    {"name": "INBOX", "attrs": ["\\HasNoChildren"], "messages": 200},
+    {"name": "Archive", "attrs": ["\\HasNoChildren", "\\Archive"], "messages": 0},
+    {"name": "Sent", "attrs": ["\\HasNoChildren", "\\Sent"], "messages": 0},
+    {"name": "Trash", "attrs": ["\\HasNoChildren", "\\Trash"], "messages": 0}
+  ],
+  "events": [
+    {"when": "before_body_fetch", "do": "expunge", "mailbox": "INBOX",
+     "uids": [150], "announce_here": true, "delay": 12, "once": true}
+  ]
+}
