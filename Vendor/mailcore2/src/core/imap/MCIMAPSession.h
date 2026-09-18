@@ -286,6 +286,7 @@ namespace mailcore {
         bool mBodyProgressEnabled;
         bool mIdleEnabled;
         bool mXListEnabled;
+        bool mXListForceDisabled;
         bool mCondstoreEnabled;
         bool mQResyncEnabled;
         bool mQResyncForceDisabled;
@@ -337,6 +338,7 @@ namespace mailcore {
         void unsetup();
         void connectWithCurrentCompatibilityLevel(ErrorCode * pError);
         char fetchDelimiterIfNeeded(char defaultDelimiter, ErrorCode * pError);
+        String * folderListingPrefix();
         IMAPSyncResult * fetchMessages(String * folder, IMAPMessagesRequestKind requestKind,
                                        bool fetchByUID, struct mailimap_set * imapset,
                                        IndexSet * uidsFilter, IndexSet * numbersFilter,

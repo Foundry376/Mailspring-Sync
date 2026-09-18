@@ -386,6 +386,7 @@ void IMAPSession::init()
     mBodyProgressEnabled = true;
     mIdleEnabled = false;
     mXListEnabled = false;
+    mXListForceDisabled = false;
     mQResyncEnabled = false;
     mQResyncForceDisabled = false;
     mCondstoreEnabled = false;
@@ -1644,6 +1645,23 @@ Array * /* IMAPFolder */ IMAPSession::fetchSubscribedFolders(ErrorCode * pError)
     return result;
 }
 
+String * IMAPSession::folderListingPrefix()
+{
+    String * prefix = NULL;
+    if (defaultNamespace()) {
+        prefix = defaultNamespace()->mainPrefix();
+    }
+    if (prefix == NULL) {
+        prefix = MCSTR("");
+    }
+    if (prefix->length() > 0) {
+        if (!prefix->hasSuffix(String::stringWithUTF8Format("%c", mDelimiter))) {
+            prefix = prefix->stringByAppendingUTF8Format("%c", mDelimiter);
+        }
+    }
+    return prefix;
+}
+
 Array * /* IMAPFolder */ IMAPSession::fetchAllFolders(ErrorCode * pError)
 {
     int r;
@@ -1664,20 +1682,10 @@ Array * /* IMAPFolder */ IMAPSession::fetchAllFolders(ErrorCode * pError)
         mDelimiter = delimiter;
     }
     
-    String * prefix = NULL;
-    if (defaultNamespace()) {
-        prefix = defaultNamespace()->mainPrefix();
-    }
-    if (prefix == NULL) {
-        prefix = MCSTR("");
-    }
-    if (prefix->length() > 0) {
-        if (!prefix->hasSuffix(String::stringWithUTF8Format("%c", mDelimiter))) {
-            prefix = prefix->stringByAppendingUTF8Format("%c", mDelimiter);
-        }
-    }
+    String * prefix = folderListingPrefix();
     
-    if (mXListEnabled) {
+    bool usedXList = mXListEnabled;
+    if (usedXList) {
         r = mailimap_xlist(mImap, MCUTF8(prefix), "*", &imap_folders);
     }
     else {
@@ -1686,6 +1694,45 @@ Array * /* IMAPFolder */ IMAPSession::fetchAllFolders(ErrorCode * pError)
     Array * result = resultsWithError(r, imap_folders, pError);
     if (* pError == ErrorConnection || * pError == ErrorParse)
         mShouldDisconnect = true;
+    
+    if (usedXList && (* pError != ErrorNone)) {
+        // XLIST is a deprecated Google extension that was superseded by RFC 6154
+        // (SPECIAL-USE), and a number of servers advertise it without being usable
+        // with it: they answer BAD, they emit responses we can't parse, or they
+        // just drop the connection. Historically each one earned its own hardcoded
+        // exception in applyCapabilities (IdeaImapServer, Yandex, Gmail), which
+        // means any server we haven't seen yet fails here permanently --
+        // fetchAllFolders is the first thing a sync does and its error is
+        // retryable, so mailsync reconnects every two minutes and never gets a
+        // folder list.
+        //
+        // LIST is mandatory in IMAP4rev1 and carries the same special-use
+        // attributes on servers that support SPECIAL-USE, so fall back to it and
+        // stop asking for XLIST for the rest of this session.
+        MCLog("XLIST failed with error %i, falling back to LIST", (int) * pError);
+        mXListEnabled = false;
+        mXListForceDisabled = true;
+        
+        // A parse error or a dropped connection leaves libetpan's parser out of
+        // sync with what's still buffered on the socket, so every subsequent
+        // command on this connection would fail too. Reconnect before retrying.
+        if (mShouldDisconnect) {
+            ErrorCode reconnectError = ErrorNone;
+            loginIfNeeded(&reconnectError);
+            if (reconnectError != ErrorNone) {
+                * pError = reconnectError;
+                return NULL;
+            }
+            // The namespace is re-fetched by the reconnect and the old one is
+            // released, so the prefix computed above may no longer be valid.
+            prefix = folderListingPrefix();
+        }
+        
+        r = mailimap_list(mImap, MCUTF8(prefix), "*", &imap_folders);
+        result = resultsWithError(r, imap_folders, pError);
+        if (* pError == ErrorConnection || * pError == ErrorParse)
+            mShouldDisconnect = true;
+    }
     
     if (result != NULL) {
         bool hasInbox = false;
@@ -4466,6 +4513,9 @@ void IMAPSession::applyCapabilities(IndexSet * capabilities)
         // Home.pl servers running "IdeaImapServer" improperly advertise xlist or we can't parse the response.
     } else if (mWelcomeString->locationOfString(MCSTR("Yandex IMAP4rev1")) != -1) {
         // Yandex servers advertise xlist but drop the connection when it's used.
+    } else if (mXListForceDisabled) {
+        // We already tried XLIST on this connection and it didn't work. Don't turn
+        // it back on when capabilities are re-read after a reconnect.
     } else if (capabilities->containsIndex(IMAPCapabilityXList)) {
         mXListEnabled = true;
     }

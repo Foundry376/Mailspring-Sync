@@ -7246,6 +7246,7 @@ mailimap_mbx_list_oflag_parse(mailstream * fd, MMAPString * buffer, struct maili
 {
   int type;
   size_t cur_token;
+  size_t empty_flag_token;
   struct mailimap_mbx_list_oflag * oflag;
   char * flag_ext;
   int r;
@@ -7272,6 +7273,31 @@ mailimap_mbx_list_oflag_parse(mailstream * fd, MMAPString * buffer, struct maili
 				      &flag_ext, progr_rate, progr_fun);
     if (r == MAILIMAP_NO_ERROR)
       type = MAILIMAP_MBX_LIST_OFLAG_FLAG_EXT;
+  }
+
+  if (r == MAILIMAP_ERROR_PARSE) {
+    /* Some servers emit an empty flag where a special-use attribute belongs,
+       e.g. home.pl answers XLIST with `(\HasNoChildren \) "." "Argos"'.
+       flag-extension is `"\" atom', so a lone backslash is a syntax error and
+       we would reject the entire LIST/XLIST response - leaving the account
+       with no folder list at all. Other clients tolerate it, so accept the
+       stray delimiter as a flag-extension with an empty name: it matches no
+       known mailbox attribute and is therefore ignored downstream. */
+    empty_flag_token = cur_token;
+
+    r = mailimap_char_parse(fd, buffer, &empty_flag_token, '\\');
+    if (r == MAILIMAP_ERROR_PARSE)
+      r = mailimap_char_parse(fd, buffer, &empty_flag_token, '/');
+
+    if (r == MAILIMAP_NO_ERROR) {
+      flag_ext = strdup("");
+      if (flag_ext == NULL) {
+        res = MAILIMAP_ERROR_MEMORY;
+        goto err;
+      }
+      type = MAILIMAP_MBX_LIST_OFLAG_FLAG_EXT;
+      cur_token = empty_flag_token;
+    }
   }
 
   if (r != MAILIMAP_NO_ERROR) {
