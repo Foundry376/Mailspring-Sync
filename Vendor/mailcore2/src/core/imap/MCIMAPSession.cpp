@@ -881,10 +881,8 @@ close:
 
 void IMAPSession::connectIfNeeded(ErrorCode * pError)
 {
-    // Every command funnels through here, so this is where we pick up untagged VANISHED
-    // responses that arrived alongside the *previous* command - a body FETCH, a STORE
-    // issued by a task, and so on. libetpan keeps that command's response info until the
-    // next response is parsed, and it is the only copy we get.
+    // Every command funnels through here, so this is where we pick up VANISHED that arrived
+    // alongside the previous one. libetpan holds that response only until the next is parsed.
     collectVanishedFromLastResponse();
 
     if (mShouldDisconnect) {
@@ -3844,9 +3842,8 @@ void IMAPSession::idle(String * folder, uint32_t lastKnownUID, ErrorCode * pErro
         return;
     }
 
-    // Harvest the VANISHED UIDs the server reported while we were idling, before the
-    // next IMAP command overwrites rsp_extension_list. The server will not re-report
-    // them in a subsequent FETCH CHANGEDSINCE - it considers this connection informed.
+    // Harvest what the server reported while we idled, before the next command overwrites
+    // rsp_extension_list. A later FETCH CHANGEDSINCE will not repeat it.
     collectVanishedFromLastResponse();
 
     * pError = ErrorNone;
@@ -4519,8 +4516,7 @@ void IMAPSession::setQResyncEnabled(bool enabled)
 
 void IMAPSession::collectVanishedFromLastResponse()
 {
-    // Untagged VANISHED is only sent when QRESYNC has been enabled, and always refers
-    // to the currently selected mailbox.
+    // Untagged VANISHED requires QRESYNC and always refers to the selected mailbox.
     if (!mQResyncEnabled || mImap == NULL || mCurrentFolder == NULL) {
         return;
     }
@@ -4530,9 +4526,8 @@ void IMAPSession::collectVanishedFromLastResponse()
 
     IndexSet * collected = NULL;
 
-    // Note: one response can carry several VANISHED lines - one per expunge event observed
-    // during a long IDLE, for instance - so walk the whole extension list rather than
-    // stopping at the first entry.
+    // One response can carry several VANISHED lines (one per expunge seen during a long
+    // IDLE), so walk the whole list rather than stopping at the first entry.
     for (clistiter * cur = clist_begin(mImap->imap_response_info->rsp_extension_list);
          cur != NULL; cur = clist_next(cur)) {
         struct mailimap_extension_data * ext_data;
@@ -4546,13 +4541,9 @@ void IMAPSession::collectVanishedFromLastResponse()
         struct mailimap_qresync_vanished * vanished;
         vanished = (struct mailimap_qresync_vanished *) ext_data->ext_data;
         if (vanished == NULL) {
-            // Already claimed, either by libetpan's own get_vanished() (which hands the
-            // first entry back through IMAPSyncResult) or by an earlier call to this
-            // method on the same response.
-            continue;
+            continue; // already claimed by libetpan's get_vanished() or by an earlier pass
         }
-        // Take ownership the way libetpan's get_vanished() does, so that re-reading this
-        // response cannot report the same UIDs twice.
+        // Claim it the way get_vanished() does, so a second pass can't report it twice.
         ext_data->ext_data = NULL;
         if (vanished->qr_known_uids != NULL) {
             if (collected == NULL) {
@@ -4578,8 +4569,6 @@ void IMAPSession::collectVanishedFromLastResponse()
 
 IndexSet * IMAPSession::takeVanishedMessages(String * folder)
 {
-    // Pick up whatever the most recent response carried: libetpan keeps that response's
-    // info alive until the next one is parsed, and it is the only copy we get.
     collectVanishedFromLastResponse();
 
     IndexSet * result = (IndexSet *) mVanishedMessages->objectForKey(folder);

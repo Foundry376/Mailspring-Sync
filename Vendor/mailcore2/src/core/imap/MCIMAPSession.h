@@ -211,15 +211,10 @@ namespace mailcore {
         virtual bool isQResyncEnabled();
         virtual void setQResyncEnabled(bool enabled);
 
-        /** Returns - and clears - the UIDs the server has reported as VANISHED for `folder`
-            on this connection since the last call, or NULL if there were none.
-
-            A QRESYNC server announces each expunge to a given connection exactly once, and the
-            untagged VANISHED response may ride along with *any* command (an IDLE, a body FETCH,
-            a STORE issued by a task, ...) - not only with the FETCH CHANGEDSINCE ... VANISHED
-            that asked for it. The session therefore accumulates every VANISHED it sees, and the
-            caller must drain and apply them before advancing its stored HIGHESTMODSEQ past the
-            expunge, because the server will not mention those UIDs again. */
+        /** Returns - and clears - the UIDs reported VANISHED for `folder` on this connection
+            since the last call, or NULL if there were none. A QRESYNC server tells a given
+            connection about an expunge exactly once, and the untagged VANISHED can ride along
+            with any command, so callers must drain this before advancing HIGHESTMODSEQ. */
         virtual IndexSet * takeVanishedMessages(String * folder);
         virtual bool isIdentityEnabled();
         virtual bool isXOAuthEnabled();
