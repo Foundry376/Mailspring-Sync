@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 #include <MailCore/MailCore.h>
@@ -36,6 +37,13 @@ class SyncWorker {
     shared_ptr<spdlog::logger> logger;
 
     int unlinkPhase;
+
+    // Number of failed CREATE attempts for the Mailspring container and helper
+    // folders, keyed by their IMAP path. Some servers refuse these CREATEs
+    // permanently, and we re-attempt them on every pass through the folder list,
+    // so we stop asking after a few tries. Lives for the life of the process.
+    std::map<std::string, int> folderCreateFailures;
+
     std::atomic<bool> idleShouldReloop{false};
     int iterationsSinceLaunch;
     vector<string> idleFetchBodyIDs;
@@ -70,6 +78,8 @@ public:
 
 private:
     
+    bool createFolderUnlessRepeatedlyRefused(String * desiredPath, const std::string & description);
+
     void ensureRootMailspringFolder(vector<string> containerFolderComponents, Array * remoteFolders);
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);

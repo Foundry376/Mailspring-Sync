@@ -30,6 +30,13 @@
 #define SHALLOW_SCAN_INTERVAL       60 * 2
 #define DEEP_SCAN_INTERVAL          60 * 10
 
+// Some IMAP servers refuse to create the Mailspring container / helper folders at
+// all (Roundcube and 126/163 disallow the namespace, DavMail answers BAD and drops
+// the connection, shared mailboxes may deny it via ACL). We attempt the creation on
+// every pass through the folder list, so without a cap a refusal is re-issued every
+// sync loop for the life of the process. Give up after this many failures per path.
+#define MAX_FOLDER_CREATE_ATTEMPTS  3
+
 #define MAX_FULL_HEADERS_REQUEST_SIZE  1024
 #define MODSEQ_TRUNCATION_THRESHOLD 4000
 #define MODSEQ_TRUNCATION_UID_COUNT 12000
@@ -577,6 +584,36 @@ bool SyncWorker::syncNow()
     return syncAgainImmediately;
 }
 
+// Creates `desiredPath` on the server, unless we've already been refused
+// MAX_FOLDER_CREATE_ATTEMPTS times for that path in this process. Returns true
+// only if the folder was created by this call.
+bool SyncWorker::createFolderUnlessRepeatedlyRefused(String * desiredPath, const string & description)
+{
+    string path { desiredPath->UTF8Characters() };
+    int failures = folderCreateFailures.count(path) ? folderCreateFailures[path] : 0;
+
+    if (failures >= MAX_FOLDER_CREATE_ATTEMPTS) {
+        return false;
+    }
+
+    ErrorCode err = ErrorCode::ErrorNone;
+    session.createFolder(desiredPath, &err);
+
+    if (err) {
+        folderCreateFailures[path] = failures + 1;
+        if (failures + 1 >= MAX_FOLDER_CREATE_ATTEMPTS) {
+            logger->error("Could not create {}: {}. {} - giving up, will not retry until mailsync restarts.", description, path, ErrorCodeToTypeMap[err]);
+        } else {
+            logger->error("Could not create {}: {}. {}", description, path, ErrorCodeToTypeMap[err]);
+        }
+        return false;
+    }
+
+    folderCreateFailures.erase(path);
+    logger->error("Created {}: {}.", description, path);
+    return true;
+}
+
 void SyncWorker::ensureRootMailspringFolder(vector<string> containerFolderComponents, Array * remoteFolders)
 {
     auto components = Array::array();
@@ -595,13 +632,7 @@ void SyncWorker::ensureRootMailspringFolder(vector<string> containerFolderCompon
     }
     
     if (!exists) {
-        ErrorCode err = ErrorCode::ErrorNone;
-        session.createFolder(desiredPath, &err);
-        if (err) {
-            logger->error("Could not create Mailspring container folder: {}. {}", desiredPath->UTF8Characters(), ErrorCodeToTypeMap[err]);
-        } else {
-            logger->error("Created Mailspring container folder: {}.", desiredPath->UTF8Characters());
-        }
+        createFolderUnlessRepeatedlyRefused(desiredPath, "Mailspring container folder");
     }
 }
 
@@ -672,12 +703,9 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             }
             components->addObject(AS_MCSTR(mailspringFolder));
             String * desiredPath = session.defaultNamespace()->pathForComponents(components);
-            session.createFolder(desiredPath, &err);
-            if (err) {
-                logger->error("Could not create required Mailspring folder: {}. {}", desiredPath->UTF8Characters(), ErrorCodeToTypeMap[err]);
+            if (!createFolderUnlessRepeatedlyRefused(desiredPath, "required Mailspring folder")) {
                 continue;
             }
-            logger->error("Created required Mailspring folder: {}.", desiredPath->UTF8Characters());
             IMAPFolder * fake = new IMAPFolder();
             fake->autorelease();
             fake->setPath(desiredPath);
