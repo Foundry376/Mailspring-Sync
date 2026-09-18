@@ -302,18 +302,29 @@ err:
     else
     {
         int errcode = X509_STORE_CTX_get_error(storectx);
-        MCLog("Verification failed:\n");
-        MCLog("X509_verify_cert_error_string:\n");
-        MCLog(X509_verify_cert_error_string(errcode));
+        /* The error string is not a literal, so it has to be an argument rather
+         * than the format itself - MCLog is a printf and would interpret a "%"
+         * in it as a conversion. */
+        MCLog("Verification failed: %s (error %d at depth %d)",
+              X509_verify_cert_error_string(errcode),
+              errcode,
+              X509_STORE_CTX_get_error_depth(storectx));
+
         /*  get the offending certificate causing the failure */
         X509 *error_cert = X509_STORE_CTX_get_current_cert(storectx);
         if (error_cert != NULL) {
-            X509_NAME *certsubject = X509_get_subject_name(error_cert);
-            MCLog("X509_get_subject_name:\n");
-            BIO *outbio = BIO_new_fp(stderr, BIO_NOCLOSE);
-            X509_NAME_print_ex(outbio, certsubject, 0, XN_FLAG_MULTILINE);
-            BIO_printf(outbio, "\n");
-            BIO_free_all(outbio);
+            /* X509_NAME_oneline() into a local buffer rather than
+             * X509_NAME_print_ex() into BIO_new_fp(stderr): the BIO wrote past
+             * MCLog, so the name of the certificate that actually failed never
+             * reached the connection log the client shows the user, and never
+             * reached the log file during a sync. It truncates safely and
+             * NUL-terminates when a name is longer than the buffer, and answers
+             * "NO X509_NAME" rather than NULL if the name is missing. */
+            char name[512];
+            MCLog("Offending certificate subject: %s",
+                  X509_NAME_oneline(X509_get_subject_name(error_cert), name, sizeof(name)));
+            MCLog("Offending certificate issuer: %s",
+                  X509_NAME_oneline(X509_get_issuer_name(error_cert), name, sizeof(name)));
         }
     }
 
