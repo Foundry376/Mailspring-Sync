@@ -714,6 +714,41 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             }
         }
 
+        // Eliminate duplicate folders. Some servers - and IMAP gateways in particular
+        // (DavMail, Proton Bridge, Zoho) - return the same mailbox twice: either as a
+        // repeated LIST line, or under two names that MailCore collapses into one, since
+        // it rewrites the path of any mailbox whose name uppercases to "INBOX" back to
+        // "INBOX" while parsing the LIST response. (MCIMAPSession.cpp, resultsWithError.)
+        //
+        // Both copies hash to the same folder ID, so without this the second one is
+        // INSERTed under an ID the first just took and SQLite raises
+        // "UNIQUE constraint failed: Folder.id".
+        // That exception unwinds to the catch-all in main(), which aborts the process
+        // before a single folder has been committed, so the next launch fetches the same
+        // folder list and aborts in the same place - a crash loop the account never
+        // recovers from.
+        //
+        // Keep the first copy of each ID and merge the others' flags into it, so that role
+        // detection below doesn't depend on which copy the server happened to list first
+        // (eg: a gateway listing "INBOX" unflagged and "Inbox" with \Inbox). Unselectable
+        // folders are already gone, so merging can't reintroduce IMAPFolderFlagNoSelect.
+        {
+            map<string, IMAPFolder *> remotesById {};
+            for (int ii = 0; ii < (int)remoteFolders->count(); ii++) {
+                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+                auto existing = remotesById.find(remoteId);
+                if (existing == remotesById.end()) {
+                    remotesById[remoteId] = remote;
+                    continue;
+                }
+                logger->warn("-X the server listed {} more than once - ignoring the duplicate.", remote->path()->UTF8Characters());
+                existing->second->setFlags((IMAPFolderFlag)(existing->second->flags() | remote->flags()));
+                remoteFolders->removeObjectAtIndex(ii);
+                ii -= 1;
+            }
+        }
+
         // Find / create local folders and labels to match the remote ones
         // Note: We don't assign roles, just create the objects here.
         for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
@@ -825,7 +860,20 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         MailStoreTransaction transaction{store, "syncFoldersAndLabels"};
 
         for (auto & item : toCreate) {
-            store->save(item.get());
+            // A folder we believe is new but that already exists in the database must
+            // not take the whole process down with it. The de-duplication above should
+            // make this unreachable, but a constraint failure here aborts mailsync on
+            // every launch (see the note there), and the row we wanted is present either
+            // way - the next pass finds it and picks up where this one left off. This is
+            // the same insert-then-recover shape MailProcessor uses for messages.
+            try {
+                store->save(item.get());
+            } catch (SQLite::Exception & ex) {
+                if (ex.getErrorCode() != 19) { // constraint failed
+                    throw;
+                }
+                logger->error("-X could not create {} {}: {}. Continuing.", item->tableName(), item->path(), ex.what());
+            }
         }
         for (auto & ru : roleUpdates) {
             shared_ptr<Folder> fresh;
