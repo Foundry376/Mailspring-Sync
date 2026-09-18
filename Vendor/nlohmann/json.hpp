@@ -18785,8 +18785,11 @@ class serializer
     @param[in] ichar  indentation character to use
     @param[in] error_handler_  how to react on decoding errors
     */
+    // MAILSPRING LOCAL MODIFICATION (default strict -> replace); see the note on
+    // basic_json::dump() below and docs/vendor-update-workflow.md. This default is the one
+    // operator<<(std::ostream&, const basic_json&) uses.
     serializer(output_adapter_t<char> s, const char ichar,
-               error_handler_t error_handler_ = error_handler_t::strict)
+               error_handler_t error_handler_ = error_handler_t::replace)
         : o(std::move(s))
         , loc(std::localeconv())
         , thousands_sep(loc->thousands_sep == nullptr ? '\0' : std::char_traits<char>::to_char_type(* (loc->thousands_sep)))
@@ -21310,10 +21313,25 @@ class basic_json // NOLINT(cppcoreguidelines-special-member-functions,hicpp-spec
 
     /// @brief serialization
     /// @sa https://json.nlohmann.me/api/basic_json/dump/
+    ///
+    /// MAILSPRING LOCAL MODIFICATION - see docs/vendor-update-workflow.md.
+    ///
+    /// Upstream defaults `error_handler` to `strict`, which throws json::type_error.316 when
+    /// a string holds ill-formed UTF-8. Mailsync serializes text that arrived from a mail
+    /// server, and it does so in places where a throw is fatal rather than recoverable: the
+    /// delta stream is dumped on a detached thread with no handler above it, models are
+    /// dumped while being written to SQLite from workers whose only catch-all calls abort(),
+    /// and the crash reporter dumps the very exception it is in the middle of reporting -
+    /// there the throw escapes its own catch handler and reaches std::terminate.
+    ///
+    /// Defaulting to `replace` makes serialization total: ill-formed input becomes U+FFFD,
+    /// which is what a mail client should render for a byte sequence that means nothing.
+    /// Nothing here wants the throw, and a caller that does can still pass `strict`.
+    /// runInstallCheck() asserts this default, so CI catches its loss on every platform.
     string_t dump(const int indent = -1,
                   const char indent_char = ' ',
                   const bool ensure_ascii = false,
-                  const error_handler_t error_handler = error_handler_t::strict) const
+                  const error_handler_t error_handler = error_handler_t::replace) const
     {
         string_t result;
         serializer s(detail::output_adapter<char, string_t>(result), indent_char, error_handler);

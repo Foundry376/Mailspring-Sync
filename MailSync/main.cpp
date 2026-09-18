@@ -386,14 +386,14 @@ done:
     };
     if (err == ErrorNone) {
         resp["account"] = account->toJSON();
-        cout << MailUtils::safeDump(resp);
+        cout << resp.dump();
         return 0;
     } else {
         resp["error"] = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : "Unknown";
         if (tlsAdvice != "") {
             resp["error_advice"] = tlsAdvice;
         }
-        cout << MailUtils::safeDump(resp);
+        cout << resp.dump();
         return 1;
     }
 }
@@ -407,7 +407,7 @@ int runSingleFunctionAndExit(std::function<void()> fn) {
         resp["error"] = ex.what();
         code = 1;
     }
-    cout << "\n" << MailUtils::safeDump(resp);
+    cout << "\n" << resp.dump();
     return code;
 }
 
@@ -426,6 +426,7 @@ int runInstallCheck() {
         {"smtp_check", nullptr},
         {"tidy_check", nullptr},
         {"legacy_tls_check", nullptr},
+        {"utf8_check", nullptr},
         {"log", nullptr}
     };
 
@@ -663,8 +664,52 @@ int runInstallCheck() {
         resp["tidy_check"] = {{"success", true}};
     }
 
+    // Step 6: Check that ill-formed UTF-8 still cannot abort the process.
+    //
+    // Two local modifications to vendored libraries hold this up, and the rest of the
+    // codebase depends on both without ever naming them: mailcore's String::UTF8Characters()
+    // substitutes U+FFFD for an unpaired surrogate instead of emitting CESU-8, and nlohmann's
+    // dump() defaults to error_handler_t::replace instead of throwing. Both live in files a
+    // routine vendor update would overwrite, and neither has a call site that would start
+    // failing visibly if it did - the symptom is a SIGABRT on one user's mailbox, months
+    // later. So assert them here, where CI already runs install-check on every platform we
+    // ship. See docs/vendor-update-workflow.md.
+    string utf8Error = "";
+
+    // A UTF-16 buffer holding an unpaired surrogate, built directly rather than decoded from
+    // a charset: ICU's UTF-7 converter is one way a mail server puts one there, but CoreText
+    // and ICU disagree about what they will decode, and this has to test UTF8Characters()
+    // itself the same way on every platform.
+    const UChar loneSurrogate[] = { 'a', 0xD800, 'b' };
+    String * s = String::stringWithCharacters(loneSurrogate, 3);
+    string converted = s != NULL ? s->UTF8Characters() : "";
+    if (converted.size() != 5 || !MailUtils::isWellFormedUTF8(converted)) {
+        // Expect "a" + U+FFFD (3 bytes) + "b". Anything else means the surrogate came through
+        // as CESU-8, or was dropped.
+        utf8Error = "mailcore String::UTF8Characters() did not substitute U+FFFD for an "
+                    "unpaired surrogate - the fix in Vendor/mailcore2 MCString.cpp has been lost";
+    }
+
+    if (utf8Error == "") {
+        try {
+            // Raw ill-formed bytes, as an HTTP response body or a vCard can carry.
+            json probe = {{"value", string("\xED\xA0\x80\xE9")}};
+            (void)probe.dump();
+        } catch (std::exception & ex) {
+            utf8Error = string("json::dump() threw on ill-formed UTF-8 (") + ex.what() +
+                        ") - the error_handler_t::replace default in Vendor/nlohmann/json.hpp "
+                        "has been lost";
+        }
+    }
+
+    if (utf8Error != "") {
+        resp["utf8_check"] = {{"error", utf8Error}};
+    } else {
+        resp["utf8_check"] = {{"success", true}};
+    }
+
     // Determine overall success
-    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "" && legacyTLSError == "");
+    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "" && legacyTLSError == "" && utf8Error == "");
     if (!success) {
         resp["error"] = "One or more checks failed";
     }
@@ -672,7 +717,7 @@ int runInstallCheck() {
     // Include accumulated log for diagnostics
     resp["log"] = alogger.accumulated;
 
-    cout << MailUtils::safeDump(resp);
+    cout << resp.dump();
     return success ? 0 : 1;
 }
 
@@ -693,8 +738,8 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             packet = SharedDeltaStream()->waitForJSON();
         } catch (std::invalid_argument & ex) {
             json resp = {{"error", ex.what()}};
-            spdlog::get("logger")->error(MailUtils::safeDump(resp));
-            cout << "\n" << MailUtils::safeDump(resp) << "\n";
+            spdlog::get("logger")->error(resp.dump());
+            cout << "\n" << resp.dump() << "\n";
             continue;
         }
 
@@ -882,14 +927,14 @@ string exectuablePath = argv[0];
         account = make_shared<Account>(json::parse(accountJSON));
     } catch (json::exception& e) {
         json resp = { { "error", "Invalid Account JSON: " + string(e.what()) }, { "log", accountJSON } };
-        cout << "\n" << MailUtils::safeDump(resp);
+        cout << "\n" << resp.dump();
         return 1;
     }
 
 
 	if (account->valid() != "") {
 		json resp = { { "error", "Account is missing required fields:" + account->valid() } };
-		cout << "\n" << MailUtils::safeDump(resp);
+		cout << "\n" << resp.dump();
 		return 1;
 	}
     
@@ -917,13 +962,13 @@ string exectuablePath = argv[0];
         }
     } catch (json::exception& e) {
         json resp = { { "error", "Invalid Identity JSON: " + string(e.what()) }, { "log", identityJSON } };
-        cout << "\n" << MailUtils::safeDump(resp);
+        cout << "\n" << resp.dump();
         return 1;
     }
 
 	if (Identity::GetGlobal() && !Identity::GetGlobal()->valid()) {
 		json resp = { { "error", "ErrorIdentityMissingFields" } };
-		cout << "\n" << MailUtils::safeDump(resp);
+		cout << "\n" << resp.dump();
 		return 1;
 	}
     
@@ -956,7 +1001,7 @@ string exectuablePath = argv[0];
         }
     } catch (spdlog::spdlog_ex& e) {
         json resp = { { "error", "Setup Failed: " + string(e.what()) } };
-        cout << "\n" << MailUtils::safeDump(resp);
+        cout << "\n" << resp.dump();
         return 1;
     }
 

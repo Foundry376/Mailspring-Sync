@@ -205,8 +205,7 @@ bool MailUtils::setEnvUTF8(string key, string value) {
 
 // Length of the well-formed UTF-8 sequence starting at `p` (RFC 3629), or 0 if the bytes
 // there are not one. Rejects the same things nlohmann's serializer rejects: overlong forms,
-// values above U+10FFFF, and the surrogate range U+D800-U+DFFF, which mailcore emits as
-// three-byte CESU-8 whenever a UTF-16 buffer holds an unpaired surrogate.
+// values above U+10FFFF, and the surrogate range U+D800-U+DFFF.
 static size_t utf8SequenceLength(const unsigned char * p, size_t remaining) {
     auto cont = [&](size_t i, unsigned char lo, unsigned char hi) {
         return i < remaining && p[i] >= lo && p[i] <= hi;
@@ -224,79 +223,15 @@ static size_t utf8SequenceLength(const unsigned char * p, size_t remaining) {
     return 0;
 }
 
-// How many bytes of the ill-formed sequence at `p` to drop for a single U+FFFD. This is the
-// Unicode "maximal subpart" rule (TUS 3.9): consume the bytes that could still have become a
-// valid sequence, so one truncated character produces one replacement rather than one per byte.
-static size_t utf8MaximalSubpart(const unsigned char * p, size_t remaining) {
-    const unsigned char c = p[0];
-    size_t wanted = 0;
-    unsigned char lo = 0x80, hi = 0xBF;
-    if (c >= 0xC2 && c <= 0xDF)      { wanted = 2; }
-    else if (c == 0xE0)              { wanted = 3; lo = 0xA0; }
-    else if (c >= 0xE1 && c <= 0xEF) { wanted = 3; if (c == 0xED) hi = 0x9F; }
-    else if (c == 0xF0)              { wanted = 4; lo = 0x90; }
-    else if (c >= 0xF1 && c <= 0xF4) { wanted = 4; if (c == 0xF4) hi = 0x8F; }
-    else return 1; // a stray continuation byte or one of 0xC0/0xC1/0xF5-0xFF
-
-    size_t len = 1;
-    while (len < wanted && len < remaining && p[len] >= lo && p[len] <= hi) {
-        len += 1;
-        lo = 0x80;
-        hi = 0xBF;
-    }
-    return len;
-}
-
-string MailUtils::sanitizeUTF8(string input) {
+bool MailUtils::isWellFormedUTF8(const string & input) {
     const unsigned char * bytes = (const unsigned char *)input.data();
-    const size_t length = input.size();
-
-    // Well-formed input is the overwhelmingly common case, so find the first bad byte before
-    // allocating anything. Nearly every call returns here having only scanned the string.
     size_t i = 0;
-    while (i < length) {
-        size_t seq = utf8SequenceLength(bytes + i, length - i);
-        if (seq == 0) break;
+    while (i < input.size()) {
+        size_t seq = utf8SequenceLength(bytes + i, input.size() - i);
+        if (seq == 0) return false;
         i += seq;
     }
-    if (i == length) {
-        return input; // moved out, not copied - message bodies come through here
-    }
-
-    string result;
-    result.reserve(length);
-    result.append(input, 0, i);
-    while (i < length) {
-        size_t seq = utf8SequenceLength(bytes + i, length - i);
-        if (seq > 0) {
-            result.append(input, i, seq);
-            i += seq;
-        } else {
-            result.append("\xEF\xBF\xBD"); // U+FFFD REPLACEMENT CHARACTER
-            i += utf8MaximalSubpart(bytes + i, length - i);
-        }
-    }
-    return result;
-}
-
-string MailUtils::toUTF8(mailcore::String * str) {
-    if (str == nullptr) {
-        return "";
-    }
-    // mailcore converts its UTF-16 buffer with `lenientConversion`, which passes an unpaired
-    // surrogate straight through as CESU-8 (ED A0 80 .. ED BF BF) rather than substituting it.
-    // A mailbox can put one there - a MIME part labelled charset=utf-7, for instance - and the
-    // resulting bytes are not UTF-8, so every json::dump() carrying them would throw.
-    const char * chars = str->UTF8Characters();
-    return chars == nullptr ? "" : sanitizeUTF8(chars);
-}
-
-string MailUtils::safeDump(const json & j) {
-    // Serialization must not be able to kill the process. Deltas are dumped on a detached
-    // thread with no handler above it, models are dumped while being written to SQLite, and
-    // the crash reporter dumps the exception it is in the middle of reporting - a throw from
-    // any of those is fatal, so ill-formed UTF-8 becomes U+FFFD instead.
-    return j.dump(-1, ' ', false, json::error_handler_t::replace);
+    return true;
 }
 
 json MailUtils::merge(const json &a, const json &b)
@@ -316,10 +251,10 @@ json MailUtils::contactJSONFromAddress(Address * addr) {
     json contact;
     // note: for some reason, using ternarys here doesn't work.
     if (addr->displayName()) {
-        contact["name"] = toUTF8(addr->displayName());
+        contact["name"] = addr->displayName()->UTF8Characters();
     }
     if (addr->mailbox()) {
-        contact["email"] = toUTF8(addr->mailbox());
+        contact["email"] = addr->mailbox()->UTF8Characters();
     }
     return contact;
 }

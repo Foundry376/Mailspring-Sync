@@ -24,18 +24,18 @@ File::File(Message * msg, Attachment * a) :
     MailModel(MailUtils::idForFile(msg, a), msg->accountId(), 0)
 {
     _data["messageId"] = msg->id();
-    _data["partId"] = MailUtils::toUTF8(a->partID());
+    _data["partId"] = a->partID()->UTF8Characters();
     
     if (a->isInlineAttachment() && a->contentID()) {
-        _data["contentId"] = MailUtils::toUTF8(a->contentID());
+        _data["contentId"] = a->contentID()->UTF8Characters();
     }
     if (a->mimeType()) {
-        _data["contentType"] = MailUtils::toUTF8(a->mimeType());
+        _data["contentType"] = a->mimeType()->UTF8Characters();
     }
     
     string name = "";
     if (a->filename()) {
-        name = MailUtils::toUTF8(a->filename());
+        name = a->filename()->UTF8Characters();
     }
     if (name == "") {
         name = "Unnamed Attachment";

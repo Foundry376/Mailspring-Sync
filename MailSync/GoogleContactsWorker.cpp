@@ -207,12 +207,12 @@ void GoogleContactsWorker::upsertContactGroup(shared_ptr<ContactGroup> group) {
         auto data = PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + group->googleResourceName(), "GET", authorization));
         data["name"] = group->name();
         json payload = {{"contactGroup", data}};
-        resp = PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + group->googleResourceName(), "PUT", authorization, MailUtils::safeDump(payload).c_str()));
+        resp = PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + group->googleResourceName(), "PUT", authorization, payload.dump().c_str()));
     } else {
         json payload = {{"contactGroup", {{"name", group->name() }} }};
-        resp = PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + "contactGroups", "POST", authorization, MailUtils::safeDump(payload).c_str()));
+        resp = PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + "contactGroups", "POST", authorization, payload.dump().c_str()));
     }
-    logger->info("Response {}", MailUtils::safeDump(resp));
+    logger->info("Response {}", resp.dump());
 
     group->setGoogleResourceName(resp["resourceName"].get<string>());
     store->save(group.get());
@@ -222,7 +222,7 @@ void GoogleContactsWorker::deleteContactGroup(string groupResourceName) {
     auto parts = SharedXOAuth2TokenManager()->partsForAccount(account);
     string authorization = "Bearer " + parts.accessToken;
     auto resp = PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + groupResourceName, "DELETE", authorization));
-    logger->warn("respresp: {}", MailUtils::safeDump(resp));
+    logger->warn("respresp: {}", resp.dump());
 }
 
 void GoogleContactsWorker::updateContactGroupMembership(shared_ptr<ContactGroup> group, vector<shared_ptr<Contact>> contacts, string direction) {
@@ -239,7 +239,7 @@ void GoogleContactsWorker::updateContactGroupMembership(shared_ptr<ContactGroup>
     } else {
         payload["resourceNamesToRemove"] = resourceNames;
     };
-    PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + group->googleResourceName() + "/members:modify", "POST", authorization, MailUtils::safeDump(payload).c_str()));
+    PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + group->googleResourceName() + "/members:modify", "POST", authorization, payload.dump().c_str()));
 }
 
 void GoogleContactsWorker::deleteContact(shared_ptr<Contact> contact) {
@@ -259,7 +259,7 @@ void GoogleContactsWorker::deleteContact(shared_ptr<Contact> contact) {
 void GoogleContactsWorker::upsertContact(shared_ptr<Contact> contact) {
     auto parts = SharedXOAuth2TokenManager()->partsForAccount(account);
     string authorization = "Bearer " + parts.accessToken;
-    string body = MailUtils::safeDump(contact->info());
+    string body = contact->info().dump();
     
     logger->info("Upserting contact with data: {}", body);
     json resp;
@@ -269,7 +269,7 @@ void GoogleContactsWorker::upsertContact(shared_ptr<Contact> contact) {
         resp = PerformJSONRequest(CreateJSONRequest(GOOGLE_PEOPLE_ROOT + "people:createContact", "POST", authorization, body.c_str()));
         contact->setGoogleResourceName(resp["resourceName"].get<string>());
     }
-    logger->info("Upserting contact complete: {}", MailUtils::safeDump(resp));
+    logger->info("Upserting contact complete: {}", resp.dump());
     applyJSONToContact(contact, resp);
     store->save(contact.get());
 }

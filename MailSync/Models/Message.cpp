@@ -69,13 +69,13 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
     
     _data["files"] = json::array();
     _data["date"] = msg->header()->date() == -1 ? msg->header()->receivedDate() : msg->header()->date();
-    _data["hMsgId"] = msg->header()->messageID() ? MailUtils::toUTF8(msg->header()->messageID()) : "no-header-message-id";
-    _data["subject"] = msg->header()->subject() ? MailUtils::toUTF8(msg->header()->subject()) : "No Subject";
+    _data["hMsgId"] = msg->header()->messageID() ? msg->header()->messageID()->UTF8Characters() : "no-header-message-id";
+    _data["subject"] = msg->header()->subject() ? msg->header()->subject()->UTF8Characters() : "No Subject";
     _data["gMsgId"] = to_string(msg->gmailMessageID());
     
     Array * irt = msg->header()->inReplyTo();
     if (irt && irt->count() && irt->lastObject()) {
-        _data["rthMsgId"] = MailUtils::toUTF8((String *)irt->lastObject());
+        _data["rthMsgId"] = ((String*)irt->lastObject())->UTF8Characters();
     } else {
         _data["rthMsgId"] = nullptr;
     }
@@ -96,7 +96,7 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
         if (key == nullptr) continue;
         auto const val = msg->header()->extraHeaderValueForName(key);
         if (val == nullptr) continue;
-        _data["extraHeaders"][MailUtils::toUTF8(key)] = MailUtils::toUTF8(val);
+        _data["extraHeaders"][key->UTF8Characters()] = val->UTF8Characters();
     }
     
     // inflate the participant fields
@@ -444,7 +444,7 @@ void Message::bindToQuery(SQLite::Statement * query) {
     query->bind(":headerMessageId", headerMessageId());
     query->bind(":subject", subject());
     query->bind(":remoteUID", remoteUID());
-    query->bind(":remoteXGMLabels", MailUtils::safeDump(remoteXGMLabels()));
+    query->bind(":remoteXGMLabels", remoteXGMLabels().dump());
     query->bind(":remoteFolderId", remoteFolderId());
     query->bind(":threadId", threadId());
     query->bind(":gMsgId", gMsgId());

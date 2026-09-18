@@ -492,7 +492,7 @@ void TaskProcessor::performLocal(Task * task) {
         task->setStatus("remote");
 
     } catch (SyncException & ex) {
-        logger->error("[{}] -- Failed ({}). Changing status to `complete`", task->id(), MailUtils::safeDump(ex.toJSON()));
+        logger->error("[{}] -- Failed ({}). Changing status to `complete`", task->id(), ex.toJSON().dump());
         logger->flush();
         task->setError(ex.toJSON());
         task->setStatus("complete");
@@ -602,7 +602,7 @@ void TaskProcessor::performRemote(Task * task) {
             }
         }
     } catch (SyncException & ex) {
-        logger->error("[{}] -- Failed ({}). Changing status to `complete`", task->id(), MailUtils::safeDump(ex.toJSON()));
+        logger->error("[{}] -- Failed ({}). Changing status to `complete`", task->id(), ex.toJSON().dump());
         logger->flush();
         task->setError(ex.toJSON());
         task->setStatus("complete");
@@ -1402,7 +1402,7 @@ void TaskProcessor::performRemoteSyncbackMetadata(Task * task) {
     }
 
     const json results = PerformIdentityRequest("/metadata/" + account->id() + "/" + id + "/" + pluginId, "POST", payload);
-    logger->info("Syncback of metadata {}:{} = {} succeeded.", id, pluginId, MailUtils::safeDump(payload));
+    logger->info("Syncback of metadata {}:{} = {} succeeded.", id, pluginId, payload.dump());
 }
 
 void TaskProcessor::performRemoteDestroyCategory(Task * task) {
@@ -1816,7 +1816,7 @@ void TaskProcessor::performRemoteSendFeatureUsageEvent(Task * task) {
 
     logger->info("Incrementing usage of feature: {}", feature);
     auto result = PerformIdentityRequest("/api/feature_usage_event", "POST", payload);
-    logger->info("Incrementing usage of feature succeeded: {}", MailUtils::safeDump(result));
+    logger->info("Incrementing usage of feature succeeded: {}", result.dump());
 }
 
 void TaskProcessor::performLocalChangeRoleMapping(Task * task) {
@@ -2075,7 +2075,7 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
                 exported++;
             } catch (SyncException & ex) {
                 logger->error("GetManyRFC2822: failed to export message {} (UID {}): {}",
-                    msg->id(), msg->remoteUID(), MailUtils::safeDump(ex.toJSON()));
+                    msg->id(), msg->remoteUID(), ex.toJSON().dump());
                 failed++;
                 json errEntry;
                 errEntry["messageId"] = msg->id();

@@ -127,7 +127,7 @@ json MailModel::toJSONDispatch()
 void MailModel::bindToQuery(SQLite::Statement * query) {
     auto _id = id();
     query->bind(":id", _id);
-    query->bind(":data", MailUtils::safeDump(this->toJSON()));
+    query->bind(":data", this->toJSON().dump());
     query->bind(":accountId", accountId());
     query->bind(":version", version());
 

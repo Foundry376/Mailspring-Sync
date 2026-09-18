@@ -43,20 +43,15 @@ public:
     static string getEnvUTF8(string key);
     static bool setEnvUTF8(string key, string value);
 
-    // Guarantees well-formed UTF-8, replacing any ill-formed sequence with U+FFFD. Use it on
-    // anything that came off the wire and is headed for a model, the delta stream or a log
-    // line: nlohmann validates UTF-8 when it serializes and throws json::type_error otherwise,
-    // and most of the dumps in this process happen where a throw cannot be caught.
-    // Takes its argument by value so a body or a response passed as a temporary is moved
-    // through rather than copied twice.
-    static string sanitizeUTF8(string input);
-
-    // sanitizeUTF8(str->UTF8Characters()), plus a null check. Prefer this over calling
-    // UTF8Characters() directly when the result reaches a MailModel or the database.
-    static string toUTF8(mailcore::String * str);
-
-    // json::dump() that substitutes ill-formed UTF-8 rather than throwing.
-    static string safeDump(const json & j);
+    // True when `input` is well-formed UTF-8 by the same rules nlohmann's serializer applies
+    // (RFC 3629: no overlong forms, nothing above U+10FFFF, no surrogates).
+    //
+    // Callers should not need this. Ill-formed UTF-8 does not reach Mailspring code, because
+    // mailcore's String::UTF8Characters() substitutes U+FFFD, and it cannot leave through the
+    // serializer, because nlohmann's dump() does the same. Both of those are local
+    // modifications to vendored libraries - see docs/vendor-update-workflow.md - and this
+    // exists so runInstallCheck() can assert the first one is still in place.
+    static bool isWellFormedUTF8(const string & input);
 
     static json merge(const json &a, const json &b);
     static json contactJSONFromAddress(Address * addr);
