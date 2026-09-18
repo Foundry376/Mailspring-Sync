@@ -530,7 +530,7 @@ bool SyncWorker::syncNow()
                     // If there were more gaps than one pass can fill, leave lastDeep alone so we
                     // come back immediately rather than in another day - but only while the
                     // backlog is actually shrinking.
-                    if (deep.truncated && shouldRetryTruncatedScan(*folder, deep)) {
+                    if (shouldRetryTruncatedScan(*folder, deep)) {
                         deepScanIncomplete = true;
                     } else {
                         localStatus[LS_LAST_DEEP] = time(0);
@@ -602,7 +602,7 @@ bool SyncWorker::syncNow()
                 // Only mark the deep scan done if it got through the backlog. Otherwise keep
                 // scanning on subsequent iterations instead of waiting out DEEP_SCAN_INTERVAL
                 // between every MAX_FULL_HEADERS_REQUEST_SIZE messages.
-                if (deep.truncated && shouldRetryTruncatedScan(*folder, deep)) {
+                if (shouldRetryTruncatedScan(*folder, deep)) {
                     deepScanIncomplete = true;
                 } else {
                     localStatus[LS_LAST_DEEP] = time(0);
@@ -948,8 +948,17 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 // the backlog actually shrank; otherwise treat the scan as done so we wait out the normal interval.
 bool SyncWorker::shouldRetryTruncatedScan(Folder & folder, UIDRangeSyncResult const & scan)
 {
+    if (!scan.truncated) {
+        // The scan covered the whole folder, so this episode is over. Forget the count: a future
+        // gap has to be judged on its own, and a leftover value would make a new, larger backlog
+        // look like it wasn't draining and cost it an interval before the first retry.
+        lastTruncatedScanNeeded.erase(folder.id());
+        return false;
+    }
+
     auto it = lastTruncatedScanNeeded.find(folder.id());
     bool draining = (it == lastTruncatedScanNeeded.end()) || (scan.needed < it->second);
+    // Note: keep the count on the back-off path - it is what bounds the retry loop.
     lastTruncatedScanNeeded[folder.id()] = scan.needed;
     if (!draining) {
         logger->warn("- {}: {} messages still need full headers after a full pass and the count is "

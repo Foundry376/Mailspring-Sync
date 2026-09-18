@@ -92,6 +92,9 @@ private:
         size_t needed = 0;
     };
 
+    // True if a full-folder scan left work behind AND the backlog is still shrinking, meaning the
+    // caller should come straight back for the next batch. Also clears the folder's bookkeeping
+    // once a scan completes cleanly, so it must be called for every full-folder scan result.
     bool shouldRetryTruncatedScan(Folder & folder, UIDRangeSyncResult const & scan);
 
     UIDRangeSyncResult syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
