@@ -1055,11 +1055,13 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 }
 
 void SyncWorker::unlinkVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source) {
-    if (vanished == NULL || vanished->count() == 0) {
+    // Test rangesCount, not count(): count() sums `length + 1` per range, so an open-ended
+    // range like 12:* (length UINT64_MAX) wraps it to zero.
+    if (vanished == NULL || vanished->rangesCount() == 0) {
         return;
     }
-    logger->info("Unlinking {} UID(s) reported VANISHED in {} by {}",
-                 vanished->count(), folder.path(), source);
+    logger->info("Unlinking {} VANISHED UID range(s) in {} reported by {}",
+                 vanished->rangesCount(), folder.path(), source);
 
     // IMPORTANT: vanished may include an infinite range, like 12:*, so we can't convert
     // it to a fixed array.

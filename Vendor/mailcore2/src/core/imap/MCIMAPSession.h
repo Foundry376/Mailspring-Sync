@@ -214,7 +214,8 @@ namespace mailcore {
         /** Returns - and clears - the UIDs reported VANISHED for `folder` on this connection
             since the last call, or NULL if there were none. A QRESYNC server tells a given
             connection about an expunge exactly once, and the untagged VANISHED can ride along
-            with any command, so callers must drain this before advancing HIGHESTMODSEQ. */
+            with any command, so callers must drain this before advancing HIGHESTMODSEQ.
+            `folder` is matched exactly, so spell it as it was passed to select(). */
         virtual IndexSet * takeVanishedMessages(String * folder);
         virtual bool isIdentityEnabled();
         virtual bool isXOAuthEnabled();

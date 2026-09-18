@@ -349,9 +349,8 @@ static struct mailimap_set * setFromIndexSet(IndexSet * indexSet)
     return imap_set;
 }
 
-static IndexSet * indexSetFromSet(struct mailimap_set * imap_set)
+static void addSetToIndexSet(IndexSet * indexSet, struct mailimap_set * imap_set)
 {
-    IndexSet * indexSet = IndexSet::indexSet();
     for(clistiter * cur = clist_begin(imap_set->set_list) ; cur != NULL ; cur = clist_next(cur)) {
         struct mailimap_set_item * item = (struct mailimap_set_item *) clist_content(cur);
         if (item->set_last == 0) {
@@ -364,6 +363,12 @@ static IndexSet * indexSetFromSet(struct mailimap_set * imap_set)
             indexSet->addRange(RangeMake(item->set_first, item->set_last - item->set_first));
         }
     }
+}
+
+static IndexSet * indexSetFromSet(struct mailimap_set * imap_set)
+{
+    IndexSet * indexSet = IndexSet::indexSet();
+    addSetToIndexSet(indexSet, imap_set);
     return indexSet;
 }
 
@@ -699,7 +704,11 @@ void IMAPSession::unsetup()
         mailimap_free(imap);
         imap = NULL;
     }
-    
+
+    // A new connection is told about these expunges again, and UIDVALIDITY may change
+    // before it is, so anything still undrained here is not safe to keep.
+    mVanishedMessages->removeAllObjects();
+
     mState = STATE_DISCONNECTED;
 }
 
@@ -2820,7 +2829,10 @@ IMAPSyncResult * IMAPSession::fetchMessages(String * folder, IMAPMessagesRequest
     
     vanishedMessages = NULL;
     if (vanished != NULL) {
+        // mailimap_*_fetch_qresync hands us ownership of this struct.
         vanishedMessages = indexSetFromSet(vanished->qr_known_uids);
+        mailimap_qresync_vanished_free(vanished);
+        vanished = NULL;
     }
     
     mBodyProgressEnabled = true;
@@ -4545,12 +4557,12 @@ void IMAPSession::collectVanishedFromLastResponse()
         }
         // Claim it the way get_vanished() does, so a second pass can't report it twice.
         ext_data->ext_data = NULL;
-        if (vanished->qr_known_uids != NULL) {
-            if (collected == NULL) {
-                collected = IndexSet::indexSet();
-            }
-            collected->addIndexSet(indexSetFromSet(vanished->qr_known_uids));
+        if (collected == NULL) {
+            // owned rather than autoreleased: this runs on every command, and not every
+            // thread driving a session holds an autorelease pool.
+            collected = new IndexSet();
         }
+        addSetToIndexSet(collected, vanished->qr_known_uids);
         mailimap_qresync_vanished_free(vanished);
     }
 
@@ -4565,6 +4577,7 @@ void IMAPSession::collectVanishedFromLastResponse()
     else {
         mVanishedMessages->setObjectForKey(mCurrentFolder, collected);
     }
+    MC_SAFE_RELEASE(collected);
 }
 
 IndexSet * IMAPSession::takeVanishedMessages(String * folder)
