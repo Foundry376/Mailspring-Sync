@@ -40,4 +40,9 @@ int mailsmtp_send_command_private(mailsmtp * f, char * command);
 
 int mailsmtp_read_response(mailsmtp * session);
 
+/* BG EDIT: non-zero when gethostname() returns something we are allowed to
+   put on the wire, i.e. when HELO/EHLO with useip=0 and useip=1 would send
+   different arguments. */
+int mailsmtp_local_hostname_is_usable(void);
+
 #endif
