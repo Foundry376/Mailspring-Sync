@@ -25,6 +25,3 @@ cmake_install.cmake
 
 # Local build prefix for vendored libetpan (see BUILDING.md)
 /Vendor/_install/
-
-# QRESYNC reproduction harness output
-/test/qresync-vanished/runs/
