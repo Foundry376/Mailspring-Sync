@@ -186,16 +186,36 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
     auto jlabels = json(updated.labels);
 
     // Priority folder check: prevent lower-priority folders from claiming messages
-    // that already belong to higher-priority folders. This fixes "flickering" on
-    // iCloud and NetEase where the same message genuinely exists in multiple folders
-    // simultaneously (for example, a message sent to yourself appears in Inbox and Sent).
+    // that already belong to higher-priority folders. Message IDs are derived from
+    // headers, so two physical copies of one message collapse onto one row, and with
+    // "latest folder wins" the copies take turns claiming it on every sync pass: the
+    // message flickers between folders and its unread state flips with it.
     //
-    // On standard IMAP servers (FastMail, etc.), messages MOVE between folders
-    // (DELETE from source + APPEND to destination). The "latest folder wins" behavior
-    // is correct for these servers. The priority check is only needed for providers
-    // known to expose the same message in multiple folders at once.
+    // On standard IMAP servers messages MOVE between folders (DELETE from source +
+    // APPEND to destination), and "latest folder wins" is what makes a move show up
+    // as soon as the destination is scanned, before the source has been rescanned
+    // and unlinked the old UID. So the check is applied only where duplicates are
+    // expected rather than moves:
+    //
+    // - iCloud and NetEase expose the same message in multiple folders at once.
+    // - A real Sent folder, on every provider. A message addressed to yourself (or to
+    //   a list you are on) is delivered to Inbox by SMTP and saved to Sent by the
+    //   client, so it legitimately lives in both. Observed on Office 365 and Yahoo:
+    //   every INBOX <-> Sent Items flap was a self-addressed message. Metadata is
+    //   attached by ID, not folder, so the row keeping its ID is what matters; a
+    //   genuine move out of Sent still lands once Sent unlinks the old UID.
+    //   Gmail is excluded by the Label check: there "sent" is a label, the send
+    //   path inserts the message under it, and All Mail must then take ownership.
     string currentFolderId = local->remoteFolderId();
-    bool useFolderPriority = account->isICloud() || account->isNetEase();
+    json currentRemoteFolder = local->remoteFolder();
+    string currentRole = "";
+    if (currentRemoteFolder.contains("role") && currentRemoteFolder["role"].is_string()) {
+        currentRole = currentRemoteFolder["role"].get<string>();
+    }
+    bool bothAreFolders = folder.tableName() == Folder::TABLE_NAME &&
+                          currentRemoteFolder.value("__cls", "") == Folder::TABLE_NAME;
+    bool involvesSentFolder = bothAreFolders && (folder.role() == "sent" || currentRole == "sent");
+    bool useFolderPriority = account->isICloud() || account->isNetEase() || involvesSentFolder;
 
     if (useFolderPriority && folder.id() != currentFolderId && !currentFolderId.empty()) {
         bool isUnlinked = local->remoteUID() > UINT32_MAX - 5;
@@ -205,13 +225,6 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
             logger->info("- Message {} was unlinked, allowing reclaim by folder {}",
                         local->id(), folder.path());
         } else {
-            // Compare folder priorities to determine if update is allowed
-            json currentRemoteFolder = local->remoteFolder();
-            string currentRole = "";
-            if (currentRemoteFolder.contains("role") && currentRemoteFolder["role"].is_string()) {
-                currentRole = currentRemoteFolder["role"].get<string>();
-            }
-
             int newPriority = MailUtils::priorityForFolderRole(folder.role());
             int currentPriority = MailUtils::priorityForFolderRole(currentRole);
 
