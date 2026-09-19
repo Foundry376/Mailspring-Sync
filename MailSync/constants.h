@@ -151,9 +151,6 @@ static vector<string> V1_SETUP_QUERIES = {
         "draft TINYINT(1),"
         "unread TINYINT(1),"
         "starred TINYINT(1),"
-        "remoteUID INTEGER,"
-        "remoteXGMLabels TEXT,"
-        "remoteFolderId VARCHAR(40),"
         "replyToHeaderMessageId VARCHAR(255),"
         "threadId VARCHAR(40))",
     
@@ -180,10 +177,6 @@ static vector<string> V1_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `Calendar` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8))",
     
     "CREATE TABLE IF NOT EXISTS `Task` (id VARCHAR(40) PRIMARY KEY, version INTEGER, data BLOB, accountId VARCHAR(8), status VARCHAR(255))",
-};
-
-static vector<string> V2_SETUP_QUERIES = {
-    "CREATE INDEX IF NOT EXISTS MessageUIDScanIndex ON Message(accountId, remoteFolderId, remoteUID)",
 };
 
 static vector<string> V3_SETUP_QUERIES = {
@@ -246,12 +239,23 @@ static vector<string> V10_SETUP_QUERIES = {
         "pendingFolderId VARCHAR(40) NULL)",
 };
 
-// Backfill: one placement per message from the IMAP truth (remoteFolderId / remoteUID,
-// not data.folder). Unlink sentinels (UINT32_MAX - phase) become UID 0 tombstones dated
-// now so the first sweep after upgrade deletes them, as the phase sweep would have.
-// The JSON snapshot is written by a separate statement so Phase 3 can fold it into the
-// Message table rebuild that drops the three legacy columns.
-static vector<string> V10_BACKFILL_QUERIES = {
+// Upgrade of a pre-V10 database (a fresh database gets the final Message shape from
+// V1_SETUP_QUERIES and skips this). One placement per message is backfilled from the
+// IMAP truth (remoteFolderId / remoteUID, not data.folder); unlink sentinels
+// (UINT32_MAX - phase) become UID 0 tombstones dated now so the first sweep after the
+// upgrade deletes them, as the phase sweep would have.
+//
+// The Message table is then rebuilt without remoteUID / remoteXGMLabels / remoteFolderId
+// - the same table rewrite SQLite performs for each DROP COLUMN, done once - and the
+// same pass rewrites each row's JSON to the placements contract: the embedded folder
+// copies go and "folders" ({ folderId: flagBits }) arrives. Sentinel rows keep their
+// folder key: the single-folder unlink never decremented the thread, so the snapshot
+// must still name the folder for Message::afterRemove to balance the refcount when the
+// sweep removes them. Rows with and without a folder are copied by separate statements
+// rather than one CASE: json_set only embeds its argument as an object when the JSON
+// subtype reaches it, and whether the subtype survives a CASE expression depends on the
+// SQLite version; a lost subtype would store the map as a string.
+static vector<string> V10_UPGRADE_QUERIES = {
     "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt) "
     "SELECT accountId, id, remoteFolderId, "
            "CASE WHEN remoteUID > 4294967290 THEN 0 ELSE remoteUID END, "
@@ -259,20 +263,42 @@ static vector<string> V10_BACKFILL_QUERIES = {
            "IFNULL(CAST(json_extract(data, '$._sa') AS INTEGER), 0), "
            "CASE WHEN remoteUID > 4294967290 THEN strftime('%s', 'now') ELSE NULL END "
     "FROM Message WHERE remoteFolderId IS NOT NULL AND remoteFolderId != ''",
-};
 
-// The JSON snapshot keeps the folder key for sentinel rows: the single-folder unlink
-// never decremented the thread, so the snapshot must still name the folder for
-// Message::afterRemove to balance the thread's refcount when the sweep removes it.
-// Two statements rather than one CASE: json_set only embeds its argument as an object
-// when the JSON subtype reaches it, and whether the subtype survives a CASE expression
-// depends on the SQLite version; a lost subtype would store the map as a string.
-static vector<string> V10_JSON_QUERIES = {
-    "UPDATE Message SET data = json_set(data, '$.folders', json_object(remoteFolderId, "
-        "IFNULL(unread, 0) | (IFNULL(starred, 0) << 1) | (IFNULL(draft, 0) << 2))) "
-    "WHERE remoteFolderId IS NOT NULL AND remoteFolderId != ''",
-    "UPDATE Message SET data = json_set(data, '$.folders', json('{}')) "
-    "WHERE remoteFolderId IS NULL OR remoteFolderId = ''",
+    "CREATE TABLE Message_v10 ("
+        "id VARCHAR(40) PRIMARY KEY,"
+        "accountId VARCHAR(8),"
+        "version INTEGER,"
+        "data TEXT,"
+        "headerMessageId VARCHAR(255),"
+        "gMsgId VARCHAR(255),"
+        "gThrId VARCHAR(255),"
+        "subject VARCHAR(500),"
+        "date DATETIME,"
+        "draft TINYINT(1),"
+        "unread TINYINT(1),"
+        "starred TINYINT(1),"
+        "replyToHeaderMessageId VARCHAR(255),"
+        "threadId VARCHAR(40))",
+
+    "INSERT INTO Message_v10 (id, accountId, version, data, headerMessageId, gMsgId, gThrId, subject, date, draft, unread, starred, replyToHeaderMessageId, threadId) "
+    "SELECT id, accountId, version, "
+           "json_set(json_remove(data, '$.folder', '$.remoteFolder', '$.remoteUID', '$.remoteFolderId'), '$.folders', "
+               "json_object(remoteFolderId, IFNULL(unread, 0) | (IFNULL(starred, 0) << 1) | (IFNULL(draft, 0) << 2))), "
+           "headerMessageId, gMsgId, gThrId, subject, date, draft, unread, starred, replyToHeaderMessageId, threadId "
+    "FROM Message WHERE remoteFolderId IS NOT NULL AND remoteFolderId != ''",
+
+    "INSERT INTO Message_v10 (id, accountId, version, data, headerMessageId, gMsgId, gThrId, subject, date, draft, unread, starred, replyToHeaderMessageId, threadId) "
+    "SELECT id, accountId, version, "
+           "json_set(json_remove(data, '$.folder', '$.remoteFolder', '$.remoteUID', '$.remoteFolderId'), '$.folders', json('{}')), "
+           "headerMessageId, gMsgId, gThrId, subject, date, draft, unread, starred, replyToHeaderMessageId, threadId "
+    "FROM Message WHERE remoteFolderId IS NULL OR remoteFolderId = ''",
+
+    "DROP TABLE Message",
+    "ALTER TABLE Message_v10 RENAME TO Message",
+    "CREATE INDEX IF NOT EXISTS MessageListThreadIndex ON Message(threadId, date ASC)",
+    "CREATE INDEX IF NOT EXISTS MessageListHeaderMsgIdIndex ON Message(headerMessageId)",
+    "CREATE INDEX IF NOT EXISTS MessageListDraftIndex ON Message(accountId, date DESC) WHERE draft = 1",
+    "CREATE INDEX IF NOT EXISTS MessageListUnifiedDraftIndex ON Message(date DESC) WHERE draft = 1",
 };
 
 // Built after the bulk insert; a (folder, UID) pair is unique on the server until
@@ -281,8 +307,8 @@ static vector<string> V10_INDEX_QUERIES = {
     "CREATE UNIQUE INDEX IF NOT EXISTS MessageFolderUIDIndex ON MessageFolder (accountId, folderId, remoteUID) WHERE remoteUID > 0",
     "CREATE INDEX IF NOT EXISTS MessageFolderMessageIndex ON MessageFolder (messageId)",
     "CREATE INDEX IF NOT EXISTS MessageFolderUnlinkedIndex ON MessageFolder (accountId, unlinkedAt) WHERE unlinkedAt IS NOT NULL",
-    // Drives the body-sync queries newest-first now that they can no longer walk a folder
-    // through Message.remoteFolderId (SyncWorker::syncMessageBodies).
+    // Drives the body-sync queries newest-first with a correlated placement check
+    // (SyncWorker::syncMessageBodies).
     "CREATE INDEX IF NOT EXISTS MessageListDateIndex ON Message (accountId, date DESC)",
 };
 

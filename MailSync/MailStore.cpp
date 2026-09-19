@@ -125,11 +125,6 @@ void MailStore::migrate() {
             SQLite::Statement(_db, sql).exec();
         }
     }
-    if (version < 2) {
-        for (string sql : V2_SETUP_QUERIES) {
-            SQLite::Statement(_db, sql).exec();
-        }
-    }
     if (version < 3) {
         // This one will be time consuming - display window
         cout << "\nRunning " << verb;
@@ -199,16 +194,20 @@ void MailStore::migrate() {
 }
 
 /*
- V10 creates MessageFolder and backfills one placement per message (see constants.h).
- Unlike earlier migrations it runs in one explicit transaction: a crash mid-way rolls
- back the table, the backfill and the JSON rewrite together and leaves user_version at
- the old value so the next launch retries.
+ V10 creates MessageFolder, backfills one placement per message and rebuilds the Message
+ table without its location columns (see constants.h). Unlike earlier migrations it runs
+ in one explicit transaction: a crash mid-way rolls back the new table, the backfill and
+ the rebuild together - DDL included - and leaves user_version at the old value so the
+ next launch retries. A fresh database already has the final Message shape from V1 and
+ only needs the new table and its indexes.
 
- The rewrite of every Message row and the new table live in the WAL until commit, so a
- second copy of the Message table has to fit on disk. dbstat is not compiled in, so the
- whole database size is used as a ceiling on the Message table size. The failure is a
- plain runtime_error whose text names the disk, so the client's "problem with your
- local email database" dialog does not read like corruption.
+ The rebuilt Message table, the placements and their indexes are written to the WAL and
+ then checkpointed into the main file, whose pages from the dropped table are only
+ reclaimed by the 30-day VACUUM. On the 1.15 GB / 258k-message benchmark the file grows
+ by 385 MB and the WAL peaks at about the same, so 1.5x the database is a safe ceiling;
+ dbstat is not compiled in, so the whole database size stands in for the Message table.
+ The failure is a plain runtime_error whose text names the disk, so the client's
+ "problem with your local email database" dialog does not read like corruption.
  */
 void MailStore::_migrateToV10(bool freshDatabase, const string & verb) {
     if (!freshDatabase) {
@@ -237,7 +236,11 @@ void MailStore::_migrateToV10(bool freshDatabase, const string & verb) {
 
     SQLite::Statement(_db, "BEGIN IMMEDIATE TRANSACTION").exec();
     try {
-        for (auto queries : {&V10_SETUP_QUERIES, &V10_BACKFILL_QUERIES, &V10_JSON_QUERIES, &V10_INDEX_QUERIES}) {
+        vector<vector<string> *> steps = {&V10_SETUP_QUERIES, &V10_INDEX_QUERIES};
+        if (!freshDatabase) {
+            steps.insert(steps.begin() + 1, &V10_UPGRADE_QUERIES);
+        }
+        for (auto queries : steps) {
             for (string sql : *queries) {
                 SQLite::Statement(_db, sql).exec();
             }
