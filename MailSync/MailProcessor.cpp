@@ -152,9 +152,8 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         // Apply the new message's attributes to the thread (folder/label refcounts,
         // unread/starred counters, timestamps) BEFORE saving the thread. This avoids
         // Message::afterSave re-loading and re-saving the thread a second time.
-        auto allLabels = store->allLabelsCache(msg->accountId());
         MessageSnapshot empty = MessageEmptySnapshot;
-        thread->applyMessageAttributeChanges(empty, msg.get(), allLabels);
+        thread->applyMessageAttributeChanges(empty, msg.get(), store);
         msg->captureSnapshot();
         msg->_skipThreadUpdatesAfterSave = true;
 
@@ -700,7 +699,7 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
 void MailProcessor::upsertContacts(Message * message) {
     // As of Mailspring 1.7, we no longer keep around Contacts that you've never
     // sent email to. We actually never really did anything with these.
-    if (!message->isSentByUser()) {
+    if (!message->isSentByUser(store)) {
         return;
     }
     

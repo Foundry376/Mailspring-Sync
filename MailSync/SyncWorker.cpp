@@ -586,7 +586,7 @@ bool SyncWorker::syncNow()
                     }
                     int count = 0;
                     for (auto msg : synced) {
-                        if (!msg->isInInbox()) {
+                        if (!msg->isInInbox(store)) {
                             continue; // skip "all mail" that is not in inbox
                         }
                         syncMessageBody(msg.get());
@@ -1267,7 +1267,9 @@ void SyncWorker::unlinkVanishedUIDs(Folder & folder, IndexSet * vanished, const 
 
     // IMPORTANT: vanished may include an infinite range, like 12:*, so we can't convert
     // it to a fixed array.
-    vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), vanished);
+    // TEMPORARY(placements): removed in Phase 3 - the queries target the Message table's
+    // remoteFolderId column until VANISHED handling moves to MailStore::tombstonePlacements.
+    vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), vanished, "remoteFolderId");
     for (Query & query : queries) {
         processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
     }

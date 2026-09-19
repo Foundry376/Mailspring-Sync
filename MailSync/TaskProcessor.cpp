@@ -803,7 +803,6 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
             threadIds.push_back(member.get<string>());
         }
         auto chunks = MailUtils::chunksOfVector(threadIds, 500);
-        auto allLabels = store->allLabelsCache(task->accountId());
 
         for (auto chunk : chunks) {
             auto threads = store->findAllMap<Thread>(Query().equal("id", chunk), "id");
@@ -813,7 +812,7 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
             }
             for (auto msg : models.messages) {
                 if (threads.count(msg->threadId())) {
-                    threads[msg->threadId()]->applyMessageAttributeChanges(MessageEmptySnapshot, msg.get(), allLabels);
+                    threads[msg->threadId()]->applyMessageAttributeChanges(MessageEmptySnapshot, msg.get(), store);
                 }
             }
             for (auto pair : threads) {

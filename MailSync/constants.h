@@ -42,6 +42,7 @@ static vector<string> ACCOUNT_RESET_QUERIES = {
     "DELETE FROM `Event` WHERE `accountId` = ?",
     "DELETE FROM `Label` WHERE `accountId` = ?",
     "DELETE FROM `MessageBody` WHERE `id` IN (SELECT id FROM `Message` WHERE `accountId` = ?)",
+    "DELETE FROM `MessageFolder` WHERE `accountId` = ?",
     "DELETE FROM `Message` WHERE `accountId` = ?",
     "DELETE FROM `Task` WHERE `accountId` = ?",
     "DELETE FROM `Folder` WHERE `accountId` = ?",
@@ -222,6 +223,64 @@ static vector<string> V8_SETUP_QUERIES = {
 static vector<string> V9_SETUP_QUERIES = {
     "ALTER TABLE `Event` ADD COLUMN recurrenceId VARCHAR(50) DEFAULT ''",
     "CREATE INDEX IF NOT EXISTS EventRecurrenceId ON Event(calendarId, icsuid, recurrenceId)",
+};
+
+// V10: MessageFolder holds one row per physical copy of a message on the server
+// (account, folder, UID) with that copy's IMAP flags, so a message can live in
+// several folders at once. Message.unread/starred/draft become OR-derived from
+// these rows and Message JSON carries a { folderId: flagBits } snapshot.
+// See docs/message-placements-plan.md.
+static vector<string> V10_SETUP_QUERIES = {
+    "CREATE TABLE IF NOT EXISTS MessageFolder ("
+        "rowid INTEGER PRIMARY KEY,"
+        "accountId VARCHAR(8) NOT NULL,"
+        "messageId VARCHAR(40) NOT NULL,"
+        "folderId VARCHAR(40) NOT NULL,"
+        "remoteUID INTEGER NOT NULL,"
+        "unread TINYINT(1) NOT NULL DEFAULT 0,"
+        "starred TINYINT(1) NOT NULL DEFAULT 0,"
+        "draft TINYINT(1) NOT NULL DEFAULT 0,"
+        "remoteXGMLabels TEXT NOT NULL DEFAULT '[]',"
+        "syncedAt INTEGER NOT NULL DEFAULT 0,"
+        "unlinkedAt INTEGER NULL,"
+        "pendingFolderId VARCHAR(40) NULL)",
+};
+
+// Backfill: one placement per message from the IMAP truth (remoteFolderId / remoteUID,
+// not data.folder). Unlink sentinels (UINT32_MAX - phase) become UID 0 tombstones dated
+// now so the first sweep after upgrade deletes them, as the phase sweep would have.
+// The JSON snapshot is written by a separate statement so Phase 3 can fold it into the
+// Message table rebuild that drops the three legacy columns.
+static vector<string> V10_BACKFILL_QUERIES = {
+    "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt) "
+    "SELECT accountId, id, remoteFolderId, "
+           "CASE WHEN remoteUID > 4294967290 THEN 0 ELSE remoteUID END, "
+           "IFNULL(unread, 0), IFNULL(starred, 0), IFNULL(draft, 0), IFNULL(remoteXGMLabels, '[]'), "
+           "IFNULL(CAST(json_extract(data, '$._sa') AS INTEGER), 0), "
+           "CASE WHEN remoteUID > 4294967290 THEN strftime('%s', 'now') ELSE NULL END "
+    "FROM Message WHERE remoteFolderId IS NOT NULL AND remoteFolderId != ''",
+};
+
+// The JSON snapshot keeps the folder key for sentinel rows: the single-folder unlink
+// never decremented the thread, so the snapshot must still name the folder for
+// Message::afterRemove to balance the thread's refcount when the sweep removes it.
+// Two statements rather than one CASE: json_set only embeds its argument as an object
+// when the JSON subtype reaches it, and whether the subtype survives a CASE expression
+// depends on the SQLite version; a lost subtype would store the map as a string.
+static vector<string> V10_JSON_QUERIES = {
+    "UPDATE Message SET data = json_set(data, '$.folders', json_object(remoteFolderId, "
+        "IFNULL(unread, 0) | (IFNULL(starred, 0) << 1) | (IFNULL(draft, 0) << 2))) "
+    "WHERE remoteFolderId IS NOT NULL AND remoteFolderId != ''",
+    "UPDATE Message SET data = json_set(data, '$.folders', json('{}')) "
+    "WHERE remoteFolderId IS NULL OR remoteFolderId = ''",
+};
+
+// Built after the bulk insert; a (folder, UID) pair is unique on the server until
+// UIDVALIDITY changes and UID 0 rows (drafts, resets) are exempt.
+static vector<string> V10_INDEX_QUERIES = {
+    "CREATE UNIQUE INDEX IF NOT EXISTS MessageFolderUIDIndex ON MessageFolder (accountId, folderId, remoteUID) WHERE remoteUID > 0",
+    "CREATE INDEX IF NOT EXISTS MessageFolderMessageIndex ON MessageFolder (messageId)",
+    "CREATE INDEX IF NOT EXISTS MessageFolderUnlinkedIndex ON MessageFolder (accountId, unlinkedAt) WHERE unlinkedAt IS NOT NULL",
 };
 
 static map<string, string> COMMON_FOLDER_NAMES = {

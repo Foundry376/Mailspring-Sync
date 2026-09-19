@@ -31,17 +31,21 @@ class MailStore;
 class Message;
 
 // Snapshot concept
+//
+// The state of a message that contributes to its thread's counters, captured when the
+// message is loaded and compared against the message after a save so the thread can be
+// updated by diff. `folders` is the { folderId: flagBits } map from the message JSON, so
+// capturing it costs no query.
 
 struct MessageSnapshot {
     bool unread;
     bool starred;
-    bool inAllMail;
     size_t fileCount;
-    json remoteXGMLabels;
-    string clientFolderId;
+    json labels;
+    json folders;
 };
 
-static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, false, 0, nullptr, ""};
+static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, 0, json::array(), json::object()};
 
 // Message
 
@@ -69,7 +73,17 @@ public:
     bool isDeletionPlaceholder();
     bool isHiddenReminder();
 
-    bool inAllMail();
+    // Placement snapshot: { "<folderId>": bits }, live copies only (see Placement.hpp).
+    // Written by the MailStore placement helpers, read by the client and by Thread.
+    json & folders();
+    vector<string> folderIds();
+    int placementFlags(string folderId);
+    bool hasFolder(string folderId);
+    string folderRole(MailStore * store, string folderId);
+    void _setFolderBits(string folderId, int bits);
+    void _eraseFolder(string folderId);
+
+    bool inAllMail(MailStore * store);
 
     bool isUnread();
     void setUnread(bool u);
@@ -107,13 +121,17 @@ public:
     
     void setBodyForDispatch(string s);
 
-    bool isSentByUser();
-    bool isInInbox();
-    bool _isIn(string roleAlsoLabelName);
+    bool isSentByUser(MailStore * store);
+    bool isInInbox(MailStore * store);
+    bool _isIn(MailStore * store, string roleAlsoLabelName);
 
     json & remoteXGMLabels();
     void setRemoteXGMLabels(json & labels);
 
+    // Single-folder location. Sync and task code still read and write these; the
+    // setters also keep the "folders" snapshot consistent under single-folder semantics
+    // so thread counters diff correctly until the writers move to placements.
+    // TEMPORARY(placements): removed in Phase 3
     uint32_t remoteUID();
     void setRemoteUID(uint32_t v);
     

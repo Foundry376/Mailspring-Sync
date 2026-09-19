@@ -122,8 +122,8 @@ string Query::getSQL() {
     return result;
 }
 
-void Query::bind(SQLite::Statement & query) {
-    int ii = 1;
+void Query::bind(SQLite::Statement & query, int firstIndex) {
+    int ii = firstIndex;
     for (json::iterator it = _clauses.begin(); it != _clauses.end(); ++it) {
         json & rhs = it.value()["rhs"];
 

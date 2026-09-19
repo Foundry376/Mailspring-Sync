@@ -24,6 +24,7 @@
 #include "Message.hpp"
 #include "Contact.hpp"
 #include "Query.hpp"
+#include "Placement.hpp"
 #include "DeltaStream.hpp"
 #include "MailUtils.hpp"
 
@@ -65,9 +66,12 @@ class MailStore {
     map<string, shared_ptr<SQLite::Statement>> _saveUpdateQueries;
     map<string, shared_ptr<SQLite::Statement>> _saveInsertQueries;
     map<string, shared_ptr<SQLite::Statement>> _removeQueries;
+    map<string, shared_ptr<SQLite::Statement>> _placementQueries;
     
     vector<shared_ptr<Label>> _labelCache;
     int _labelCacheVersion;
+    map<string, shared_ptr<Folder>> _folderCache;
+    int _folderCacheVersion;
     int _streamMaxDelay;
     size_t _owningThread;
     
@@ -103,6 +107,43 @@ public:
     map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
 
     vector<shared_ptr<Label>> allLabelsCache(string accountId);
+
+    // Folders and Labels of the account keyed by id, reloaded after any Folder or Label
+    // is saved or removed through any MailStore in this process. Message JSON carries
+    // only folder ids, so roles and paths are resolved here rather than stored per row.
+    const map<string, shared_ptr<Folder>> & allFoldersCache(string accountId);
+    shared_ptr<Folder> folderById(string accountId, string folderId);
+
+    // Placements (MessageFolder rows). The table is canonical; every helper that takes a
+    // Message also rewrites its "folders" snapshot and derived unread/starred/draft so the
+    // two never drift. The caller saves the Message afterwards so the client sees the change.
+    // Bulk helpers touch rows only and return the ids of the messages they affected so the
+    // caller can load those (and only those) to update their snapshots.
+
+    vector<Placement> placementsForMessage(string messageId);
+    vector<Placement> livePlacementsForFolder(Folder & folder);
+
+    void upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs);
+    void setPlacementFlags(Message & msg, bool unread, bool starred, bool draft);
+    void setPlacementFlags(Message & msg, string folderId, bool unread, bool starred, bool draft);
+    void setPlacementLabels(Message & msg, const vector<string> & labels);
+    void beginPlacementMove(Message & msg, string fromFolderId, string toFolderId);
+    void commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid);
+    void removePlacement(Message & msg, string folderId, uint32_t uid);
+    void clearTombstones(Message & msg);
+    void refreshMessageFromPlacements(Message & msg);
+
+    vector<string> tombstonePlacements(Folder & folder, const vector<uint32_t> & uids, time_t now);
+    vector<string> tombstonePlacements(Folder & folder, Query & uidQuery, time_t now);
+    void resetPlacementUIDs(Folder & folder);
+    vector<string> deleteExpiredTombstones(string accountId, time_t before);
+    vector<string> orphanMessageIds(string accountId, int limit);
+    vector<string> orphanMessageIdsAmong(const vector<string> & messageIds);
+    void deletePlacementsForMessage(string messageId);
+    vector<string> deletePlacementsForFolder(string folderId);
+
+    // TEMPORARY(placements): removed in Phase 3
+    void mirrorLegacyPlacement(Message & msg);
 
     void setStreamDelay(int streamMaxDelay);
     
@@ -227,6 +268,10 @@ public:
 private:
 
     void _emit(DeltaStreamItem & delta);
+
+    void _migrateToV10(bool freshDatabase, const string & verb);
+    SQLite::Statement & _placementStatement(const string & key, const string & sql);
+    vector<string> _collectMessageIds(SQLite::Statement & stmt);
 };
 
 

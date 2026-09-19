@@ -50,7 +50,8 @@ public:
     int getLimit();
     std::string getSQL();
 
-    void bind(SQLite::Statement & query);
+    // firstIndex lets a caller prepend its own positional parameters to getSQL().
+    void bind(SQLite::Statement & query, int firstIndex = 1);
 };
 
 

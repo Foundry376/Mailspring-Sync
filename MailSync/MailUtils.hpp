@@ -54,7 +54,10 @@ public:
 
     static vector<uint32_t> uidsOfArray(Array * array);
     
-    static vector<Query> queriesForUIDRangesInIndexSet(string remoteFolderId, IndexSet * set);
+    // Builds queries over MessageFolder (folderId, remoteUID) covering every UID in the
+    // set. folderColumn exists only for the remaining Message-table caller.
+    // TEMPORARY(placements): removed in Phase 3 (the parameter, not the function)
+    static vector<Query> queriesForUIDRangesInIndexSet(string folderId, IndexSet * set, string folderColumn = "folderId");
 
     static string pathForFile(string root, File * file, bool create);
 

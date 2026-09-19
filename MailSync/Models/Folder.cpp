@@ -10,6 +10,7 @@
 //
 
 #include "Folder.hpp"
+#include "Message.hpp"
 #include "MailUtils.hpp"
 #include "MailStore.hpp"
 
@@ -78,10 +79,29 @@ void Folder::beforeSave(MailStore * store) {
     }
 }
 
+/*
+ Removing a folder (or a Label, which inherits this) deletes every placement in it. The
+ messages that held those placements are then loaded, their snapshot rewritten so the
+ client sees the copy leave, and any message left with no copies at all is removed via
+ store->remove so Message::afterRemove balances the thread and drops the body/metadata.
+ */
 void Folder::afterRemove(MailStore * store) {
     MailModel::afterRemove(store);
 
     SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
     count.bind(1, id());
     count.exec();
+
+    vector<string> messageIds = store->deletePlacementsForFolder(id());
+    for (auto chunk : MailUtils::chunksOfVector(messageIds, 500)) {
+        auto messages = store->findAll<Message>(Query().equal("id", chunk));
+        for (auto & msg : messages) {
+            store->refreshMessageFromPlacements(*msg);
+            if (store->placementsForMessage(msg->id()).empty()) {
+                store->remove(msg.get());
+            } else {
+                store->save(msg.get());
+            }
+        }
+    }
 }

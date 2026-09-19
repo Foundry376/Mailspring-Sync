@@ -19,10 +19,16 @@
 #include "Message.hpp"
 #include "Thread.hpp"
 
+#include <filesystem>
+#include <algorithm>
+#include <set>
+#include <stdexcept>
+
 using namespace mailcore;
 using namespace std;
 
 std::atomic<int> globalLabelsVersion {1};
+std::atomic<int> globalFoldersVersion {1};
 
 #pragma mark Metadata
 
@@ -85,7 +91,9 @@ MailStore::MailStore() :
     _stmtCommitTransaction(_db, "COMMIT"),
     _owningThread(spdlog::details::os::thread_id()),
     _labelCacheVersion(0),
-    _labelCache()
+    _labelCache(),
+    _folderCacheVersion(0),
+    _folderCache()
 {
     _db.setBusyTimeout(60 * 1000);
     
@@ -100,7 +108,7 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA main.synchronous = NORMAL").exec();
 }
 
-static int CURRENT_VERSION = 9;
+static int CURRENT_VERSION = 10;
 static string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 30 * 24 * 60 * 60; // 30 days
 
@@ -155,6 +163,9 @@ void MailStore::migrate() {
             SQLite::Statement(_db, sql).exec();
         }
     }
+    if (version < 10) {
+        _migrateToV10(version == 0, verb);
+    }
 
     // Update the version flag. Note that we don't want to go from v3 back to v2
     // if the user re-opens an older version of the app.
@@ -184,6 +195,72 @@ void MailStore::migrate() {
             cout << "\n" << "Vacuuming failed with SQLite error:";
             cout << "\n" << ex.what();
         }
+    }
+}
+
+/*
+ V10 creates MessageFolder and backfills one placement per message (see constants.h).
+ Unlike earlier migrations it runs in one explicit transaction: a crash mid-way rolls
+ back the table, the backfill and the JSON rewrite together and leaves user_version at
+ the old value so the next launch retries.
+
+ The rewrite of every Message row and the new table live in the WAL until commit, so a
+ second copy of the Message table has to fit on disk. dbstat is not compiled in, so the
+ whole database size is used as a ceiling on the Message table size. The failure is a
+ plain runtime_error whose text names the disk, so the client's "problem with your
+ local email database" dialog does not read like corruption.
+ */
+void MailStore::_migrateToV10(bool freshDatabase, const string & verb) {
+    if (!freshDatabase) {
+        SQLite::Statement pageCount(_db, "PRAGMA page_count");
+        pageCount.executeStep();
+        SQLite::Statement pageSize(_db, "PRAGMA page_size");
+        pageSize.executeStep();
+        unsigned long long databaseBytes = (unsigned long long)pageCount.getColumn(0).getInt64() * (unsigned long long)pageSize.getColumn(0).getInt64();
+        unsigned long long neededBytes = databaseBytes + databaseBytes / 2;
+
+        std::error_code ec;
+        auto space = std::filesystem::space(MailUtils::getEnvUTF8("CONFIG_DIR_PATH"), ec);
+        if (!ec && space.available < neededBytes) {
+            throw std::runtime_error(
+                "Mailspring needs about " + to_string(neededBytes / (1024 * 1024)) +
+                " MB of free disk space to upgrade its mail database, but only " +
+                to_string(space.available / (1024 * 1024)) +
+                " MB is available on the volume holding your Mailspring data. " +
+                "Your mail database is intact - free up space and relaunch Mailspring.");
+        }
+
+        // The client watches for this line and shows its progress window.
+        cout << "\nRunning " << verb;
+        cout.flush();
+    }
+
+    SQLite::Statement(_db, "BEGIN IMMEDIATE TRANSACTION").exec();
+    try {
+        for (auto queries : {&V10_SETUP_QUERIES, &V10_BACKFILL_QUERIES, &V10_JSON_QUERIES, &V10_INDEX_QUERIES}) {
+            for (string sql : *queries) {
+                SQLite::Statement(_db, sql).exec();
+            }
+        }
+        SQLite::Statement(_db, "PRAGMA user_version = 10").exec();
+        SQLite::Statement(_db, "COMMIT").exec();
+    } catch (...) {
+        try {
+            SQLite::Statement(_db, "ROLLBACK").exec();
+        } catch (...) {
+            // The failure that got us here is the one worth reporting.
+        }
+        throw;
+    }
+
+    if (!freshDatabase) {
+        SQLite::Statement placements(_db, "SELECT COUNT(*) FROM MessageFolder");
+        placements.executeStep();
+        SQLite::Statement orphans(_db, "SELECT COUNT(*) FROM Message WHERE NOT EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id)");
+        orphans.executeStep();
+        cout << "\nMigration V10: " << placements.getColumn(0).getInt64() << " placements created, "
+             << orphans.getColumn(0).getInt64() << " messages without a folder";
+        cout.flush();
     }
 }
 
@@ -226,9 +303,15 @@ SQLite::Database & MailStore::db()
     return this->_db;
 }
 
+// Both range reads are served by MessageFolder rather than Message so the fat JSON row
+// is never visited. The explicit `remoteUID > 0` term is what lets the planner use the
+// partial MessageFolderUIDIndex; `unlinkedAt IS NULL` is load-bearing: a tombstoned UID
+// that reappears must look unknown so it is fetched and its upsert clears the tombstone.
 map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range range, Folder & folder) {
     assertCorrectThread();
-    SQLite::Statement query(this->_db, "SELECT id, unread, starred, remoteUID, remoteXGMLabels FROM Message WHERE accountId = ? AND remoteFolderId = ? AND remoteUID >= ? AND remoteUID <= ?");
+    auto & query = _placementStatement("attrsInRange",
+        "SELECT remoteUID, unread, starred, draft, remoteXGMLabels FROM MessageFolder "
+        "WHERE accountId = ? AND folderId = ? AND remoteUID >= ? AND remoteUID <= ? AND remoteUID > 0 AND unlinkedAt IS NULL");
     query.bind(1, folder.accountId());
     query.bind(2, folder.id());
     query.bind(3, (long long)(range.location));
@@ -255,6 +338,7 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
         attrs.uid = uid;
         attrs.starred = query.getColumn("starred").getInt() != 0;
         attrs.unread = query.getColumn("unread").getInt() != 0;
+        attrs.draft = query.getColumn("draft").getInt() != 0;
         
         vector<string> labels{};
         for (const auto i : json::parse(query.getColumn("remoteXGMLabels").getString())) {
@@ -264,22 +348,26 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
 
         results[uid] = attrs;
     }
+    query.reset();
     
     return results;
 }
 
 uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint32_t before) {
     assertCorrectThread();
-    SQLite::Statement query(this->_db, "SELECT remoteUID FROM Message WHERE accountId = ? AND remoteFolderId = ? AND remoteUID < ? ORDER BY remoteUID DESC LIMIT 1 OFFSET ?");
+    auto & query = _placementStatement("uidAtDepth",
+        "SELECT remoteUID FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID < ? AND remoteUID > 0 AND unlinkedAt IS NULL "
+        "ORDER BY remoteUID DESC LIMIT 1 OFFSET ?");
     query.bind(1, folder.accountId());
     query.bind(2, folder.id());
     query.bind(3, before);
     query.bind(4, depth);
+    uint32_t result = 1;
     if (query.executeStep()) {
-        return query.getColumn("remoteUID").getUInt();
+        result = query.getColumn("remoteUID").getUInt();
     }
     query.reset();
-    return 1;
+    return result;
 }
 
 string MailStore::getKeyValue(string key) {
@@ -310,6 +398,29 @@ vector<shared_ptr<Label>> MailStore::allLabelsCache(string accountId) {
     return _labelCache;
 }
 
+const map<string, shared_ptr<Folder>> & MailStore::allFoldersCache(string accountId) {
+    // Like allLabelsCache, assumes one accountId per process. Labels are included
+    // because Gmail's send path files a message under the Sent label.
+    if (_folderCacheVersion != globalFoldersVersion) {
+        map<string, shared_ptr<Folder>> next;
+        for (auto & folder : findAll<Folder>(Query().equal("accountId", accountId))) {
+            next[folder->id()] = folder;
+        }
+        for (auto & label : findAll<Label>(Query().equal("accountId", accountId))) {
+            next[label->id()] = label;
+        }
+        _folderCache = next;
+        _folderCacheVersion = globalFoldersVersion;
+    }
+    return _folderCache;
+}
+
+shared_ptr<Folder> MailStore::folderById(string accountId, string folderId) {
+    auto & cache = allFoldersCache(accountId);
+    auto it = cache.find(folderId);
+    return it == cache.end() ? nullptr : it->second;
+}
+
 void MailStore::beginTransaction() {
     assertCorrectThread();
     try {
@@ -331,6 +442,7 @@ void MailStore::rollbackTransaction() {
     _saveUpdateQueries = {};
     _saveInsertQueries = {};
     _removeQueries = {};
+    _placementQueries = {};
     try {
         _stmtRollbackTransaction.exec();
         _stmtRollbackTransaction.reset();
@@ -429,6 +541,9 @@ void MailStore::save(MailModel * model) {
     if (tableName == "Label") {
         globalLabelsVersion += 1;
     }
+    if (tableName == "Label" || tableName == "Folder") {
+        globalFoldersVersion += 1;
+    }
 
     DeltaStreamItem delta {DELTA_TYPE_PERSIST, model};
     _emit(delta);
@@ -473,9 +588,422 @@ void MailStore::remove(MailModel * model) {
     if (model->tableName() == "Label") {
         globalLabelsVersion += 1;
     }
+    if (model->tableName() == "Label" || model->tableName() == "Folder") {
+        globalFoldersVersion += 1;
+    }
 
     DeltaStreamItem delta {DELTA_TYPE_UNPERSIST, model};
     _emit(delta);
+}
+
+
+#pragma mark Placements
+
+SQLite::Statement & MailStore::_placementStatement(const string & key, const string & sql) {
+    auto it = _placementQueries.find(key);
+    if (it == _placementQueries.end()) {
+        it = _placementQueries.emplace(key, make_shared<SQLite::Statement>(_db, sql)).first;
+    }
+    auto & stmt = *it->second;
+    stmt.reset();
+    stmt.clearBindings();
+    return stmt;
+}
+
+// Drains a statement that yields a messageId column and returns the distinct ids in
+// first-seen order. Used for UPDATE/DELETE ... RETURNING messageId.
+vector<string> MailStore::_collectMessageIds(SQLite::Statement & stmt) {
+    vector<string> ids;
+    set<string> seen;
+    while (stmt.executeStep()) {
+        string id = stmt.getColumn(0).getString();
+        if (seen.insert(id).second) {
+            ids.push_back(id);
+        }
+    }
+    stmt.reset();
+    return ids;
+}
+
+static const string PLACEMENT_COLUMNS = "rowid, accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt, pendingFolderId";
+
+vector<Placement> MailStore::placementsForMessage(string messageId) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("forMessage",
+        "SELECT " + PLACEMENT_COLUMNS + " FROM MessageFolder WHERE messageId = ? ORDER BY rowid");
+    stmt.bind(1, messageId);
+    vector<Placement> results;
+    while (stmt.executeStep()) {
+        results.push_back(Placement::fromRow(stmt));
+    }
+    stmt.reset();
+    return results;
+}
+
+vector<Placement> MailStore::livePlacementsForFolder(Folder & folder) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("liveForFolder",
+        "SELECT " + PLACEMENT_COLUMNS + " FROM MessageFolder WHERE accountId = ? AND folderId = ? AND unlinkedAt IS NULL ORDER BY remoteUID");
+    stmt.bind(1, folder.accountId());
+    stmt.bind(2, folder.id());
+    vector<Placement> results;
+    while (stmt.executeStep()) {
+        results.push_back(Placement::fromRow(stmt));
+    }
+    stmt.reset();
+    return results;
+}
+
+/*
+ Rebuilds the message's "folders" snapshot and derived flags from its rows. Called at the
+ end of every helper that changed the rows of a message it has in hand, so the snapshot
+ is only ever recomputed for messages whose placements actually changed (§2.3).
+
+ - "folders" lists live copies keyed by the folder the client should see them in (the
+   pending destination during an optimistic move), OR-ing bits when one folder holds
+   several copies.
+ - unread / starred / draft are OR'd over live AND tombstoned copies so a message in
+   transit between folders does not flip read -> unread -> read across the two scans;
+   draft is also true when any live copy sits in the Drafts folder.
+ - A message with no rows keeps its flags: it is about to be swept.
+ - "labels" is the union of the live copies' X-GM-LABELS (Gmail has one placement).
+ */
+void MailStore::refreshMessageFromPlacements(Message & msg) {
+    auto rows = placementsForMessage(msg.id());
+
+    json folders = json::object();
+    set<string> labels;
+    bool unread = false, starred = false, draft = false;
+    for (auto & p : rows) {
+        unread = unread || p.unread;
+        starred = starred || p.starred;
+        draft = draft || p.draft;
+        if (!p.isLive()) {
+            continue;
+        }
+        string key = p.reportedFolderId();
+        int existing = folders.count(key) ? folders[key].get<int>() : 0;
+        folders[key] = existing | p.flagBits();
+        for (auto & l : p.labels) {
+            labels.insert(l.get<string>());
+        }
+        auto folder = folderById(msg.accountId(), p.folderId);
+        if (folder != nullptr && folder->role() == "drafts") {
+            draft = true;
+        }
+    }
+
+    msg.folders() = folders;
+    if (!rows.empty()) {
+        msg._data["unread"] = unread;
+        msg._data["starred"] = starred;
+        msg._data["draft"] = draft;
+        msg._data["labels"] = json(vector<string>(labels.begin(), labels.end()));
+    }
+}
+
+void MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("upsert",
+        "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt, pendingFolderId) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL) "
+        "ON CONFLICT (accountId, folderId, remoteUID) WHERE remoteUID > 0 DO UPDATE SET "
+        "messageId = excluded.messageId, unread = excluded.unread, starred = excluded.starred, draft = excluded.draft, "
+        "remoteXGMLabels = excluded.remoteXGMLabels, syncedAt = excluded.syncedAt, unlinkedAt = NULL, pendingFolderId = NULL");
+    stmt.bind(1, msg.accountId());
+    stmt.bind(2, msg.id());
+    stmt.bind(3, folder.id());
+    stmt.bind(4, (long long)uid);
+    stmt.bind(5, attrs.unread);
+    stmt.bind(6, attrs.starred);
+    stmt.bind(7, attrs.draft);
+    stmt.bind(8, json(attrs.labels).dump());
+    stmt.bind(9, (long long)msg.syncedAt());
+    stmt.exec();
+    stmt.reset();
+
+    // A live copy anywhere makes every tombstone of this message moot.
+    auto & clear = _placementStatement("clearTombstones",
+        "DELETE FROM MessageFolder WHERE messageId = ? AND unlinkedAt IS NOT NULL");
+    clear.bind(1, msg.id());
+    clear.exec();
+    clear.reset();
+
+    refreshMessageFromPlacements(msg);
+}
+
+void MailStore::setPlacementFlags(Message & msg, bool unread, bool starred, bool draft) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("setFlagsAll",
+        "UPDATE MessageFolder SET unread = ?, starred = ?, draft = ? WHERE messageId = ?");
+    stmt.bind(1, unread);
+    stmt.bind(2, starred);
+    stmt.bind(3, draft);
+    stmt.bind(4, msg.id());
+    stmt.exec();
+    stmt.reset();
+    refreshMessageFromPlacements(msg);
+}
+
+void MailStore::setPlacementFlags(Message & msg, string folderId, bool unread, bool starred, bool draft) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("setFlagsFolder",
+        "UPDATE MessageFolder SET unread = ?, starred = ?, draft = ? WHERE messageId = ? AND folderId = ?");
+    stmt.bind(1, unread);
+    stmt.bind(2, starred);
+    stmt.bind(3, draft);
+    stmt.bind(4, msg.id());
+    stmt.bind(5, folderId);
+    stmt.exec();
+    stmt.reset();
+    refreshMessageFromPlacements(msg);
+}
+
+void MailStore::setPlacementLabels(Message & msg, const vector<string> & labels) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("setLabels",
+        "UPDATE MessageFolder SET remoteXGMLabels = ? WHERE messageId = ?");
+    stmt.bind(1, json(labels).dump());
+    stmt.bind(2, msg.id());
+    stmt.exec();
+    stmt.reset();
+    refreshMessageFromPlacements(msg);
+}
+
+// Optimistic move: the row keeps its server folder and UID so the remote phase can
+// address it, and the snapshot reports it under the destination immediately.
+void MailStore::beginPlacementMove(Message & msg, string fromFolderId, string toFolderId) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("beginMove",
+        "UPDATE MessageFolder SET pendingFolderId = ? WHERE messageId = ? AND folderId = ? AND unlinkedAt IS NULL");
+    stmt.bind(1, toFolderId);
+    stmt.bind(2, msg.id());
+    stmt.bind(3, fromFolderId);
+    stmt.exec();
+    stmt.reset();
+    refreshMessageFromPlacements(msg);
+}
+
+void MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid) {
+    assertCorrectThread();
+    // If the destination already holds this copy (a scan got there first), the moved row
+    // would violate the unique (folder, UID) index; drop it and keep the existing one.
+    auto & existing = _placementStatement("commitMoveExisting",
+        "SELECT rowid FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID = ? AND remoteUID > 0 AND messageId != ?");
+    existing.bind(1, msg.accountId());
+    existing.bind(2, toFolderId);
+    existing.bind(3, (long long)newUid);
+    existing.bind(4, msg.id());
+    bool conflict = existing.executeStep();
+    existing.reset();
+
+    if (conflict) {
+        removePlacement(msg, fromFolderId, oldUid);
+        return;
+    }
+
+    auto & stmt = _placementStatement("commitMove",
+        "UPDATE MessageFolder SET folderId = ?, remoteUID = ?, pendingFolderId = NULL, unlinkedAt = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
+    stmt.bind(1, toFolderId);
+    stmt.bind(2, (long long)newUid);
+    stmt.bind(3, msg.id());
+    stmt.bind(4, fromFolderId);
+    stmt.bind(5, (long long)oldUid);
+    stmt.exec();
+    stmt.reset();
+    refreshMessageFromPlacements(msg);
+}
+
+void MailStore::removePlacement(Message & msg, string folderId, uint32_t uid) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("removeOne",
+        "DELETE FROM MessageFolder WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
+    stmt.bind(1, msg.id());
+    stmt.bind(2, folderId);
+    stmt.bind(3, (long long)uid);
+    stmt.exec();
+    stmt.reset();
+    refreshMessageFromPlacements(msg);
+}
+
+void MailStore::clearTombstones(Message & msg) {
+    assertCorrectThread();
+    auto & clear = _placementStatement("clearTombstones",
+        "DELETE FROM MessageFolder WHERE messageId = ? AND unlinkedAt IS NOT NULL");
+    clear.bind(1, msg.id());
+    clear.exec();
+    clear.reset();
+    refreshMessageFromPlacements(msg);
+}
+
+// Bulk helpers: rows only, no Message loaded. UID 0 rows (local drafts, UIDVALIDITY
+// resets) are never tombstoned by a range scan because the server never reported them.
+
+vector<string> MailStore::tombstonePlacements(Folder & folder, const vector<uint32_t> & uids, time_t now) {
+    assertCorrectThread();
+    vector<string> affected;
+    vector<uint32_t> all = uids;
+    for (auto chunk : MailUtils::chunksOfVector(all, 500)) {
+        SQLite::Statement stmt(_db,
+            "UPDATE MessageFolder SET unlinkedAt = ? WHERE accountId = ? AND folderId = ? AND unlinkedAt IS NULL AND remoteUID > 0 "
+            "AND remoteUID IN (" + MailUtils::qmarks(chunk.size()) + ") RETURNING messageId");
+        stmt.bind(1, (long long)now);
+        stmt.bind(2, folder.accountId());
+        stmt.bind(3, folder.id());
+        int idx = 4;
+        for (auto uid : chunk) {
+            stmt.bind(idx++, (long long)uid);
+        }
+        auto ids = _collectMessageIds(stmt);
+        affected.insert(affected.end(), ids.begin(), ids.end());
+    }
+    return affected;
+}
+
+// Accepts the folderId / remoteUID queries built by MailUtils::queriesForUIDRangesInIndexSet,
+// which may describe an open-ended range like 12:* that cannot be expanded to a list.
+vector<string> MailStore::tombstonePlacements(Folder & folder, Query & uidQuery, time_t now) {
+    assertCorrectThread();
+    string clauses = uidQuery.getSQL();
+    const string wherePrefix = " WHERE ";
+    if (clauses.compare(0, wherePrefix.size(), wherePrefix) != 0) {
+        throw SyncException("query-builder", "tombstonePlacements requires a query with clauses", false);
+    }
+    clauses = clauses.substr(wherePrefix.size());
+
+    SQLite::Statement stmt(_db,
+        "UPDATE MessageFolder SET unlinkedAt = ?1 WHERE accountId = ?2 AND unlinkedAt IS NULL AND remoteUID > 0 AND (" + clauses + ") RETURNING messageId");
+    stmt.bind(1, (long long)now);
+    stmt.bind(2, folder.accountId());
+    uidQuery.bind(stmt, 3);
+    return _collectMessageIds(stmt);
+}
+
+// UIDVALIDITY changed: every UID in the folder is meaningless. Rows stay live at UID 0
+// (still visible, still counted) until the rebuild assigns new UIDs. Nothing to emit.
+void MailStore::resetPlacementUIDs(Folder & folder) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("resetUIDs",
+        "UPDATE MessageFolder SET remoteUID = 0 WHERE accountId = ? AND folderId = ?");
+    stmt.bind(1, folder.accountId());
+    stmt.bind(2, folder.id());
+    stmt.exec();
+    stmt.reset();
+}
+
+vector<string> MailStore::deleteExpiredTombstones(string accountId, time_t before) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("deleteExpired",
+        "DELETE FROM MessageFolder WHERE accountId = ? AND unlinkedAt IS NOT NULL AND unlinkedAt < ? RETURNING messageId");
+    stmt.bind(1, accountId);
+    stmt.bind(2, (long long)before);
+    return _collectMessageIds(stmt);
+}
+
+// Scans the account's messages; prefer orphanMessageIdsAmong when the candidates are known.
+vector<string> MailStore::orphanMessageIds(string accountId, int limit) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("orphans",
+        "SELECT id FROM Message WHERE accountId = ? AND NOT EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id) LIMIT ?");
+    stmt.bind(1, accountId);
+    stmt.bind(2, limit);
+    return _collectMessageIds(stmt);
+}
+
+vector<string> MailStore::orphanMessageIdsAmong(const vector<string> & messageIds) {
+    assertCorrectThread();
+    vector<string> orphans;
+    vector<string> all = messageIds;
+    for (auto chunk : MailUtils::chunksOfVector(all, 500)) {
+        SQLite::Statement stmt(_db,
+            "SELECT id FROM Message WHERE id IN (" + MailUtils::qmarks(chunk.size()) + ") "
+            "AND NOT EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id)");
+        int idx = 1;
+        for (auto & id : chunk) {
+            stmt.bind(idx++, id);
+        }
+        auto ids = _collectMessageIds(stmt);
+        orphans.insert(orphans.end(), ids.begin(), ids.end());
+    }
+    return orphans;
+}
+
+void MailStore::deletePlacementsForMessage(string messageId) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("deleteForMessage", "DELETE FROM MessageFolder WHERE messageId = ?");
+    stmt.bind(1, messageId);
+    stmt.exec();
+    stmt.reset();
+}
+
+// A move still in flight towards the deleted folder is abandoned: the copy stays where
+// the server has it.
+vector<string> MailStore::deletePlacementsForFolder(string folderId) {
+    assertCorrectThread();
+    auto & abandon = _placementStatement("abandonMovesToFolder",
+        "UPDATE MessageFolder SET pendingFolderId = NULL WHERE pendingFolderId = ? RETURNING messageId");
+    abandon.bind(1, folderId);
+    vector<string> affected = _collectMessageIds(abandon);
+
+    auto & stmt = _placementStatement("deleteForFolder",
+        "DELETE FROM MessageFolder WHERE folderId = ? RETURNING messageId");
+    stmt.bind(1, folderId);
+    for (auto & id : _collectMessageIds(stmt)) {
+        if (std::find(affected.begin(), affected.end(), id) == affected.end()) {
+            affected.push_back(id);
+        }
+    }
+    return affected;
+}
+
+/*
+ Keeps MessageFolder in step with the single-folder columns while sync and task code still
+ write remoteFolderId / remoteUID on the Message. Every Message save replaces the message's
+ rows with one placement built from those columns, so the range reads above (which serve
+ only from MessageFolder) keep seeing what the sync engine wrote. Unlink sentinels become
+ UID 0 tombstones exactly as the V10 backfill maps them. A (folder, UID) row held by a
+ different message id is taken over, which is today's "latest writer wins" semantics.
+ Must be deleted the moment a writer switches to upsertPlacement, or it clobbers real
+ multi-folder rows.
+ TEMPORARY(placements): removed in Phase 3
+ */
+void MailStore::mirrorLegacyPlacement(Message & msg) {
+    assertCorrectThread();
+    deletePlacementsForMessage(msg.id());
+
+    if (!msg._data.count("remoteFolder") || !msg._data["remoteFolder"].is_object() || !msg._data["remoteFolder"].count("id")) {
+        return;
+    }
+    string folderId = msg.remoteFolderId();
+    if (folderId.empty()) {
+        return;
+    }
+
+    uint32_t uid = msg.remoteUID();
+    bool unlinked = uid > LEGACY_UNLINK_SENTINEL_MIN;
+
+    auto & stmt = _placementStatement("mirrorLegacy",
+        "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt, pendingFolderId) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL) "
+        "ON CONFLICT (accountId, folderId, remoteUID) WHERE remoteUID > 0 DO UPDATE SET "
+        "messageId = excluded.messageId, unread = excluded.unread, starred = excluded.starred, draft = excluded.draft, "
+        "remoteXGMLabels = excluded.remoteXGMLabels, syncedAt = excluded.syncedAt, unlinkedAt = excluded.unlinkedAt, pendingFolderId = NULL");
+    stmt.bind(1, msg.accountId());
+    stmt.bind(2, msg.id());
+    stmt.bind(3, folderId);
+    stmt.bind(4, (long long)(unlinked ? 0 : uid));
+    stmt.bind(5, msg.isUnread());
+    stmt.bind(6, msg.isStarred());
+    stmt.bind(7, msg.isDraft());
+    stmt.bind(8, msg.remoteXGMLabels().dump());
+    stmt.bind(9, (long long)msg.syncedAt());
+    if (unlinked) {
+        stmt.bind(10, (long long)time(0));
+    } else {
+        stmt.bind(10);
+    }
+    stmt.exec();
+    stmt.reset();
 }
 
 void MailStore::_emit(DeltaStreamItem & delta) {

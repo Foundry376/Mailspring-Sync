@@ -99,6 +99,7 @@
     <ClCompile Include="..\MailSync\MailStore.cpp" />
     <ClCompile Include="..\MailSync\MailStoreTransaction.cpp" />
     <ClCompile Include="..\MailSync\MailUtils.cpp" />
+    <ClCompile Include="..\MailSync\Placement.cpp" />
     <ClCompile Include="..\MailSync\main.cpp" />
     <ClCompile Include="..\MailSync\MetadataExpirationWorker.cpp" />
     <ClCompile Include="..\MailSync\MetadataWorker.cpp" />
