@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 #include <MailCore/MailCore.h>
@@ -37,7 +38,12 @@ class SyncWorker {
 
     int unlinkPhase;
     std::atomic<bool> idleShouldReloop{false};
-    int iterationsSinceLaunch;
+    int iterationsSinceLaunch = 0;
+
+    // Per-folder count of messages the last truncated full-folder scan still needed, used to tell
+    // a draining backlog (count falls each pass) from one that can never drain (count stays put).
+    // Not persisted: it only has to survive between iterations of the same process.
+    std::map<std::string, size_t> lastTruncatedScanNeeded {};
     vector<string> idleFetchBodyIDs;
     std::mutex idleMtx;
     std::condition_variable idleCv;
@@ -71,16 +77,36 @@ public:
 private:
     
     void ensureRootMailspringFolder(vector<string> containerFolderComponents, Array * remoteFolders);
+    void removeDuplicateFolders(Array * remoteFolders);
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
         
-    void syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
+    // Result of syncing a UID range. `truncated` is set when the range contained more
+    // messages needing full headers than we were willing to request at once; in that case
+    // `syncedMinUID` is the lowest UID we actually ingested and everything below it in the
+    // requested range still needs to be fetched. Callers must not record the range as
+    // synced past `syncedMinUID`, or those messages are lost until UIDVALIDITY changes.
+    struct UIDRangeSyncResult {
+        bool truncated = false;
+        uint32_t syncedMinUID = 1;
+        // Total messages in the range that needed full headers, before any truncation.
+        size_t needed = 0;
+    };
+
+    // True if a full-folder scan left work behind AND the backlog is still shrinking, meaning the
+    // caller should come straight back for the next batch. Also clears the folder's bookkeeping
+    // once a scan completes cleanly, so it must be called for every full-folder scan result.
+    bool shouldRetryTruncatedScan(Folder & folder, UIDRangeSyncResult const & scan);
+
+    UIDRangeSyncResult syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
 
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus, bool mustSyncAll);
 
     void fetchRangeInFolder(String * folder, std::string folderId, Range range);
 
     void cleanMessageCache(Folder & folder);
+
+    void unlinkVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source);
     
     long long countBodiesDownloaded(Folder & folder);
     long long countBodiesNeeded(Folder & folder);

@@ -537,8 +537,10 @@ vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, In
             // this range has a * upper bound, we need to represent it as a "uid > X" query.
             results.push_back(Query().equal("remoteFolderId", remoteFolderId).gte("remoteUID", left));
         } else if (right - left > 50) {
-            // this range has many items, just express it as a bounded range query
-            results.push_back(Query().equal("remoteFolderId", remoteFolderId).gte("remoteUID", left).lt("remoteUID", right));
+            // this range has many items, just express it as a bounded range query. Both ends
+            // are inclusive because IndexSet ranges are. It has to be one BETWEEN clause -
+            // Query keys clauses by column, so chaining gte() and lte() drops the lower bound.
+            results.push_back(Query().equal("remoteFolderId", remoteFolderId).betweenInclusive("remoteUID", left, right));
         } else {
             // this range has a few items, throw them in a pile and we'll make a few queries for these specific UIDs
             for (uint64_t x = left; x <= right; x ++) {

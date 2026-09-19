@@ -175,8 +175,8 @@ static int send_command_private(mailsmtp * f, char * command, int can_be_publish
 
 static int read_response(mailsmtp * session);
 
-static int get_hostname(mailsmtp * session, int useip, char * buf, int len);
-static int get_hostname_smart_bg(mailsmtp * session, char * buf, int len);
+static int get_hostname_smart_bg(mailsmtp * session, int useip,
+    char * buf, int len);
 
 /* smtp operations */
 
@@ -253,81 +253,237 @@ int mailsmtp_quit(mailsmtp * session)
 
 #define HOSTNAME_SIZE 256
 
-static int get_hostname(mailsmtp * session, int useip, char * buf, int len)
+#define SMTP_IS_DIGIT(c)  ((c) >= '0' && (c) <= '9')
+#define SMTP_IS_LETTER(c) (((c) >= 'a' && (c) <= 'z') || ((c) >= 'A' && (c) <= 'Z'))
+
+static int ascii_casecmp(const char * a, const char * b)
 {
-  int r;
-  char hostname[HOSTNAME_SIZE];
-  struct sockaddr addr;
-  socklen_t addr_len = sizeof(addr);
-  int socket = -1;
-
-  if (!useip) {
-    r = gethostname(hostname, HOSTNAME_SIZE);
-    if (r != 0)
-      return MAILSMTP_ERROR_HOSTNAME;
-
-    if (snprintf(buf, len, "%s", hostname) >= len)
-      return MAILSMTP_ERROR_HOSTNAME;
-    
-  } else {
-    socket = mailstream_low_get_fd(mailstream_get_low(session->stream));
-    if (socket < 0)
-      return MAILSMTP_ERROR_HOSTNAME;
-
-    r = getsockname(socket, &addr, &addr_len );
-    if (r != 0)
-      return MAILSMTP_ERROR_HOSTNAME;
-
-#if (defined __linux__ || defined WIN32 || defined __sun)
-    r = getnameinfo(&addr, addr_len, hostname, HOSTNAME_SIZE, NULL, 0, NI_NUMERICHOST);
-#else
-    r = getnameinfo(&addr, addr.sa_len, hostname, HOSTNAME_SIZE, NULL, 0, NI_NUMERICHOST);
-#endif
-    if (r != 0)
-      return MAILSMTP_ERROR_HOSTNAME;
-
-    /* Strip IPv6 interface suffix (e.g., "%eth0") which some servers reject */
-    char* interface_suffix = strstr(hostname, "%");
-    if (interface_suffix != NULL) {
-      *interface_suffix = '\0';
-    }
-
-    if (snprintf(buf, len, "[%s]", hostname) >= len)
-      return MAILSMTP_ERROR_HOSTNAME;
+  for (; *a != '\0' && *b != '\0'; a ++, b ++) {
+    unsigned char ca = (unsigned char) * a;
+    unsigned char cb = (unsigned char) * b;
+    if (ca >= 'A' && ca <= 'Z')
+      ca = (unsigned char) (ca - 'A' + 'a');
+    if (cb >= 'A' && cb <= 'Z')
+      cb = (unsigned char) (cb - 'A' + 'a');
+    if (ca != cb)
+      return ca < cb ? -1 : 1;
   }
-   return MAILSMTP_NO_ERROR;
+  return (* a == * b) ? 0 : (* a == '\0' ? -1 : 1);
 }
 
-static int get_hostname_smart_bg(mailsmtp * session, char * buf, int len)
+/*
+  BG EDIT: RFC 5321 4.1.1.1 requires the HELO/EHLO argument to be either a
+  fully qualified domain name or an address literal, and a great many servers
+  enforce that (Postfix reject_non_fqdn_helo_hostname / Exim / Office 365).
+  gethostname() routinely returns something that is neither:
+
+    "Styx", "DESKTOP-4KJ2L1"  a bare machine name, no domain part
+    "burnination.local."      macOS default, trailing dot
+    "Bens MacBook Pro"        spaces
+    "work_laptop"             underscore
+    non-ASCII bytes           Windows machine name in the ANSI code page
+
+  Each of those is rejected by the server, and because mailsmtp_init() retries
+  with HELO using the same argument, the account simply cannot connect. So
+  check the name before we use it; the caller falls back to the address
+  literal when this returns 0.
+
+  Rejecting bytes outside [A-Za-z0-9.-] also keeps a hostname containing CR/LF
+  from splicing extra commands into the EHLO line.
+*/
+static int hostname_is_valid_fqdn(const char * name)
 {
-  // Try to get fully qualified name first
-  int r = get_hostname(session, 0, buf, len);
+  const char * p;
+  size_t len;
+  size_t label_len;
+  int has_dot;
+  int label_all_digits;
 
-  // If that fails, try to get IP address which is what Thunderbird uses
-  if (r != MAILSMTP_NO_ERROR) {
-    buf[0] = 0;
-    r = get_hostname(session, 1, buf, len);
-  }
+  if (name == NULL)
+    return 0;
 
-  // If that fails, try to use something random. Otherwise they just can't
-  // use Mailspring at all, so we may as well try something.
-  if (r != MAILSMTP_NO_ERROR) {
-    snprintf(buf, len, "mailspring-smtp");
-    r = MAILSMTP_NO_ERROR;
-  }
+  len = strlen(name);
+  if ((len == 0) || (len > 255))
+    return 0;
 
-  if (r == MAILSMTP_NO_ERROR) {
-    // Ensure the hostname result contains no spaces
-    unsigned long usedlen = strlen(buf) < len ? strlen(buf) : len;
-    
-    for (unsigned long i = 0; i < usedlen; i++) {
-      if (buf[i] == ' ') {
-        buf[i] = '-';
-      }
+  /* syntactically fine, but meaningless to a remote server */
+  if (ascii_casecmp(name, "localhost") == 0)
+    return 0;
+  if (ascii_casecmp(name, "localhost.localdomain") == 0)
+    return 0;
+
+  has_dot = 0;
+  label_len = 0;
+  label_all_digits = 1;
+
+  for(p = name ; ; p ++) {
+    unsigned char ch = (unsigned char) * p;
+
+    if ((ch == '.') || (ch == '\0')) {
+      /* empty label: leading dot, doubled dot, or trailing dot */
+      if (label_len == 0)
+        return 0;
+      if (label_len > 63)
+        return 0;
+      /* RFC 5321 sub-domain = Let-dig [Ldh-str Let-dig] */
+      if (p[-1] == '-')
+        return 0;
+      if (ch == '\0')
+        break;
+      has_dot = 1;
+      label_len = 0;
+      label_all_digits = 1;
+      continue;
     }
+
+    /* anything non-ASCII, a space, an underscore, a quote, CR, LF, ... */
+    if (!SMTP_IS_LETTER(ch) && !SMTP_IS_DIGIT(ch) && (ch != '-'))
+      return 0;
+    if ((label_len == 0) && (ch == '-'))
+      return 0;
+    if (!SMTP_IS_DIGIT(ch))
+      label_all_digits = 0;
+    label_len ++;
   }
-  
-  return r;
+
+  /* a bare machine name is not fully qualified */
+  if (!has_dot)
+    return 0;
+  /* "10.0.0.5" is an address, and must be sent in its bracketed form */
+  if (label_all_digits)
+    return 0;
+
+  return 1;
+}
+
+static int get_local_hostname(char * buf, int len)
+{
+  char hostname[HOSTNAME_SIZE];
+  size_t hostname_len;
+  int r;
+
+  r = gethostname(hostname, HOSTNAME_SIZE);
+  if (r != 0)
+    return MAILSMTP_ERROR_HOSTNAME;
+  /* POSIX does not promise a terminator if the name was truncated */
+  hostname[HOSTNAME_SIZE - 1] = '\0';
+
+  /* macOS sets the hostname to "<name>.local." out of the box. The trailing
+     dot makes it an absolute name in DNS terms but an invalid SMTP domain,
+     and Office 365 answers "501 5.5.4 Invalid domain name". */
+  hostname_len = strlen(hostname);
+  while ((hostname_len > 0) && (hostname[hostname_len - 1] == '.')) {
+    hostname_len --;
+    hostname[hostname_len] = '\0';
+  }
+
+  if (!hostname_is_valid_fqdn(hostname))
+    return MAILSMTP_ERROR_HOSTNAME;
+
+  if (snprintf(buf, len, "%s", hostname) >= len)
+    return MAILSMTP_ERROR_HOSTNAME;
+
+  return MAILSMTP_NO_ERROR;
+}
+
+static int get_address_literal(mailsmtp * session, char * buf, int len)
+{
+  /* BG EDIT: this used to be a `struct sockaddr`, which is 16 bytes. The
+     local address of an IPv6 connection is a `struct sockaddr_in6`, which is
+     28, so getsockname() truncated it and reported the required length in
+     addr_len. Passing that oversized addr_len on to getnameinfo() (added to
+     fix EAI_FAMILY for IPv6) read past the end of the struct and produced a
+     mangled address with a garbage scope id -- the "%808590000" suffix that
+     the interface-suffix strip below was added to paper over. */
+  struct sockaddr_storage addr;
+  socklen_t addr_len = sizeof(addr);
+  char host[NI_MAXHOST];
+  char * interface_suffix;
+  int is_ipv6;
+  int socket;
+  int r;
+
+  if (session->stream == NULL)
+    return MAILSMTP_ERROR_HOSTNAME;
+
+  socket = mailstream_low_get_fd(mailstream_get_low(session->stream));
+  if (socket < 0)
+    return MAILSMTP_ERROR_HOSTNAME;
+
+  memset(&addr, 0, sizeof(addr));
+  r = getsockname(socket, (struct sockaddr *) &addr, &addr_len);
+  if (r != 0)
+    return MAILSMTP_ERROR_HOSTNAME;
+  if (addr_len > (socklen_t) sizeof(addr))
+    return MAILSMTP_ERROR_HOSTNAME;
+
+  r = getnameinfo((struct sockaddr *) &addr, addr_len,
+      host, sizeof(host), NULL, 0, NI_NUMERICHOST);
+  if (r != 0)
+    return MAILSMTP_ERROR_HOSTNAME;
+
+  /* Strip the IPv6 interface suffix (e.g. "%eth0"), which servers reject:
+     "501-5.5.4 HELO/EHLO argument [2400:...%eth0] invalid" */
+  interface_suffix = strchr(host, '%');
+  if (interface_suffix != NULL)
+    * interface_suffix = '\0';
+
+  is_ipv6 = (addr.ss_family == AF_INET6);
+
+  /* A dual-stack socket talking to an IPv4 server reports its local address
+     as "::ffff:a.b.c.d"; that is an IPv4 endpoint and reads better as one. */
+  if (is_ipv6 && (strncmp(host, "::ffff:", 7) == 0)
+      && (strchr(host + 7, ':') == NULL)) {
+    memmove(host, host + 7, strlen(host + 7) + 1);
+    is_ipv6 = 0;
+  }
+
+  if (host[0] == '\0')
+    return MAILSMTP_ERROR_HOSTNAME;
+
+  /* RFC 5321 4.1.3: an IPv6 address literal MUST carry the "IPv6:" tag.
+     Postfix's valid_mailhost_addr() rejects "[::1]" and accepts "[IPv6:::1]",
+     so without the tag the literal fails the very check it exists to pass. */
+  if (snprintf(buf, len, is_ipv6 ? "[IPv6:%s]" : "[%s]", host) >= len)
+    return MAILSMTP_ERROR_HOSTNAME;
+
+  return MAILSMTP_NO_ERROR;
+}
+
+static int get_hostname_smart_bg(mailsmtp * session, int useip,
+    char * buf, int len)
+{
+  int r;
+
+  // BG EDIT: Thunderbird tries to get a FQDN and then falls back to an IP
+  // address rather than making it a user preference, and I want to do the
+  // same. The local hostname is only usable when it really is a FQDN -- see
+  // hostname_is_valid_fqdn().
+  if (!useip) {
+    r = get_local_hostname(buf, len);
+    if (r == MAILSMTP_NO_ERROR)
+      return r;
+  }
+
+  buf[0] = '\0';
+  r = get_address_literal(session, buf, len);
+  if (r == MAILSMTP_NO_ERROR)
+    return r;
+
+  // If that fails too, use something that is at least well formed. Otherwise
+  // they just can't use Mailspring at all, so we may as well try something.
+  buf[0] = '\0';
+  if (snprintf(buf, len, "mailspring.localdomain") >= len)
+    return MAILSMTP_ERROR_HOSTNAME;
+
+  return MAILSMTP_NO_ERROR;
+}
+
+int mailsmtp_local_hostname_is_usable(void)
+{
+  char buf[HOSTNAME_SIZE];
+
+  return get_local_hostname(buf, HOSTNAME_SIZE) == MAILSMTP_NO_ERROR;
 }
 
 int mailsmtp_helo(mailsmtp * session)
@@ -341,10 +497,7 @@ int mailsmtp_helo_with_ip(mailsmtp * session, int useip)
   char hostname[HOSTNAME_SIZE];
   char command[SMTP_STRING_SIZE];
 
-  // BG EDIT: Thunderbird tries to get a FQDN and then falls back to an IP address
-  // rather than making it a user preference, and I want to do the same.
-  
-  r = get_hostname_smart_bg(session, hostname, HOSTNAME_SIZE);
+  r = get_hostname_smart_bg(session, useip, hostname, HOSTNAME_SIZE);
   if (r != MAILSMTP_NO_ERROR)
     return r;
 
@@ -749,10 +902,7 @@ int mailesmtp_ehlo_with_ip(mailsmtp * session, int useip)
   char hostname[HOSTNAME_SIZE];
   char command[SMTP_STRING_SIZE];
 
-  // BG EDIT: Thunderbird tries to get a FQDN and then falls back to an IP address
-  // rather than making it a user preference, and I want to do the same.
-
-  r = get_hostname_smart_bg(session, hostname, HOSTNAME_SIZE);
+  r = get_hostname_smart_bg(session, useip, hostname, HOSTNAME_SIZE);
   if (r != MAILSMTP_NO_ERROR)
     return r;
 

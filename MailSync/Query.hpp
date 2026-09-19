@@ -40,6 +40,10 @@ public:
     Query & lt(string col, double val);
     Query & lte(string col, double val);
 
+    // Bounded range, both ends inclusive. _clauses is keyed by column, so chaining
+    // gte() and lte() on one column silently keeps only the last of the two.
+    Query & betweenInclusive(string col, double lo, double hi);
+
     Query & limit(int l);
     Query & orderBy(string col, string dir = "ASC");
 

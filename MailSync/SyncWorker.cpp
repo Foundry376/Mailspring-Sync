@@ -29,8 +29,18 @@
 #define CACHE_CLEANUP_INTERVAL      60 * 60
 #define SHALLOW_SCAN_INTERVAL       60 * 2
 #define DEEP_SCAN_INTERVAL          60 * 10
+// How often we verify a CONDSTORE+QRESYNC folder against the server in full. These servers tell us
+// about every change, so this is only a safety net for messages we never ingested in the first
+// place (which no modseq will ever cover) and can be very infrequent.
+#define CONDSTORE_GAP_SCAN_INTERVAL 60 * 60 * 24
 
 #define MAX_FULL_HEADERS_REQUEST_SIZE  1024
+// How many messages a folder can hold and still be swept in a single UID range during initial
+// sync. This is a separate question from MAX_FULL_HEADERS_REQUEST_SIZE (how many full headers we
+// will ask for at once): a folder with a high UIDNEXT and few messages should be grabbed in one
+// range rather than walked a chunk at a time through mostly-empty UID space. Tying the two
+// together makes a 2,000 message folder with UIDNEXT 200,000 issue ~200 empty round trips.
+#define MAX_SINGLE_RANGE_SWEEP_SIZE    5000
 #define MODSEQ_TRUNCATION_THRESHOLD 4000
 #define MODSEQ_TRUNCATION_UID_COUNT 12000
 
@@ -95,6 +105,9 @@ void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
 
 void SyncWorker::idleCycleIteration()
 {
+    // allocated mailcore objects freed when `pool` is removed from the stack
+    AutoreleasePool pool;
+
     // Run body requests from the client
     while (true) {
         string id;
@@ -208,7 +221,10 @@ void SyncWorker::idleCycleIteration()
             throw SyncException("no-inbox", "There is no inbox or all folder to IDLE on.", false);
         }
     }
-    json inboxInitialStatus { inbox->localStatus() };
+    // Note: must be copy-assignment, not brace-init - `json x { obj }` builds a single-element
+    // ARRAY, which makes every saveFolderStatus key comparison below miss and causes this worker
+    // to write its whole stale snapshot back over the row, including syncedMinUID.
+    json inboxInitialStatus = inbox->localStatus();
     
     if (idleShouldReloop) {
         idleShouldReloop = false;
@@ -222,20 +238,13 @@ void SyncWorker::idleCycleIteration()
                                    inbox->localStatus()[LS_SYNCED_MIN_UID].is_number();
 
     if (hasStartedSyncingFolder) {
-        // Process VANISHED notifications received during the previous IDLE session.
-        // The server sends VANISHED during IDLE when messages are expunged, but won't
-        // re-report them in the subsequent FETCH CHANGEDSINCE since it considers this
-        // connection already informed. We must process them here before they're lost.
-        IndexSet * idleVanished = session.idleVanishedMessages();
-        if (idleVanished != NULL && idleVanished->count() > 0) {
-            logger->info("Processing {} VANISHED UIDs from IDLE on {}", idleVanished->count(), inbox->path());
-            vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(inbox->id(), idleVanished);
-            for (Query & query : queries) {
-                this->processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
-            }
-        }
-
         String path = AS_MCSTR(inbox->path());
+
+        // Expunges the server told us about on this connection - during the IDLE we just
+        // exited, but also alongside the body fetches and task commands above. It only
+        // tells us once, so these are lost if we don't apply them before the FETCH below.
+        unlinkVanishedUIDs(*inbox, session.takeVanishedMessages(&path), "this connection");
+
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
 
         // Note: If we have CONDSTORE but don't have QRESYNC, this if/else may result
@@ -309,6 +318,7 @@ bool SyncWorker::syncNow()
     vector<shared_ptr<Folder>> folders = syncFoldersAndLabels();
     bool hasCondstore = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
     bool hasQResync = session.storedCapabilities()->containsIndex(IMAPCapabilityQResync);
+    bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
 
     // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
     // responses and doesn't send the ENABLED untagged response per RFC. This causes
@@ -369,6 +379,7 @@ bool SyncWorker::syncNow()
         json initialLocalStatus = localStatus; // note: json not json&
         IMAPFolderStatus & remoteStatus = *remoteStatusIt->second;
         bool firstChunk = false;
+        bool deepScanIncomplete = false;
         
         // Step 1: Check folder UIDValidity
         if (localStatus.empty() || localStatus[LS_UIDVALIDITY].is_null()) {
@@ -386,11 +397,33 @@ bool SyncWorker::syncNow()
         }
         
         // Step 1.5: Should we skip this folder?
-        // On ProtonMail we use a container folder, all messages are duplicated into All Mail.
-        // They need to be skipped and added to that folder on the client side if necessary.
-        // Note: Check for containerFolder so Gmail "All Mail" is still synced.
-        if (account->containerFolder() != "" && folder->path() == "All Mail") {
-            logger->info("SyncNow: skipped ProtonMail global folder {}", folder->path());
+        //
+        // An \All mailbox (role "all") is a *duplicate view* of messages that also live
+        // in Inbox / Sent / Archive - ProtonMail Bridge's "All Mail" is the common case.
+        // Mailspring's data model gives each message exactly one folder and message IDs
+        // are derived from headers, so the All Mail copy and the real copy collapse onto
+        // the same row. With "latest folder wins" the two folders take turns claiming
+        // every message on each sync pass, which empties out Inbox and Sent and makes
+        // messages flicker between folders. Skip the folder so the real folders own the
+        // messages; the folder itself is still created so the client can archive into it.
+        //
+        // Gmail is the one provider where All Mail is the *primary* message store rather
+        // than a duplicate view: there we sync only all/spam/trash and derive the rest
+        // from X-GM-LABELS, so it must keep syncing.
+        //
+        // Note: this used to be keyed on `containerFolder() != "" && path == "All Mail"`,
+        // which only held for ProtonMail accounts that the client had tagged with a
+        // container folder. Accounts that reach the engine without one (any @proton.me
+        // or custom-domain Bridge account, since the client's provider table only lists
+        // protonmail.com / protonmail.ch / pm.me) fell through and hit the bug.
+        // The legacy `containerFolder` clause is kept so that a Bridge build which does
+        // not advertise SPECIAL-USE (leaving "All Mail" without a role) keeps the exact
+        // behaviour it has today.
+        bool isDuplicateAllMail = (!isGmail && folder->role() == "all") ||
+                                  (account->containerFolder() != "" && folder->path() == "All Mail");
+
+        if (isDuplicateAllMail) {
+            logger->info("SyncNow: skipped duplicate \\All folder {}", folder->path());
             localStatus[LS_LAST_SHALLOW] = time(0); // pretend we synced now
             localStatus[LS_LAST_DEEP] = time(0);
             localStatus[LS_BODIES_WANTED] = 0; // pretend we want no message contents
@@ -423,7 +456,7 @@ bool SyncWorker::syncNow()
             //   this scenario is rare.
             logger->warn("UIDInvalidity! Resetting remoteFolderUIDs, rebuilding index. This may take a moment...");
             processor->unlinkMessagesMatchingQuery(Query().equal("remoteFolderId", folder->id()), unlinkPhase);
-            syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
+            auto rebuilt = syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
 
             if (localStatus.count(LS_UIDVALIDITY_RESET_COUNT) == 0) {
                 localStatus[LS_UIDVALIDITY_RESET_COUNT] = 1;
@@ -432,20 +465,33 @@ bool SyncWorker::syncNow()
             localStatus[LS_HIGHESTMODSEQ] = remoteStatus.highestModSeqValue();
             localStatus[LS_UIDVALIDITY] = remoteStatus.uidValidity();
             localStatus[LS_UIDNEXT] = remoteStatus.uidNext();
-            localStatus[LS_SYNCED_MIN_UID] = 1;
+            // If the rebuild couldn't re-map every message in one pass, leave syncedMinUID above the
+            // remainder so the initial-sync loop walks back down and picks them up.
+            localStatus[LS_SYNCED_MIN_UID] = rebuilt.truncated ? rebuilt.syncedMinUID : 1;
             localStatus[LS_LAST_SHALLOW] = time(0);
             localStatus[LS_LAST_DEEP] = time(0);
             localStatus[LS_MESSAGE_COUNT] = remoteStatus.messageCount();
             localStatus[LS_UNSEEN_COUNT] = remoteStatus.unseenCount();
             localStatus[LS_RECENT_COUNT] = remoteStatus.recentCount();
-            
+            // This branch skips the bookkeeping at the end of the loop body, so if the rebuild left
+            // a remainder we have to ask for another iteration here or the remaining messages drain
+            // at one chunk per sleep interval while the folder sits unlinked and half empty.
+            if (rebuilt.truncated) {
+                localStatus[LS_BUSY] = true;
+                syncAgainImmediately = true;
+            }
+
             store->saveFolderStatus(folder.get(), initialLocalStatus);
             continue;
         }
         
         // Step 2: Initial sync. Until we reach UID 1, we grab chunks of messages
         uint32_t syncedMinUID = localStatus[LS_SYNCED_MIN_UID].get<uint32_t>();
-        uint32_t chunkSize = firstChunk ? 750 : 5000;
+        // Note: the chunk is sized to MAX_FULL_HEADERS_REQUEST_SIZE so it resolves in a single
+        // full-headers request. A larger chunk is no longer incorrect - syncFolderUIDRange reports
+        // how far down it got and we only record that much - but it costs an extra attributes-only
+        // fetch across the whole chunk for every MAX_FULL_HEADERS_REQUEST_SIZE messages ingested.
+        uint32_t chunkSize = firstChunk ? 750 : MAX_FULL_HEADERS_REQUEST_SIZE;
 
         if (syncedMinUID > 1) {
             // The UID value space is sparse, meaning there can be huge gaps where there are no
@@ -453,12 +499,30 @@ bool SyncWorker::syncNow()
             // go ahead and fetch them all in one chunk. Otherwise, scan the UID space in chunks,
             // ensuring we never bite off more than we can chew.
             uint32_t chunkMinUID = syncedMinUID > chunkSize ? syncedMinUID - chunkSize : 1;
-            if (remoteStatus.messageCount() < chunkSize) {
+            if (remoteStatus.messageCount() < MAX_SINGLE_RANGE_SWEEP_SIZE) {
+                // Note: this can hand syncFolderUIDRange a range holding more messages than one
+                // full-headers request covers. That is safe now - it reports back how far down it
+                // actually got and we only record that much below.
                 chunkMinUID = 1;
             }
-            syncFolderUIDRange(*folder, RangeMake(chunkMinUID, syncedMinUID - chunkMinUID), true);
+            auto chunk = syncFolderUIDRange(*folder, RangeMake(chunkMinUID, syncedMinUID - chunkMinUID), true);
+
+            // Only record the part of the chunk we actually ingested. If the folder held more
+            // messages in this UID range than we were willing to fetch at once, the remainder is
+            // picked up on the next iteration - advancing past them would drop them permanently,
+            // because CONDSTORE/QRESYNC only reports messages changed since our highestmodseq.
+            if (chunk.truncated && chunk.syncedMinUID > chunkMinUID && chunk.syncedMinUID < syncedMinUID) {
+                chunkMinUID = chunk.syncedMinUID;
+            }
             localStatus[LS_SYNCED_MIN_UID] = chunkMinUID;
             syncedMinUID = chunkMinUID;
+
+            if (chunkMinUID <= 1) {
+                // The walk just covered the whole folder, so record it as a completed deep pass.
+                // Without this a brand new account immediately follows initial sync with a
+                // redundant full-folder scan, because lastDeep is still 0 on the CONDSTORE branch.
+                localStatus[LS_LAST_DEEP] = time(0);
+            }
         }
         
         // Step 3: A) Retrieve new messages  B) update existing messages  C) delete missing messages
@@ -468,6 +532,34 @@ bool SyncWorker::syncNow()
             // Hooray! We never need to fetch the entire range to sync. Just look at
             // highestmodseq / uidnext and sync if we need to.
             syncFolderChangesViaCondstore(*folder, remoteStatus, true);
+
+            // ...with one caveat: CONDSTORE only reports messages whose modseq changed since ours,
+            // so a message we failed to ingest during the initial sync is never mentioned again and
+            // stays missing forever. Once the initial sync has reached UID 1, run a cheap
+            // attributes-only pass over the whole folder occasionally to notice and repair any gaps.
+            time_t lastDeep = localStatus.count(LS_LAST_DEEP) && localStatus[LS_LAST_DEEP].is_number()
+                                ? localStatus[LS_LAST_DEEP].get<time_t>() : 0;
+            if ((syncedMinUID <= 1) && (iterationsSinceLaunch > 0) &&
+                (time(0) - lastDeep > CONDSTORE_GAP_SCAN_INTERVAL)) {
+                // Note: a failure here must not abort the whole folder loop. This scan is a
+                // consistency check on top of an otherwise complete CONDSTORE sync, and letting it
+                // throw would skip every folder after this one and retry forever.
+                try {
+                    auto deep = syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
+                    // If there were more gaps than one pass can fill, leave lastDeep alone so we
+                    // come back immediately rather than in another day - but only while the
+                    // backlog is actually shrinking.
+                    if (shouldRetryTruncatedScan(*folder, deep)) {
+                        deepScanIncomplete = true;
+                    } else {
+                        localStatus[LS_LAST_DEEP] = time(0);
+                    }
+                } catch (SyncException & ex) {
+                    logger->warn("- {}: gap scan failed ({}), will retry after the normal interval.",
+                                 folder->path(), ex.toJSON().dump());
+                    localStatus[LS_LAST_DEEP] = time(0);
+                }
+            }
         } else {
             uint32_t remoteUidnext = remoteStatus.uidNext();
             uint32_t localUidnext = localStatus[LS_UIDNEXT].get<uint32_t>();
@@ -519,14 +611,21 @@ bool SyncWorker::syncNow()
             }
             
             if (timeForDeepScan) {
-                syncFolderUIDRange(*folder, RangeMake(syncedMinUID, UINT64_MAX), false);
+                auto deep = syncFolderUIDRange(*folder, RangeMake(syncedMinUID, UINT64_MAX), false);
                 if (syncedMinUID == 0) {
                     syncedMinUID = 1;
                     localStatus[LS_SYNCED_MIN_UID] = 1;
                 }
                 localStatus[LS_LAST_SHALLOW] = time(0);
-                localStatus[LS_LAST_DEEP] = time(0);
                 localStatus[LS_UIDNEXT] = remoteUidnext;
+                // Only mark the deep scan done if it got through the backlog. Otherwise keep
+                // scanning on subsequent iterations instead of waiting out DEEP_SCAN_INTERVAL
+                // between every MAX_FULL_HEADERS_REQUEST_SIZE messages.
+                if (shouldRetryTruncatedScan(*folder, deep)) {
+                    deepScanIncomplete = true;
+                } else {
+                    localStatus[LS_LAST_DEEP] = time(0);
+                }
             }
         }
 
@@ -544,12 +643,19 @@ bool SyncWorker::syncNow()
         if (syncedMinUID > 1) {
             moreToDo = true;
         }
+        if (deepScanIncomplete) {
+            moreToDo = true;
+        }
         
         // Update cache metrics and cleanup bodies we don't want anymore.
         // these queries are expensive so we do this infrequently and increment
         // blindly as we download bodies.
         time_t lastCleanup = localStatus.count(LS_LAST_CLEANUP) ? localStatus[LS_LAST_CLEANUP].get<time_t>() : 0;
-        if (syncedMinUID == 1 && (time(0) - lastCleanup > CACHE_CLEANUP_INTERVAL)) {
+        // Note: <= 1, not == 1. syncedMinUID is seeded from UIDNEXT, which some servers report as
+        // 0, and only the non-CONDSTORE deep scan normalises 0 to 1 - so on a CONDSTORE folder it
+        // can sit at 0 forever, and == 1 would mean the body cache is never trimmed and
+        // LS_BODIES_WANTED (the UI's progress denominator) is never written.
+        if (syncedMinUID <= 1 && (time(0) - lastCleanup > CACHE_CLEANUP_INTERVAL)) {
             cleanMessageCache(*folder);
             localStatus[LS_LAST_CLEANUP] = time(0);
         }
@@ -602,6 +708,31 @@ void SyncWorker::ensureRootMailspringFolder(vector<string> containerFolderCompon
         } else {
             logger->error("Created Mailspring container folder: {}.", desiredPath->UTF8Characters());
         }
+    }
+}
+
+// Some servers, IMAP gateways especially (DavMail, Proton Bridge, Zoho), list a mailbox twice:
+// a repeated LIST line, or two names MailCore collapses when it normalizes "Inbox" to "INBOX".
+// Both hash to one folder ID, and the second insert aborts mailsync with "UNIQUE constraint
+// failed: Folder.id" before any folder is saved - on every launch. Keeps the first copy, merging
+// the others' flags so role detection doesn't depend on the order the server used. Runs after
+// unselectable folders are dropped, so the merge can't reintroduce NoSelect.
+void SyncWorker::removeDuplicateFolders(Array * remoteFolders)
+{
+    map<string, IMAPFolder *> remotesById {};
+
+    for (int ii = 0; ii < (int)remoteFolders->count(); ii++) {
+        IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+        string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+        auto existing = remotesById.find(remoteId);
+        if (existing == remotesById.end()) {
+            remotesById[remoteId] = remote;
+            continue;
+        }
+        logger->warn("-X the server listed {} more than once - ignoring the duplicate.", remote->path()->UTF8Characters());
+        existing->second->setFlags((IMAPFolderFlag)(existing->second->flags() | remote->flags()));
+        remoteFolders->removeObjectAtIndex(ii);
+        ii -= 1;
     }
 }
 
@@ -714,6 +845,9 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             }
         }
 
+        // Eliminate folders the server listed more than once
+        removeDuplicateFolders(remoteFolders);
+
         // Find / create local folders and labels to match the remote ones
         // Note: We don't assign roles, just create the objects here.
         for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
@@ -825,7 +959,17 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         MailStoreTransaction transaction{store, "syncFoldersAndLabels"};
 
         for (auto & item : toCreate) {
-            store->save(item.get());
+            // Never let a folder that already exists take the process down. De-duplication
+            // should make this unreachable, but the row is present either way and the next
+            // pass picks it up - the insert-then-recover shape MailProcessor uses.
+            try {
+                store->save(item.get());
+            } catch (SQLite::Exception & ex) {
+                if (ex.getErrorCode() != 19) { // constraint failed
+                    throw;
+                }
+                logger->error("-X could not create {} {}: {}. Continuing.", item->tableName(), item->path(), ex.what());
+            }
         }
         for (auto & ru : roleUpdates) {
             shared_ptr<Folder> fresh;
@@ -852,7 +996,36 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     return foldersToSync;
 }
 
-void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages)
+// A truncated full-folder scan normally means "we ingested a batch, come straight back for the
+// rest". But some messages can never be ingested - MailProcessor::updateMessage returns without
+// applying anything when the local row is newer, and when a higher-priority folder already owns
+// the message - so they are reported as needing full headers on every single pass. Without a
+// progress check that turns into an unthrottled loop (the background worker runs syncNow in a
+// `while (moreToSync)` with no sleep) that also starves other folders. Only come straight back if
+// the backlog actually shrank; otherwise treat the scan as done so we wait out the normal interval.
+bool SyncWorker::shouldRetryTruncatedScan(Folder & folder, UIDRangeSyncResult const & scan)
+{
+    if (!scan.truncated) {
+        // The scan covered the whole folder, so this episode is over. Forget the count: a future
+        // gap has to be judged on its own, and a leftover value would make a new, larger backlog
+        // look like it wasn't draining and cost it an interval before the first retry.
+        lastTruncatedScanNeeded.erase(folder.id());
+        return false;
+    }
+
+    auto it = lastTruncatedScanNeeded.find(folder.id());
+    bool draining = (it == lastTruncatedScanNeeded.end()) || (scan.needed < it->second);
+    // Note: keep the count on the back-off path - it is what bounds the retry loop.
+    lastTruncatedScanNeeded[folder.id()] = scan.needed;
+    if (!draining) {
+        logger->warn("- {}: {} messages still need full headers after a full pass and the count is "
+                     "not falling. Backing off instead of rescanning immediately.",
+                     folder.path(), scan.needed);
+    }
+    return draining;
+}
+
+SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages)
 {
     std::string remotePath = folder.path();
     
@@ -867,15 +1040,22 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
         heavyInitialRequest = false;
     }
 
-    logger->info("syncFolderUIDRange for {}, UIDs: {} - {}, Heavy: {}", remotePath, range.location, range.location + range.length, heavyInitialRequest);
+    // Unless we truncate below, the caller can consider the whole requested range synced.
+    UIDRangeSyncResult result;
+    result.syncedMinUID = (uint32_t)range.location;
+
+    // Note: an open-ended range is requested as `location:*`, and location + length would wrap.
+    string rangeDesc = (range.length == UINT64_MAX)
+        ? std::to_string(range.location) + " - *"
+        : std::to_string(range.location) + " - " + std::to_string(range.location + range.length);
+    logger->info("syncFolderUIDRange for {}, UIDs: {}, Heavy: {}", remotePath, rangeDesc, heavyInitialRequest);
 
     AutoreleasePool pool;
     IndexSet * set = IndexSet::indexSetWithRange(range);
-    IndexSet * heavyNeeded = IndexSet::indexSet();
     IMAPProgress cb;
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(remotePath));
-    int heavyNeededIdeal = 0;
+    vector<uint32_t> heavyNeededUIDs {};
     
     // Step 1: Fetch the local attributes (unread, starred, etc.)
     // Note: we do this first because the remote fetch may take a long time, and if the data that
@@ -926,27 +1106,43 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
                     syncedMessages->push_back(local);
                 }
             } else {
-                if (heavyNeededIdeal < MAX_FULL_HEADERS_REQUEST_SIZE) {
-                    heavyNeeded->addIndex(remoteUID);
-                }
-                heavyNeededIdeal += 1;
+                // Note: we collect every UID that needs full headers and decide which ones to
+                // request below. Truncating here would depend on the order the server returned
+                // messages in, which is not guaranteed to be sorted by UID.
+                heavyNeededUIDs.push_back(remoteUID);
             }
         }
         
         local.erase(remoteUID);
     }
     
-    if (!heavyInitialRequest && heavyNeeded->count() > 0) {
-        logger->info("- Fetching full headers for {} (of {} needed)", heavyNeeded->count(), heavyNeededIdeal);
-
-        // Note: heavyNeeded could be enormous if the user added a zillion items to a folder, if it's been
-        // years since the app was launched, or if a sync bug caused us to delete messages we shouldn't have.
-        // (eg the issue with uidnext becoming zero suddenly)
+    if (!heavyInitialRequest && heavyNeededUIDs.size() > 0) {
+        // Note: heavyNeededUIDs could be enormous if the user added a zillion items to a folder, if it's
+        // been years since the app was launched, or if a sync bug caused us to delete messages we
+        // shouldn't have. (eg the issue with uidnext becoming zero suddenly)
         //
         // We don't re-fetch them all in one request because it could be an impossibly large amount of data.
-        // Instead we sync MAX_FULL_HEADERS_REQUEST_SIZE and on the next "deep scan" in 10 minutes, we'll
-        // sync X more.
+        // Instead we sync the newest MAX_FULL_HEADERS_REQUEST_SIZE and report the range as only synced
+        // down to the lowest UID we took, so the caller comes back for the rest.
         //
+        size_t heavyNeededIdeal = heavyNeededUIDs.size();
+        result.needed = heavyNeededIdeal;
+        std::sort(heavyNeededUIDs.begin(), heavyNeededUIDs.end());
+        if (heavyNeededUIDs.size() > MAX_FULL_HEADERS_REQUEST_SIZE) {
+            // Keep the highest (newest) UIDs, which keeps the un-synced remainder a contiguous
+            // block at the bottom of the range that `result.syncedMinUID` can describe.
+            heavyNeededUIDs.erase(heavyNeededUIDs.begin(), heavyNeededUIDs.end() - MAX_FULL_HEADERS_REQUEST_SIZE);
+            result.truncated = true;
+            result.syncedMinUID = heavyNeededUIDs.front();
+        }
+
+        logger->info("- Fetching full headers for {} (of {} needed)", heavyNeededUIDs.size(), heavyNeededIdeal);
+
+        IndexSet * heavyNeeded = IndexSet::indexSet();
+        for (uint32_t uid : heavyNeededUIDs) {
+            heavyNeeded->addIndex(uid);
+        }
+
         syncDataTimestamp = time(0);
         auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
         remote = session.fetchMessagesByUID(&path, kind, heavyNeeded, &cb, &err);
@@ -976,6 +1172,8 @@ void SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInit
             processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
         }
     }
+
+    return result;
 }
 
 void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus, bool mustSyncAll)
@@ -991,6 +1189,11 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     
     logger->info("syncFolderChangesViaCondstore - {}: modseq {} to {}, uidnext {} to {}",
                  folder.path(), modseq, remoteModseq, uidnext, remoteUIDNext);
+
+    String path(AS_MCSTR(folder.path()));
+
+    // Must happen before the early return below, and before LS_HIGHESTMODSEQ moves.
+    unlinkVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
 
     if (modseq == remoteModseq && uidnext == remoteUIDNext) {
         return;
@@ -1010,8 +1213,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
     IMAPProgress cb;
     ErrorCode err = ErrorCode::ErrorNone;
-    String path(AS_MCSTR(folder.path()));
-    
+
     auto kind = MailUtils::messagesRequestKindFor(session.storedCapabilities(), true);
     IMAPSyncResult * result = session.syncMessagesByUID(&path, kind, uids, modseq, &cb, &err);
     if (err != ErrorCode::ErrorNone) {
@@ -1043,17 +1245,32 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     }
     
     // for deleted messages, collect UIDs and destroy. Note: vanishedMessages is only
-    // populated when QRESYNC is available. IMPORTANT: vanished may include an infinite
-    // range, like 12:* so we can't convert it to a fixed array.
-    if (vanished != NULL) {
-        vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), vanished);
-        for (Query & query : queries) {
-            processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
-        }
-    }
+    // populated when QRESYNC is available.
+    unlinkVanishedUIDs(folder, vanished, "FETCH CHANGEDSINCE");
+
+    // libetpan only hands the first VANISHED line of the response to IMAPSyncResult, and
+    // an unrelated expunge can arrive untagged while this FETCH is in flight.
+    unlinkVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
 
     folder.localStatus()[LS_UIDNEXT] = remoteUIDNext;
     folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
+}
+
+void SyncWorker::unlinkVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source) {
+    // Test rangesCount, not count(): count() sums `length + 1` per range, so an open-ended
+    // range like 12:* (length UINT64_MAX) wraps it to zero.
+    if (vanished == NULL || vanished->rangesCount() == 0) {
+        return;
+    }
+    logger->info("Unlinking {} VANISHED UID range(s) in {} reported by {}",
+                 vanished->rangesCount(), folder.path(), source);
+
+    // IMPORTANT: vanished may include an infinite range, like 12:*, so we can't convert
+    // it to a fixed array.
+    vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), vanished);
+    for (Query & query : queries) {
+        processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
+    }
 }
 
 void SyncWorker::cleanMessageCache(Folder & folder) {

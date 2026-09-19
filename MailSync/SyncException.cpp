@@ -12,8 +12,8 @@
 #include "SyncException.hpp"
 #include "constants.h"
 
-SyncException::SyncException(string key, string di, bool retryable) :
-    key(key), debuginfo(di), retryable(retryable), GenericException()
+SyncException::SyncException(string key, string di, bool retryable, bool offline) :
+    key(key), debuginfo(di), retryable(retryable), offline(offline), GenericException()
 {
     
 }

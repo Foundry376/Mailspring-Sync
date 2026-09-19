@@ -38,6 +38,7 @@
 #endif
 
 #include "mailsmtp.h"
+#include "mailsmtp_private.h"
 #include <string.h>
 #include <stdlib.h>
 #include "mail.h"
@@ -57,10 +58,33 @@ int mailsmtp_init_with_ip(mailsmtp * session, int useip)
 
   if (r == MAILSMTP_NO_ERROR)
     return MAILSMTP_NO_ERROR;
+  if (r == MAILSMTP_ERROR_STREAM)
+    return r;
 
   r = mailsmtp_helo_with_ip(session, useip);
   if (r == MAILSMTP_NO_ERROR)
     return MAILSMTP_NO_ERROR;
+  if (r == MAILSMTP_ERROR_STREAM)
+    return r;
+
+  /* BG EDIT: the server answered the greeting itself with an error. That is
+     usually the HELO/EHLO argument rather than the greeting: a private FQDN
+     that does not resolve, an mDNS ".local" name, a name the server wants to
+     match against our connecting address. Retry once with the address
+     literal, which is what Thunderbird sends unconditionally. Skipped when
+     the first pass already used the literal, since that would resend the
+     exact same command. */
+  if (!useip && mailsmtp_local_hostname_is_usable()) {
+    r = mailesmtp_ehlo_with_ip(session, 1);
+    if (r == MAILSMTP_NO_ERROR)
+      return MAILSMTP_NO_ERROR;
+    if (r == MAILSMTP_ERROR_STREAM)
+      return r;
+
+    r = mailsmtp_helo_with_ip(session, 1);
+    if (r == MAILSMTP_NO_ERROR)
+      return MAILSMTP_NO_ERROR;
+  }
 
   return r;
 }

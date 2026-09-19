@@ -211,10 +211,12 @@ namespace mailcore {
         virtual bool isQResyncEnabled();
         virtual void setQResyncEnabled(bool enabled);
 
-        /** Returns UIDs of messages that were reported as VANISHED during the last IDLE session.
-            The caller should process these before issuing FETCH CHANGEDSINCE, because the server
-            may not re-report them. Returns NULL if no VANISHED was received. */
-        virtual IndexSet * idleVanishedMessages();
+        /** Returns - and clears - the UIDs reported VANISHED for `folder` on this connection
+            since the last call, or NULL if there were none. A QRESYNC server tells a given
+            connection about an expunge exactly once, and the untagged VANISHED can ride along
+            with any command, so callers must drain this before advancing HIGHESTMODSEQ.
+            `folder` is matched exactly, so spell it as it was passed to select(). */
+        virtual IndexSet * takeVanishedMessages(String * folder);
         virtual bool isIdentityEnabled();
         virtual bool isXOAuthEnabled();
         virtual bool isNamespaceEnabled();
@@ -309,7 +311,7 @@ namespace mailcore {
         bool mQipServer;
         bool mOutlookServer;
 
-        IndexSet * mIdleVanishedMessages;
+        HashMap * mVanishedMessages; // folder path (String) -> IndexSet of vanished UIDs
         unsigned int mLastFetchedSequenceNumber;
         String * mCurrentFolder;
         pthread_mutex_t mIdleLock;
@@ -328,6 +330,7 @@ namespace mailcore {
         Data * mUnparsedResponseData;
         
         void init();
+        void collectVanishedFromLastResponse();
         void bodyProgress(unsigned int current, unsigned int maximum);
         void itemsProgress(unsigned int current, unsigned int maximum);
         bool checkCertificate();
