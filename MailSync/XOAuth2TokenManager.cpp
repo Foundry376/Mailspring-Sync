@@ -28,11 +28,8 @@ shared_ptr<XOAuth2TokenManager> SharedXOAuth2TokenManager() {
 
 static const int XOAUTH2_ASSUMED_EXPIRES_IN = 3600;
 
-// expires_in is RECOMMENDED rather than REQUIRED by RFC 6749 s5.1, and providers have
-// been seen sending it as a string rather than a number. Neither is a reason to throw
-// away an access token we were just handed, so assume the near-universal one hour. The
-// cache below refreshes 60 seconds early, so a token that really was shorter-lived
-// fails IMAP authentication and is refreshed then, rather than crashing the process now.
+// expires_in is optional in RFC 6749 s5.1 and some providers send it as a string. Neither
+// is a reason to throw away an access token we were just handed, so assume one hour.
 static int expiresInOf(const json & resp) {
     if (!resp.is_object() || !resp.count("expires_in")) {
         return XOAUTH2_ASSUMED_EXPIRES_IN;
@@ -58,10 +55,8 @@ static string accessTokenOf(const json & resp) {
     return resp["access_token"].get<string>();
 }
 
-// This ends up in the engine log and, in --mode test, in the error the client shows and
-// the user may paste into a bug report. The body may be a captive portal's whole HTML
-// page, so bound it, and redact anything credential-shaped in case a provider returned
-// one alongside whatever made the response unusable.
+// Reaches the log and, in --mode test, the client. The body may be a captive portal's
+// whole HTML page, so bound it and redact anything credential-shaped.
 static string summarizeForLog(const json & resp) {
     static const vector<string> SENSITIVE_KEYS { "access_token", "refresh_token", "id_token" };
 
@@ -116,17 +111,13 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
     spdlog::get("logger")->info("Fetching XOAuth2 access token ({}) for {}", account->provider(), account->id());
     json updated = MakeOAuthRefreshRequest(account->provider(), refreshClientId, account->refreshToken());
 
-    // A 2xx is not enough to assume the body is a token response. A captive portal or a
-    // TLS-intercepting proxy answers 200 with its own sign-in page, and PerformJSONRequest
-    // hands a body it cannot parse back as {"text": ...}. Reading the fields blind threw
-    // json::type_error, which is not a SyncException, so no caller recognised it: the sync
-    // workers fell through to catch (...) and abort(), and --mode test had no handler at
-    // all and reached the terminate handler. Fail the way every caller already expects.
+    // A 2xx does not mean the body is a token response: a captive portal or intercepting
+    // proxy answers 200 with its own sign-in page, which PerformJSONRequest returns as
+    // {"text": ...}. Reading the fields blind threw json::type_error, which is not a
+    // SyncException, so callers aborted instead of backing off.
     if (!accessTokenOf(updated).length()) {
-        // An OAuth error object is the provider answering, and answering "no" - the user
-        // has to re-authorize, so retrying cannot help. Anything else is a body that did
-        // not come from the provider at all, which is the interception case: transient,
-        // and worth reporting to the client as a connection problem.
+        // An OAuth error object is the provider refusing, so retrying cannot help.
+        // Anything else did not come from the provider at all - interception, transient.
         bool providerRefused = updated.is_object() && updated.count("error");
         bool retryable = !providerRefused;
         bool offline = !providerRefused;

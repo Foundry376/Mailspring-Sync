@@ -398,24 +398,12 @@ done:
     }
 }
 
-// runTestAuth reaches the network, and an exception thrown out of it has nowhere to go:
-// main() calls it directly, so it reaches the terminate handler installed at startup and
-// aborts the process. An aborted --mode test writes no JSON at all, so the client has
-// nothing to tell the user beyond "An unknown error has occurred mailsync: <exit code>",
-// with the terminate handler's stack trace attached as the log.
-//
-// The OAuth token refresh in MailUtils::configureSessionForAccount is where this happens:
-// a refresh token the provider has revoked is answered with 400 invalid_grant, and a
-// machine that is offline or behind a captive portal fails the request outright. Neither
-// is a crash, and both are exactly what --mode test exists to report. Every other failure
-// mode here - a bad password, an unreachable IMAP host, a rejected TLS handshake - is
-// already reported as JSON, so report these the same way.
-//
-// error_offline carries the flag the client used to recover by pattern-matching the
-// terminate handler's stack trace for "offline":true, which only worked because the
-// process crashed. It distinguishes "this machine cannot reach the network" from the
-// other connection failures, so the client can keep saying so rather than blaming a
-// server and port the user never entered.
+// An exception out of runTestAuth reaches the terminate handler and aborts, leaving the
+// client no JSON and nothing to report but the exit code. The OAuth token refresh does
+// this routinely: a revoked refresh token is answered with 400, and an offline or
+// captive-portal machine fails the request outright. Neither is a crash, so report them
+// the way a bad password or unreachable host is already reported. error_offline carries
+// the isOffline() flag the client used to recover from the crash dump.
 int runTestAuthReportingExceptions(shared_ptr<Account> account) {
     string errorService = "imap";
     string error = "";
@@ -424,24 +412,20 @@ int runTestAuthReportingExceptions(shared_ptr<Account> account) {
     try {
         return runTestAuth(account, errorService);
     } catch (SyncException & ex) {
-        // isRetryable() is what the sync workers already use to tell "the network got in
-        // the way" apart from "the provider refused these credentials", and those map onto
-        // the two error codes the client has localized strings for.
+        // isRetryable() already separates a network problem from refused credentials, and
+        // those are the two codes the client has localized strings for.
         error = ex.isRetryable() ? "ErrorConnection" : "ErrorAuthentication";
         offline = ex.isOffline();
         alogger.log("\n\n" + ex.key + ": " + ex.debuginfo + "\n");
     } catch (std::exception & ex) {
-        // Not a failure the engine classified, so pass it through unrecognized: the client
-        // shows it verbatim and still reports it, which is what we want for an actual bug.
+        // Unclassified, so pass it through unrecognized and let the client report it.
         error = ex.what();
     } catch (...) {
         error = "Unknown error";
     }
 
     if (error == "") {
-        // An exception with an empty what() would otherwise reach the client as a blank
-        // error message, which is worse to receive a bug report about than a vague one.
-        error = "Unknown error";
+        error = "Unknown error"; // never hand the client a blank message
     }
 
     json resp = {
