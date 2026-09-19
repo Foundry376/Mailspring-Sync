@@ -28,20 +28,20 @@ static int flagBitsFor(bool unread, bool starred, bool draft) {
 }
 
 /*
- The concept behind the "deletion placeholder" is that we need something 
- in the database with the remoteFolder and remoteUID of the message until
- we finish syncing the deletion to the server. Otherwise the sync worker 
- could put it back. (If you try to delete a lot of drafts and the deletion
- queue is long, the delay can be long enough for them to reappear.) Bad!
-
- In this approach we "free" up the headerMessageId and id, and create an
- invisible message for a few seconds.
+ A deleted draft is replaced by an invisible placeholder message that takes over the
+ draft's (Drafts, UID) placement until the deletion reaches the server. Without it the
+ Drafts scan would see a UID it does not know and put the draft back. (If you delete a
+ lot of drafts and the deletion queue is long, the delay is long enough for that.)
+ The placeholder has a fresh id and headerMessageId so the draft's own can be reused
+ immediately. The caller moves the placements over; the placeholder starts with none.
 */
 shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Message> draft) {
     json stubJSON = draft->toJSON(); // note: copy
     stubJSON["id"] = "deleted-" + MailUtils::idRandomlyGenerated();
     stubJSON["hMsgId"] = "deleted-" + stubJSON["id"].get<string>();
     stubJSON["subject"] = "Deleting...";
+    stubJSON["folders"] = json::object();
+    stubJSON["labels"] = json::array();
     
     // very important to set v=0 so the Message gets both "added" and "deleted"
     // from the thread. Otherwise we could potentially cause double deletion
@@ -49,11 +49,9 @@ shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Messag
     stubJSON["v"] = 0;
     
     auto stub = make_shared<Message>(stubJSON);
-    auto nolabels = json::array();
     stub->setDraft(false);
     stub->setUnread(false);
     stub->setStarred(false);
-    stub->setRemoteXGMLabels(nolabels);
     stub->setSyncUnsavedChanges(1);
     stub->setSyncedAt(time(0) + 1 * 60 * 60);
 
@@ -91,11 +89,6 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
     }
     _data["folders"] = json::object();
     _data["folders"][folder.id()] = flagBitsFor(attrs.unread, attrs.starred, _data["draft"].get<bool>());
-
-    // TEMPORARY(placements): removed in Phase 3
-    setClientFolder(&folder);
-    setRemoteFolder(&folder);
-    _data["remoteUID"] = msg->uid();
 
     _data["extraHeaders"] = json::object();
     auto extra = msg->header()->allExtraHeadersNames();
@@ -146,14 +139,12 @@ Message::Message(json json) :
 {
     _skipThreadUpdatesAfterSave = false;
 
-    // Client-authored draft JSON carries no "folders"; derive it from the folder the
-    // draft was stubbed into so the thread diff and the client see one placement.
-    // TEMPORARY(placements): removed in Phase 3
+    // Client-authored draft JSON carries no "folders"; the engine assigns placements.
     if (!_data.count("folders") || !_data["folders"].is_object()) {
         _data["folders"] = json::object();
-        if (_data.count("folder") && _data["folder"].is_object() && _data["folder"].count("id")) {
-            _data["folders"][_data["folder"]["id"].get<string>()] = flagBitsFor(isUnread(), isStarred(), isDraft());
-        }
+    }
+    if (!_data.count("labels") || !_data["labels"].is_array()) {
+        _data["labels"] = json::array();
     }
 
     if (version() == 0) {
@@ -168,7 +159,7 @@ MessageSnapshot Message::getSnapshot() {
     s.unread = isUnread();
     s.starred = isStarred();
     s.fileCount = fileCountForThreadList();
-    s.labels = remoteXGMLabels();
+    s.labels = labels();
     s.folders = folders();
     return s;
 }
@@ -259,17 +250,11 @@ bool Message::isUnread() {
     return _data["unread"].get<bool>();
 }
 
-// The flag setters below also write the bit onto every entry of the "folders" snapshot:
-// a client flag change fans out to every copy, and single-folder writers rely on the
-// snapshot tracking the message-level flag.
-// TEMPORARY(placements): removed in Phase 3
+// The flag setters write only the derived message-level value. Per-copy bits live on
+// the placements and reach "folders" through the MailStore helpers.
 
 void Message::setUnread(bool u) {
     _data["unread"] = u;
-    for (auto & entry : folders().items()) {
-        int bits = entry.value().is_number() ? entry.value().get<int>() : 0;
-        entry.value() = u ? (bits | PLACEMENT_FLAG_UNREAD) : (bits & ~PLACEMENT_FLAG_UNREAD);
-    }
 }
 
 bool Message::isStarred() {
@@ -278,18 +263,10 @@ bool Message::isStarred() {
 
 void Message::setStarred(bool s) {
     _data["starred"] = s;
-    for (auto & entry : folders().items()) {
-        int bits = entry.value().is_number() ? entry.value().get<int>() : 0;
-        entry.value() = s ? (bits | PLACEMENT_FLAG_STARRED) : (bits & ~PLACEMENT_FLAG_STARRED);
-    }
 }
 
-json & Message::remoteXGMLabels() {
+json & Message::labels() {
     return _data["labels"];
-}
-
-void Message::setRemoteXGMLabels(json & labels) {
-    _data["labels"] = labels;
 }
 
 string Message::threadId() {
@@ -374,10 +351,6 @@ bool Message::isDraft() {
 
 void Message::setDraft(bool d) {
     _data["draft"] = d;
-    for (auto & entry : folders().items()) {
-        int bits = entry.value().is_number() ? entry.value().get<int>() : 0;
-        entry.value() = d ? (bits | PLACEMENT_FLAG_DRAFT) : (bits & ~PLACEMENT_FLAG_DRAFT);
-    }
 }
 
 void Message::setBodyForDispatch(string s) {
@@ -404,7 +377,7 @@ bool Message::_isIn(MailStore * store, string roleAlsoLabelName) {
             continue;
         }
         string needle = roleAlsoLabelName;
-        for (auto & l : remoteXGMLabels()) {
+        for (auto & l : labels()) {
             string ln = l.get<string>();
             auto it = std::search(ln.begin(), ln.end(), needle.begin(), needle.end(), [](char ch1, char ch2) {
                 return std::toupper(ch1) == std::toupper(ch2);
@@ -415,54 +388,6 @@ bool Message::_isIn(MailStore * store, string roleAlsoLabelName) {
         }
     }
     return false;
-}
-
-// TEMPORARY(placements): removed in Phase 3
-
-uint32_t Message::remoteUID() {
-    return _data["remoteUID"].get<uint32_t>();
-}
-
-void Message::setRemoteUID(uint32_t v) {
-    _data["remoteUID"] = v;
-}
-
-json Message::clientFolder() {
-    return _data["folder"];
-}
-
-string Message::clientFolderId() {
-    return _data["folder"]["id"].get<string>();
-}
-
-// Single-folder semantics: the message's only placement follows the client folder, so
-// the snapshot becomes { clientFolderId: bits } and the thread diff sees a move.
-void Message::setClientFolder(Folder * folder) {
-    _data["folder"] = folder->toJSON();
-    if (_data["folder"].count("localStatus")) {
-        _data["folder"].erase("localStatus");
-    }
-    _data["folders"] = json::object();
-    _data["folders"][folder->id()] = flagBitsFor(isUnread(), isStarred(), isDraft());
-}
-
-json Message::remoteFolder() {
-    return _data["remoteFolder"];
-}
-
-string Message::remoteFolderId() {
-    return _data["remoteFolder"]["id"].get<string>();
-}
-
-void Message::setRemoteFolder(json folder) {
-    _data["remoteFolder"] = folder;
-}
-
-void Message::setRemoteFolder(Folder * folder) {
-    _data["remoteFolder"] = folder->toJSON();
-    if (_data["remoteFolder"].count("localStatus")) {
-        _data["remoteFolder"].erase("localStatus");
-    }
 }
 
 time_t Message::syncedAt() {
@@ -524,8 +449,7 @@ string Message::tableName() {
 }
 
 vector<string> Message::columnsForQuery() {
-    // remoteUID, remoteXGMLabels, remoteFolderId: TEMPORARY(placements): removed in Phase 3
-    return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "unread", "starred", "remoteUID", "remoteXGMLabels", "remoteFolderId", "threadId"};
+    return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "unread", "starred", "threadId"};
 }
 
 void Message::bindToQuery(SQLite::Statement * query) {
@@ -536,10 +460,6 @@ void Message::bindToQuery(SQLite::Statement * query) {
     query->bind(":draft", isDraft());
     query->bind(":headerMessageId", headerMessageId());
     query->bind(":subject", subject());
-    // TEMPORARY(placements): removed in Phase 3
-    query->bind(":remoteUID", remoteUID());
-    query->bind(":remoteXGMLabels", remoteXGMLabels().dump());
-    query->bind(":remoteFolderId", remoteFolderId());
     query->bind(":threadId", threadId());
     query->bind(":gMsgId", gMsgId());
 }

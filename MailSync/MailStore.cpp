@@ -796,28 +796,26 @@ void MailStore::removePlacementsOutsideFolder(Message & msg, string folderId) {
     refreshMessageFromPlacements(msg);
 }
 
-void MailStore::setPlacementFlags(Message & msg, bool unread, bool starred, bool draft) {
+// A client flag change fans out to every copy, tombstones included: otherwise the next
+// scan of an untouched copy re-derives the old value. Each flag is written on its own so
+// copies that disagree on the other flag keep their own value.
+void MailStore::setPlacementUnread(Message & msg, bool unread) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("setFlagsAll",
-        "UPDATE MessageFolder SET unread = ?, starred = ?, draft = ? WHERE messageId = ?");
+    auto & stmt = _placementStatement("setUnreadAll",
+        "UPDATE MessageFolder SET unread = ? WHERE messageId = ?");
     stmt.bind(1, unread);
-    stmt.bind(2, starred);
-    stmt.bind(3, draft);
-    stmt.bind(4, msg.id());
+    stmt.bind(2, msg.id());
     stmt.exec();
     stmt.reset();
     refreshMessageFromPlacements(msg);
 }
 
-void MailStore::setPlacementFlags(Message & msg, string folderId, bool unread, bool starred, bool draft) {
+void MailStore::setPlacementStarred(Message & msg, bool starred) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("setFlagsFolder",
-        "UPDATE MessageFolder SET unread = ?, starred = ?, draft = ? WHERE messageId = ? AND folderId = ?");
-    stmt.bind(1, unread);
-    stmt.bind(2, starred);
-    stmt.bind(3, draft);
-    stmt.bind(4, msg.id());
-    stmt.bind(5, folderId);
+    auto & stmt = _placementStatement("setStarredAll",
+        "UPDATE MessageFolder SET starred = ? WHERE messageId = ?");
+    stmt.bind(1, starred);
+    stmt.bind(2, msg.id());
     stmt.exec();
     stmt.reset();
     refreshMessageFromPlacements(msg);
@@ -834,15 +832,18 @@ void MailStore::setPlacementLabels(Message & msg, const vector<string> & labels)
     refreshMessageFromPlacements(msg);
 }
 
-// Optimistic move: the row keeps its server folder and UID so the remote phase can
-// address it, and the snapshot reports it under the destination immediately.
-void MailStore::beginPlacementMove(Message & msg, string fromFolderId, string toFolderId) {
+// Optimistic move of one copy: the row keeps its server folder and UID so the remote
+// phase can address it, and the snapshot reports it under the destination immediately.
+// Keyed by (folder, UID) because two copies in one folder can be bound for different
+// folders when an undo spreads them back over their sources.
+void MailStore::beginPlacementMove(Message & msg, string fromFolderId, uint32_t uid, string toFolderId) {
     assertCorrectThread();
     auto & stmt = _placementStatement("beginMove",
-        "UPDATE MessageFolder SET pendingFolderId = ? WHERE messageId = ? AND folderId = ? AND unlinkedAt IS NULL");
+        "UPDATE MessageFolder SET pendingFolderId = ? WHERE messageId = ? AND folderId = ? AND remoteUID = ? AND unlinkedAt IS NULL");
     stmt.bind(1, toFolderId);
     stmt.bind(2, msg.id());
     stmt.bind(3, fromFolderId);
+    stmt.bind(4, (long long)uid);
     stmt.exec();
     stmt.reset();
     refreshMessageFromPlacements(msg);

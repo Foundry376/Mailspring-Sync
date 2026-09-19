@@ -243,7 +243,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
 
         // increment folder + label refcounts
         adjustFolderRefs(store, next->folders(), +1);
-        adjustLabelRefs(allLabels, next->remoteXGMLabels(), +1, next->isUnread() && next->inAllMail(store));
+        adjustLabelRefs(allLabels, next->labels(), +1, next->isUnread() && next->inAllMail(store));
         
         // merge in participants
         std::map<std::string, bool>emails;

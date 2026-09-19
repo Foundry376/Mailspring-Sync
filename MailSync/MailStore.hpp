@@ -126,10 +126,10 @@ public:
     // Returns the id of a different message that held (folder, uid) and lost it, or "".
     string upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs);
     void removePlacementsOutsideFolder(Message & msg, string folderId);
-    void setPlacementFlags(Message & msg, bool unread, bool starred, bool draft);
-    void setPlacementFlags(Message & msg, string folderId, bool unread, bool starred, bool draft);
+    void setPlacementUnread(Message & msg, bool unread);
+    void setPlacementStarred(Message & msg, bool starred);
     void setPlacementLabels(Message & msg, const vector<string> & labels);
-    void beginPlacementMove(Message & msg, string fromFolderId, string toFolderId);
+    void beginPlacementMove(Message & msg, string fromFolderId, uint32_t uid, string toFolderId);
     void commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid);
     void removePlacement(Message & msg, string folderId, uint32_t uid);
     void clearTombstones(Message & msg);

@@ -23,6 +23,7 @@
 #include "MailModel.hpp"
 #include "MailStore.hpp"
 #include "Account.hpp"
+#include "Placement.hpp"
 #include <MailCore/MailCore.h>
 
 using namespace nlohmann;
@@ -32,6 +33,24 @@ using namespace mailcore;
 struct ChangeMailModels {
     vector<shared_ptr<Message>> messages;
 };
+
+// One physical copy a task addresses on the server and, after the remote phase, what
+// became of it. The row is captured before any network I/O; the confirm step reloads
+// the message and applies the outcome to the row that still matches (folder, UID).
+struct TaskPlacement {
+    shared_ptr<Message> message;
+    Placement placement;
+    string destFolderId;                   // moves: where this copy should end up
+    bool moved = false;                    // the copy is now at (destFolderId, movedUID)
+    uint32_t movedUID = 0;
+    bool removed = false;                  // the copy was deleted from the server
+    vector<pair<string, uint32_t>> copies; // undo: (folderId, UID) copies created by COPY
+};
+
+// The local variant runs inside a transaction with the message's placements in hand;
+// the remote variant runs once per server folder holding a copy, with the items there.
+typedef void (*LocalChangeFn)(MailStore * store, Message * msg, const vector<Placement> & placements, json & data);
+typedef void (*RemoteChangeFn)(IMAPSession * session, MailStore * store, string accountId, Folder & source, vector<TaskPlacement *> & items, json & data);
 
 
 class TaskProcessor {
@@ -55,8 +74,12 @@ private:
     ChangeMailModels inflateThreadsAndMessages(json & data);
     Message inflateClientDraftJSON(json & draftJSON, shared_ptr<Message> existing);
 
-    void performLocalChangeOnMessages(Task * task,  void (*modifyLocalMessage)(Message *, json &));
-    void performRemoteChangeOnMessages(Task * task, bool updatesFolder, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data));
+    shared_ptr<Folder> draftsFolder();
+    void ensureDraftPlacement(Message & draft);
+
+    void performLocalChangeOnMessages(Task * task, LocalChangeFn modifyLocalMessage);
+    void performRemoteChangeOnMessages(Task * task, bool isMove, RemoteChangeFn applyInFolder);
+    void confirmPlacementChange(Message & msg, TaskPlacement & item, const vector<Placement> & rows);
     void performLocalSaveDraft(Task * task);
     void performLocalDestroyDraft(Task * task);
     void performRemoteDestroyDraft(Task * task);

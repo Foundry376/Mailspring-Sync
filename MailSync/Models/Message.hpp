@@ -125,24 +125,9 @@ public:
     bool isInInbox(MailStore * store);
     bool _isIn(MailStore * store, string roleAlsoLabelName);
 
-    json & remoteXGMLabels();
-    void setRemoteXGMLabels(json & labels);
-
-    // Single-folder location. Sync and task code still read and write these; the
-    // setters also keep the "folders" snapshot consistent under single-folder semantics
-    // so thread counters diff correctly until the writers move to placements.
-    // TEMPORARY(placements): removed in Phase 3
-    uint32_t remoteUID();
-    void setRemoteUID(uint32_t v);
-    
-    json clientFolder();
-    string clientFolderId();
-    void setClientFolder(Folder * folder);
-    
-    json remoteFolder();
-    string remoteFolderId();
-    void setRemoteFolder(json folder);
-    void setRemoteFolder(Folder * folder);
+    // X-GM-LABELS of the message's live copies (Gmail has one). Written by the MailStore
+    // placement helpers alongside "folders"; the client reads it as `labels`.
+    json & labels();
 
     // immutable attributes
 
