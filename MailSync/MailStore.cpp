@@ -78,7 +78,7 @@ MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
 }
 
 bool MessageAttributesMatch(MessageAttributes a, MessageAttributes b) {
-    return a.unread == b.unread && a.starred == b.starred && a.uid == b.uid && a.labels == b.labels;
+    return a.unread == b.unread && a.starred == b.starred && a.draft == b.draft && a.uid == b.uid && a.labels == b.labels;
 }
 
 
@@ -702,8 +702,55 @@ void MailStore::refreshMessageFromPlacements(Message & msg) {
     }
 }
 
-void MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs) {
+/*
+ Records one physical copy at (folder, uid) with the flags the server reported.
+
+ - A row already at (folder, uid) is refreshed in place. If it belonged to a different
+   message (a UID the server reused without a UIDVALIDITY change) that message loses the
+   copy and its id is returned so the caller can rewrite its snapshot.
+ - A row for this message in this folder at UID 0 is a placement whose UID is unknown:
+   a local draft, or a copy waiting for a UIDVALIDITY rebuild to relink it. It is
+   replaced by the real row so the rebuild converges instead of leaving both.
+ - Every tombstone of the message is dropped: a live copy anywhere makes them moot.
+ */
+string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs) {
     assertCorrectThread();
+
+    string displacedMessageId;
+    if (uid > 0) {
+        auto & existing = _placementStatement("upsertExisting",
+            "SELECT messageId FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID = ? AND remoteUID > 0");
+        existing.bind(1, msg.accountId());
+        existing.bind(2, folder.id());
+        existing.bind(3, (long long)uid);
+        if (existing.executeStep()) {
+            string holder = existing.getColumn(0).getString();
+            if (holder != msg.id()) {
+                displacedMessageId = holder;
+            }
+        }
+        existing.reset();
+    } else {
+        // UID 0 rows are outside the unique index, so refresh one by hand rather than
+        // accumulating a row per save of a local draft.
+        auto & unassigned = _placementStatement("upsertUnassigned",
+            "UPDATE MessageFolder SET unread = ?, starred = ?, draft = ?, remoteXGMLabels = ?, syncedAt = ?, unlinkedAt = NULL, pendingFolderId = NULL "
+            "WHERE messageId = ? AND folderId = ? AND remoteUID = 0");
+        unassigned.bind(1, attrs.unread);
+        unassigned.bind(2, attrs.starred);
+        unassigned.bind(3, attrs.draft);
+        unassigned.bind(4, json(attrs.labels).dump());
+        unassigned.bind(5, (long long)msg.syncedAt());
+        unassigned.bind(6, msg.id());
+        unassigned.bind(7, folder.id());
+        int updated = unassigned.exec();
+        unassigned.reset();
+        if (updated > 0) {
+            clearTombstones(msg);
+            return displacedMessageId;
+        }
+    }
+
     auto & stmt = _placementStatement("upsert",
         "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt, pendingFolderId) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL) "
@@ -722,13 +769,30 @@ void MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, co
     stmt.exec();
     stmt.reset();
 
-    // A live copy anywhere makes every tombstone of this message moot.
-    auto & clear = _placementStatement("clearTombstones",
-        "DELETE FROM MessageFolder WHERE messageId = ? AND unlinkedAt IS NOT NULL");
-    clear.bind(1, msg.id());
-    clear.exec();
-    clear.reset();
+    if (uid > 0) {
+        auto & relinked = _placementStatement("deleteUnassignedInFolder",
+            "DELETE FROM MessageFolder WHERE messageId = ? AND folderId = ? AND remoteUID = 0");
+        relinked.bind(1, msg.id());
+        relinked.bind(2, folder.id());
+        relinked.exec();
+        relinked.reset();
+    }
 
+    clearTombstones(msg);
+    return displacedMessageId;
+}
+
+// Gmail keeps one placement per message: All Mail, Spam and Trash are mutually exclusive
+// on the server, and a message filed under a Label by the send path is only there until
+// All Mail reports it. Rows at UID 0 are local drafts and are left alone.
+void MailStore::removePlacementsOutsideFolder(Message & msg, string folderId) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("removeOutsideFolder",
+        "DELETE FROM MessageFolder WHERE messageId = ? AND folderId != ? AND remoteUID > 0");
+    stmt.bind(1, msg.id());
+    stmt.bind(2, folderId);
+    stmt.exec();
+    stmt.reset();
     refreshMessageFromPlacements(msg);
 }
 
@@ -881,14 +945,28 @@ vector<string> MailStore::tombstonePlacements(Folder & folder, Query & uidQuery,
 
 // UIDVALIDITY changed: every UID in the folder is meaningless. Rows stay live at UID 0
 // (still visible, still counted) until the rebuild assigns new UIDs. Nothing to emit.
+// The `remoteUID > 0` term is what lets the partial MessageFolderUIDIndex serve this.
 void MailStore::resetPlacementUIDs(Folder & folder) {
     assertCorrectThread();
     auto & stmt = _placementStatement("resetUIDs",
-        "UPDATE MessageFolder SET remoteUID = 0 WHERE accountId = ? AND folderId = ?");
+        "UPDATE MessageFolder SET remoteUID = 0 WHERE accountId = ? AND folderId = ? AND remoteUID > 0");
     stmt.bind(1, folder.accountId());
     stmt.bind(2, folder.id());
     stmt.exec();
     stmt.reset();
+}
+
+// After a UIDVALIDITY rebuild has visited every UID in the folder, a row still at UID 0 is
+// a copy the server no longer has. Draft rows are exempt: a local draft sits at UID 0 by
+// design until it is sent.
+vector<string> MailStore::tombstoneUnassignedPlacements(Folder & folder, time_t now) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("tombstoneUnassigned",
+        "UPDATE MessageFolder SET unlinkedAt = ? WHERE accountId = ? AND folderId = ? AND remoteUID = 0 AND unlinkedAt IS NULL AND draft = 0 RETURNING messageId");
+    stmt.bind(1, (long long)now);
+    stmt.bind(2, folder.accountId());
+    stmt.bind(3, folder.id());
+    return _collectMessageIds(stmt);
 }
 
 vector<string> MailStore::deleteExpiredTombstones(string accountId, time_t before) {
@@ -954,56 +1032,6 @@ vector<string> MailStore::deletePlacementsForFolder(string folderId) {
         }
     }
     return affected;
-}
-
-/*
- Keeps MessageFolder in step with the single-folder columns while sync and task code still
- write remoteFolderId / remoteUID on the Message. Every Message save replaces the message's
- rows with one placement built from those columns, so the range reads above (which serve
- only from MessageFolder) keep seeing what the sync engine wrote. Unlink sentinels become
- UID 0 tombstones exactly as the V10 backfill maps them. A (folder, UID) row held by a
- different message id is taken over, which is today's "latest writer wins" semantics.
- Must be deleted the moment a writer switches to upsertPlacement, or it clobbers real
- multi-folder rows.
- TEMPORARY(placements): removed in Phase 3
- */
-void MailStore::mirrorLegacyPlacement(Message & msg) {
-    assertCorrectThread();
-    deletePlacementsForMessage(msg.id());
-
-    if (!msg._data.count("remoteFolder") || !msg._data["remoteFolder"].is_object() || !msg._data["remoteFolder"].count("id")) {
-        return;
-    }
-    string folderId = msg.remoteFolderId();
-    if (folderId.empty()) {
-        return;
-    }
-
-    uint32_t uid = msg.remoteUID();
-    bool unlinked = uid > LEGACY_UNLINK_SENTINEL_MIN;
-
-    auto & stmt = _placementStatement("mirrorLegacy",
-        "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt, pendingFolderId) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL) "
-        "ON CONFLICT (accountId, folderId, remoteUID) WHERE remoteUID > 0 DO UPDATE SET "
-        "messageId = excluded.messageId, unread = excluded.unread, starred = excluded.starred, draft = excluded.draft, "
-        "remoteXGMLabels = excluded.remoteXGMLabels, syncedAt = excluded.syncedAt, unlinkedAt = excluded.unlinkedAt, pendingFolderId = NULL");
-    stmt.bind(1, msg.accountId());
-    stmt.bind(2, msg.id());
-    stmt.bind(3, folderId);
-    stmt.bind(4, (long long)(unlinked ? 0 : uid));
-    stmt.bind(5, msg.isUnread());
-    stmt.bind(6, msg.isStarred());
-    stmt.bind(7, msg.isDraft());
-    stmt.bind(8, msg.remoteXGMLabels().dump());
-    stmt.bind(9, (long long)msg.syncedAt());
-    if (unlinked) {
-        stmt.bind(10, (long long)time(0));
-    } else {
-        stmt.bind(10);
-    }
-    stmt.exec();
-    stmt.reset();
 }
 
 void MailStore::_emit(DeltaStreamItem & delta) {

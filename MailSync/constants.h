@@ -281,6 +281,9 @@ static vector<string> V10_INDEX_QUERIES = {
     "CREATE UNIQUE INDEX IF NOT EXISTS MessageFolderUIDIndex ON MessageFolder (accountId, folderId, remoteUID) WHERE remoteUID > 0",
     "CREATE INDEX IF NOT EXISTS MessageFolderMessageIndex ON MessageFolder (messageId)",
     "CREATE INDEX IF NOT EXISTS MessageFolderUnlinkedIndex ON MessageFolder (accountId, unlinkedAt) WHERE unlinkedAt IS NOT NULL",
+    // Drives the body-sync queries newest-first now that they can no longer walk a folder
+    // through Message.remoteFolderId (SyncWorker::syncMessageBodies).
+    "CREATE INDEX IF NOT EXISTS MessageListDateIndex ON Message (accountId, date DESC)",
 };
 
 static map<string, string> COMMON_FOLDER_NAMES = {

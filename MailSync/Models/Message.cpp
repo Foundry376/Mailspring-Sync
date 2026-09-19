@@ -547,9 +547,6 @@ void Message::bindToQuery(SQLite::Statement * query) {
 void Message::afterSave(MailStore * store) {
     MailModel::afterSave(store);
 
-    // TEMPORARY(placements): removed in Phase 3
-    store->mirrorLegacyPlacement(*this);
-
     // if we have a thread, keep the thread's folder, label, and unread counters
     // in sync by providing it with a before + after snapshot of this message.
     if (_skipThreadUpdatesAfterSave) {

@@ -54,10 +54,8 @@ public:
 
     static vector<uint32_t> uidsOfArray(Array * array);
     
-    // Builds queries over MessageFolder (folderId, remoteUID) covering every UID in the
-    // set. folderColumn exists only for the remaining Message-table caller.
-    // TEMPORARY(placements): removed in Phase 3 (the parameter, not the function)
-    static vector<Query> queriesForUIDRangesInIndexSet(string folderId, IndexSet * set, string folderColumn = "folderId");
+    // Builds queries over MessageFolder (folderId, remoteUID) covering every UID in the set.
+    static vector<Query> queriesForUIDRangesInIndexSet(string folderId, IndexSet * set);
 
     static string pathForFile(string root, File * file, bool create);
 
@@ -67,7 +65,6 @@ public:
     static string roleForFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
-    static int priorityForFolderRole(const string & role);
 
     static void setBaseIDVersion(time_t identityCreationDate);
 

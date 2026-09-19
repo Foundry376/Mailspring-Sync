@@ -25,11 +25,6 @@ static const int PLACEMENT_FLAG_UNREAD  = 1;
 static const int PLACEMENT_FLAG_STARRED = 2;
 static const int PLACEMENT_FLAG_DRAFT   = 4;
 
-// UIDs above this were "unlink sentinels" (UINT32_MAX - phase) in the single-folder
-// representation. The migration and the Phase 1 mirror turn them into tombstones.
-// TEMPORARY(placements): removed in Phase 3
-static const uint32_t LEGACY_UNLINK_SENTINEL_MIN = 4294967290u;
-
 /*
  One physical copy of a message on the server: a row of the MessageFolder table.
  A Placement is a plain value, not a MailModel - it has no __cls, is never streamed

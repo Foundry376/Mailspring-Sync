@@ -43,10 +43,16 @@ public:
     void updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp);
     void retrievedMessageBody(Message * message, MessageParser * parser);
     bool retrievedFileData(File * file, Data * data);
-    void unlinkMessagesMatchingQuery(Query & query, int phase);
-    void deleteMessagesStillUnlinkedFromPhase(int phase);
+
+    // Placement bookkeeping for copies the server no longer reports (see the plan, §2.5).
+    void tombstonePlacements(Folder & folder, const vector<uint32_t> & uids);
+    void tombstonePlacements(Folder & folder, Query & uidQuery);
+    void tombstoneUnassignedPlacements(Folder & folder);
+    void sweepExpiredTombstones(time_t before);
     
 private:
+    void saveMessagesAfterPlacementChange(const vector<string> & messageIds);
+    void saveDisplacedMessage(const string & messageId);
     void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
     void upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references);
     void upsertContacts(Message * message);

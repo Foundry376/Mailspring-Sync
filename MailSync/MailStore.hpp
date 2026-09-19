@@ -123,7 +123,9 @@ public:
     vector<Placement> placementsForMessage(string messageId);
     vector<Placement> livePlacementsForFolder(Folder & folder);
 
-    void upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs);
+    // Returns the id of a different message that held (folder, uid) and lost it, or "".
+    string upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs);
+    void removePlacementsOutsideFolder(Message & msg, string folderId);
     void setPlacementFlags(Message & msg, bool unread, bool starred, bool draft);
     void setPlacementFlags(Message & msg, string folderId, bool unread, bool starred, bool draft);
     void setPlacementLabels(Message & msg, const vector<string> & labels);
@@ -136,14 +138,12 @@ public:
     vector<string> tombstonePlacements(Folder & folder, const vector<uint32_t> & uids, time_t now);
     vector<string> tombstonePlacements(Folder & folder, Query & uidQuery, time_t now);
     void resetPlacementUIDs(Folder & folder);
+    vector<string> tombstoneUnassignedPlacements(Folder & folder, time_t now);
     vector<string> deleteExpiredTombstones(string accountId, time_t before);
     vector<string> orphanMessageIds(string accountId, int limit);
     vector<string> orphanMessageIdsAmong(const vector<string> & messageIds);
     void deletePlacementsForMessage(string messageId);
     vector<string> deletePlacementsForFolder(string folderId);
-
-    // TEMPORARY(placements): removed in Phase 3
-    void mirrorLegacyPlacement(Message & msg);
 
     void setStreamDelay(int streamMaxDelay);
     

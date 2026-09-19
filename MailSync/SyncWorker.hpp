@@ -36,7 +36,6 @@ class SyncWorker {
     MailProcessor * processor;
     shared_ptr<spdlog::logger> logger;
 
-    int unlinkPhase;
     std::atomic<bool> idleShouldReloop{false};
     int iterationsSinceLaunch = 0;
 
@@ -98,7 +97,14 @@ private:
     // once a scan completes cleanly, so it must be called for every full-folder scan result.
     bool shouldRetryTruncatedScan(Folder & folder, UIDRangeSyncResult const & scan);
 
-    UIDRangeSyncResult syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
+    // A message ingested from a range scan, with the UID it was seen at in that folder so
+    // callers can order body fetches newest-first without asking the message for a UID.
+    struct SyncedMessage {
+        shared_ptr<Message> message;
+        uint32_t uid;
+    };
+
+    UIDRangeSyncResult syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<SyncedMessage> * syncedMessages = nullptr);
 
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus, bool mustSyncAll);
 
@@ -106,14 +112,14 @@ private:
 
     void cleanMessageCache(Folder & folder);
 
-    void unlinkVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source);
+    void tombstoneVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source);
     
     long long countBodiesDownloaded(Folder & folder);
     long long countBodiesNeeded(Folder & folder);
     time_t maxAgeForBodySync(Folder & folder);
     bool shouldCacheBodiesInFolder(Folder & folder);
     bool syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
-    void syncMessageBody(Message * message);
+    void syncMessageBody(Message * message, Folder * preferredFolder);
 };
 
 

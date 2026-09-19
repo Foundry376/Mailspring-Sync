@@ -69,7 +69,6 @@ using namespace std;
 SyncWorker::SyncWorker(shared_ptr<Account> account) :
     store(new MailStore()),
     account(account),
-    unlinkPhase(1),
     logger(spdlog::get("logger")),
     processor(new MailProcessor(account, store)),
     session(IMAPSession())
@@ -108,7 +107,9 @@ void SyncWorker::idleCycleIteration()
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
 
-    // Run body requests from the client
+    // Run body requests from the client. The inbox is the folder this worker keeps
+    // selected, so a copy there is fetched without a SELECT.
+    shared_ptr<Folder> preferredFolder = nullptr;
     while (true) {
         string id;
         {
@@ -118,6 +119,9 @@ void SyncWorker::idleCycleIteration()
             }
             id = idleFetchBodyIDs.back();
             idleFetchBodyIDs.pop_back();
+        }
+        if (preferredFolder == nullptr) {
+            preferredFolder = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "inbox"));
         }
         Query byId = Query().equal("id", id);
         auto msg = store->find<Message>(byId);
@@ -140,7 +144,7 @@ void SyncWorker::idleCycleIteration()
                 }
             }
 
-            syncMessageBody(msg.get());
+            syncMessageBody(msg.get(), preferredFolder.get());
         }
     }
 
@@ -243,7 +247,7 @@ void SyncWorker::idleCycleIteration()
         // Expunges the server told us about on this connection - during the IDLE we just
         // exited, but also alongside the body fetches and task commands above. It only
         // tells us once, so these are lost if we don't apply them before the FETCH below.
-        unlinkVanishedUIDs(*inbox, session.takeVanishedMessages(&path), "this connection");
+        tombstoneVanishedUIDs(*inbox, session.takeVanishedMessages(&path), "this connection");
 
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
 
@@ -315,6 +319,11 @@ bool SyncWorker::syncNow()
     AutoreleasePool pool;
     bool syncAgainImmediately = false;
 
+    // Tombstones written before this instant have had every folder scanned since by the
+    // time the pass ends, which is the grace period for a copy that moved between folders.
+    // Recorded before any scan so the foreground worker's tombstones get the same grace.
+    time_t passStartedAt = time(0);
+
     vector<shared_ptr<Folder>> folders = syncFoldersAndLabels();
     bool hasCondstore = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
     bool hasQResync = session.storedCapabilities()->containsIndex(IMAPCapabilityQResync);
@@ -339,47 +348,34 @@ bool SyncWorker::syncNow()
         return lhsRank < rhsRank;
     });
 
-    // Fetch STATUS for every folder before syncing any of them. NetEase omits
-    // UIDNEXT, so if one folder's lightweight status changes we must deep-scan
-    // all folders in the same pass. This gives a lower-priority duplicate (such
-    // as Sent) a chance to reclaim a message unlinked from Inbox before phase
-    // cleanup deletes it.
-    map<string, IMAPFolderStatus *> remoteStatuses;
-    bool forceNetEaseDeepScan = false;
     for (auto & folder : folders) {
         String path = AS_MCSTR(folder->path());
         ErrorCode err = ErrorCode::ErrorNone;
-        IMAPFolderStatus * remoteStatus = session.folderStatus(&path, &err);
+        IMAPFolderStatus * remoteStatusPtr = session.folderStatus(&path, &err);
         if (err != ErrorNone) {
             logger->warn("SyncNow: unable to get folder status for {} ({}), skipping...", folder->path(), ErrorCodeToTypeMap[err]);
             continue;
         }
 
-        remoteStatuses[folder->id()] = remoteStatus;
-        if (account->isNetEase() && remoteStatus->uidNext() == 0) {
-            json & localStatus = folder->localStatus();
+        json & localStatus = folder->localStatus();
+        json initialLocalStatus = localStatus; // note: json not json&
+        IMAPFolderStatus & remoteStatus = *remoteStatusPtr;
+        bool firstChunk = false;
+        bool deepScanIncomplete = false;
+
+        // NetEase omits UIDNEXT from STATUS, so new mail cannot be detected from it. The
+        // message / unseen / recent counts are the only signal, and a change in any of them
+        // deep-scans this folder.
+        bool countsChanged = false;
+        if (account->isNetEase() && remoteStatus.uidNext() == 0) {
             auto changed = [&localStatus](const char * key, uint32_t value) {
                 return !localStatus.count(key) || !localStatus[key].is_number() ||
                        localStatus[key].get<uint32_t>() != value;
             };
-            forceNetEaseDeepScan = forceNetEaseDeepScan ||
-                                   changed(LS_MESSAGE_COUNT, remoteStatus->messageCount()) ||
-                                   changed(LS_UNSEEN_COUNT, remoteStatus->unseenCount()) ||
-                                   changed(LS_RECENT_COUNT, remoteStatus->recentCount());
+            countsChanged = changed(LS_MESSAGE_COUNT, remoteStatus.messageCount()) ||
+                            changed(LS_UNSEEN_COUNT, remoteStatus.unseenCount()) ||
+                            changed(LS_RECENT_COUNT, remoteStatus.recentCount());
         }
-    }
-
-    for (auto & folder : folders) {
-        auto remoteStatusIt = remoteStatuses.find(folder->id());
-        if (remoteStatusIt == remoteStatuses.end()) {
-            continue;
-        }
-
-        json & localStatus = folder->localStatus();
-        json initialLocalStatus = localStatus; // note: json not json&
-        IMAPFolderStatus & remoteStatus = *remoteStatusIt->second;
-        bool firstChunk = false;
-        bool deepScanIncomplete = false;
         
         // Step 1: Check folder UIDValidity
         if (localStatus.empty() || localStatus[LS_UIDVALIDITY].is_null()) {
@@ -400,12 +396,11 @@ bool SyncWorker::syncNow()
         //
         // An \All mailbox (role "all") is a *duplicate view* of messages that also live
         // in Inbox / Sent / Archive - ProtonMail Bridge's "All Mail" is the common case.
-        // Mailspring's data model gives each message exactly one folder and message IDs
-        // are derived from headers, so the All Mail copy and the real copy collapse onto
-        // the same row. With "latest folder wins" the two folders take turns claiming
-        // every message on each sync pass, which empties out Inbox and Sent and makes
-        // messages flicker between folders. Skip the folder so the real folders own the
-        // messages; the folder itself is still created so the client can archive into it.
+        // Placements could represent the extra copy, but syncing it doubles header traffic
+        // and rows, files every thread under "Archive" (the [archive, all] role group), and
+        // a delete from All Mail on Bridge is a delete everywhere - an ambiguity nothing
+        // else has to resolve. Skip the folder; it is still created so the client can
+        // archive into it. (#137)
         //
         // Gmail is the one provider where All Mail is the *primary* message store rather
         // than a duplicate view: there we sync only all/spam/trash and derive the rest
@@ -437,26 +432,22 @@ bool SyncWorker::syncNow()
         }
 
         if (localStatus[LS_UIDVALIDITY].get<uint32_t>() != remoteStatus.uidValidity()) {
-            // UID Invalidity means that the UIDs the server previously reported for messages
-            // in this folder can no longer be used. To recover from this, we need to:
+            // The UIDs the server previously reported for this folder mean nothing now. Every
+            // placement in the folder is set to UID 0 - still live, still visible, no deltas -
+            // and a full scan re-fetches the headers, hashes them to the same message ids and
+            // assigns the new UIDs through the ordinary upsert. Only once the scan has covered
+            // the whole folder can a row still at UID 0 be called gone; a truncated rebuild
+            // leaves its tail at UID 0 for the initial-sync walk to finish, and the walk
+            // tombstones the leftovers when it reaches UID 1.
             //
-            // 1) Set remoteUID to the "UNLINKED" value for every message in the folder
-            // 2) Run a 'deep' scan which will refetch the metadata for the messages,
-            //    compute the Mailspring message IDs and re-map local models to remote UIDs.
-            //
-            // Notes:
-            // - It's very important that this not generate deltas - because we're only changing
-            //   the folderRemoteUID it should not broadcast this update to the Electron app.
-            //
-            // - UIDNext must be reset to the updated remote value
-            //
-            // - syncedMinUID must be reset to something and we set it to zero. If we haven't
-            //   finished the initial scan of the folder yet, this could result in the creation
-            //   of a huge number of Message models all at once and flood the app. Hopefully
-            //   this scenario is rare.
-            logger->warn("UIDInvalidity! Resetting remoteFolderUIDs, rebuilding index. This may take a moment...");
-            processor->unlinkMessagesMatchingQuery(Query().equal("remoteFolderId", folder->id()), unlinkPhase);
+            // syncedMinUID is reset to 1 (or to the rebuild's remainder). If the initial scan of
+            // the folder had not finished, this can create a large number of messages at once.
+            logger->warn("UIDInvalidity! Resetting placement UIDs in {}, rebuilding index. This may take a moment...", folder->path());
+            store->resetPlacementUIDs(*folder);
             auto rebuilt = syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
+            if (!rebuilt.truncated) {
+                processor->tombstoneUnassignedPlacements(*folder);
+            }
 
             if (localStatus.count(LS_UIDVALIDITY_RESET_COUNT) == 0) {
                 localStatus[LS_UIDVALIDITY_RESET_COUNT] = 1;
@@ -522,6 +513,9 @@ bool SyncWorker::syncNow()
                 // Without this a brand new account immediately follows initial sync with a
                 // redundant full-folder scan, because lastDeep is still 0 on the CONDSTORE branch.
                 localStatus[LS_LAST_DEEP] = time(0);
+                // Every UID has now been fetched once, so a placement still at UID 0 (the tail
+                // of a truncated UIDVALIDITY rebuild) is a copy the server no longer has.
+                processor->tombstoneUnassignedPlacements(*folder);
             }
         }
         
@@ -564,7 +558,7 @@ bool SyncWorker::syncNow()
             uint32_t remoteUidnext = remoteStatus.uidNext();
             uint32_t localUidnext = localStatus[LS_UIDNEXT].get<uint32_t>();
             bool newMessages = remoteUidnext > localUidnext;
-            bool timeForDeepScan = (forceNetEaseDeepScan && remoteUidnext == 0) ||
+            bool timeForDeepScan = countsChanged ||
                                    ((iterationsSinceLaunch > 0) &&
                                     (time(0) - localStatus[LS_LAST_DEEP].get<time_t>() > DEEP_SCAN_INTERVAL));
             bool timeForShallowScan = !timeForDeepScan && (time(0) - localStatus[LS_LAST_SHALLOW].get<time_t>() > SHALLOW_SCAN_INTERVAL);
@@ -576,20 +570,20 @@ bool SyncWorker::syncNow()
             // bail out and the next "deep" scan will pick up the ones we skipped.
             //
             if (newMessages) {
-                vector<shared_ptr<Message>> synced{};
+                vector<SyncedMessage> synced{};
                 syncFolderUIDRange(*folder, RangeMake(localUidnext, remoteUidnext - localUidnext), true, &synced);
                 
                 if ((folder->role() == "inbox") || (folder->role() == "all")) {
-                    // if UIDs are ascending, flip them so we download the newest (highest) UID bodies first
-                    if (synced.size() > 1 && synced[0]->remoteUID() < synced[1]->remoteUID()) {
-                        std::reverse(synced.begin(), synced.end());
-                    }
+                    // download the newest (highest UID) bodies first
+                    std::sort(synced.begin(), synced.end(), [](const SyncedMessage & a, const SyncedMessage & b) {
+                        return a.uid > b.uid;
+                    });
                     int count = 0;
-                    for (auto msg : synced) {
-                        if (!msg->isInInbox(store)) {
+                    for (auto & entry : synced) {
+                        if (!entry.message->isInInbox(store)) {
                             continue; // skip "all mail" that is not in inbox
                         }
-                        syncMessageBody(msg.get());
+                        syncMessageBody(entry.message.get(), folder.get());
                         if (count++ > 30) { break; }
                     }
                 }
@@ -597,7 +591,7 @@ bool SyncWorker::syncNow()
             
             if (timeForShallowScan) {
                 // note: we use local uidnext here, because we just fetched everything between
-                // localUIDNext and remoteUIDNext so fetching that section again would just slow us down.
+                // local and remote uidnext so fetching that section again would just slow us down.
                 uint32_t bottomUID = store->fetchMessageUIDAtDepth(*folder, 399, localUidnext);
                 if (bottomUID < syncedMinUID) {
                     bottomUID = syncedMinUID;
@@ -670,12 +664,10 @@ bool SyncWorker::syncNow()
         store->saveFolderStatus(folder.get(), initialLocalStatus);
     }
     
-    // We've just unlinked a bunch of messages with PHASE A, now we'll delete the ones
-    // with PHASE B. This ensures anything we /just/ discovered was missing gets one
-    // cycle to appear in another folder before we decide it's really, really gone.
-    unlinkPhase = unlinkPhase == 1 ? 2 : 1;
-    logger->info("Sync loop deleting unlinked messages with phase {}.", unlinkPhase);
-    processor->deleteMessagesStillUnlinkedFromPhase(unlinkPhase);
+    // Copies that vanished before this pass began have had every folder scanned since; if
+    // they reappeared elsewhere the upsert cleared their tombstones. Drop the rest and remove
+    // messages left with no copies at all.
+    processor->sweepExpiredTombstones(passStartedAt);
     
     logger->info("Sync loop complete.");
     iterationsSinceLaunch += 1;
@@ -998,8 +990,8 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 
 // A truncated full-folder scan normally means "we ingested a batch, come straight back for the
 // rest". But some messages can never be ingested - MailProcessor::updateMessage returns without
-// applying anything when the local row is newer, and when a higher-priority folder already owns
-// the message - so they are reported as needing full headers on every single pass. Without a
+// applying anything while the local row is newer than the scan, which lasts as long as the
+// user's task on it is in flight - so they are reported as needing full headers on every pass. Without a
 // progress check that turns into an unthrottled loop (the background worker runs syncNow in a
 // `while (moreToSync)` with no sleep) that also starves other folders. Only come straight back if
 // the backlog actually shrank; otherwise treat the scan as done so we wait out the normal interval.
@@ -1025,7 +1017,7 @@ bool SyncWorker::shouldRetryTruncatedScan(Folder & folder, UIDRangeSyncResult co
     return draining;
 }
 
-SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages)
+SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<SyncedMessage> * syncedMessages)
 {
     std::string remotePath = folder.path();
     
@@ -1057,11 +1049,12 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
     String path(AS_MCSTR(remotePath));
     vector<uint32_t> heavyNeededUIDs {};
     
-    // Step 1: Fetch the local attributes (unread, starred, etc.)
-    // Note: we do this first because the remote fetch may take a long time, and if the data that
-    // comes back is already stale, we want to calculate changes (deletes, especially) based on
-    // old <> old, not new <> old, since new, freshly downloaded messages will always be missing
-    // in the stale server set and will be marked for deletion. Re-downloading is better.
+    // Step 1: Fetch the local attributes (unread, starred, etc.) of the live placements in
+    // the range. Note: we do this first because the remote fetch may take a long time, and
+    // if the data that comes back is already stale, we want to calculate changes (deletes,
+    // especially) based on old <> old, not new <> old, since new, freshly downloaded messages
+    // will always be missing in the stale server set and will be marked for deletion.
+    // Re-downloading is better.
     map<uint32_t, MessageAttributes> local(store->fetchMessagesAttributesInRange(range, folder));
 
     // Step 2: Fetch the remote attributes (unread, starred, etc.) for the same UID range
@@ -1074,7 +1067,7 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
 
     clock_t lastSleepClock = clock();
 
-    logger->info("- {}: remote={}, local={}, remoteUID={}", remotePath, remote->count(), local.size(), folder.id());
+    logger->info("- {}: remote={}, local={}, folderId={}", remotePath, remote->count(), local.size(), folder.id());
 
     for (int ii = ((int)remote->count()) - 1; ii >= 0; ii--) {
         // Never sit in a hard loop inserting things into the database for more than 250ms.
@@ -1085,11 +1078,11 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
         }
         
         IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
-        uint32_t remoteUID = remoteMsg->uid();
+        uint32_t uid = remoteMsg->uid();
 
         // Step 3: Collect messages that are different or not in our local UID set.
-        bool inFolder = (local.count(remoteUID) > 0);
-        bool same = inFolder && MessageAttributesMatch(local[remoteUID], MessageAttributesForMessage(remoteMsg));
+        bool inFolder = (local.count(uid) > 0);
+        bool same = inFolder && MessageAttributesMatch(local[uid], MessageAttributesForMessage(remoteMsg));
 
         if (!inFolder || !same) {
             // Step 4: Attempt to insert the new message. If we get unique exceptions,
@@ -1103,17 +1096,17 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
             if (heavyInitialRequest) {
                 auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
                 if (syncedMessages != nullptr) {
-                    syncedMessages->push_back(local);
+                    syncedMessages->push_back({local, uid});
                 }
             } else {
                 // Note: we collect every UID that needs full headers and decide which ones to
                 // request below. Truncating here would depend on the order the server returned
                 // messages in, which is not guaranteed to be sorted by UID.
-                heavyNeededUIDs.push_back(remoteUID);
+                heavyNeededUIDs.push_back(uid);
             }
         }
         
-        local.erase(remoteUID);
+        local.erase(uid);
     }
     
     if (!heavyInitialRequest && heavyNeededUIDs.size() > 0) {
@@ -1153,23 +1146,22 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
             IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
             auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
             if (syncedMessages != nullptr) {
-                syncedMessages->push_back(local);
+                syncedMessages->push_back({local, remoteMsg->uid()});
             }
             remote->removeLastObject();
         }
     }
 
-    // Step 5: Unlink. The messages left in local map are the ones we had in the range,
-    // which the server reported were no longer there. Remove their remoteUID.
-    // We'll delete them later if they don't appear in another folder during sync.
+    // Step 5: Tombstone. The UIDs left in the local map are copies we had in the range which
+    // the server no longer reports. The end-of-pass sweep removes messages that do not turn
+    // up in another folder first.
     if (local.size() > 0) {
         vector<uint32_t> deletedUIDs {};
         for (auto const &ent : local) {
             deletedUIDs.push_back(ent.first);
         }
         for (vector<uint32_t> chunk : MailUtils::chunksOfVector(deletedUIDs, 200)) {
-            auto query = Query().equal("remoteFolderId", folder.id()).equal("remoteUID", chunk);
-            processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
+            processor->tombstonePlacements(folder, chunk);
         }
     }
 
@@ -1184,18 +1176,18 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     uint32_t uidnext = folder.localStatus()[LS_UIDNEXT].get<uint32_t>();
     uint64_t modseq = folder.localStatus()[LS_HIGHESTMODSEQ].get<uint64_t>();
     uint64_t remoteModseq = remoteStatus.highestModSeqValue();
-    uint32_t remoteUIDNext = remoteStatus.uidNext();
+    uint32_t remoteUidNext = remoteStatus.uidNext();
     time_t syncDataTimestamp = time(0);
     
     logger->info("syncFolderChangesViaCondstore - {}: modseq {} to {}, uidnext {} to {}",
-                 folder.path(), modseq, remoteModseq, uidnext, remoteUIDNext);
+                 folder.path(), modseq, remoteModseq, uidnext, remoteUidNext);
 
     String path(AS_MCSTR(folder.path()));
 
     // Must happen before the early return below, and before LS_HIGHESTMODSEQ moves.
-    unlinkVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
+    tombstoneVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
 
-    if (modseq == remoteModseq && uidnext == remoteUIDNext) {
+    if (modseq == remoteModseq && uidnext == remoteUidNext) {
         return;
     }
 
@@ -1206,7 +1198,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     // will recover the rest of the changes so it's safe not to ingest them here.
     IndexSet * uids = IndexSet::indexSetWithRange(RangeMake(1, UINT64_MAX));
     if (!mustSyncAll && remoteModseq - modseq > MODSEQ_TRUNCATION_THRESHOLD) {
-        uint32_t bottomUID = remoteUIDNext > MODSEQ_TRUNCATION_UID_COUNT ? remoteUIDNext - MODSEQ_TRUNCATION_UID_COUNT : 1;
+        uint32_t bottomUID = remoteUidNext > MODSEQ_TRUNCATION_UID_COUNT ? remoteUidNext - MODSEQ_TRUNCATION_UID_COUNT : 1;
         uids = IndexSet::indexSetWithRange(RangeMake(bottomUID, UINT64_MAX));
         logger->warn("syncFolderChangesViaCondstore - request limited to {}-*, remaining changes will be detected via deep scan", bottomUID);
     }
@@ -1229,49 +1221,35 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
 
     for (unsigned int ii = 0; ii < modifiedOrAdded->count(); ii ++) {
         IMAPMessage * msg = (IMAPMessage *)modifiedOrAdded->objectAtIndex(ii);
-        string id = MailUtils::idForMessage(folder.accountId(), folder.path(), msg);
-
-        Query query = Query().equal("id", id);
-        auto local = store->find<Message>(query);
-        
-        if (local == nullptr) {
-            // Found message with an ID we've never seen in any folder. Add it!
-            processor->insertFallbackToUpdateMessage(msg, folder, syncDataTimestamp);
-        } else {
-            // Found message with an existing ID. Update it's attributes & folderId.
-            // Note: Could potentially have moved from another folder!
-            processor->updateMessage(local.get(), msg, folder, syncDataTimestamp);
-        }
+        processor->insertFallbackToUpdateMessage(msg, folder, syncDataTimestamp);
     }
     
-    // for deleted messages, collect UIDs and destroy. Note: vanishedMessages is only
+    // for deleted messages, collect UIDs and tombstone. Note: vanishedMessages is only
     // populated when QRESYNC is available.
-    unlinkVanishedUIDs(folder, vanished, "FETCH CHANGEDSINCE");
+    tombstoneVanishedUIDs(folder, vanished, "FETCH CHANGEDSINCE");
 
     // libetpan only hands the first VANISHED line of the response to IMAPSyncResult, and
     // an unrelated expunge can arrive untagged while this FETCH is in flight.
-    unlinkVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
+    tombstoneVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
 
-    folder.localStatus()[LS_UIDNEXT] = remoteUIDNext;
+    folder.localStatus()[LS_UIDNEXT] = remoteUidNext;
     folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
 }
 
-void SyncWorker::unlinkVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source) {
+void SyncWorker::tombstoneVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source) {
     // Test rangesCount, not count(): count() sums `length + 1` per range, so an open-ended
     // range like 12:* (length UINT64_MAX) wraps it to zero.
     if (vanished == NULL || vanished->rangesCount() == 0) {
         return;
     }
-    logger->info("Unlinking {} VANISHED UID range(s) in {} reported by {}",
+    logger->info("Tombstoning {} VANISHED UID range(s) in {} reported by {}",
                  vanished->rangesCount(), folder.path(), source);
 
     // IMPORTANT: vanished may include an infinite range, like 12:*, so we can't convert
     // it to a fixed array.
-    // TEMPORARY(placements): removed in Phase 3 - the queries target the Message table's
-    // remoteFolderId column until VANISHED handling moves to MailStore::tombstonePlacements.
-    vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), vanished, "remoteFolderId");
+    vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), vanished);
     for (Query & query : queries) {
-        processor->unlinkMessagesMatchingQuery(query, unlinkPhase);
+        processor->tombstonePlacements(folder, query);
     }
 }
 
@@ -1281,9 +1259,14 @@ void SyncWorker::cleanMessageCache(Folder & folder) {
     // delete bodies we no longer want. Note: you can't do INNER JOINs within a DELETE
     // note: we only delete messages fetchedd more than 14 days ago to avoid deleting
     // old messages you're actively viewing / could still want
-    SQLite::Statement purge(store->db(), "DELETE FROM MessageBody WHERE MessageBody.fetchedAt < datetime('now', '-14 days') AND MessageBody.id IN (SELECT Message.id FROM Message WHERE Message.remoteFolderId = ? AND Message.draft = 0 AND Message.date < ?)");
-    purge.bind(1, folder.id());
-    purge.bind(2, (double)(time(0) - maxAgeForBodySync(folder)));
+    SQLite::Statement purge(store->db(),
+        "DELETE FROM MessageBody WHERE MessageBody.fetchedAt < datetime('now', '-14 days') AND MessageBody.id IN ("
+        "SELECT Message.id FROM MessageFolder INNER JOIN Message ON Message.id = MessageFolder.messageId "
+        "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0 AND MessageFolder.unlinkedAt IS NULL "
+        "AND Message.draft = 0 AND Message.date < ?)");
+    purge.bind(1, folder.accountId());
+    purge.bind(2, folder.id());
+    purge.bind(3, (double)(time(0) - maxAgeForBodySync(folder)));
     int purged = purge.exec();
     logger->info("-- {} message bodies deleted from local cache.", purged);
     // TODO BG: Remove them from the search index and remove attachments
@@ -1308,19 +1291,34 @@ bool SyncWorker::shouldCacheBodiesInFolder(Folder & folder) {
 }
 
 long long SyncWorker::countBodiesDownloaded(Folder & folder) {
-    SQLite::Statement count(store->db(), "SELECT COUNT(Message.id) FROM Message INNER JOIN MessageBody ON MessageBody.id = Message.id WHERE MessageBody.value IS NOT NULL AND Message.remoteFolderId = ?");
-    count.bind(1, folder.id());
+    SQLite::Statement count(store->db(),
+        "SELECT COUNT(DISTINCT MessageFolder.messageId) FROM MessageFolder INNER JOIN MessageBody ON MessageBody.id = MessageFolder.messageId "
+        "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0 AND MessageFolder.unlinkedAt IS NULL "
+        "AND MessageBody.value IS NOT NULL");
+    count.bind(1, folder.accountId());
+    count.bind(2, folder.id());
     count.executeStep();
     return count.getColumn(0).getInt64();
 }
+
+// "Has a live copy in this folder", as a correlated subquery on Message. The body queries
+// are driven from the Message date indexes rather than from the folder's placements: on a
+// 180k-message folder the placement walk costs three B-tree lookups per copy (0.8-1.3 s),
+// while the date-bounded walk over the account's recent messages is 30-70 ms.
+static const string HAS_LIVE_COPY_IN_FOLDER =
+    " AND EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id AND MessageFolder.folderId = ? "
+    "AND MessageFolder.remoteUID > 0 AND MessageFolder.unlinkedAt IS NULL)";
 
 long long SyncWorker::countBodiesNeeded(Folder & folder) {
     if (!shouldCacheBodiesInFolder(folder)) {
         return 0;
     }
-    SQLite::Statement count(store->db(), "SELECT COUNT(Message.id) FROM Message WHERE Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0");
-    count.bind(1, folder.id());
+    // The OR is served as a multi-index OR over MessageListDateIndex and MessageListDraftIndex.
+    SQLite::Statement count(store->db(),
+        "SELECT COUNT(*) FROM Message WHERE Message.accountId = ? AND (Message.date > ? OR Message.draft = 1)" + HAS_LIVE_COPY_IN_FOLDER);
+    count.bind(1, folder.accountId());
     count.bind(2, (double)(time(0) - maxAgeForBodySync(folder)));
+    count.bind(3, folder.id());
     count.executeStep();
     return count.getColumn(0).getInt64();
 }
@@ -1336,16 +1334,30 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
     vector<string> ids{};
     vector<shared_ptr<Message>> results{};
 
-    // very slow query = 400ms+
-    SQLite::Statement missing(store->db(), "SELECT Message.id, Message.remoteUID FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.accountId = ? AND Message.remoteFolderId = ? AND (Message.date > ? OR Message.draft = 1) AND Message.remoteUID > 0 AND MessageBody.id IS NULL ORDER BY Message.date DESC LIMIT 30");
-    missing.bind(1, folder.accountId());
-    missing.bind(2, folder.id());
-    missing.bind(3, (double)(time(0) - maxAgeForBodySync(folder))); // three months TODO pref!
-    while (missing.executeStep()) {
-        if (missing.getColumn(1).getUInt() >= UINT32_MAX - 2) {
-            continue; // message is scheduled for cleanup
+    // Newest first, stopping at the limit: MessageListDateIndex is walked from now down to
+    // the cutoff and each message checked for a copy here and a missing body. Drafts are
+    // wanted whatever their age and come from MessageListDraftIndex in a second statement,
+    // because an OR in one statement would cost the date bound and walk the whole account.
+    const size_t limit = 30;
+    const string tail = HAS_LIVE_COPY_IN_FOLDER +
+        " AND NOT EXISTS (SELECT 1 FROM MessageBody WHERE MessageBody.id = Message.id)"
+        " ORDER BY Message.date DESC LIMIT ?";
+    double cutoff = (double)(time(0) - maxAgeForBodySync(folder)); // three months TODO pref!
+    SQLite::Statement recent(store->db(),
+        "SELECT Message.id FROM Message WHERE Message.accountId = ? AND Message.date > ?" + tail);
+    SQLite::Statement drafts(store->db(),
+        "SELECT Message.id FROM Message WHERE Message.accountId = ? AND Message.draft = 1 AND Message.date <= ?" + tail);
+    for (SQLite::Statement * missing : {&recent, &drafts}) {
+        if (ids.size() >= limit) {
+            break;
         }
-        ids.push_back(missing.getColumn(0).getString());
+        missing->bind(1, folder.accountId());
+        missing->bind(2, cutoff);
+        missing->bind(3, folder.id());
+        missing->bind(4, (int)(limit - ids.size()));
+        while (missing->executeStep()) {
+            ids.push_back(missing->getColumn(0).getString());
+        }
     }
     
     SQLite::Statement stillMissing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.id IN (" + MailUtils::qmarks(ids.size()) + ") AND MessageBody.id IS NULL");
@@ -1354,9 +1366,9 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
     {
         MailStoreTransaction transaction { store, "syncMessageBodies" };
 
-        // very fast query for the messages found during very slow query that still have no message body.
-        // Inserting empty message body reserves them for processing here. We do this within a transaction
-        // to ensure we don't process the same message twice.
+        // Re-check, inside a transaction, that the messages found above still have no body.
+        // Inserting an empty body reserves them for this worker so the other one cannot
+        // fetch the same message at the same time.
         int ii = 1;
         for (auto id : ids) {
             stillMissing.bind(ii++, id);
@@ -1391,48 +1403,86 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         // we recompute the value via COUNT(*) during cleanup
         ls[LS_BODIES_PRESENT] = ls[LS_BODIES_PRESENT].get<long long>() + 1;
 
-        // attempt to fetch the message boy
-        syncMessageBody(result.get());
+        // attempt to fetch the message body from the copy in this folder
+        syncMessageBody(result.get(), &folder);
     }
     
     return results.size() > 0;
 }
 
-void SyncWorker::syncMessageBody(Message * message) {
+/*
+ Fetches the body from one of the message's copies. Every copy has the same RFC 2822 data,
+ so the choice only matters for cost and reliability: the folder the caller is working in
+ is already selected, and a Spam or Trash copy may be purged by the server at any time.
+ A copy the server refuses to FETCH (typically expunged since our last scan) is skipped in
+ favour of the next one; any other error aborts as before.
+ */
+void SyncWorker::syncMessageBody(Message * message, Folder * preferredFolder) {
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
-    
-    IMAPProgress cb;
-    ErrorCode err = ErrorCode::ErrorNone;
-    string folderPath = message->remoteFolder()["path"].get<string>();
-    String path(AS_MCSTR(folderPath));
-    
-    Data * data = session.fetchMessageByUID(&path, message->remoteUID(), &cb, &err);
-    if (err != ErrorNone) {
-        logger->error("Unable to fetch body for message \"{}\" ({} UID {}). Error {}",
-                      message->subject(), folderPath, message->remoteUID(), ErrorCodeToTypeMap[err]);
 
-        if (err == ErrorFetch) {
-            // Syncing message bodies can fail often, because we query our local store
-            // and the sync worker may not have updated it yet. Messages, esp. drafts,
-            // can just disappear.
+    struct Candidate {
+        int rank;
+        shared_ptr<Folder> folder;
+        uint32_t uid;
+    };
+    vector<Candidate> candidates;
+    for (auto & p : store->placementsForMessage(message->id())) {
+        if (!p.isLive() || p.remoteUID == 0) {
+            continue;
+        }
+        auto folder = store->folderById(message->accountId(), p.folderId);
+        if (folder == nullptr) {
+            continue;
+        }
+        int rank = 1;
+        if (preferredFolder != nullptr && folder->id() == preferredFolder->id()) {
+            rank = 0;
+        } else if (folder->role() == "spam" || folder->role() == "trash") {
+            rank = 2;
+        }
+        candidates.push_back({rank, folder, p.remoteUID});
+    }
+    std::stable_sort(candidates.begin(), candidates.end(), [](const Candidate & a, const Candidate & b) {
+        return a.rank < b.rank;
+    });
 
-            // oh well.
+    if (candidates.empty()) {
+        logger->info("No copy of message \"{}\" ({}) is on the server to fetch a body from.", message->subject(), message->id());
+        return;
+    }
+
+    for (auto & candidate : candidates) {
+        IMAPProgress cb;
+        ErrorCode err = ErrorCode::ErrorNone;
+        string folderPath = candidate.folder->path();
+        String path(AS_MCSTR(folderPath));
+
+        Data * data = session.fetchMessageByUID(&path, candidate.uid, &cb, &err);
+        if (err != ErrorNone) {
+            logger->error("Unable to fetch body for message \"{}\" ({} UID {}). Error {}",
+                          message->subject(), folderPath, candidate.uid, ErrorCodeToTypeMap[err]);
+
+            if (err == ErrorFetch) {
+                // The copy we know about may already be gone - the sync worker may not have
+                // caught up with the server yet, and drafts in particular come and go.
+                continue;
+            }
+
+            throw SyncException(err, "syncMessageBody - fetchMessageByUID");
+        }
+        if (data == nullptr) {
+            logger->error("fetchMessageByUID returned null data for message \"{}\" ({} UID {})",
+                          message->subject(), folderPath, candidate.uid);
+            continue;
+        }
+        MessageParser * messageParser = MessageParser::messageParserWithData(data);
+        if (messageParser == nullptr) {
+            logger->error("MessageParser::messageParserWithData returned null for message \"{}\" ({} UID {})",
+                          message->subject(), folderPath, candidate.uid);
             return;
         }
-
-        throw SyncException(err, "syncMessageBody - fetchMessageByUID");
-    }
-    if (data == nullptr) {
-        logger->error("fetchMessageByUID returned null data for message \"{}\" ({} UID {})",
-                      message->subject(), folderPath, message->remoteUID());
+        processor->retrievedMessageBody(message, messageParser);
         return;
     }
-    MessageParser * messageParser = MessageParser::messageParserWithData(data);
-    if (messageParser == nullptr) {
-        logger->error("MessageParser::messageParserWithData returned null for message \"{}\" ({} UID {})",
-                      message->subject(), folderPath, message->remoteUID());
-        return;
-    }
-    processor->retrievedMessageBody(message, messageParser);
 }
