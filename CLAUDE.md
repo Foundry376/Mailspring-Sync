@@ -76,11 +76,10 @@ will cost you a test run:
   release builds require `argv[0]` (lowercased) to contain `mailspring`.
 - **Run `--mode migrate` first.** Against a fresh `CONFIG_DIR_PATH`, `--mode
   sync` aborts with `no such table: Folder` from every worker thread.
-- **Do not trust the printed stack traces on Linux.** `main()` hands the
-  lowercased `argv[0]` to `setProgramNameForStackTrace()`, so `addr2line` cannot
-  find the binary on a case-sensitive filesystem and its error text is rendered
-  as if it were stack frames. Copy the binary to an all-lowercase path
-  containing `mailspring` to get real symbols.
+- **Build with `-DCMAKE_BUILD_TYPE=RelWithDebInfo`** if you want line numbers in
+  crash stack traces rather than `??:?`. (On builds from before Sept 2026 every
+  frame instead reads `addr2line: '...': No such file()`, because `main()` handed
+  the lowercased `argv[0]` to `setProgramNameForStackTrace()`.)
 
 ## Architecture
 

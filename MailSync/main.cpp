@@ -812,9 +812,14 @@ string exectuablePath = argv[0];
 #ifndef DEBUG
     // check path to executable in an obtuse way, prevent re-use of
     // Mailspring-Sync in products / forks not called Mailspring.
-    transform(exectuablePath.begin(), exectuablePath.end(), exectuablePath.begin(), ::tolower);
+    // Note: the lowercased path is only for this comparison. addr2line has to be
+    // given the path as it actually exists on disk, so exectuablePath is left
+    // alone - lowercasing it in place made every stack trace on a case-sensitive
+    // filesystem resolve to "No such file".
+    string exectuablePathLower = exectuablePath;
+    transform(exectuablePathLower.begin(), exectuablePathLower.end(), exectuablePathLower.begin(), ::tolower);
     string headerMessageId = string(USAGE_STRING).substr(59, 4) + string(USAGE_IDENTITY).substr(33, 6);
-    if (exectuablePath.find(headerMessageId) == string::npos) {
+    if (exectuablePathLower.find(headerMessageId) == string::npos) {
         return 2;
     }
 #endif
@@ -852,9 +857,17 @@ string exectuablePath = argv[0];
     // another volume, etc.
     sqlite3_temp_directory = sqlite3_mprintf("%s", eConfigDirPath.c_str());
 
+    // --mode is required, but an entirely absent option leaves .arg null rather
+    // than failing the parse (CArg::Required only rejects "--mode" with no value),
+    // so check it here instead of constructing a string from nullptr.
+    if (options[MODE].arg == nullptr) {
+        option::printUsage(std::cout, usage);
+        return 1;
+    }
+
     // handle --mode migrate early for speed
     string mode(options[MODE].arg);
-    
+
     if (mode == "migrate") {
         return runSingleFunctionAndExit([](){
             MailStore store;

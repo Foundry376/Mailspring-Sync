@@ -80,43 +80,32 @@ discourage rebranded forks. `./mailsync` does not match; the absolute path
 Use an absolute path, or invoke it from a directory whose name contains
 `mailspring`.
 
-## Stack traces are unreliable on Linux — verify the path case
+## Reading stack traces
 
-Mailsync's crash output frequently looks like this, which is not a second crash,
-just a failed symbolization:
-
-```
-*** Stack trace (line numbers are approximate):
-*** mailsync': No such file  addr2line: '/home/user/mailspring-sync/mailsync': No such file()
-```
-
-`main()` lowercases `exectuablePath` in place for the check above and then hands
-that same lowercased string to `exceptions::setProgramNameForStackTrace()`. On a
-case-sensitive filesystem the lowercased path does not exist, so the `addr2line`
-child fails and its error message is parsed as if it were stack frames.
-
-Any checkout or install path containing an uppercase letter — including this
-repository's own `Mailspring-Sync` directory — loses stack traces. macOS is
-usually unaffected because APFS/HFS+ default to case-insensitive.
-
-To get a real stack trace while debugging, copy the binary to an all-lowercase
-path that still contains `mailspring`:
-
-```bash
-mkdir -p /tmp/mailspring && cp mailsync /tmp/mailspring/
-/tmp/mailspring/mailsync --mode sync --orphan ...
-```
+Mailsync symbolizes its own crashes by shelling out to `addr2line` against
+`argv[0]`, so traces look like this:
 
 ```
 *** Stack trace (line numbers are approximate):
-*** ??:?  exceptions::logCurrentExceptionWithStackTrace()
-*** ??:?  terminate()
-*** ??:?  string::string(char const*, allocator const&)
+*** ??:?  SyncWorker::syncFoldersAndLabels()
+*** ??:?  runBackgroundSyncWorker()
 *** ??:?  main()
 ```
 
-Build with `cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .` if you also want line
-numbers rather than `??:?`.
+Build with `cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .` to get line numbers
+instead of `??:?`. Note that the frame-to-file attribution is approximate — the
+resolver looks each address up twice (raw and load-base-relative) and keeps
+whichever answer is longer, so individual frames are sometimes credited to an
+unrelated compilation unit. Trust the function names over the file names.
+
+If you are on a build from before this was fixed, every frame will instead read
+like `addr2line: '/home/user/mailspring-sync/mailsync': No such file()`. That is
+not a second crash — `main()` used to lowercase `exectuablePath` in place for the
+fork check and then hand that same string to
+`exceptions::setProgramNameForStackTrace()`, so on a case-sensitive filesystem
+the binary could not be found. Any path with an uppercase letter was affected,
+including this repository's own checkout. Copy the binary to an all-lowercase
+path containing `mailspring` to work around it.
 
 ## Run `--mode migrate` before `--mode sync`
 
@@ -132,15 +121,19 @@ empty database and every thread immediately throws:
 
 and the process aborts. The client runs `--mode migrate` first; so must you.
 
-## `--mode` is required and is not null-checked
+## `--mode` is required
 
-`main()` does `string mode(options[MODE].arg)` without checking for the absent
-case. Omitting `--mode` does not print the usage message — it aborts:
+Omitting it prints the usage message and exits 1. On builds from before this was
+fixed it instead aborted, because `main()` constructed `string mode(options[MODE].arg)`
+without checking for the absent case:
 
 ```
 *** A C++ exception occurred during program execution:
 *** basic_string: construction from null is not valid
 ```
+
+`CArg::Required` only rejects `--mode` supplied with no value; an entirely
+absent option leaves `.arg` null and passes the parse.
 
 ## A silent crash with no output at all
 
