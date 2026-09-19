@@ -349,8 +349,11 @@ void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSe
 // leaving the row at status=remote to kill the next launch too. Fail the task instead
 // so it drains — the client reports this through Task.onError().
 static json errorJSONForUnexpectedException(string what) {
-    // Goes into the task's data JSON, which MailStore dumps to SQLite, and dump()
-    // throws on invalid UTF-8 — so scrub to printable ASCII.
+    // Goes into the task's data JSON, which MailStore dumps to SQLite. dump() no longer
+    // throws on ill-formed UTF-8 (Vendor/nlohmann/json.hpp defaults the error handler to
+    // replace), so this is no longer load-bearing against a crash - but an exception's
+    // what() can hold anything, and a bounded run of printable ASCII is what we want in a
+    // row the client will show through Task.onError() regardless.
     string safe;
     safe.reserve(what.size());
     for (char c : what) {
