@@ -232,16 +232,29 @@ void runCalContactsSyncWorker() {
     std::this_thread::sleep_for(std::chrono::seconds(15 + davWorker->account->startDelay()));
 
     // BG Note: This process does not use MailUtils::sleepWorkerUntilWakeOrSec(), which means
-    // cal + contact sync runs every 15 minutes regardless of how often you slam on the Sync Mail
-    // icon. I am trying to narrow down why we are hitting the Google Calendar + People API limits
-    // so quickly (in almost exactly 8 hours after the 2AM reset each day).
+    // cal + contact sync runs on a fixed cadence regardless of how often you slam on the Sync
+    // Mail icon. I am trying to narrow down why we are hitting the Google Calendar + People API
+    // limits so quickly (in almost exactly 8 hours after the 2AM reset each day).
 
-    while(true) {
+    // Calendars poll more often than contacts: an unchanged calendar usually costs one
+    // PROPFIND because runCalendars() compares ctags before fetching anything, while contact
+    // sync has no such early-out and on Gmail spends the People API quota the note above
+    // concerns. Servers that omit ctag re-list every calendar per pass, which is why this is
+    // minutes rather than seconds; editing an event refreshes on demand regardless.
+    const auto calendarInterval = std::chrono::minutes(15);
+    const int calendarCyclesPerContactSync = 5; // contacts every 5th calendar pass
+
+    for (int cycle = 0; ; cycle++) {
         try {
-            if (contactsWorker) {
+            bool syncContacts = (cycle % calendarCyclesPerContactSync == 0);
+            if (contactsWorker && syncContacts) {
                 contactsWorker->run();
             }
-            davWorker->run();
+            if (syncContacts) {
+                davWorker->run();
+            } else {
+                davWorker->runCalendars();
+            }
         } catch (SyncException & ex) {
             exceptions::logCurrentExceptionWithStackTrace();
 
@@ -273,7 +286,7 @@ void runCalContactsSyncWorker() {
             return;
             // abort();
         }
-        std::this_thread::sleep_for(std::chrono::minutes(45));
+        std::this_thread::sleep_for(calendarInterval);
     }
 }
 
