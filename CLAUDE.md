@@ -52,12 +52,35 @@ msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32
 Requires environment variables and command-line arguments:
 ```bash
 CONFIG_DIR_PATH=/path/to/config IDENTITY_SERVER=https://id.getmailspring.com \
-  ./mailsync --identity "<identity-json>" --account "<account-json>" --mode sync
+  /abs/path/to/Mailspring-Sync/mailsync --identity "<identity-json>" --account "<account-json>" --mode sync
 ```
 
 Modes: `sync`, `test` (auth validation), `reset` (clear account data), `migrate` (run migrations)
 
 For debugging in Xcode/Visual Studio, configure the debugger to pass `--identity`, `--account`, and `--mode` arguments.
+
+### Launching it yourself (agents, CI, containers)
+
+Mailsync assumes it was launched by the Mailspring client. Launching it from a
+shell breaks those assumptions in ways that look like engine crashes. Read
+`docs/running-mailsync-for-tests.md` before running it by hand. The four that
+will cost you a test run:
+
+- **Pass `--orphan`** (or keep stdin open for the whole run). Without it, a
+  closed/EOF stdin makes the main loop busy-spin at ~40% of a core for 30s and
+  then `std::exit(141)` out from under the four live worker threads, which
+  destroys statics they are still using — the process hangs and dies with
+  SIGSEGV instead. This is container-only; the client holds stdin open for the
+  process's lifetime, so a desktop install never reaches that path.
+- **Invoke by an absolute path.** `./mailsync` exits 2 and prints nothing:
+  release builds require `argv[0]` (lowercased) to contain `mailspring`.
+- **Run `--mode migrate` first.** Against a fresh `CONFIG_DIR_PATH`, `--mode
+  sync` aborts with `no such table: Folder` from every worker thread.
+- **Do not trust the printed stack traces on Linux.** `main()` hands the
+  lowercased `argv[0]` to `setProgramNameForStackTrace()`, so `addr2line` cannot
+  find the binary on a case-sensitive filesystem and its error text is rendered
+  as if it were stack frames. Copy the binary to an all-lowercase path
+  containing `mailspring` to get real symbols.
 
 ## Architecture
 
