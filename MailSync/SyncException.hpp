@@ -28,7 +28,7 @@ class SyncException : public GenericException {
     bool offline = false;
     
 public:
-    SyncException(string key, string di, bool retryable);
+    SyncException(string key, string di, bool retryable, bool offline = false);
     SyncException(CURLcode c, string di);
     SyncException(mailcore::ErrorCode c, string di);
     string key;

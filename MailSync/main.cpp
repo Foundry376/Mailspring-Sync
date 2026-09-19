@@ -278,7 +278,7 @@ void runCalContactsSyncWorker() {
 }
 
 
-int runTestAuth(shared_ptr<Account> account) {
+int runTestAuth(shared_ptr<Account> account, string & errorService) {
     AutoreleasePool pool;
 
     // Enable very detailed mailcore logging and redirect the messages to our accumulator log
@@ -293,13 +293,13 @@ int runTestAuth(shared_ptr<Account> account) {
     Array * folders;
     ErrorCode err = ErrorNone;
     Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
-    string errorService = "imap";
     string tlsAdvice = "";
     string containerFolderPath = account->containerFolder();
     string mainPrefix = "";
     
     
     // imap
+    errorService = "imap";
     alogger.log("----------IMAP----------\n");
     MailUtils::configureSessionForAccount(session, account);
     session.setConnectionLogger(&alogger);
@@ -396,6 +396,47 @@ done:
         cout << resp.dump();
         return 1;
     }
+}
+
+// An exception out of runTestAuth reaches the terminate handler and aborts, leaving the
+// client no JSON and nothing to report but the exit code. The OAuth token refresh does
+// this routinely: a revoked refresh token is answered with 400, and an offline or
+// captive-portal machine fails the request outright. Neither is a crash, so report them
+// the way a bad password or unreachable host is already reported. error_offline carries
+// the isOffline() flag the client used to recover from the crash dump.
+int runTestAuthReportingExceptions(shared_ptr<Account> account) {
+    string errorService = "imap";
+    string error = "";
+    bool offline = false;
+
+    try {
+        return runTestAuth(account, errorService);
+    } catch (SyncException & ex) {
+        // isRetryable() already separates a network problem from refused credentials, and
+        // those are the two codes the client has localized strings for.
+        error = ex.isRetryable() ? "ErrorConnection" : "ErrorAuthentication";
+        offline = ex.isOffline();
+        alogger.log("\n\n" + ex.key + ": " + ex.debuginfo + "\n");
+    } catch (std::exception & ex) {
+        // Unclassified, so pass it through unrecognized and let the client report it.
+        error = ex.what();
+    } catch (...) {
+        error = "Unknown error";
+    }
+
+    if (error == "") {
+        error = "Unknown error"; // never hand the client a blank message
+    }
+
+    json resp = {
+        {"error", error},
+        {"error_service", errorService},
+        {"error_offline", offline},
+        {"log", alogger.accumulated},
+        {"account", nullptr}
+    };
+    cout << resp.dump();
+    return 1;
 }
 
 int runSingleFunctionAndExit(std::function<void()> fn) {
@@ -978,7 +1019,7 @@ string exectuablePath = argv[0];
     curl_global_init(CURL_GLOBAL_ALL);
 
     if (mode == "test") {
-        return runTestAuth(account);
+        return runTestAuthReportingExceptions(account);
     }
 
     if (mode == "sync") {

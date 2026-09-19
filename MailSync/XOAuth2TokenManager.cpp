@@ -24,6 +24,58 @@ shared_ptr<XOAuth2TokenManager> SharedXOAuth2TokenManager() {
     return _globalXOAuth2TokenManager;
 }
 
+// Token response parsing
+
+static const int XOAUTH2_ASSUMED_EXPIRES_IN = 3600;
+
+// expires_in is optional in RFC 6749 s5.1 and some providers send it as a string. Neither
+// is a reason to throw away an access token we were just handed, so assume one hour.
+static int expiresInOf(const json & resp) {
+    if (!resp.is_object() || !resp.count("expires_in")) {
+        return XOAUTH2_ASSUMED_EXPIRES_IN;
+    }
+    const json & value = resp["expires_in"];
+    if (value.is_number()) {
+        return value.get<int>();
+    }
+    if (value.is_string()) {
+        try {
+            return stoi(value.get<string>());
+        } catch (std::exception &) {
+            // not a number after all - fall through
+        }
+    }
+    return XOAUTH2_ASSUMED_EXPIRES_IN;
+}
+
+static string accessTokenOf(const json & resp) {
+    if (!resp.is_object() || !resp.count("access_token") || !resp["access_token"].is_string()) {
+        return "";
+    }
+    return resp["access_token"].get<string>();
+}
+
+// Reaches the log and, in --mode test, the client. The body may be a captive portal's
+// whole HTML page, so bound it and redact anything credential-shaped.
+static string summarizeForLog(const json & resp) {
+    static const vector<string> SENSITIVE_KEYS { "access_token", "refresh_token", "id_token" };
+
+    json redacted = resp;
+    if (redacted.is_object()) {
+        for (auto & key : SENSITIVE_KEYS) {
+            if (redacted.count(key)) {
+                redacted[key] = "*********";
+            }
+        }
+    }
+
+    string text = redacted.dump();
+    if (text.length() > 512) {
+        text = text.substr(0, 512) + "... (truncated)";
+    }
+    return "The token endpoint did not return an access token. Response: " + text;
+}
+
 // Class
 
 XOAuth2TokenManager::XOAuth2TokenManager() {
@@ -52,16 +104,27 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
     }
 
     auto refreshClientId = account->refreshClientId();
-    json updated {};
-    if (refreshClientId != "") {
-        spdlog::get("logger")->info("Fetching XOAuth2 access token ({}) for {}", account->provider(), account->id());
-        updated = MakeOAuthRefreshRequest(account->provider(), refreshClientId, account->refreshToken());
-        updated["expiry_date"] = time(0) + updated["expires_in"].get<int>();
-    } else {
+    if (refreshClientId == "") {
         throw SyncException("invalid-xoauth2-resp", "XOAuth2 token expired and Mailspring no longer does server-side token refresh.", false);
     }
 
-    if (updated.count("refresh_token")) {
+    spdlog::get("logger")->info("Fetching XOAuth2 access token ({}) for {}", account->provider(), account->id());
+    json updated = MakeOAuthRefreshRequest(account->provider(), refreshClientId, account->refreshToken());
+
+    // A 2xx does not mean the body is a token response: a captive portal or intercepting
+    // proxy answers 200 with its own sign-in page, which PerformJSONRequest returns as
+    // {"text": ...}. Reading the fields blind threw json::type_error, which is not a
+    // SyncException, so callers aborted instead of backing off.
+    if (!accessTokenOf(updated).length()) {
+        // An OAuth error object is the provider refusing, so retrying cannot help.
+        // Anything else did not come from the provider at all - interception, transient.
+        bool providerRefused = updated.is_object() && updated.count("error");
+        bool retryable = !providerRefused;
+        bool offline = !providerRefused;
+        throw SyncException("invalid-xoauth2-resp", summarizeForLog(updated), retryable, offline);
+    }
+
+    if (updated.count("refresh_token") && updated["refresh_token"].is_string()) {
         auto updatedRefreshToken = updated["refresh_token"].get<string>();
         if (updatedRefreshToken != account->refreshToken()) {
             spdlog::get("logger")->info("Saving updated XOAuth2 refresh token ({}) for {}", account->provider(), account->id());
@@ -74,8 +137,8 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
 
     XOAuth2Parts parts;
     parts.username = account->IMAPUsername();
-    parts.accessToken = updated["access_token"].get<string>();
-    parts.expiryDate = updated["expiry_date"].get<int>();
+    parts.accessToken = accessTokenOf(updated);
+    parts.expiryDate = time(0) + expiresInOf(updated);
     _cache[key] = parts;
     return parts;
 }
