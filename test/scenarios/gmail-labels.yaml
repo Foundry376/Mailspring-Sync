@@ -1,0 +1,36 @@
+name: gmail-labels
+description: >
+  Gmail: messages live in [Gmail]/All Mail with X-GM-LABELS, and INBOX / Sent Mail / user
+  labels are views. The engine syncs All Mail, Spam and Trash and derives everything else
+  from labels. Webmail archives some mail (drops \Inbox), labels some, stars one, and the
+  user moves a message to Trash; the engine's placements and labels must track it all.
+source: "SyncWorker.cpp X-GM-LABELS handling; MailUtils roleForFolderViaPath [gmail]/; docs/message-placements-plan.md (Gmail: one placement with exclusivity rule)"
+servers:
+  - {fake: gmail}
+mailboxes:
+  INBOX: {messages: 20}
+  "[Gmail]/Sent Mail": {messages: 5}
+  Work: {messages: 2}
+setup:
+  - server.labels: {mailbox: INBOX, uids: "1:3", add: ["Work"]}
+steps:
+  - wait: quiescent
+  - assert:
+      db_matches_server: {labels: true}
+  - server.labels: {mailbox: INBOX, uids: "4:5", remove: ["\\Inbox"]}
+  - server.flags: {mailbox: INBOX, uids: [6], add: ["\\Flagged"]}
+  - server.append: {mailbox: INBOX, messages: 2, flags: []}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      db_matches_server: {labels: true}
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: "[Gmail]/All Mail", uids: [7]}, folder: "[Gmail]/Trash"}
+    as: trash
+  - wait: {task: trash, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  db_matches_server: {labels: true}
+  server_counts: {"[Gmail]/All Mail": 28, "[Gmail]/Trash": 1}
+  stable: {passes: 2}
+  running: true

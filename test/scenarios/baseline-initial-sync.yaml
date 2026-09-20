@@ -1,0 +1,35 @@
+name: baseline-initial-sync
+description: >
+  A fresh account against a server with a few hundred messages spread across the standard
+  special-use folders, including a couple of threads and a message with an attachment.
+  Every message must be ingested into the right folder with the right flags, and further
+  passes over an unchanged mailbox must not move anything.
+source: Baseline for every server kind.
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+  - {dovecot: plain}
+mailboxes:
+  INBOX:
+    messages: 120
+  Sent:
+    messages: 15
+  Archive:
+    messages: {count: 30, html: true}
+  Trash:
+    messages: {count: 5}
+    flags: ["\\Seen", "\\Deleted"]
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 2, thread: 3}}
+  - server.append: {mailbox: INBOX, messages: {count: 1, attachment: ["report.bin", "binary payload"]}}
+  - server.append: {mailbox: INBOX, messages: {count: 10}, flags: []}
+  - server.flags: {mailbox: INBOX, uids: "3:5", add: ["\\Flagged"]}
+steps:
+  - wait: quiescent
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 139, Sent: 15, Archive: 30, Trash: 5}
+  stable: {passes: 2}
+  log_absent: ["UNIQUE constraint", "\\[critical\\]"]
+  running: true

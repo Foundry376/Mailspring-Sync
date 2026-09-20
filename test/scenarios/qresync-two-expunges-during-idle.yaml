@@ -1,0 +1,22 @@
+name: qresync-two-expunges-during-idle
+description: >
+  Two separate expunges a second apart while the foreground connection idles produce two
+  untagged VANISHED lines in one IDLE. Both must be applied, not just the first.
+source: Mailspring-Sync PR #141 (the IDLE harvester stopped after the first extension entry)
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 200}
+steps:
+  - wait: quiescent
+  - server.expunge: {mailbox: INBOX, uids: [10]}
+  - wait: {seconds: 1.5}
+  - server.expunge: {mailbox: INBOX, uids: [11]}
+  - wait: {log: "recv \\* VANISHED 11", timeout: 30}   # Dovecot delivers ~0.5s later; do not race it
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 198}
+  running: true

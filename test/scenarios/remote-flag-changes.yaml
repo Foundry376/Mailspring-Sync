@@ -1,0 +1,23 @@
+name: remote-flag-changes
+description: >
+  Read/unread and starred changes made by another client while the engine is idling must
+  arrive: via unsolicited FETCH on the idling connection and via CHANGEDSINCE on the
+  background pass.
+source: SyncWorker::syncFolderChangesViaCondstore; deep/shallow scan attribute fetch
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 40}
+  Archive: {messages: 10}
+steps:
+  - wait: quiescent
+  - server.flags: {mailbox: INBOX, uids: "1:5", remove: ["\\Seen"]}
+  - server.flags: {mailbox: INBOX, uids: [7, 8], add: ["\\Flagged"]}
+  - server.flags: {mailbox: Archive, uids: [2], add: ["\\Flagged"], remove: ["\\Seen"]}
+  - wait: {quiescent: true}
+  - force_scans: {}
+expect:
+  db_matches_server: {}
+  running: true

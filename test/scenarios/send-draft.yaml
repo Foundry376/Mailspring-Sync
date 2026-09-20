@@ -1,0 +1,62 @@
+name: send-draft
+description: >
+  The user sends a message to a colleague and one to themself. Each must go out over SMTP
+  exactly once, be saved to Sent (this is not Gmail), and the self-addressed copy delivered
+  back to INBOX must then coexist with the Sent copy without flapping.
+source: TaskProcessor SendDraftTask; docs/message-placements-plan.md (self-addressed mail)
+servers:
+  - {fake: dovecot, smtp: true}
+  - {fake: plain, smtp: true}
+mailboxes:
+  INBOX: {messages: 5}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "sent-1@example.test"
+        subject: "Hello Bob"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 60}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "sent-2@example.test"
+        subject: "Note to self"
+        body: "<p>Remember the milk</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Harness Test", email: "test@example.test"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send2
+  - wait: {task: send2, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  smtp:
+    count: 2
+    messages:
+      - {recipients: ["bob@example.net"], headers: {Subject: "Hello Bob", Message-ID: "<sent-1@example.test>"}}
+      - {recipients: ["test@example.test"], headers: {Subject: "Note to self"}}
+  server_counts: {Sent: 2, INBOX: 6}
+  counts: {Sent: 2}
+  stable: {passes: 2}
+  db_matches_server: {}   # the sent copy keeps its draft-derived id, so both copies are distinct rows
+  running: true

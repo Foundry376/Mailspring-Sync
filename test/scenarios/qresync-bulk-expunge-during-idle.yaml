@@ -1,0 +1,22 @@
+name: qresync-bulk-expunge-during-idle
+description: >
+  The user archives 56 recent messages (UIDs 140-195) in webmail while Mailspring idles. The
+  server reports "* VANISHED 140:195" to the idling connection. Exactly those 56 must go
+  locally; every other message must survive.
+source: Mailspring-Sync PR #141 (178 of 200 were deleted locally; 123 still existed on the server)
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 200}
+steps:
+  - wait: quiescent
+  - server.expunge: {mailbox: INBOX, uids: "140:195"}
+  - wait: {log: "recv \\* VANISHED", timeout: 30}   # Dovecot delivers ~0.5s later; do not race it
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 144}
+  stable: {passes: 1}
+  running: true

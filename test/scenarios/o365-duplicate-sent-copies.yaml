@@ -1,0 +1,21 @@
+name: o365-duplicate-sent-copies
+description: >
+  Exchange auto-saves a sent message while the client also APPENDs it, leaving 2-4
+  byte-identical copies at adjacent UIDs in Sent Items. The engine must not oscillate the
+  message's remoteUID between the copies on every pass.
+source: docs/message-placements-plan.md (67 messages flipping remoteUID inside Sent Items every pass, 2026-09-19)
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 10}
+setup:
+  - server.append: {mailbox: Sent, messages: {count: 4, self_addressed: true}}
+  - server.duplicate: {mailbox: Sent, uids: "1:4", to: Sent}
+  - server.duplicate: {mailbox: Sent, uids: "1:2", to: Sent}
+steps:
+  - wait: quiescent
+expect:
+  stable: {passes: 3}
+  db_matches_server: {xfail: "one row cannot hold three placements until message placements land"}
+  running: true

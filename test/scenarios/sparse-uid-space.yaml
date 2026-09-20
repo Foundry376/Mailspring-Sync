@@ -1,0 +1,22 @@
+name: sparse-uid-space
+description: >
+  1100 messages at UIDs 1-1100 but UIDNEXT 20001, plus a second folder of 4500 messages with
+  a 1500-UID hole in the middle. The single-range sweep threshold and the chunked walk both
+  have to cope with UID space that is mostly empty.
+source: Mailspring-Sync PR #140 review findings (0 of 1100 after 95s; 3548 of 7000)
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: {count: 1100, age_days: 30}}
+  Big: {messages: {count: 6000, age_days: 30}}
+setup:
+  - server.set_uidnext: {mailbox: INBOX, value: 20001}
+  - server.expunge: {mailbox: Big, uids: "2000:3499"}
+steps:
+  - wait: {quiescent: true, timeout: 900}
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 1100, Big: 4500}
+  folder_status: {INBOX: {syncedMinUID: 1, busy: false}, Big: {syncedMinUID: 1, busy: false}}
+  running: true

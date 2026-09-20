@@ -1,0 +1,22 @@
+name: connection-dropped-during-idle
+description: >
+  The server closes every connection while the foreground worker idles (a restart, a NAT
+  timeout, a laptop waking up). The engine must reconnect and keep syncing; new mail after
+  the drop must still arrive.
+source: Observed 2026-09-19 building this harness - SIGSEGV in mailcore IMAPSession::connectIfNeeded
+  (collectVanishedFromLastResponse) when the connection died around IDLE
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 20}
+steps:
+  - wait: quiescent
+  - server.drop_connections: {}
+  - wait: {seconds: 3}
+  - server.append: {mailbox: INBOX, messages: 2}
+  - sync: pass
+expect:
+  running: {xfail: "foreground worker segfaults in collectVanishedFromLastResponse after a dropped connection"}
+  db_matches_server: {xfail: "same crash"}
+  counts: {INBOX: 22, xfail: "same crash"}

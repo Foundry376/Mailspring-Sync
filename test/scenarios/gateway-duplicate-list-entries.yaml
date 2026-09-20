@@ -1,0 +1,19 @@
+name: gateway-duplicate-list-entries
+description: >
+  An IMAP gateway lists the Sent mailbox twice and exposes both "INBOX" and "Inbox". Folder
+  ids are derived from paths, so the duplicates used to fail the Folder INSERT and abort the
+  process on every launch.
+source: Mailspring-Sync PR #139 (DavMail, Proton Bridge, Zoho)
+servers:
+  - {fake: gateway-duplicate-list}
+mailboxes:
+  INBOX: {messages: 15}
+  Sent: {messages: 3}
+steps:
+  - wait: quiescent
+  - sync: pass
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 15, Sent: 3}
+  log_absent: ["UNIQUE constraint"]
+  running: true

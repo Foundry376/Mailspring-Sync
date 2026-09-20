@@ -1,0 +1,31 @@
+name: client-task-move
+description: >
+  The user moves three messages INBOX -> Archive and stars one. The tasks' local phase
+  updates the database immediately; the remote phase must move the messages on the server,
+  and a further pass must agree with the server without churn.
+source: TaskProcessor ChangeFolderTask / ChangeStarredTask
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 30}
+  Archive: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [3, 4, 5]}, folder: Archive}
+    as: move
+  - wait: {task: move, timeout: 60}
+  - client.task: {__cls: ChangeStarredTask, messages: {mailbox: INBOX, uids: [7]}, starred: true}
+    as: star
+  - wait: {task: star, timeout: 60}
+  - client.task: {__cls: ChangeUnreadTask, messages: {mailbox: INBOX, uids: [8, 9]}, unread: true}
+    as: unread
+  - wait: {task: unread, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  server_counts: {INBOX: 27, Archive: 5}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

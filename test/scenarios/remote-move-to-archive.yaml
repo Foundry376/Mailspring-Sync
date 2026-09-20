@@ -1,0 +1,24 @@
+name: remote-move-to-archive
+description: >
+  Another client moves five messages INBOX -> Archive. The engine sees them vanish from
+  INBOX (VANISHED or deep scan) and appear in Archive; the move must be followed exactly
+  once, and the messages must not be deleted and re-created along the way.
+source: Mailspring-Sync PR #137 verification ("a real INBOX -> Archive move is followed exactly once")
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 60}
+  Archive: {messages: 5}
+steps:
+  - wait: quiescent
+  - server.move: {mailbox: INBOX, uids: "10:14", to: Archive}
+  - wait: {quiescent: true}
+  - force_scans: {}
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 55, Archive: 10}
+  deltas: {Message: {unpersist: 0}}
+  stable: {passes: 1}
+  running: true

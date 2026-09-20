@@ -1,0 +1,29 @@
+name: plain-expunge-found-by-deep-scan
+description: >
+  On a server without CONDSTORE/QRESYNC there is no VANISHED; a remote expunge is only
+  discovered by the periodic deep scan comparing local UIDs against the server's. The scan
+  interval is 10 minutes, so the harness backdates lastDeep and wakes the worker.
+
+  Dovecot answers the scan's UID FETCH from the connection's stale view - the expunged
+  messages are still listed, and the EXPUNGE lines follow the data - so the first scan after
+  a deletion sees nothing and only the next one converges (conformance: probe_stale_fetch).
+  The one-pass delay is recorded as an xfail; the second force_scans proves convergence.
+source: SyncWorker.cpp deep-scan branch; PR #140 control run
+servers:
+  - {fake: plain}
+  - {dovecot: plain}
+mailboxes:
+  INBOX: {messages: 200}
+  Archive: {messages: 20}
+steps:
+  - wait: quiescent
+  - server.expunge: {mailbox: INBOX, uids: "50:60"}
+  - server.expunge: {mailbox: Archive, uids: [3]}
+  - force_scans: {}
+  - assert:
+      db_matches_server: {xfail: "deep scan reads Dovecot's stale view; the deletion is only seen on the following scan"}
+  - force_scans: {}
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 189, Archive: 19}
+  running: true

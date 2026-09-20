@@ -1,0 +1,242 @@
+# Sync engine integration tests
+
+Black-box tests that run a real `mailsync` binary against a mail server in a known state,
+let it sync, optionally change things on the server or queue tasks on stdin, and then check
+that the engine's database says what the server says. No C++ is compiled for these; the
+engine is exercised exactly as the Mailspring client exercises it.
+
+```
+test/
+  harness/        drives mailsync, reads its database/log/delta stream, runs scenarios
+  fakeimap/       an in-process, scriptable IMAP server with server "personalities"
+  servers/        Dovecot 2.3.21 configuration + Dockerfile
+  scenarios/      one YAML file per scenario
+  conformance/    proves the fake answers like Dovecot for everything mailsync sends
+  tools/          ab.py (before/after regression comparison), record_personality.py
+  docs/           adding-scenarios.md (workflow + gotchas), handoff-refactor-regression.md,
+                  tasks/ (engine bugs the suite found, ready to hand off)
+  runs/           per-run artifacts (gitignored): engine log, DB, server transcript
+  ab/             gitignored: baseline binaries and ab.py recordings
+```
+
+Start with `docs/adding-scenarios.md` if you are here to add a test, and
+`docs/handoff-refactor-regression.md` if you are here to check a refactor for regressions.
+
+## Running
+
+```bash
+pip install pytest pyyaml            # the only dependencies beyond the standard library
+python3 -m pytest test               # scenarios on every available server kind + conformance
+python3 -m pytest test --servers fake            # fake only (no Docker needed, ~5 min)
+python3 -m pytest test -k "qresync" --servers dovecot
+python3 test/run.py test/scenarios/qresync-bulk-expunge-during-idle.yaml --server dovecot:qresync --keep
+python3 test/conformance/compare.py -v          # fake vs Dovecot, all probes, full diffs
+```
+
+The binary comes from `MAILSYNC_BIN`, else `../app/mailsync`, else the Linux cmake output
+at the repo root, else Xcode's DerivedData. `--mailsync PATH` overrides per run. Release
+builds refuse to start unless argv[0] contains "mailspring"; the harness launches through a
+symlink so this never bites.
+
+Dovecot runs in Docker (image built on first use from `servers/dovecot/Dockerfile`), or,
+where Docker is unavailable but `dovecot`/`doveadm` are installed (`apt install
+dovecot-imapd` in an agent container), as a local process with a private config
+(`HARNESS_DOVECOT_MODE=local|docker`). `HARNESS_SERVERS=fake,dovecot` forces the set.
+
+Failed runs keep their artifacts in `test/runs/<scenario>-<server>/`: `report.txt` (what
+happened, when), `config/mailsync-*.log` (engine log; with `--verbose` it includes every
+IMAP line sent and received, per thread), `config/edgehill.db`, `server.log` (the fake's
+transcript). `--keep` / `HARNESS_KEEP=1` keeps passing runs too.
+
+## How a scenario works
+
+```yaml
+name: qresync-bulk-expunge-during-idle
+source: Mailspring-Sync PR #141          # the bug or behaviour this protects
+servers: [{fake: dovecot}, {dovecot: qresync}]
+mailboxes:
+  INBOX: {messages: 200}
+steps:
+  - wait: quiescent
+  - server.expunge: {mailbox: INBOX, uids: "140:195"}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 144}
+  stable: {passes: 1}
+  running: true
+```
+
+Each `servers` entry becomes one pytest case. `mailboxes` populates the server before
+mailsync starts (`messages:` is a count or `{count, html, attachment, thread, self_addressed,
+age_days, ...}` for `harness/mailgen.py`; `flags:`; `duplicate_of: {mailbox, uids}` for
+byte-identical copies). `setup:` steps run before mailsync starts.
+
+Steps:
+
+| step | meaning |
+|---|---|
+| `wait: quiescent` / `wait: {quiescent: true, timeout: s}` | until the engine has nothing to do (see below) |
+| `wait: {seconds: n}`, `wait: {log: regex}`, `wait: {task: label}` | |
+| `sync: pass` | `wake-workers` on stdin, then wait for that pass to finish |
+| `server.expunge / flags / move / copy / duplicate / append / create_mailbox / set_uidvalidity / set_uidnext / drop_connections` | what another client does to the mailbox; `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
+| `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids, `folder`/`labelsTo*` to Folder JSON |
+| `client.need_bodies`, `client.wake` | the other stdin commands |
+| `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
+| `restart: {binary: path}` | stop and relaunch on the same database, optionally with another build |
+| `snapshot: name`, `assert: {...}` | mid-scenario checkpoints |
+
+Expectations: `db_matches_server` (placements: every (folder, UID) on the server is a
+message locally with the same Message-ID and tracked flags, and nothing local is missing on
+the server), `counts`, `server_counts`, `stable: {passes: N}` (N more passes over an
+unchanged mailbox must not move a single placement - the flapping detector), `folder_status`,
+`log_present` / `log_absent`, `deltas: {Message: {unpersist: 0}}`, `unchanged_since:
+snapshot`, `running`, `exit`. Any expectation may carry `xfail: reason` for a known engine
+bug: it is recorded, not failed, and reported as XPASS once it starts passing.
+
+**Quiescence** is inferred, since the engine has no "done" signal: every Folder's
+`localStatus.busy` is false and `syncedMinUID <= 1`; the background thread's last log line
+is `Sync loop complete.` and older than the settle window (it loops without sleeping while
+there is more to do); the foreground thread's last IMAP command is `IDLE`; and no delta has
+arrived within the settle window.
+
+**The oracle.** `harness/db.py` is the only code that knows the engine's schema. It turns
+`Message.remoteFolderId/remoteUID` (or `MessageFolder` rows, once they exist) into
+`{folder: {uid: Placement}}`, and `Server.truth()` reads the same shape back from the server
+over IMAP. Everything else compares those two, which is what lets the scenarios survive the
+placements refactor: only `placements_from_db` changes.
+
+## The fake server, and keeping it honest
+
+`fakeimap/` is a stateful IMAP4rev1 server with CONDSTORE, QRESYNC, IDLE, UIDPLUS, MOVE,
+ENABLE, ID, NAMESPACE, SPECIAL-USE, STARTTLS and the Gmail extensions (plus a small SMTP
+server), driven either in-process (the
+harness calls `store.expunge(...)` and the notifications flow to connected sessions exactly
+as they would from another client) or at protocol hooks. Sequence numbers are per session;
+a session is told about an expunge once; modseqs behave like Dovecot's.
+
+A flaw in the fake would become a "must support" condition on the engine, so the rules are:
+
+1. **The default personality (`dovecot`) is Dovecot 2.3.21**, and `conformance/` proves it.
+   `conformance/probes.py` sends every exchange mailsync performs (session setup, LIST /
+   STATUS, SELECT / EXAMINE, header and body FETCH shapes, CHANGEDSINCE with and without
+   VANISHED, STORE incl. `.SILENT`, COPY / MOVE / APPEND, EXPUNGE, CREATE / RENAME / DELETE,
+   and what an idling session is told) to both servers from identically populated state and
+   diffs the normalized responses. 54 comparisons currently match exactly; a difference is a
+   failing test unless it is listed in `ALLOWED_DIFFERENCES` with a reason. Run it after any
+   change to `fakeimap/`.
+2. **Every deviation from that baseline is a named quirk on a `Personality`** in
+   `fakeimap/personalities.py`, with a citation: the PR, forum thread, RFC section or upstream
+   commit that shows a real server doing it. Personalities whose exact wire format was
+   reconstructed from reports rather than a captured transcript say `NEEDS-RECORDING`; a
+   scenario may exercise the engine's branch for them, but their text should be replaced
+   with output from a real session (`tools/record_personality.py`, to be written) before
+   anything is asserted about that text.
+3. **Generated messages are unique** (Message-ID, subject, date) unless a scenario asks for
+   duplicates via `duplicate_of` / `server.duplicate`. The first version of this harness
+   gave every mailbox `<msg{uid}@example.test>`, so INBOX's message 1 and Archive's message 1
+   collapsed onto one row and flapped between folders - a fake-server artefact that looked
+   exactly like a real bug.
+
+Things learned from Dovecot while building the conformance suite, all now modelled:
+
+- Attribute order in unsolicited/STORE FETCH responses is `UID`, `MODSEQ`, `FLAGS`; a
+  `.SILENT` store still reports `MODSEQ` when CONDSTORE is enabled; a STORE that changes
+  nothing reports nothing and does not bump the modseq.
+- `UID FETCH ... (CHANGEDSINCE n VANISHED)` reports expunges this session has not yet been
+  told about as a plain `* VANISHED`, then everything expunged since `n` as
+  `VANISHED (EARLIER)` - **including on a repeat of the same request**. Dovecot does not
+  remember what a session was told. (The first harness assumed the opposite.)
+- The tagged OK of a command whose response carried a plain VANISHED carries
+  `[HIGHESTMODSEQ n]`; after IDLE it is sent untagged.
+- Several appends are reported as one `EXISTS`; `RECENT` is per session and only sent when
+  the session's count changed; `EXAMINE` reports but does not claim `\Recent`.
+- `CREATE a/b` creates `a` as `\Noselect`; deleting the last child deletes it again.
+- IDLE notifications for a single change arrive ~0.5 s later; a burst of changes within a
+  few milliseconds is reported only partly during IDLE and the rest after `DONE`. With
+  maildir the default `mailbox_idle_check_interval` (30 s) is not what causes this.
+- **A session's FETCH is answered from its own view.** If another session expunged messages
+  since this session last synced, `UID FETCH 1:*` still returns those messages, and the
+  `EXPUNGE` / `VANISHED` lines come *after* the FETCH data. `STATUS` on the selected mailbox
+  is likewise stale (Dovecot marks it `[CLIENTBUG]`). mailsync's background connection keeps
+  the last folder it touched selected, so a deep scan right after a deletion sees the old
+  message set and only converges on the following pass (`plain-expunge-found-by-deep-scan`
+  records this as an xfail). The fake models this (`probe_stale_fetch`).
+
+## Server kinds
+
+- `fake:<personality>` - `dovecot` (baseline), `plain` (no CONDSTORE/QRESYNC: the deep-scan
+  branch), `proton-bridge`, `gateway-duplicate-list`, `netease`, `courier`, `outlook`,
+  `icloud`, `gmail`. `fake:dovecot-without-condstore-qresync` style names strip capabilities.
+  Hostname-gated engine behaviour (iCloud, NetEase, Outlook) needs the account's
+  `imap_host` to resolve to 127.0.0.1; a scenario declares `{fake: netease, imap_host:
+  imap.163.com}` and is skipped with instructions unless `/etc/hosts` maps it.
+- `dovecot:<profile>` - `qresync`, `plain` (capability override, as the #140 control run),
+  `proton-like` (plain + `\All` "All Mail"), `tls` (self-signed, implicit TLS), `sdbox`.
+
+## Scenarios
+
+| scenario | protects | servers |
+|---|---|---|
+| baseline-initial-sync | ingestion, flags, threads, attachments, no churn | all |
+| condstore-initial-sync-large | #140 chunked walk on QRESYNC (2500 msgs) | fake, dovecot |
+| sparse-uid-space | #140 review: UIDNEXT 20001 with 1100 msgs; 4500 over a hole | fake, dovecot |
+| qresync-bulk-expunge-during-idle | #141 wide VANISHED during IDLE | fake, dovecot |
+| qresync-wide-vanished-range | #141 bounded-range query, ghost at range end | fake, dovecot |
+| qresync-two-expunges-during-idle | #141 second VANISHED line | fake, dovecot |
+| qresync-vanished-during-body-fetch | #141 VANISHED on a non-IDLE command | fake |
+| plain-expunge-found-by-deep-scan | deep-scan deletion detection | fake, dovecot |
+| remote-move-to-archive | move followed once, no unpersist | fake, dovecot |
+| remote-flag-changes | flags via IDLE and CHANGEDSINCE | fake, dovecot |
+| new-mail-during-idle | EXISTS during IDLE, folders nobody idles on | fake, dovecot |
+| self-addressed-inbox-and-sent | placements: same bytes in INBOX and Sent | fake, dovecot |
+| o365-duplicate-sent-copies | placements: identical copies at adjacent UIDs | fake, dovecot |
+| proton-all-mail-duplicates | #137 `\All` skip | fake, dovecot |
+| gateway-duplicate-list-entries | #139 duplicate LIST lines | fake |
+| netease-id-before-select | #121 ID before SELECT, STATUS without UIDNEXT | fake (hosts alias) |
+| uidvalidity-change | UIDVALIDITY remap | fake, dovecot |
+| two-folders-identical-messages | #140 non-converging gap scan must settle | fake, dovecot |
+| client-task-move | ChangeFolder/Starred/Unread tasks | fake, dovecot |
+| client-task-trash-and-expunge | Trash + ExpungeAllInFolder | fake, dovecot |
+| connection-dropped-during-idle | reconnect after the server drops connections | fake, dovecot |
+| send-draft | SendDraftTask over SMTP, Sent copy, self-addressed delivery | fake (+smtp) |
+| gmail-labels | All Mail + X-GM-LABELS views, webmail archive/label/star, trash task | fake |
+
+Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
+lists them and an `XPASS` line means the marker can be removed. At the time of writing: the
+placements cases (`self-addressed-inbox-and-sent` db match, `o365-duplicate-sent-copies`,
+`two-folders-identical-messages` db match), `connection-dropped-during-idle` (SIGSEGV in
+mailcore `IMAPSession::connectIfNeeded` -> `collectVanishedFromLastResponse` when the
+connection dies around IDLE), `proton-all-mail-duplicates` (`\All` skip never clears
+`busy`), and the one-pass delay in `plain-expunge-found-by-deep-scan`. All seen 2026-09-19.
+
+Scenario timing rule: after a server-side change on a QRESYNC server, wait for the engine to
+receive it (`wait: {log: "recv \\* VANISHED"}`) before forcing a pass; Dovecot delivers
+IDLE notifications ~0.5 s after the change and a `wake-workers` that interrupts IDLE first
+defers the notification to the next cycle.
+
+## Stopgaps and next steps
+
+- **Scan intervals.** `DEEP_SCAN_INTERVAL` (10 min), `SHALLOW_SCAN_INTERVAL`, the CONDSTORE gap
+  scan (24 h) and the 120 s worker sleep are compile-time constants. `sync: pass` covers the
+  sleep via `wake-workers`; `force_scans` covers the rest by zeroing `lastDeep`/`lastShallow`
+  in `Folder.localStatus` (a write to a database the engine owns - safe in practice because
+  `syncNow` re-reads folders each pass, but a hack). Environment-variable overrides in the
+  engine will replace it.
+- **Gmail.** `fakeimap.store.GmailStore` models INBOX / Sent Mail / Starred / Important /
+  Drafts / user labels as views of `[Gmail]/All Mail` with per-view UIDs, label changes as
+  EXISTS/EXPUNGE in the affected views, deletion-from-a-view as label removal, deletion from
+  All Mail as a move to Trash, and `X-GM-LABELS` excluding the selected view's own label.
+  Labels are sent as quoted astrings (`"\\Inbox"`), which is what libetpan parses; the
+  exact quoting Gmail uses is NEEDS-RECORDING. Unsolicited FETCH responses include
+  `X-GM-LABELS`, which real Gmail may not do (also NEEDS-RECORDING).
+- **SMTP.** `fakeimap/smtp.py` (AUTH PLAIN/LOGIN, optional Postfix-style HELO rejection,
+  delivery of self-addressed mail back into INBOX) is enabled per server spec with
+  `{fake: dovecot, smtp: true}`; `--mode test` and the EHLO fallback (#135) have no scenario yet.
+- **Recording real providers.** `tools/record_personality.py HOST PORT USER --name NAME`
+  captures greeting, capabilities, NAMESPACE, ID, LIST, STATUS/SELECT and FETCH shapes from a
+  real account (no message content) into `fakeimap/recordings/`; use it to replace every
+  `NEEDS-RECORDING` personality field with the real text.
+- **Live accounts.** `Server.truth()` works against any IMAP server, so a pre-merge smoke
+  against real accounts (run N passes, assert `stable`) needs only credentials plumbing.
