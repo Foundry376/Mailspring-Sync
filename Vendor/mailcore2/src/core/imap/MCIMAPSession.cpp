@@ -709,6 +709,11 @@ void IMAPSession::unsetup()
     // before it is, so anything still undrained here is not safe to keep.
     mVanishedMessages->removeAllObjects();
 
+    // Nothing is selected on the next connection until select() runs. Left set, this makes
+    // collectVanishedFromLastResponse() read the reconnect's LOGIN/NAMESPACE response as if
+    // it belonged to a selected mailbox.
+    MC_SAFE_RELEASE(mCurrentFolder);
+
     mState = STATE_DISCONNECTED;
 }
 
@@ -4532,7 +4537,11 @@ void IMAPSession::collectVanishedFromLastResponse()
     if (!mQResyncEnabled || mImap == NULL || mCurrentFolder == NULL) {
         return;
     }
-    if (mImap->imap_response_info == NULL) {
+    // libetpan's extension commands (NAMESPACE, ID, SORT, ACL, ANNOTATEMORE) free the list
+    // and leave it NULL rather than empty after consuming their own response
+    // (libetpan/src/low-level/imap/namespace.c:105-108), and clist_begin() is a macro
+    // that dereferences its argument (libetpan/src/data-types/clist.h:106).
+    if (mImap->imap_response_info == NULL || mImap->imap_response_info->rsp_extension_list == NULL) {
         return;
     }
 

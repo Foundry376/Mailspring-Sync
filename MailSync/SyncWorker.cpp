@@ -244,6 +244,18 @@ void SyncWorker::idleCycleIteration()
     if (hasStartedSyncingFolder) {
         String path = AS_MCSTR(inbox->path());
 
+        if (idleExitedWithError) {
+            idleExitedWithError = false;
+            // The connection the IDLE ran on is gone, along with any VANISHED it was told, and
+            // the reconnect above leaves nothing selected. Select the folder again so what we
+            // harvest below is from this connection; the CHANGEDSINCE VANISHED fetch then
+            // re-reports the expunges the dead connection had seen as VANISHED (EARLIER).
+            session.selectIfNeeded(&path, &err);
+            if (err != ErrorCode::ErrorNone) {
+                throw SyncException(err, "selectIfNeeded after IDLE exited with an error");
+            }
+        }
+
         // Expunges the server told us about on this connection - during the IDLE we just
         // exited, but also alongside the body fetches and task commands above. It only
         // tells us once, so these are lost if we don't apply them before the FETCH below.
@@ -286,6 +298,7 @@ void SyncWorker::idleCycleIteration()
         session.idle(&path, 0, &err);
         session.unsetupIdle();
         logger->info("Idle exited with code {}", err);
+        idleExitedWithError = (err != ErrorCode::ErrorNone);
         
         // Ben Note: We don't throw these errors because Yandex (maybe others) abruptly and
         // randomly close IDLE connections - and that's ok! The point is to idle "for a while"

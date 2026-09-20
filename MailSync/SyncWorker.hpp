@@ -37,6 +37,7 @@ class SyncWorker {
     shared_ptr<spdlog::logger> logger;
 
     std::atomic<bool> idleShouldReloop{false};
+    bool idleExitedWithError = false;
     int iterationsSinceLaunch = 0;
 
     // Per-folder count of messages the last truncated full-folder scan still needed, used to tell
