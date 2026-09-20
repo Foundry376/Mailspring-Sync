@@ -390,31 +390,26 @@ static vector<string> _restoreFolderIdsFor(Message * msg, json & data) {
 /*
  Which copies a ChangeFolderTask moves, and where. Both phases derive this from the task
  data and the message's current rows, so the remote phase finds the same copies after the
- local phase (which only marks them) and after an earlier task has moved them on.
-
- A copy at UID 0 is never selected: it is not on the server, so no scan can ever report
- where it went, and a marker on it would show the copy in the destination forever. A
- never-synced draft in a trashed thread stays in Drafts.
+ local phase (which only marks them) and after an earlier task has moved them on. A copy
+ at UID 0 is never selected: no scan can report where it went, so a marker on it would
+ show it in the destination forever.
 
  An undo task carries `restorePlacements` ({ messageId: [{folderId, remoteUID, removed?}] },
- the `undoPlacements` the engine recorded when it ran the original task) and its `folder`
- and `sourceFolderIds` are ignored. The copies the original task moved are the ones now
- outside the recorded folders; a copy in a recorded folder is already home and a Sent or
- Drafts copy was never taken (a move takes them only when the user pointed at that folder,
- which then is a recorded folder). The moved copies go back to the recorded folders in
- order, surplus ones to the first; a recorded folder left without a copy is filled by
- COPY afterwards (_restoreAdditionalCopies). A copy that is home but still carries a
- pending marker is moved in place so the marker clears. An entry marked `removed` is a
- copy the original task deleted because the destination already held one; it is not a
- recorded folder, so the pre-existing destination copy is not taken away.
+ the `undoPlacements` recorded by the original task) and its `folder` / `sourceFolderIds`
+ are ignored. The copies to move back are those now outside the recorded folders - a copy
+ in a recorded folder is home, and Sent / Drafts copies are only ever taken when the user
+ pointed at that folder. They go back to the recorded folders in order, surplus ones to
+ the first; a recorded folder left empty is filled by COPY (_restoreAdditionalCopies). A
+ copy that is home but still marked pending is moved in place so the marker clears. A
+ `removed` entry names a copy the original task deleted because the destination already
+ held one; it is not a recorded folder, so that pre-existing copy is left alone.
 
- Otherwise (plan §3.1) a move to Trash or Spam takes every copy; any other move takes the
- copies in `sourceFolderIds` when the client named the folder it was looking at, else every
- copy outside Sent and Drafts. A copy is matched by the folder it is in or the one it is
- optimistically shown in, so a second move issued from the view of a pending destination
- finds it; a copy already marked for this destination is always included so a re-run
- finishes it, and a copy already in the destination is only touched to pull it back from
- a pending move elsewhere.
+ Otherwise a move to Trash or Spam takes every copy; any other move takes the copies in
+ `sourceFolderIds` when the client named the folder it was looking at, else every copy
+ outside Sent and Drafts. A copy is matched by the folder it is in or the one it is
+ optimistically shown in, a copy already marked for this destination is always included
+ so a re-run finishes it, and a copy already in the destination is only touched to pull
+ it back from a pending move elsewhere.
  */
 static vector<PlacementMove> _movesForMessage(MailStore * store, Message * msg, const vector<Placement> & placements, json & data) {
     vector<PlacementMove> moves;
@@ -566,7 +561,6 @@ void _applyFolderMoveInIMAPFolder(IMAPSession * session, MailStore * store, stri
             }
         }
     }
-
 }
 
 // Undo of a move that collapsed several copies of a message into one folder: after the
@@ -1031,10 +1025,9 @@ void TaskProcessor::cancel(string taskId) {
 /*
  Builds the engine's Message for draft JSON the client sent. The client serializes only
  the fields it knows about, so the local copy of the draft (when there is one) supplies
- everything else: engine bookkeeping, metadata, and the "folders" snapshot. A client
- that received the draft may echo a stale "folders"; placements are the engine's, so the
- client's map is discarded and a brand-new draft gets its Drafts placement from
- performLocalSaveDraft.
+ the rest: engine bookkeeping, metadata and the "folders" snapshot. A "folders" echoed
+ by the client may be stale and is discarded; a brand-new draft gets its Drafts placement
+ from performLocalSaveDraft.
  */
 Message TaskProcessor::inflateClientDraftJSON(json & draftJSON, shared_ptr<Message> existing = nullptr) {
     draftJSON.erase("folders");
@@ -1169,16 +1162,12 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, LocalChangeFn modi
 }
 
 /*
- Runs the server side of a message task: every copy the task addresses is grouped by the
- folder holding it and `applyInFolder` runs once per folder. The network I/O happens
- outside any transaction, so the messages are reloaded afterwards and the outcome is
- applied to their rows then, together with releasing the syncedAt lock. Copies at UID 0
- and tombstones are never sent to the server.
-
- The confirm save usually changes nothing the client can see - the optimistic marker
- already reported the destination - and its deltas are dropped so the client does not
- re-render on a version bump; a restored copy or a dropped duplicate is a real change
- and goes out.
+ Runs the server side of a message task: every live copy the task addresses is grouped by
+ the folder holding it and `applyInFolder` runs once per folder. The network I/O happens
+ outside any transaction, so the messages are reloaded afterwards and the outcome applied
+ to their rows then, together with releasing the syncedAt lock. The confirm save usually
+ changes nothing the client can see (the optimistic marker already reported the
+ destination), so its deltas are dropped unless a copy was restored or a duplicate removed.
  */
 void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, RemoteChangeFn applyInFolder) {
     json & data = task->data();

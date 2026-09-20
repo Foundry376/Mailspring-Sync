@@ -80,11 +80,10 @@ void Folder::beforeSave(MailStore * store) {
 }
 
 /*
- Removing a folder (or a Label, which inherits this) deletes every placement in it as
- one statement. The messages that held them are not loaded here: this runs inside the
- caller's transaction, and a folder can hold every message of the account. Their ids
- are kept on the object so the caller can rewrite their snapshots - and remove any left
- with no copies - in its own short transactions after this one commits
+ Removing a folder (or a Label, which inherits this) deletes every placement in it as one
+ statement. The messages that held them are not loaded here - this runs inside the caller's
+ transaction and a folder can hold every message of the account - so their ids are kept
+ for the caller to rewrite in its own short transactions afterwards
  (MailProcessor::saveMessagesAfterPlacementChange).
  */
 void Folder::afterRemove(MailStore * store) {

@@ -86,12 +86,11 @@ MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
 
 /*
  Ingests one copy of a message reported by a folder scan. Message ids are a hash of the
- headers, so a message already known - from another folder, from an earlier UID in this
- folder - is found by id and the copy recorded as a placement on it. The insert of a new
- message can still fail with a constraint error (SQLite 19) when the other sync worker
- ingested the same message a moment ago, or when the two workers race on one (folder, UID)
- of the MessageFolder unique index; both take the same update path. Looking up first
- keeps a flag change from starting a transaction that is rolled back on every message.
+ headers, so a message already known from another folder or UID is found by id and the
+ copy recorded as a placement on it. The lookup comes first so a flag change does not
+ start a transaction that is rolled back on every message; the insert can still hit a
+ constraint error (SQLite 19) when the other worker ingested the same message a moment
+ ago, or the two race on one (folder, UID) of the MessageFolder unique index.
  */
 shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
     Query q = Query().equal("id", MailUtils::idForMessage(folder.accountId(), folder.path(), mMsg));
@@ -163,10 +162,8 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         
         msg->setThreadId(thread->id());
 
-        // The message's first placement. Written before the Message row so the snapshot the
-        // thread diff below reads comes from the same helper every later change goes through.
-        // The Message insert is what raises the id collision, and the transaction rolls this
-        // row back with it.
+        // Written before the Message row so the thread diff below reads the snapshot the helper
+        // wrote; an id collision on the insert rolls the row back with the transaction.
         string displaced = store->upsertPlacement(*msg, folder, mMsg->uid(), MessageAttributesForMessage(mMsg));
 
         // Apply the new message's attributes to the thread (folder/label refcounts,
@@ -198,9 +195,9 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
 
 /*
  Records the copy at (folder, uid) on a message that already exists. Only that placement
- is compared against what the server reported; the message's other copies are not this
- scan's business. The `syncedAt` guard is message-level: while a task the user queued is
- in flight, a scan of the source folder must not resurrect the copy being moved away.
+ is compared against what the server reported. The `syncedAt` guard is message-level:
+ while a task the user queued is in flight, a scan of the source folder must not
+ resurrect the copy being moved away.
  */
 void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
 {
@@ -264,9 +261,8 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
             }
         }
 
-        // The placement row may be all that changed (a second copy's flags that do not move
-        // the OR-derived state, or a relink after UIDVALIDITY). Only a change the client can
-        // see is worth a persist delta and a thread update.
+        // Only a change the client can see is worth a persist delta and a thread update; a
+        // second copy's flags or a UIDVALIDITY relink may have changed the row alone.
         if (local->toJSON() != before) {
             logger->info("-- Folders now {}", local->folders().dump());
             local->setSyncedAt(syncDataTimestamp);
@@ -552,14 +548,13 @@ void MailProcessor::tombstoneUnassignedPlacements(Folder & folder)
 }
 
 /*
- Catches the snapshot of each message up with its rows after a bulk helper changed them,
- in transactions of 100 so a mass deletion does not hold the database for the whole
- batch. A message left with no rows at all is removed through store->remove so
- Message::afterRemove balances the thread, deletes the body and metadata, and emits the
- unpersist; the check is made inside the chunk's transaction so a copy the other worker
- records meanwhile keeps its message. A message whose snapshot did not change - a second
- copy in the same folder, or a tombstone whose flags the surviving copies still imply -
- is not saved, so the client is not sent a persist for a version bump alone.
+ Catches each message's snapshot up with its rows after a bulk helper changed them, in
+ transactions of 100 so a mass deletion does not hold the database for the whole batch.
+ A message left with no rows goes through store->remove so Message::afterRemove balances
+ the thread and deletes the body and metadata; the check runs inside the chunk's
+ transaction so a copy the other worker records meanwhile keeps its message. A message
+ whose snapshot did not change is not saved, so the client gets no persist for a version
+ bump alone.
  */
 void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & messageIds)
 {
@@ -595,12 +590,11 @@ void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & mess
 
 /*
  End-of-pass sweep. A tombstone older than the start of the pass has had every folder
- scanned at least once since it was written, so a copy that moved elsewhere has been
- recorded and cleared it (MailStore::upsertPlacement). What is left is dropped, and the
- messages that held it are saved or removed by saveMessagesAfterPlacementChange. The
- save matters even when copies remain: derived unread/starred are OR'd over tombstones,
- so a message whose only unread copy was deleted elsewhere reads as unread until the
- tombstone is gone and its flags are recomputed from the surviving copies.
+ scanned since it was written, so a copy that moved elsewhere has already been recorded
+ and cleared it (MailStore::upsertPlacement). What is left is dropped and the messages
+ that held it saved or removed. The save matters even when copies remain: derived
+ unread/starred are OR'd over tombstones, so a message whose only unread copy was
+ deleted elsewhere reads as unread until the tombstone is gone.
  */
 void MailProcessor::sweepExpiredTombstones(time_t before)
 {
@@ -613,7 +607,7 @@ void MailProcessor::sweepExpiredTombstones(time_t before)
     if (candidates.empty()) {
         return;
     }
-    logger->info("Sweep: {} messages lost expired tombstones, refreshing them and removing orphans.", candidates.size());
+    logger->info("Sync loop sweeping expired tombstones from {} messages.", candidates.size());
     saveMessagesAfterPlacementChange(candidates);
 }
 

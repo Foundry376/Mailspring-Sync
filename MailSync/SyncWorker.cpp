@@ -246,10 +246,8 @@ void SyncWorker::idleCycleIteration()
 
         if (idleExitedWithError) {
             idleExitedWithError = false;
-            // The connection the IDLE ran on is gone, along with any VANISHED it was told, and
-            // the reconnect above leaves nothing selected. Select the folder again so what we
-            // harvest below is from this connection; the CHANGEDSINCE VANISHED fetch then
-            // re-reports the expunges the dead connection had seen as VANISHED (EARLIER).
+            // The dead connection's VANISHED are lost and the reconnect above leaves nothing
+            // selected; re-select so the CHANGEDSINCE fetch re-reports them as VANISHED (EARLIER).
             session.selectIfNeeded(&path, &err);
             if (err != ErrorCode::ErrorNone) {
                 throw SyncException(err, "selectIfNeeded after IDLE exited with an error");
@@ -409,11 +407,10 @@ bool SyncWorker::syncNow()
         //
         // An \All mailbox (role "all") is a *duplicate view* of messages that also live
         // in Inbox / Sent / Archive - ProtonMail Bridge's "All Mail" is the common case.
-        // Placements could represent the extra copy, but syncing it doubles header traffic
-        // and rows, files every thread under "Archive" (the [archive, all] role group), and
-        // a delete from All Mail on Bridge is a delete everywhere - an ambiguity nothing
-        // else has to resolve. Skip the folder; it is still created so the client can
-        // archive into it. (#137)
+        // Syncing the extra copy as a placement would double header traffic and rows, file
+        // every thread under "Archive" (the [archive, all] role group), and a delete from
+        // All Mail on Bridge is a delete everywhere. Skip the folder; it is still created so
+        // the client can archive into it. (#137)
         //
         // Gmail is the one provider where All Mail is the *primary* message store rather
         // than a duplicate view: there we sync only all/spam/trash and derive the rest
@@ -605,7 +602,7 @@ bool SyncWorker::syncNow()
             
             if (timeForShallowScan) {
                 // note: we use local uidnext here, because we just fetched everything between
-                // local and remote uidnext so fetching that section again would just slow us down.
+                // localUIDNext and remoteUIDNext so fetching that section again would just slow us down.
                 uint32_t bottomUID = store->fetchMessageUIDAtDepth(*folder, 399, localUidnext);
                 if (bottomUID < syncedMinUID) {
                     bottomUID = syncedMinUID;
@@ -1101,11 +1098,11 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
         }
         
         IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
-        uint32_t uid = remoteMsg->uid();
+        uint32_t remoteUID = remoteMsg->uid();
 
         // Step 3: Collect messages that are different or not in our local UID set.
-        bool inFolder = (local.count(uid) > 0);
-        bool same = inFolder && MessageAttributesMatch(local[uid], MessageAttributesForMessage(remoteMsg));
+        bool inFolder = (local.count(remoteUID) > 0);
+        bool same = inFolder && MessageAttributesMatch(local[remoteUID], MessageAttributesForMessage(remoteMsg));
 
         if (!inFolder || !same) {
             // Step 4: Attempt to insert the new message. If we get unique exceptions,
@@ -1119,17 +1116,17 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
             if (heavyInitialRequest) {
                 auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
                 if (syncedMessages != nullptr) {
-                    syncedMessages->push_back({local, uid});
+                    syncedMessages->push_back({local, remoteUID});
                 }
             } else {
                 // Note: we collect every UID that needs full headers and decide which ones to
                 // request below. Truncating here would depend on the order the server returned
                 // messages in, which is not guaranteed to be sorted by UID.
-                heavyNeededUIDs.push_back(uid);
+                heavyNeededUIDs.push_back(remoteUID);
             }
         }
         
-        local.erase(uid);
+        local.erase(remoteUID);
     }
     
     if (!heavyInitialRequest && heavyNeededUIDs.size() > 0) {
@@ -1199,18 +1196,18 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     uint32_t uidnext = folder.localStatus()[LS_UIDNEXT].get<uint32_t>();
     uint64_t modseq = folder.localStatus()[LS_HIGHESTMODSEQ].get<uint64_t>();
     uint64_t remoteModseq = remoteStatus.highestModSeqValue();
-    uint32_t remoteUidNext = remoteStatus.uidNext();
+    uint32_t remoteUIDNext = remoteStatus.uidNext();
     time_t syncDataTimestamp = time(0);
     
     logger->info("syncFolderChangesViaCondstore - {}: modseq {} to {}, uidnext {} to {}",
-                 folder.path(), modseq, remoteModseq, uidnext, remoteUidNext);
+                 folder.path(), modseq, remoteModseq, uidnext, remoteUIDNext);
 
     String path(AS_MCSTR(folder.path()));
 
     // Must happen before the early return below, and before LS_HIGHESTMODSEQ moves.
     tombstoneVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
 
-    if (modseq == remoteModseq && uidnext == remoteUidNext) {
+    if (modseq == remoteModseq && uidnext == remoteUIDNext) {
         return;
     }
 
@@ -1221,7 +1218,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     // will recover the rest of the changes so it's safe not to ingest them here.
     IndexSet * uids = IndexSet::indexSetWithRange(RangeMake(1, UINT64_MAX));
     if (!mustSyncAll && remoteModseq - modseq > MODSEQ_TRUNCATION_THRESHOLD) {
-        uint32_t bottomUID = remoteUidNext > MODSEQ_TRUNCATION_UID_COUNT ? remoteUidNext - MODSEQ_TRUNCATION_UID_COUNT : 1;
+        uint32_t bottomUID = remoteUIDNext > MODSEQ_TRUNCATION_UID_COUNT ? remoteUIDNext - MODSEQ_TRUNCATION_UID_COUNT : 1;
         uids = IndexSet::indexSetWithRange(RangeMake(bottomUID, UINT64_MAX));
         logger->warn("syncFolderChangesViaCondstore - request limited to {}-*, remaining changes will be detected via deep scan", bottomUID);
     }
@@ -1255,7 +1252,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     // an unrelated expunge can arrive untagged while this FETCH is in flight.
     tombstoneVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
 
-    folder.localStatus()[LS_UIDNEXT] = remoteUidNext;
+    folder.localStatus()[LS_UIDNEXT] = remoteUIDNext;
     folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
 }
 

@@ -219,10 +219,9 @@ static vector<string> V9_SETUP_QUERIES = {
 };
 
 // V10: MessageFolder holds one row per physical copy of a message on the server
-// (account, folder, UID) with that copy's IMAP flags, so a message can live in
-// several folders at once. Message.unread/starred/draft become OR-derived from
-// these rows and Message JSON carries a { folderId: flagBits } snapshot.
-// See docs/message-placements-plan.md.
+// (account, folder, UID) with that copy's IMAP flags, so a message can live in several
+// folders at once. Message.unread/starred/draft are OR-derived from these rows and the
+// Message JSON carries a { folderId: flagBits } snapshot of them.
 static vector<string> V10_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS MessageFolder ("
         "rowid INTEGER PRIMARY KEY,"
@@ -239,31 +238,20 @@ static vector<string> V10_SETUP_QUERIES = {
         "pendingFolderId VARCHAR(40) NULL)",
 };
 
-// Upgrade of a pre-V10 database (a fresh database gets the final Message shape from
-// V1_SETUP_QUERIES and skips this). One placement per message is backfilled from the
-// IMAP truth (remoteFolderId / remoteUID). A row whose data.folder differs from
-// remoteFolderId is a move whose remote phase has not run; it becomes the optimistic
-// representation the engine writes itself - pendingFolderId = data.folder.id, reported
-// under that folder - so thread refcounts match and the queued task's remote phase
-// commits it. Two kinds of row become UID 0 tombstones dated now, which the first sweep
-// after the upgrade removes through Message::afterRemove: unlink sentinels
-// (UINT32_MAX - phase), as the phase sweep would have, and "deleted-*" draft
-// placeholders at UID 0: the draft they stand in for was never on the server, so there
-// is no deletion to wait for and no scan that could ever retire them. A placeholder with
-// a real UID keeps a live placement, since DestroyDraftTask's remote phase addresses it.
-//
-// The Message table is then rebuilt without remoteUID / remoteXGMLabels / remoteFolderId
-// - the same table rewrite SQLite performs for each DROP COLUMN, done once - and the
-// same pass rewrites each row's JSON to the placements contract: the embedded folder
-// copies go and "folders" ({ folderId: flagBits }) arrives, keyed by the folder the
-// client saw the message in (data.folder, the pending destination when a move is in
-// flight). Tombstoned rows keep their folder key: the single-folder unlink never
-// decremented the thread, so the snapshot must still name the folder for
-// Message::afterRemove to balance the refcount when the sweep removes them. Rows with
-// and without a folder are copied by separate statements rather than one CASE: json_set
-// only embeds its argument as an object when the JSON subtype reaches it, and whether
-// the subtype survives a CASE expression depends on the SQLite version; a lost subtype
-// would store the map as a string.
+// Upgrade of a pre-V10 database (a fresh one gets the final Message shape from V1 and
+// skips this). One placement per message is backfilled from remoteFolderId / remoteUID:
+// - data.folder != remoteFolderId is a move whose remote phase has not run, so the row
+//   gets pendingFolderId = data.folder.id and the queued task's remote phase commits it.
+// - Unlink sentinels (UINT32_MAX - phase) and "deleted-*" draft placeholders at UID 0
+//   (the draft was never on the server, so no scan could ever retire them) become UID 0
+//   tombstones dated now, which the first sweep removes through Message::afterRemove.
+//   Their JSON keeps its folder key so afterRemove can balance the thread refcount.
+// The Message table is then rebuilt without the location columns (one table rewrite
+// instead of one per DROP COLUMN) and each row's JSON gains "folders" keyed by the folder
+// the client saw the message in. Rows with and without a folder are copied by separate
+// statements rather than one CASE: json_set only embeds its argument as an object when
+// the JSON subtype reaches it, and whether the subtype survives a CASE expression depends
+// on the SQLite version; a lost subtype would store the map as a string.
 static vector<string> V10_UPGRADE_QUERIES = {
     "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt, pendingFolderId) "
     "SELECT accountId, id, remoteFolderId, "

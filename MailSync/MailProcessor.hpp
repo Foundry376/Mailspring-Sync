@@ -44,7 +44,7 @@ public:
     void retrievedMessageBody(Message * message, MessageParser * parser);
     bool retrievedFileData(File * file, Data * data);
 
-    // Placement bookkeeping for copies the server no longer reports (see the plan, §2.5).
+    // Placement bookkeeping for copies the server no longer reports.
     void tombstonePlacements(Folder & folder, const vector<uint32_t> & uids);
     void tombstonePlacements(Folder & folder, Query & uidQuery);
     void tombstoneUnassignedPlacements(Folder & folder);

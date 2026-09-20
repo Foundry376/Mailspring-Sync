@@ -195,19 +195,17 @@ void MailStore::migrate() {
 
 /*
  V10 creates MessageFolder, backfills one placement per message and rebuilds the Message
- table without its location columns (see constants.h). The whole step runs in one
- explicit transaction: a crash mid-way rolls back the new table, the backfill and the
- rebuild together - DDL included - and leaves user_version at the old value so the next
- launch retries. A fresh database already has the final Message shape from V1 and
- only needs the new table and its indexes.
+ table without its location columns (see constants.h). It runs in one explicit transaction
+ so a crash mid-way rolls back the DDL, the backfill and the rebuild together and leaves
+ user_version at the old value for the next launch to retry. A fresh database already has
+ the final Message shape from V1 and only needs the new table and its indexes.
 
- The rebuilt Message table, the placements and their indexes are written to the WAL and
- then checkpointed into the main file, whose pages from the dropped table are only
- reclaimed by the 30-day VACUUM. On the 1.15 GB / 258k-message benchmark the file grows
- by 385 MB and the WAL peaks at about the same, so 1.5x the database is a safe ceiling;
- dbstat is not compiled in, so the whole database size stands in for the Message table.
- The failure is a plain runtime_error whose text names the disk, so the client's
- "problem with your local email database" dialog does not read like corruption.
+ Disk check: the rebuilt table and the placements are written to the WAL and checkpointed
+ into the main file, whose pages from the dropped table are only reclaimed by the 30-day
+ VACUUM. On a 1.15 GB / 258k-message database the file grows by 385 MB and the WAL peaks at
+ about the same, so 1.5x the database size is a safe ceiling. The failure is a plain
+ runtime_error naming the disk so the client's "problem with your local email database"
+ dialog does not read like corruption.
  */
 void MailStore::_migrateToV10(bool freshDatabase, const string & verb) {
     if (!freshDatabase) {
@@ -649,7 +647,7 @@ vector<Placement> MailStore::placementsForMessage(string messageId) {
 /*
  Rebuilds the message's "folders" snapshot and derived flags from its rows. Called at the
  end of every helper that changed the rows of a message it has in hand, so the snapshot
- is only ever recomputed for messages whose placements actually changed (§2.3).
+ is only recomputed for messages whose placements changed.
 
  - "folders" lists live copies keyed by the folder the client should see them in (the
    pending destination during an optimistic move), OR-ing bits when one folder holds
