@@ -210,6 +210,24 @@ Located in `Vendor/` - these are built from source and some contain local modifi
 
 On Windows, external binary dependencies (OpenSSL, curl, libxml2, etc.) are managed via vcpkg rather than vendored binaries.
 
+## Comment Style
+
+Write for a technical reader who prefers self-documenting code. Prefer clearer names and
+smaller functions over commentary; a comment that restates the code should be deleted.
+
+- State **current behavior and rationale** — why the code is the way it is, and what a
+  reader would otherwise get wrong. Never narrate thought process, stream of
+  consciousness, or the path you took to the answer.
+- Never describe history: where code used to live, what it was folded out of, what the
+  previous implementation did, or what a diff changed. Git records that.
+- Cite external evidence when it exists — a Sentry issue ID (`MAILSPRING-CLIENT-AC`), an
+  upstream commit or PR in mailcore2/libetpan/Electron, a spec section, a provider quirk.
+  These justify code that otherwise looks arbitrary and are the most valuable comments in
+  the codebase.
+- Paragraph-length comments should be rare, and almost always attach to a function, class,
+  or module rather than sitting inline. Inline comments belong on one non-obvious line and
+  should be one or two lines long.
+
 ## Coding Conventions
 
 These are the conventions the codebase already follows; match them rather than introducing
@@ -268,7 +286,7 @@ path.
 **Comments.** Comment density is roughly 10–20% of lines. `// Note:` for a one-to-three
 line inline remark; a `/* */` block above a function only for a non-obvious contract; longer
 inline blocks only for protocol or provider quirks, with the issue, commit or spec cited. See
-the Comment Style section above for what a comment should and should not say.
+the Comment Style section for what a comment should and should not say.
 
 ## Gmail-Specific Behavior
 Gmail accounts sync only Spam, All Mail, and Trash folders, using X-GM-LABELS extension for label handling. Virtual folders are ignored. Every message has exactly one placement, in whichever of those three folders holds it (see Message Identity and Placements).
