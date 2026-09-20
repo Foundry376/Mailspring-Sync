@@ -86,11 +86,40 @@ records outcomes for one binary and diffs two recordings (see
 | connection-dropped-during-idle | reconnect after the server drops connections | fake, dovecot | xfail: segfault |
 | send-draft | SendDraftTask over SMTP, Sent copy, self-delivery | fake +smtp ×2 | pass (failed before placements) |
 | gmail-labels | All Mail + X-GM-LABELS views, archive/label/star, trash task | fake | pass |
+| remote-move-destination-scanned-first | move seen "present in B" before "gone from A"; no unpersist | fake ×2, dovecot | pass |
+| trash-message-with-two-placements | trash from Inbox takes the Sent copy; archive does not | fake ×2, dovecot | pass |
+| flag-change-on-second-placement | per-placement flags on the Sent copy | fake ×2, dovecot | pass |
+| gmail-send-and-labels | Gmail send (no Sent APPEND, one All Mail placement) + ChangeLabelsTask | fake | pass |
+| migration-from-pre-placements-db | V10 migration of an 0df7864 DB + a DB caught mid-sweep | fake, dovecot | pass |
+| heavy-fetch-truncation-backlog | #140 1024-header truncation + draining-backlog back-off | fake, dovecot | pass |
+| modseq-truncation | CHANGEDSINCE gap > 4000 bounds the request to the newest UIDs | fake, dovecot | pass |
 
 Gaps worth filling next: iCloud / Outlook / NetEase behaviour needs recordings
 (`tools/record_personality.py`) before their quirks can be asserted; `--mode test` and the
-#135 EHLO fallback have no scenario; Gmail send (no Sent APPEND, All Mail placement) and
-Gmail label tasks (`ChangeLabelsTask`) are not covered; there is no live-account smoke.
+#135 EHLO fallback have no scenario; there is no live-account smoke. (Gmail send / Gmail
+label tasks, migration from a pre-placements DB, the 1024-header truncation back-off and
+the modseq-gap truncation are now covered by the scenarios added above.)
+
+Harness features the placements scenarios added, worth reusing:
+
+- **Starting on another build.** A top-level `binary: ab/mailsync-0df7864` (relative to
+  `test/`) launches the scenario on that build and skips with a build hint when it is absent;
+  a later `restart` (no `binary:`) lands on the build under test. This is how
+  `migration-from-pre-placements-db` hands a database written by the old engine to the new
+  one. `--mailsync` sets the build under test as before.
+- **Doing things while the engine is stopped.** `restart: {before: [steps]}` runs server
+  steps in the gap between stop and start - the honest way to build up state the engine did
+  not watch happen. `modseq-truncation` uses it to make 4200 per-message flag changes at
+  once (over IDLE the engine would follow them one at a time and never see a >4000 modseq
+  gap). `run.py --server kind:profile` uses the scenario's own entry for that kind:profile,
+  so its options (`smtp: true`, `smtp_sent_copy`, `imap_host`) and the top-level `binary:`
+  apply; a kind:profile the scenario does not list runs bare.
+- **`per_message: true` on `server.flags`** issues one STORE per UID, so HIGHESTMODSEQ
+  advances once per message. A plain `server.flags` is one STORE and one modseq bump, which
+  is what Dovecot does and what `conformance/probe_bulk_store_modseq` now pins.
+- **`log_count: {regex: {min, max}}`** bounds how many times a log line appears, which is how
+  `heavy-fetch-truncation-backlog` proves the truncated deep scan retried a bounded number of
+  times instead of looping.
 
 ## 4. Gotchas (each of these cost real time)
 
@@ -99,8 +128,11 @@ Engine interface
 - **The binary's path must contain "mailspring"** (release builds exit 2 silently otherwise).
   The harness launches through a symlink, but if you run it by hand from `/tmp/x/mailsync`
   it will look like an instant hang.
-- **Run `--mode migrate` before `--mode sync`** on a fresh CONFIG_DIR, or every thread races
-  to create the schema and aborts with "database is locked". `MailsyncProcess.start()` does it.
+- **Run `--mode migrate` before every `--mode sync`**, as the client does - not just on a
+  fresh CONFIG_DIR (where skipping it makes every thread race to create the schema and abort
+  with "database is locked"), but also before a `restart` onto a newer build, which would
+  otherwise run against tables it does not have. `MailsyncProcess.start()` does it on every
+  launch and the report records what migrate said.
 - **Task JSON uses `aid`**, not `accountId`, plus `v`, `status`, `metadata: []`;
   `queue_task()` fills them in. A `null` where the engine expects a string aborts the whole
   process (`catch (...) { abort(); }` in the stdin loop) - it looks like a crash, but it is
@@ -139,6 +171,18 @@ Timing
   message that was placed at the start of the pass and got deleted during it.
 - Dovecot's `mailbox_idle_check_interval` is set to 2 s in the harness config; the 30 s default
   is not what causes the burst behaviour.
+- **Background folder order is a role sort**: `inbox, sent, drafts, all, archive, trash,
+  spam`, then unroled folders in database order (`SyncWorker::syncNow`, `roleOrder`). To
+  make folder B scanned before folder A, give B an earlier role or move into a role-earlier
+  folder. The foreground connection idles on the inbox and sees inbox changes first
+  regardless of this order.
+- **Changes the engine did not watch happen** (thousands of flag changes while the app was
+  closed, a mailbox rebuilt overnight) cannot be produced while it runs: over IDLE it follows
+  them one at a time and never sees a large gap. Use `restart: {before: [server steps]}`,
+  which applies the steps between stop and start (`modseq-truncation`).
+- With `--verbose` the engine log rotates at 5 MB to `mailsync-*.log.1`, `.log.2`. The
+  harness tailer follows the rotation, but when you grep by hand use
+  `config/mailsync-*.log*` or the line you are looking for may be in a rotated file.
 
 Data
 
@@ -175,6 +219,11 @@ Servers
   `HARNESS_DOVECOT_MODE=local`.
 - Random ports everywhere; two harness runs can coexist, but they compete for CPU and the
   timing rules above get tighter. Do not run two Dovecot suites at once on a laptop.
+  Artifacts go to `test/runs/<scenario>-<server>/`, which a second session running the same
+  scenario would delete: set `HARNESS_RUNS_DIR` per session (`ab.py` does this itself).
+- `conformance/probe_idle` compares what an idling session was told; Dovecot's IDLE timing
+  makes it flake roughly one run in ten. Re-run it before treating a difference there as real;
+  a difference in any other probe is real.
 
 ## 5. Extending the fake without inventing a server
 

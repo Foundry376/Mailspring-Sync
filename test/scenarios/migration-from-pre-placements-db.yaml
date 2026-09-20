@@ -1,0 +1,42 @@
+name: migration-from-pre-placements-db
+description: >
+  A database written by the last pre-placements engine (0df7864: Message.remoteFolderId /
+  remoteUID, one folder per row, unlinked rows parked at remoteUID = UINT32_MAX - phase) is
+  handed to the current build. The V10 migration must turn every located row into a
+  MessageFolder placement and every parked row into an expired tombstone, and the engine
+  must then converge: the self-addressed copies the old model could only file once gain
+  their second placement, the ten messages another client expunged while the old engine was
+  mid-sweep (unlinked but not yet deleted) are removed without touching anything else, and
+  further passes move nothing. Starts on `binary:` (test/ab/mailsync-0df7864, rebuilt per
+  docs/handoff-refactor-regression.md 4) and restarts onto the build under test.
+source: "MailStore::_migrateToV10 (constants.h V10_UPGRADE_QUERIES: remoteUID > 4294967290 -> UID 0 + unlinkedAt); docs/message-placements-plan.md 2.5; handoff-refactor-regression.md 5.5"
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+binary: ab/mailsync-0df7864
+mailboxes:
+  INBOX: {messages: {count: 300, age_days: 30}}
+  Archive: {messages: 50}
+  Sent: {messages: 20}
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 6, self_addressed: true}}
+  - server.duplicate: {mailbox: INBOX, uids: "301:306", to: Sent}
+steps:
+  - wait: {quiescent: true, timeout: 300}
+  - assert:
+      counts: {Archive: 50, total: 376}    # the old model files each self-addressed message once
+      folder_status: {INBOX: {syncedMinUID: 1, busy: false}}
+  - server.expunge: {mailbox: INBOX, uids: "10:19"}
+  - wait: {log: "Unlinking messages", timeout: 60}
+  - wait: {seconds: 2}
+  - assert:
+      counts: {INBOX: 296, total: 376}     # unlinked (parked), not yet deleted: mid-sweep
+  - restart: {timeout: 300}
+  - force_scans: {}
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 296, Archive: 50, Sent: 26, total: 366}
+  folder_status: {INBOX: {syncedMinUID: 1, busy: false}, Sent: {busy: false}, Archive: {busy: false}}
+  log_absent: ["\\[critical\\]", "UNIQUE constraint", "no such (table|column)"]
+  stable: {passes: 2}
+  running: true

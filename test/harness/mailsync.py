@@ -165,6 +165,7 @@ class MailsyncProcess:
         self._log_lock = threading.Lock()
         self._stopped = threading.Event()
         self.wait_reason = ""
+        self.migrate_output = ""
         self.stderr_path = self.work_dir / "stderr.log"
 
     # -- lifecycle ----------------------------------------------------------------------
@@ -205,13 +206,17 @@ class MailsyncProcess:
 
     def migrate(self):
         r = self.run_mode("migrate")
+        # e.g. "Migration V10: 376 placements created, 0 messages without a folder"
+        self.migrate_output = " ".join(r.stdout.split())
         if r.returncode != 0 or '"error":null' not in r.stdout.replace(" ", ""):
             hint = " (exit 2 with no output is the executable-path check: argv[0] must contain 'mailspring')" if r.returncode == 2 else ""
             raise MailsyncError(f"migrate failed ({r.returncode}){hint}: {r.stdout[-500:]} {r.stderr[-500:]}")
 
     def start(self):
-        if not (self.config_dir / "edgehill.db").exists():
-            self.migrate()
+        # The client runs `--mode migrate` before every launch (application.ts), and it is
+        # the only mode that upgrades the schema: a build started on an older database
+        # without it would run against tables it does not have.
+        self.migrate()
         args = [str(self.binary), "--mode", "sync"]
         if self.verbose:
             args.append("--verbose")

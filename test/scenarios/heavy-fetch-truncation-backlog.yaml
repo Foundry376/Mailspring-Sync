@@ -1,0 +1,29 @@
+name: heavy-fetch-truncation-backlog
+description: >
+  2300 messages land in Archive at once on a server without CONDSTORE. The new-mail fetch
+  and the deep scan both find more messages needing full headers than one request may
+  carry (MAX_FULL_HEADERS_REQUEST_SIZE = 1024), so each pass ingests the newest 1024 and
+  reports the range as synced only down to the lowest UID it took; the deep scan is retried
+  immediately while the backlog keeps shrinking (2300 -> 1276 -> 252) and must not be
+  retried when it stops falling. The folder must settle with every message present,
+  busy false and lastDeep recorded - a bounded number of truncated fetches, not a loop.
+source: "Mailspring-Sync PR #140 (truncated deep scan re-scanned forever); SyncWorker::syncFolderUIDRange heavyNeededUIDs truncation; SyncWorker::shouldRetryTruncatedScan"
+servers:
+  - {fake: plain}
+  - {dovecot: plain}
+mailboxes:
+  INBOX: {messages: 20}
+  Archive: {messages: {count: 200, age_days: 30}}
+steps:
+  - wait: quiescent
+  - server.append: {mailbox: Archive, messages: {count: 2300, age_days: 30}}
+  - force_scans: {timeout: 300}
+expect:
+  log_present: ["Fetching full headers for 1024 \\(of \\d+ needed\\)"]
+  log_count: {"Fetching full headers for 1024 \\(of \\d+ needed\\)": {min: 2, max: 3}}
+  log_absent: ["count is not falling", "\\[critical\\]"]
+  db_matches_server: {}
+  counts: {Archive: 2500, INBOX: 20}
+  folder_status: {Archive: {busy: false, syncedMinUID: 1}}
+  stable: {passes: 1}
+  running: true

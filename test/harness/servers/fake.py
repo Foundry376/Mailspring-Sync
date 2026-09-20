@@ -13,15 +13,19 @@ class FakeServer(Server):
     kind = "fake"
 
     def __init__(self, personality: str = "dovecot", log_path: Optional[str] = None, smtp: bool = False,
-                 email: str = "test@example.test", reject_non_fqdn_helo: bool = False, **kw):
+                 email: str = "test@example.test", reject_non_fqdn_helo: bool = False,
+                 smtp_sent_copy: Optional[str] = None, **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
         self.store: Store = self.imap.store
         self.email = email
         # Mail the user sends to themself is delivered back into INBOX, as a real MTA would.
+        # `smtp_sent_copy` names a mailbox every submitted message is filed into as well
+        # (Gmail's submission service saves sent mail under \Sent by itself).
         self.smtp = FakeSmtpServer(credentials=(self.username, self.password), reject_non_fqdn_helo=reject_non_fqdn_helo,
-                                   deliver_to=(self.store, "INBOX", email)) if smtp else None
+                                   deliver_to=(self.store, "INBOX", email),
+                                   sent_copy=(self.store, smtp_sent_copy) if smtp_sent_copy else None) if smtp else None
 
     def start(self):
         self.imap.start()
@@ -60,12 +64,12 @@ class FakeServer(Server):
         self._as_client(mailbox)
         self.store.expunge(mailbox, list(uids))
 
-    def set_flags(self, mailbox, uids, add=(), remove=()):
+    def set_flags(self, mailbox, uids, add=(), remove=(), per_message=False):
         self._as_client(mailbox)
         if add:
-            self.store.store_flags(mailbox, list(uids), "add", list(add))
+            self.store.store_flags(mailbox, list(uids), "add", list(add), per_message=per_message)
         if remove:
-            self.store.store_flags(mailbox, list(uids), "remove", list(remove))
+            self.store.store_flags(mailbox, list(uids), "remove", list(remove), per_message=per_message)
 
     def set_labels(self, mailbox, uids, add=(), remove=()):
         self._as_client(mailbox)

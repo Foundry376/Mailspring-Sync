@@ -126,6 +126,29 @@ def probe_store(rig: Rig):
     return out
 
 
+def probe_bulk_store_modseq(rig: Rig):
+    """One STORE over many messages is one transaction: HIGHESTMODSEQ advances by one and every
+    changed message reports that same value. Modseq *values* are normalized everywhere else, so
+    this probe reports the advance and the number of distinct values instead. The engine's
+    MODSEQ_TRUNCATION_THRESHOLD (SyncWorker.cpp) compares modseq differences, which makes the
+    allocation rule observable behaviour."""
+    out = {}
+    rig.a.cmd("ENABLE CONDSTORE")
+    sel = rig.a.cmd("SELECT INBOX")
+    hms = int(re.search(rb"HIGHESTMODSEQ (\d+)", b"\n".join(sel)).group(1))
+    lines = rig.a.cmd("UID STORE 1:6 +FLAGS (\\Flagged)")
+    values = {int(m.group(1)) for l in lines for m in re.finditer(rb"MODSEQ \((\d+)\)", l)}
+    hms2 = hms
+    for l in rig.a.cmd("STATUS INBOX (HIGHESTMODSEQ)"):
+        m = re.search(rb"HIGHESTMODSEQ (\d+)", l)
+        if m:
+            hms2 = int(m.group(1))
+    out["bulk_store"] = [normalize(l) for l in lines]
+    out["bulk_store_modseq_advance"] = [f"advance {hms2 - hms}".encode(), f"distinct {len(values)}".encode(),
+                                        b"all-at-highest " + (b"yes" if values == {hms2} else b"no")]
+    return out
+
+
 def probe_changedsince(rig: Rig):
     out = {}
     rig.a.cmd("ENABLE QRESYNC")
@@ -237,5 +260,5 @@ def probe_stale_fetch(rig: Rig):
     return out
 
 
-PROBES = [probe_session_setup, probe_list_status, probe_select_fetch, probe_store, probe_changedsince,
+PROBES = [probe_session_setup, probe_list_status, probe_select_fetch, probe_store, probe_bulk_store_modseq, probe_changedsince,
           probe_copy_move_append, probe_idle, probe_stale_fetch]

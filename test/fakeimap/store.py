@@ -231,9 +231,14 @@ class Store:
         return [self.append(mailbox, r, flags) for r in raws]
 
     def store_flags(self, mailbox: str, uids: Iterable[str], op: str, flags: Iterable[str],
-                    origin=None) -> list:
-        """op: add | remove | replace. Returns the changed messages (no-op stores still bump
-        modseq on Dovecot, and so here)."""
+                    origin=None, per_message: bool = False) -> list:
+        """op: add | remove | replace. Returns the changed messages. One STORE is one
+        transaction: every message it changes gets the same, single new modseq, as on
+        Dovecot (conformance probe_bulk_store_modseq); a no-op STORE neither bumps the
+        modseq nor is reported. per_message models each message changed by a separate
+        transaction (another client marking messages one at a time, a filter run), giving
+        each its own modseq - which is how a modseq gap larger than one grows on a real
+        server between two of the engine's syncs."""
         with self.lock:
             mb = self.get(mailbox)
             flags = set(flags)
@@ -250,10 +255,15 @@ class Store:
                 else:
                     m.flags = set(flags)
                 if m.flags == before:
-                    continue   # Dovecot neither bumps modseq nor reports a no-op STORE
-                m.modseq = mb.next_modseq()
+                    continue
+                if per_message:
+                    m.modseq = mb.next_modseq()
                 changed.append(m)
             if changed:
+                if not per_message:
+                    modseq = mb.next_modseq()
+                    for m in changed:
+                        m.modseq = modseq
                 self._emit(StoreEvent("flags", mb.name, [m.uid for m in changed], mb.highestmodseq, origin))
             return changed
 
@@ -506,12 +516,13 @@ class GmailStore(Store):
         mb = self.get(mailbox)
         return [m for m in (mb.by_uid(u) for u in uids) if m is not None]
 
-    def store_flags(self, mailbox, uids, op, flags, origin=None):
+    def store_flags(self, mailbox, uids, op, flags, origin=None, per_message=False):
         mb = self.get(mailbox)
         phys = self._physical(mb)
         with self.lock:
             msgs = self._resolve(mailbox, uids)
-            changed = super().store_flags(phys.name, [m.uid for m in msgs], op, flags, origin)
+            changed = super().store_flags(phys.name, [m.uid for m in msgs], op, flags, origin,
+                                          per_message=per_message)
             # \Flagged and \Draft are mirrored by the Starred and Drafts views
             for m in changed:
                 before = set(m.labels)

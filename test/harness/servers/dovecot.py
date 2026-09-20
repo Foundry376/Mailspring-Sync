@@ -284,12 +284,17 @@ class DovecotServer(Server):
             c.uid("EXPUNGE", _set(uids))
         self._with_selected(mailbox, go)
 
-    def set_flags(self, mailbox, uids, add=(), remove=()):
+    def set_flags(self, mailbox, uids, add=(), remove=(), per_message=False):
         def go(c):
-            if add:
-                c.uid("STORE", _set(uids), "+FLAGS.SILENT", "(" + " ".join(add) + ")")
-            if remove:
-                c.uid("STORE", _set(uids), "-FLAGS.SILENT", "(" + " ".join(remove) + ")")
+            # per_message: one STORE per UID, so HIGHESTMODSEQ advances once per message -
+            # what builds a large modseq gap the way per-message client activity does.
+            targets = [[u] for u in uids] if per_message else [list(uids)]
+            for group in targets:
+                sset = _set(group)
+                if add:
+                    c.uid("STORE", sset, "+FLAGS.SILENT", "(" + " ".join(add) + ")")
+                if remove:
+                    c.uid("STORE", sset, "-FLAGS.SILENT", "(" + " ".join(remove) + ")")
         self._with_selected(mailbox, go)
 
     def move(self, mailbox, uids, dest):

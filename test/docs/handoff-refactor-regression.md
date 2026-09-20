@@ -156,9 +156,12 @@ scenario yet and are the ones a regression would hide in:
 4. **Gmail exclusivity** - one placement in All Mail; a label change must not create a second
    placement; `gmail-labels` covers the basics, add label tasks (`ChangeLabelsTask` with
    `labelsToAdd: ["Work"]`) and a Gmail `send-draft` (no Sent APPEND; All Mail placement).
-5. **Migration** - run `0df7864` to populate a database, then `restart: {binary: ../app/mailsync}`
-   and assert `db_matches_server` and `stable`. The `restart` step exists for exactly this;
-   it needs the old binary at hand, so it is a manual/ab-style check rather than a CI one.
+5. **Migration** - covered by `migration-from-pre-placements-db`: a scenario starts on the
+   build under test unless it sets a top-level `binary:`; that scenario sets
+   `binary: ab/mailsync-0df7864`, syncs, expunges on the server so the old engine leaves
+   unlinked rows mid-sweep, and a bare `restart:` lands on `--mailsync` (the build under test),
+   which must migrate and converge. It skips with a build hint when the baseline binary is
+   absent (§4), so it is an ab-style check rather than a CI one.
 
 `test/docs/adding-scenarios.md` has the workflow and the gotchas; the fake must not be
 taught new server behaviour without a conformance probe against Dovecot.

@@ -33,7 +33,10 @@ from .assertions import compare_placements, placement_changes
 from .mailsync import MailsyncError, MailsyncProcess, account_json
 from .servers.base import Server
 
-RUNS_DIR = Path(__file__).resolve().parents[1] / "runs"
+TEST_DIR = Path(__file__).resolve().parents[1]
+# HARNESS_RUNS_DIR keeps concurrent harness sessions (two agents, or ab.py runs of two
+# binaries) from deleting each other's artifacts: each gets its own directory.
+RUNS_DIR = Path(os.environ.get("HARNESS_RUNS_DIR") or TEST_DIR / "runs")
 
 
 class ScenarioFailure(AssertionError):
@@ -108,7 +111,7 @@ class ScenarioRun:
     def __init__(self, scenario: dict, spec: ServerSpec, binary: Optional[Path] = None, keep: bool = False):
         self.sc = scenario
         self.spec = spec
-        self.binary = binary
+        self.binary = binary            # the build under test (--mailsync / MAILSYNC_BIN / auto)
         self.keep = keep or bool(os.environ.get("HARNESS_KEEP"))
         self.name = f"{scenario['name']}-{spec.kind}-{spec.profile}".replace("/", "_")
         self.work = RUNS_DIR / self.name
@@ -165,6 +168,25 @@ class ScenarioRun:
                 f"behaviour on the hostname). Add `127.0.0.1 {host}` to /etc/hosts to enable it."
             )
 
+    def _initial_binary(self) -> Optional[Path]:
+        """A scenario may start on another build (`binary: ab/mailsync-0df7864`, relative to
+        test/) and `restart` onto the build under test, which is how a database written by
+        an older engine is handed to the current one."""
+        if not self.sc.get("binary"):
+            return self.binary
+        path = self._binary_path(self.sc["binary"])
+        if not path.is_file():
+            raise ScenarioSkipped(
+                f"{self.sc['name']} starts on {self.sc['binary']}, which is not at {path}. "
+                f"Build it first (docs/handoff-refactor-regression.md 4 for a baseline build)."
+            )
+        return path
+
+    @staticmethod
+    def _binary_path(value: str) -> Path:
+        path = Path(value).expanduser()
+        return path if path.is_absolute() else TEST_DIR / path
+
     def setup(self):
         self._check_host_alias()
         if self.work.exists():
@@ -191,7 +213,7 @@ class ScenarioRun:
         if self.sc.get("account"):
             kw.update(self.sc["account"])
         account = account_json(**kw)
-        self.ms = MailsyncProcess(account, self.work, binary=self.binary, verbose=True)
+        self.ms = MailsyncProcess(account, self.work, binary=self._initial_binary(), verbose=True)
 
     def teardown(self):
         if self.ms:
@@ -213,7 +235,7 @@ class ScenarioRun:
             self.setup()
             self.ms.start()
             started = True
-            self._note(f"mailsync started against {self.spec.id} on port {self.server.port}")
+            self._note(f"mailsync {self.ms.binary.resolve().name} started against {self.spec.id} on port {self.server.port}; migrate said: {self.ms.migrate_output}")
             for step in self.sc.get("steps") or []:
                 self.run_step(step)
             self.check_expectations(self.sc.get("expect") or {})
@@ -316,12 +338,18 @@ class ScenarioRun:
     def _restart(self, arg: dict):
         code = self.ms.stop()
         self._note(f"mailsync stopped for restart (exit {code})")
+        # Steps in `before:` run while the engine is down - the honest way to build up server
+        # state the engine did not watch happen (e.g. thousands of flag changes that make one
+        # large modseq gap, as when the app was closed for a long time).
+        for step in arg.get("before") or []:
+            self.run_step(step, allow_client=False)
         account = self.ms.account
-        binary = self.binary
-        if arg.get("binary"):
-            binary = Path(arg["binary"])
+        # Without `binary:` the restart lands on the build under test, whatever the scenario
+        # started on. Relative paths resolve against test/, like the top-level `binary:`.
+        binary = self._binary_path(arg["binary"]) if arg.get("binary") else self.binary
         self.ms = MailsyncProcess(account, self.work, binary=binary, verbose=True)
         self.ms.start()
+        self._note(f"mailsync {self.ms.binary.resolve().name} restarted; migrate said: {self.ms.migrate_output}")
         if arg.get("wait", True):
             self.ms.wait_quiescent(timeout=float(arg.get("timeout", 180)), ignore_busy=self.ignore_busy)
 
@@ -379,7 +407,8 @@ class ScenarioRun:
         if op == "expunge":
             s.expunge(arg["mailbox"], parse_uids(arg["uids"]))
         elif op == "flags":
-            s.set_flags(arg["mailbox"], parse_uids(arg["uids"]), add=arg.get("add", []), remove=arg.get("remove", []))
+            s.set_flags(arg["mailbox"], parse_uids(arg["uids"]), add=arg.get("add", []), remove=arg.get("remove", []),
+                        per_message=bool(arg.get("per_message", False)))
         elif op == "labels":
             s.set_labels(arg["mailbox"], parse_uids(arg["uids"]), add=arg.get("add", []), remove=arg.get("remove", []))
         elif op == "move":
@@ -528,6 +557,17 @@ class ScenarioRun:
 
     def expect_log_present(self, patterns) -> list:
         return [f"log does not contain /{p}/" for p in patterns if not self.ms.grep(p)]
+
+    def expect_log_count(self, arg: dict) -> list:
+        """{regex: n} or {regex: {min: a, max: b}}: how many log lines match, which bounds a
+        loop the engine is meant to take a known number of times (e.g. a draining backlog)."""
+        out = []
+        for pattern, want in arg.items():
+            n = len(self.ms.grep(pattern))
+            lo, hi = (want, want) if isinstance(want, int) else (want.get("min", 0), want.get("max"))
+            if n < lo or (hi is not None and n > hi):
+                out.append(f"log matches /{pattern}/ {n}x, expected {want}")
+        return out
 
     def expect_running(self, arg) -> list:
         return [] if self.ms.running else [f"mailsync is not running (exit {self.ms.exit_code})"]

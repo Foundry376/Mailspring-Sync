@@ -43,6 +43,11 @@ where Docker is unavailable but `dovecot`/`doveadm` are installed (`apt install
 dovecot-imapd` in an agent container), as a local process with a private config
 (`HARNESS_DOVECOT_MODE=local|docker`). `HARNESS_SERVERS=fake,dovecot` forces the set.
 
+`run.py --server kind:profile` uses the scenario's entry for that kind:profile, so its
+options (`smtp: true`, `imap_host`, ...) and a top-level `binary:` apply. Set
+`HARNESS_RUNS_DIR` when two harness sessions share a checkout, or they delete each other's
+artifacts.
+
 Failed runs keep their artifacts in `test/runs/<scenario>-<server>/`: `report.txt` (what
 happened, when), `config/mailsync-*.log` (engine log; with `--verbose` it includes every
 IMAP line sent and received, per thread), `config/edgehill.db`, `server.log` (the fake's
@@ -81,19 +86,29 @@ Steps:
 | `wait: {seconds: n}`, `wait: {log: regex}`, `wait: {task: label}` | |
 | `sync: pass` | `wake-workers` on stdin, then wait for that pass to finish |
 | `server.expunge / flags / move / copy / duplicate / append / create_mailbox / set_uidvalidity / set_uidnext / drop_connections` | what another client does to the mailbox; `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
+| `server.flags: {..., per_message: true}` | one STORE per UID, so HIGHESTMODSEQ advances once per message - how a modseq gap larger than one grows on a real server (used by `modseq-truncation`) |
 | `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids, `folder`/`labelsTo*` to Folder JSON |
 | `client.need_bodies`, `client.wake` | the other stdin commands |
 | `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
-| `restart: {binary: path}` | stop and relaunch on the same database, optionally with another build |
+| `restart: {binary: path, before: [steps]}` | stop and relaunch on the same database, optionally with another build; `before:` runs steps while the engine is stopped (server state it did not watch happen) |
 | `snapshot: name`, `assert: {...}` | mid-scenario checkpoints |
+
+A scenario may also start on another build with a top-level `binary: ab/mailsync-0df7864`
+(relative to `test/`) and `restart` onto the build under test - how a database written by an
+older engine is handed to the current one (`migration-from-pre-placements-db`). `--mailsync`
+still sets the build under test that a `restart` with no `binary:` lands on. The harness runs
+`--mode migrate` on every launch, as the client does, so a restart onto a newer build
+upgrades the schema.
 
 Expectations: `db_matches_server` (placements: every (folder, UID) on the server is a
 message locally with the same Message-ID and tracked flags, and nothing local is missing on
 the server), `counts`, `server_counts`, `stable: {passes: N}` (N more passes over an
 unchanged mailbox must not move a single placement - the flapping detector), `folder_status`,
-`log_present` / `log_absent`, `deltas: {Message: {unpersist: 0}}`, `unchanged_since:
-snapshot`, `running`, `exit`. Any expectation may carry `xfail: reason` for a known engine
-bug: it is recorded, not failed, and reported as XPASS once it starts passing.
+`log_present` / `log_absent`, `log_count: {regex: n}` or `{regex: {min, max}}` (how many
+log lines match, to bound a loop the engine should take a known number of times),
+`deltas: {Message: {unpersist: 0}}`, `unchanged_since: snapshot`, `running`, `exit`. Any
+expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,
+and reported as XPASS once it starts passing.
 
 **Quiescence** is inferred, since the engine has no "done" signal: every Folder's
 `localStatus.busy` is false and `syncedMinUID <= 1`; the background thread's last log line
@@ -123,7 +138,7 @@ A flaw in the fake would become a "must support" condition on the engine, so the
    STATUS, SELECT / EXAMINE, header and body FETCH shapes, CHANGEDSINCE with and without
    VANISHED, STORE incl. `.SILENT`, COPY / MOVE / APPEND, EXPUNGE, CREATE / RENAME / DELETE,
    and what an idling session is told) to both servers from identically populated state and
-   diffs the normalized responses. 54 comparisons currently match exactly; a difference is a
+   diffs the normalized responses. 56 comparisons currently match exactly; a difference is a
    failing test unless it is listed in `ALLOWED_DIFFERENCES` with a reason. Run it after any
    change to `fakeimap/`.
 2. **Every deviation from that baseline is a named quirk on a `Personality`** in
@@ -202,6 +217,13 @@ Things learned from Dovecot while building the conformance suite, all now modell
 | connection-dropped-during-idle | reconnect after the server drops connections | fake, dovecot |
 | send-draft | SendDraftTask over SMTP, Sent copy, self-addressed delivery | fake (+smtp) |
 | gmail-labels | All Mail + X-GM-LABELS views, webmail archive/label/star, trash task | fake |
+| remote-move-destination-scanned-first | placements: move seen "present in B" before "gone from A"; never deleted/re-created | fake ×2, dovecot |
+| trash-message-with-two-placements | placements: trash from Inbox takes the Sent copy too; a plain archive does not | fake ×2, dovecot |
+| flag-change-on-second-placement | placements: per-placement flags on the Sent copy of a self-addressed message | fake ×2, dovecot |
+| gmail-send-and-labels | Gmail: no Sent APPEND on send, one All Mail placement; ChangeLabelsTask keeps one placement | fake |
+| migration-from-pre-placements-db | V10 migration of an 0df7864 database + a DB caught mid-sweep | fake, dovecot |
+| heavy-fetch-truncation-backlog | #140 1024-header truncation and draining-backlog back-off | fake, dovecot |
+| modseq-truncation | CHANGEDSINCE gap > MODSEQ_TRUNCATION_THRESHOLD bounds the request to the newest UIDs | fake, dovecot |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. At the time of writing: the
@@ -234,6 +256,10 @@ defers the notification to the next cycle.
 - **SMTP.** `fakeimap/smtp.py` (AUTH PLAIN/LOGIN, optional Postfix-style HELO rejection,
   delivery of self-addressed mail back into INBOX) is enabled per server spec with
   `{fake: dovecot, smtp: true}`; `--mode test` and the EHLO fallback (#135) have no scenario yet.
+  `{fake: gmail, smtp: true, smtp_sent_copy: "[Gmail]/Sent Mail"}` also files every submitted
+  message under the named mailbox, as Gmail's submission service saves sent mail under `\Sent`
+  by itself - the copy the engine's send path looks for before it APPENDs its own
+  (`gmail-send-and-labels`).
 - **Recording real providers.** `tools/record_personality.py HOST PORT USER --name NAME`
   captures greeting, capabilities, NAMESPACE, ID, LIST, STATUS/SELECT and FETCH shapes from a
   real account (no message content) into `fakeimap/recordings/`; use it to replace every

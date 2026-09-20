@@ -139,15 +139,19 @@ class _TCP(socketserver.ThreadingTCPServer):
 
 class FakeSmtpServer:
     def __init__(self, host="127.0.0.1", port=0, credentials=("test", "pass"), hostname="mail.example.test",
-                 require_auth=True, reject_non_fqdn_helo=False, deliver_to=None):
+                 require_auth=True, reject_non_fqdn_helo=False, deliver_to=None, sent_copy=None):
         """deliver_to: optional (Store, mailbox, address) - messages sent to `address` are appended
-        to that mailbox, as a real server delivers self-addressed mail back to the sender."""
+        to that mailbox, as a real server delivers self-addressed mail back to the sender.
+        sent_copy: optional (Store, mailbox) - every submitted message is also appended there,
+        as Gmail's submission service files sent mail under the \\Sent label itself (the
+        engine's send path looks for that copy before APPENDing its own)."""
         self.host, self.port = host, port
         self.credentials = credentials
         self.hostname = hostname
         self.require_auth = require_auth
         self.reject_non_fqdn_helo = reject_non_fqdn_helo
         self.deliver_to = deliver_to
+        self.sent_copy = sent_copy
         self.messages: list = []
         self.lock = threading.Lock()
         self.transcript: list = []
@@ -157,6 +161,9 @@ class FakeSmtpServer:
         self.transcript.append((time.time(), direction, line))
 
     def deliver(self, msg: SmtpMessage):
+        if self.sent_copy:
+            store, mailbox = self.sent_copy
+            store.append(mailbox, msg.raw, ["\\Seen"])
         if not self.deliver_to:
             return
         store, mailbox, address = self.deliver_to

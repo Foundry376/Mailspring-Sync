@@ -19,7 +19,12 @@ def main():
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
     sc = load_scenario(Path(args.scenario))
-    spec = ServerSpec.parse(args.server) if args.server else ServerSpec.parse(sc["servers"][0])
+    spec = ServerSpec.parse(sc["servers"][0])
+    if args.server:
+        # Use the scenario's own entry for that kind:profile so its options (smtp: true,
+        # imap_host, smtp_sent_copy) come along; fall back to a bare spec for ad-hoc runs.
+        wanted = ServerSpec.parse(args.server)
+        spec = next((ServerSpec.parse(e) for e in sc["servers"] if ServerSpec.parse(e).id == wanted.id), wanted)
     run = ScenarioRun(sc, spec, binary=Path(args.mailsync) if args.mailsync else None, keep=True if args.keep else False)
     try:
         failures = run.run()
