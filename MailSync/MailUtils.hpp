@@ -109,17 +109,19 @@ public:
     static void sleepWorkerUntilWakeOrSec(int sec);
     static void wakeAllWorkers();
 
+    // Consumes `v`. Slices by index: erasing consumed elements from the front is
+    // quadratic on the account-sized id lists that folder removal and expunge-all produce.
     template<typename T>
     static vector<vector<T>> chunksOfVector(vector<T> & v, size_t chunkSize) {
         vector<vector<T>> results{};
-        
-        while (v.size() > 0) {
-            auto from = v.begin();
-            auto to = v.size() > chunkSize ? from + chunkSize : v.end();
-            
+        results.reserve((v.size() + chunkSize - 1) / chunkSize);
+
+        for (size_t offset = 0; offset < v.size(); offset += chunkSize) {
+            auto from = v.begin() + offset;
+            auto to = (v.size() - offset > chunkSize) ? from + chunkSize : v.end();
             results.push_back(vector<T>{std::make_move_iterator(from), std::make_move_iterator(to)});
-            v.erase(from, to);
         }
+        v.clear();
         return results;
     }
 };

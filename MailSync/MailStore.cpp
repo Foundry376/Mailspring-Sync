@@ -341,9 +341,14 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
         attrs.unread = query.getColumn("unread").getInt() != 0;
         attrs.draft = query.getColumn("draft").getInt() != 0;
         
+        // Note: parse must not throw here - the statement is cached and an unwind would
+        // leave its cursor open, pinning the WAL read snapshot until the next pass.
         vector<string> labels{};
-        for (const auto i : json::parse(query.getColumn("remoteXGMLabels").getString())) {
-            labels.push_back(i.get<string>());
+        json parsed = json::parse(query.getColumn("remoteXGMLabels").getString(), nullptr, false);
+        if (parsed.is_array()) {
+            for (const auto & i : parsed) {
+                if (i.is_string()) labels.push_back(i.get<string>());
+            }
         }
         attrs.labels = labels;
 

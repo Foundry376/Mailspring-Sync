@@ -2122,7 +2122,7 @@ void IMAPSession::moveMessages(String * folder, IndexSet * uidSet, String * dest
 }
 
 void IMAPSession::findUIDsOfRecentHeaderMessageID(String * folder, String * headerMessageID, IndexSet * uids) {
-    IndexSet * set = new IndexSet();
+    IndexSet * set = IndexSet::indexSet();
     ErrorCode err;
 
     selectIfNeeded(folder, &err);
