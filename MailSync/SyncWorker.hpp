@@ -112,6 +112,8 @@ private:
 
     UIDRangeSyncResult syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<SyncedMessage> * syncedMessages = nullptr);
 
+    void noopSelectedFolder();
+
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus, bool mustSyncAll);
 
     void fetchRangeInFolder(String * folder, std::string folderId, Range range);

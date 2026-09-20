@@ -188,6 +188,10 @@ namespace mailcore {
         virtual void disconnect();
         
         virtual void noop(ErrorCode * pError);
+
+        /** The folder this connection has SELECTed, or NULL when none is (the folder is
+            released on disconnect and on a failed select). Spelled as it was passed to select(). */
+        virtual String * currentFolder();
         
         virtual HashMap * fetchNamespace(ErrorCode * pError);
         

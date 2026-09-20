@@ -363,6 +363,15 @@ bool SyncWorker::syncNow()
         hasQResync = false;
     }
 
+    // The STATUS below for the folder this connection left selected on the last pass would
+    // report that pass's MESSAGES, UIDNEXT and HIGHESTMODSEQ, and nothing in a quiet pass
+    // refreshes the view, so mail arriving in that folder would go unnoticed until some other
+    // folder was selected here. A QRESYNC session needs this as much as a plain one: VANISHED
+    // reports expunges, not appends.
+    if (session.currentFolder() != NULL) {
+        noopSelectedFolder();
+    }
+
     // Identify folders to sync. On Gmail, labels are mapped to IMAP folders and
     // we only want to sync all, spam, and trash.
     
@@ -589,7 +598,14 @@ bool SyncWorker::syncNow()
             //
             if (newMessages) {
                 vector<SyncedMessage> synced{};
-                syncFolderUIDRange(*folder, RangeMake(localUidnext, remoteUidnext - localUidnext), true, &synced);
+                auto fetched = syncFolderUIDRange(*folder, RangeMake(localUidnext, remoteUidnext - localUidnext), true, &synced);
+                // A truncated fetch leaves uidnext where it is so the next pass comes back for
+                // the remainder; otherwise the same range would be re-fetched on every pass
+                // until the next shallow scan, and on a server without QRESYNC that repeat FETCH
+                // is what resurrects a copy the foreground connection has just moved out.
+                if (!fetched.truncated) {
+                    localStatus[LS_UIDNEXT] = remoteUidnext;
+                }
                 
                 if ((folder->role() == "inbox") || (folder->role() == "all")) {
                     // download the newest (highest UID) bodies first
@@ -1075,6 +1091,18 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
     ErrorCode err(ErrorCode::ErrorNone);
     String path(AS_MCSTR(remotePath));
     vector<uint32_t> heavyNeededUIDs {};
+
+    // A FETCH on the folder this connection already has selected is answered from its stale
+    // view, with the EXPUNGE lines following the data, so a copy the foreground connection
+    // just moved out would be re-added as a live placement. Without QRESYNC no VANISHED
+    // arrives to correct that; with it the trailing VANISHED is harvested and tombstoned.
+    // A folder that is not the selected one is brought up to date by the SELECT the fetch issues.
+    if (!session.isQResyncEnabled()) {
+        String * selected = session.currentFolder();
+        if (selected != NULL && selected->caseInsensitiveCompare(&path) == 0) {
+            noopSelectedFolder();
+        }
+    }
     
     // Step 1: Fetch the local attributes (unread, starred, etc.) of the live placements in
     // the range. Note: we do this first because the remote fetch may take a long time, and
@@ -1193,6 +1221,21 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
     }
 
     return result;
+}
+
+/* Dovecot answers STATUS and FETCH for the mailbox a connection has SELECTed from that
+   connection's own view of it, and only a NOOP, IDLE or another SELECT delivers the untagged
+   EXISTS / EXPUNGE / VANISHED that bring the view up to date; the FETCH data even precedes the
+   EXPUNGE lines in the same response (RFC 3501 §6.1.2; test/README.md "Things learned from
+   Dovecot", conformance `probe_stale_fetch`). Callers send this before trusting a STATUS or
+   FETCH of the selected folder. */
+void SyncWorker::noopSelectedFolder()
+{
+    ErrorCode err = ErrorNone;
+    session.noop(&err);
+    if (err != ErrorNone) {
+        throw SyncException(err, "noop");
+    }
 }
 
 void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus, bool mustSyncAll)

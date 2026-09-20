@@ -1466,12 +1466,20 @@ void IMAPSession::noop(ErrorCode * pError)
     if (mImap->imap_stream != NULL) {
         r = mailimap_noop(mImap);
         if (r == MAILIMAP_ERROR_STREAM) {
+            // Note: like every other command here, so the next call reconnects instead of
+            // reusing a connection the server has closed (Dovecot's BYE on UIDVALIDITY change).
+            mShouldDisconnect = true;
             * pError = ErrorConnection;
         }
         if (r == MAILIMAP_ERROR_NOOP) {
             * pError = ErrorNoop;
         }
     }
+}
+
+String * IMAPSession::currentFolder()
+{
+    return mCurrentFolder;
 }
 
 #pragma mark mailbox flags conversion
