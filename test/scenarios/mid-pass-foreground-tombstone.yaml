@@ -1,0 +1,37 @@
+name: mid-pass-foreground-tombstone
+description: >
+  The race the tombstone design exists for. While the background worker is mid-pass over
+  INBOX on its own connection, another client expunges a message: the foreground connection
+  learns of it at once (VANISHED during IDLE) and tombstones the placement, but the
+  background's attribute scan of INBOX - issued a moment earlier - is answered from that
+  connection's stale view and still lists the message, with the VANISHED line only after the
+  FETCH data (Dovecot behaviour, modelled by the fake; `delay` makes the server answer that
+  FETCH late so the foreground's tombstone is certain to land first). The stale row must
+  not resurrect the placement: after the pass the message is not in INBOX locally, the deferred delete removes
+  the row exactly once, and further passes move nothing. The expunge is fired by a hook on
+  the background session's UID FETCH 1:* of INBOX (session/command/mailbox-filtered `at:`).
+source: "docs/message-placements-plan.md 2.5 (foreground worker tombstones, end-of-pass sweep grace); README 'A session's FETCH is answered from its own view'; SyncWorker::tombstoneVanishedUIDs 'this connection'"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+mailboxes:
+  INBOX: {messages: {count: 40, age_days: 30}}
+  Archive: {messages: 5}
+steps:
+  - wait: quiescent
+  - server.expunge:
+      mailbox: INBOX
+      uids: [20]
+      at: {hook: before_command, session: background, command: "^UID FETCH 1:\\*", mailbox: INBOX, delay: 1.5}
+  - force_scans: {}
+  - assert:
+      counts: {INBOX: 39}
+      db_matches_server: {}
+  - sync: pass
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 39, Archive: 5, total: 44}
+  deltas: {Message: {unpersist: 1}}
+  log_absent: ["reappeared"]
+  stable: {passes: 2}
+  running: true

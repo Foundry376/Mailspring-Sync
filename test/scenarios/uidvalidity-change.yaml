@@ -17,10 +17,9 @@ steps:
   - sync: pass
   - sync: pass
 expect:
-  # Dovecot disconnects the idling session when the mailbox's UIDVALIDITY changes, and the
-  # engine then segfaults in mailcore takeVanishedMessages (idleCycleIteration) - the same
-  # accumulator that crashes in connection-dropped-during-idle. Seen 2026-09-19.
-  running: {xfail: {dovecot: "SIGSEGV in IMAPSession::takeVanishedMessages after Dovecot drops the session on UIDVALIDITY change"}}
-  db_matches_server: {xfail: {dovecot: "same crash"}}
-  counts: {INBOX: 80, Archive: 10, xfail: {dovecot: "same crash"}}
-  stable: {passes: 1, xfail: {dovecot: "same crash"}}
+  # Dovecot disconnects the idling session when the mailbox's UIDVALIDITY changes; the
+  # engine used to segfault in mailcore takeVanishedMessages there (fixed in 6c1395e).
+  running: true
+  db_matches_server: {}
+  counts: {INBOX: 80, Archive: 10}
+  stable: {passes: 1}

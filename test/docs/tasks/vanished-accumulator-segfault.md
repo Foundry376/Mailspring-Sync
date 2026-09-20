@@ -1,7 +1,9 @@
 # Task: SIGSEGV in the VANISHED accumulator when the IMAP session dies around IDLE
 
-Status: open. Found 2026-09-19 by the integration harness. Reproduces on the pre-placements
-engine (`0df7864`) and on the placements branch.
+Status: **fixed** by `6c1395e` ("Survive a dropped IDLE connection on QRESYNC servers") and
+`4c25380`; `connection-dropped-during-idle` and `uidvalidity-change` pass on every server as
+of 2026-09-20 and their `xfail` markers are removed. Kept for the record. Found 2026-09-19 by
+the integration harness; reproduced on `0df7864` and on the placements branch.
 
 ## Symptom
 

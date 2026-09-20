@@ -125,6 +125,7 @@ class Session(socketserver.StreamRequestHandler):
         self.srv = srv
         self.store: Store = srv.store
         self.p: Personality = srv.personality
+        self.uidplus = "UIDPLUS" in self.p.capability_set(True)
         self.authenticated = False
         self.selected: Optional[str] = None
         self.view: list = []                 # seqno -> uid (index 0 = seqno 1)
@@ -740,7 +741,7 @@ class Session(socketserver.StreamRequestHandler):
             with self.cv:
                 self.pending = [e for e in self.pending if not (e.kind == "exists" and e.uids == [m.uid])]
         self.flush_events()
-        self.ok(tag, "Append completed.", code=f"APPENDUID {mb.uidvalidity} {m.uid}")
+        self.ok(tag, "Append completed.", code=f"APPENDUID {mb.uidvalidity} {m.uid}" if self.uidplus else None)
 
     def cmd_expunge(self, tag, args):
         if not self.require_selected(tag):
@@ -900,9 +901,12 @@ class Session(socketserver.StreamRequestHandler):
                 pairs = self.store.move(self.selected, uids, dmb.name, origin=self)
             else:
                 pairs = self.store.copy(self.selected, uids, dmb.name, origin=self)
-            code = f"COPYUID {dmb.uidvalidity} {_seqset([p[0] for p in pairs])} {_seqset([p[1] for p in pairs])}"
+            # COPYUID / APPENDUID are UIDPLUS response codes (RFC 4315 3); a server that does
+            # not advertise UIDPLUS does not send them, which is what forces the engine's
+            # search-the-destination fallback (TaskProcessor _resolveNewUIDs).
+            code = f"COPYUID {dmb.uidvalidity} {_seqset([p[0] for p in pairs])} {_seqset([p[1] for p in pairs])}" if self.uidplus else None
             if move:
-                self.send(f"* OK [{code}] Moved UIDs.".encode())
+                self.send((f"* OK [{code}] Moved UIDs." if code else "* OK Moved UIDs.").encode())
                 if not self.p.gmail:
                     self.store.expunge(self.selected, uids, origin=self)
         self.flush_events()
@@ -1105,7 +1109,8 @@ class FakeImapServer:
     hooks: name -> [fn(session, arg1, arg2)]. Names: before_command(cmd, rest), after_command(cmd, None),
     idle_start, idle_tick, before_fetch_body(spec). Hooks run on the session's thread while the
     store lock is NOT held, so they may mutate the store; the resulting notifications reach every
-    session at its next opportunity, including the one the hook ran on.
+    session at its next opportunity, including the one the hook ran on. A hook that returns
+    False declined this occasion (a filter did not match) and, if registered once, stays armed.
     """
 
     def __init__(self, personality="dovecot", store: Optional[Store] = None, host="127.0.0.1", port=0,
@@ -1146,10 +1151,11 @@ class FakeImapServer:
 
     def fire(self, name: str, session, a, b):
         for fn, once in list(self.hooks.get(name, [])):
+            fired = True
             try:
-                fn(session, a, b)
+                fired = fn(session, a, b) is not False
             finally:
-                if once:
+                if once and fired:
                     self.hooks[name].remove((fn, once))
 
     def start(self):

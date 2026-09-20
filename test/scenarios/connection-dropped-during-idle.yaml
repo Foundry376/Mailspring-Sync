@@ -17,6 +17,6 @@ steps:
   - server.append: {mailbox: INBOX, messages: 2}
   - sync: pass
 expect:
-  running: {xfail: "foreground worker segfaults in collectVanishedFromLastResponse after a dropped connection"}
-  db_matches_server: {xfail: "same crash"}
-  counts: {INBOX: 22, xfail: "same crash"}
+  running: true
+  db_matches_server: {}
+  counts: {INBOX: 22}

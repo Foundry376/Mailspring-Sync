@@ -34,9 +34,9 @@ from .mailsync import MailsyncError, MailsyncProcess, account_json
 from .servers.base import Server
 
 TEST_DIR = Path(__file__).resolve().parents[1]
-# HARNESS_RUNS_DIR keeps concurrent harness sessions (two agents, or ab.py runs of two
-# binaries) from deleting each other's artifacts: each gets its own directory.
-RUNS_DIR = Path(os.environ.get("HARNESS_RUNS_DIR") or TEST_DIR / "runs")
+# Each process gets its own artifacts directory so concurrent sessions (two agents, or ab.py
+# recordings of two binaries) never delete each other's runs. HARNESS_RUNS_DIR overrides it.
+RUNS_DIR = Path(os.environ.get("HARNESS_RUNS_DIR") or TEST_DIR / "runs" / f"session-{os.getpid()}")
 
 
 class ScenarioFailure(AssertionError):
@@ -225,6 +225,10 @@ class ScenarioRun:
             (self.work / "report.txt").write_text("\n".join(self.report) + "\n")
         if not self.keep and not self.failures and self.work.exists():
             shutil.rmtree(self.work, ignore_errors=True)
+            try:
+                self.work.parent.rmdir()   # the session dir, once its last run is gone
+            except OSError:
+                pass
 
     # -- steps --------------------------------------------------------------------------------
 
@@ -369,7 +373,18 @@ class ScenarioRun:
             self.ms.sync_pass(timeout=float(arg.get("timeout", 180)), ignore_busy=self.ignore_busy)
 
     def _resolve_messages(self, sel: dict) -> list:
-        """{mailbox, uids} -> engine message ids, via the placements view."""
+        """{mailbox, uids} -> engine message ids, via the placements view; or
+        {header_message_ids: [...]} for rows that have no server placement yet (a draft the
+        client saved locally sits at UID 0 and is invisible to the placements view)."""
+        if "header_message_ids" in sel:
+            wanted = [h.strip("<>") for h in sel["header_message_ids"]]
+            with self.ms.db() as c:
+                rows = c.execute("SELECT id, headerMessageId FROM Message").fetchall()
+            by_hmid = {(r["headerMessageId"] or "").strip("<>"): r["id"] for r in rows}
+            missing = [h for h in wanted if h not in by_hmid]
+            if missing:
+                raise ScenarioFailure(f"messages with Message-ID {missing} are not in the engine's database")
+            return [by_hmid[h] for h in wanted]
         with self.ms.db() as c:
             pl = dbmod.placements(c)
         folder = pl.get(sel["mailbox"], {})
@@ -378,6 +393,12 @@ class ScenarioRun:
         if missing:
             raise ScenarioFailure(f"messages {sel['mailbox']} UIDs {missing} are not in the engine's database")
         return [folder[u].message_id for u in uids]
+
+    def _resolve_threads(self, sel: dict) -> list:
+        ids = self._resolve_messages(sel)
+        with self.ms.db() as c:
+            rows = c.execute(f"SELECT DISTINCT threadId FROM Message WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
+        return [r[0] for r in rows if r[0]]
 
     def _folder_json(self, path: str) -> dict:
         """Folder (or, on Gmail, Label) JSON as the client would pass it in a task."""
@@ -393,10 +414,24 @@ class ScenarioRun:
         at = arg.pop("at", None)
         if at and self.spec.kind == "fake":
             # Defer until the protocol moment; the fake runs the hook on the session's thread.
+            # `at: name` fires on whichever session gets there first; `at: {hook, session,
+            # command, mailbox}` narrows it (e.g. the background worker's next UID FETCH of
+            # INBOX while the foreground idles).
+            spec = {"hook": at} if isinstance(at, str) else dict(at)
+            hook = spec.pop("hook")
+            # `delay` holds the hooked session's thread after the change, i.e. the server
+            # answers that session's command late - long enough for another connection to
+            # act on the change first.
+            delay = float(spec.pop("delay", 0))
+
             def fire(session):
-                self._note(f"hook {at} fired on session {session.sid}: server.{op} {json.dumps(arg)}")
+                self._note(f"hook {hook} {spec or ''} fired on session {session.sid} "
+                           f"({'foreground' if session.has_idled else 'background'}, {session.selected} selected): "
+                           f"server.{op} {json.dumps(arg)}")
                 self._server_op(op, arg)
-            self.server.at(at, fire, once=True)
+                if delay:
+                    time.sleep(delay)
+            self.server.at(hook, fire, once=True, **spec)
             return
         if at:
             self._note(f"(server {self.spec.kind} has no hook {at}; applying server.{op} immediately)")
@@ -439,8 +474,12 @@ class ScenarioRun:
             task = dict(arg)
             if "messages" in task:
                 task["messageIds"] = self._resolve_messages(task.pop("messages"))
+            if "threads" in task:   # {mailbox, uids} -> the distinct threadIds of those messages
+                task["threadIds"] = self._resolve_threads(task.pop("threads"))
             if isinstance(task.get("folder"), str):
                 task["folder"] = self._folder_json(task["folder"])
+            if "sourceFolders" in task:   # the perspective's folders, as paths -> sourceFolderIds
+                task["sourceFolderIds"] = [self._folder_json(p)["id"] for p in task.pop("sourceFolders")]
             for key in ("labelsToAdd", "labelsToRemove"):
                 if key in task:
                     task[key] = [self._folder_json(l) if isinstance(l, str) else l for l in task[key]]
@@ -454,10 +493,44 @@ class ScenarioRun:
             task_id = self.ms.queue_task(task)
             self._note(f"queued {task['__cls']} as {task_id}")
             return task_id
+        if op == "undo_task":
+            return self._undo_task(arg)
         if op == "need_bodies":
             self.ms.need_bodies(self._resolve_messages(arg["messages"]))
             return
         raise ScenarioFailure(f"unknown client op {op!r}")
+
+    def _undo_task(self, arg: dict):
+        """{of: label}: queue the undo of a completed task the way UndoRedoStore does
+        (Task.createIdenticalTask + ChangeFolderTask.createUndoTasks): same class and item
+        ids, isUndo, and for a ChangeFolderTask the engine-written `undoPlacements` copied to
+        `restorePlacements` with `folder` set to the first recorded source folder."""
+        original_id = self.labels[arg["of"]]
+        with self.ms.db() as c:
+            row = c.execute("SELECT data FROM Task WHERE id = ?", (original_id,)).fetchone()
+        if row is None:
+            raise ScenarioFailure(f"task {original_id} is not in the engine's database")
+        data = json.loads(row[0])
+        undo = {k: v for k, v in data.items() if k not in ("id", "status", "v", "error", "undoPlacements", "createdAt")}
+        undo["isUndo"] = True
+        if data.get("__cls") == "ChangeFolderTask":
+            placements = data.get("undoPlacements") or {}
+            if not placements:
+                raise ScenarioFailure(f"task {original_id} recorded no undoPlacements; the engine's local phase did not run")
+            undo["restorePlacements"] = placements
+            undo["sourceFolderIds"] = []
+            first = next((p["folderId"] for entries in placements.values() for p in entries if not p.get("removed")), None)
+            with self.ms.db() as c:
+                frow = c.execute("SELECT data FROM Folder WHERE id = ?", (first,)).fetchone()
+            if frow is not None:
+                undo["folder"] = json.loads(frow[0])
+        elif "unread" in undo:
+            undo["unread"] = not undo["unread"]
+        elif "starred" in undo:
+            undo["starred"] = not undo["starred"]
+        task_id = self.ms.queue_task(undo)
+        self._note(f"queued undo of {original_id} ({undo['__cls']}) as {task_id}: restorePlacements={json.dumps(undo.get('restorePlacements'))}")
+        return task_id
 
     # -- expectations ---------------------------------------------------------------------------
 

@@ -44,11 +44,11 @@ dovecot-imapd` in an agent container), as a local process with a private config
 (`HARNESS_DOVECOT_MODE=local|docker`). `HARNESS_SERVERS=fake,dovecot` forces the set.
 
 `run.py --server kind:profile` uses the scenario's entry for that kind:profile, so its
-options (`smtp: true`, `imap_host`, ...) and a top-level `binary:` apply. Set
-`HARNESS_RUNS_DIR` when two harness sessions share a checkout, or they delete each other's
-artifacts.
+options (`smtp: true`, `imap_host`, ...) and a top-level `binary:` apply. Every
+process gets its own `test/runs/session-<pid>/`, so concurrent sessions never delete each
+other's artifacts; `HARNESS_RUNS_DIR` overrides the location.
 
-Failed runs keep their artifacts in `test/runs/<scenario>-<server>/`: `report.txt` (what
+Failed runs keep their artifacts in `test/runs/session-<pid>/<scenario>-<server>/`: `report.txt` (what
 happened, when), `config/mailsync-*.log` (engine log; with `--verbose` it includes every
 IMAP line sent and received, per thread), `config/edgehill.db`, `server.log` (the fake's
 transcript). `--keep` / `HARNESS_KEEP=1` keeps passing runs too.
@@ -86,8 +86,10 @@ Steps:
 | `wait: {seconds: n}`, `wait: {log: regex}`, `wait: {task: label}` | |
 | `sync: pass` | `wake-workers` on stdin, then wait for that pass to finish |
 | `server.expunge / flags / move / copy / duplicate / append / create_mailbox / set_uidvalidity / set_uidnext / drop_connections` | what another client does to the mailbox; `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
+| `at: {hook, session: foreground|background, command: regex, mailbox, delay: s}` | the same, narrowed to one connection (`foreground` = the one that has idled), one command line (`"^UID FETCH 1:\\*"`) and one selected mailbox; `delay` holds that connection's reply so another connection acts on the change first (`mid-pass-foreground-tombstone`) |
 | `server.flags: {..., per_message: true}` | one STORE per UID, so HIGHESTMODSEQ advances once per message - how a modseq gap larger than one grows on a real server (used by `modseq-truncation`) |
-| `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids, `folder`/`labelsTo*` to Folder JSON |
+| `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids (`{mailbox, uids}`, or `{header_message_ids: [...]}` for rows without a server placement such as a local draft), `threads: {mailbox, uids}` to their `threadIds`, `folder`/`labelsTo*` to Folder JSON, `sourceFolders: [paths]` to `sourceFolderIds` |
+| `client.undo_task: {of: label}` | queue the undo of a completed task from its stored data, as `UndoRedoStore` does: for a `ChangeFolderTask` the engine-written `undoPlacements` become `restorePlacements` |
 | `client.need_bodies`, `client.wake` | the other stdin commands |
 | `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
 | `restart: {binary: path, before: [steps]}` | stop and relaunch on the same database, optionally with another build; `before:` runs steps while the engine is stopped (server state it did not watch happen) |
@@ -224,6 +226,12 @@ Things learned from Dovecot while building the conformance suite, all now modell
 | migration-from-pre-placements-db | V10 migration of an 0df7864 database + a DB caught mid-sweep | fake, dovecot |
 | heavy-fetch-truncation-backlog | #140 1024-header truncation and draining-backlog back-off | fake, dovecot |
 | modseq-truncation | CHANGEDSINCE gap > MODSEQ_TRUNCATION_THRESHOLD bounds the request to the newest UIDs | fake, dovecot |
+| mid-pass-foreground-tombstone | foreground VANISHED while the background's stale FETCH of INBOX is in flight; no resurrection | fake ×2 |
+| trash-two-placements-without-uidplus | trash of INBOX+Sent copies without COPYUID (dest-fetch fallback) | fake |
+| undo-move-restores-placements | sourceFolderIds move of one copy, undo via restorePlacements | fake ×2, dovecot ×2 |
+| mark-read-fans-out-to-all-placements | ChangeUnreadTask by threadIds hits every placement | fake ×2, dovecot |
+| uidvalidity-change-large-mailbox | #140 truncated UIDVALIDITY rebuild re-loops (2 500 msgs) | fake ×2 |
+| synced-draft-destroy (+ -courier) | DestroyDraftTask on a server-synced draft and a local UID-0 draft | fake ×2, dovecot |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. At the time of writing: the
@@ -232,6 +240,9 @@ placements cases (`self-addressed-inbox-and-sent` db match, `o365-duplicate-sent
 mailcore `IMAPSession::connectIfNeeded` -> `collectVanishedFromLastResponse` when the
 connection dies around IDLE), `proton-all-mail-duplicates` (`\All` skip never clears
 `busy`), and the one-pass delay in `plain-expunge-found-by-deep-scan`. All seen 2026-09-19.
+On non-QRESYNC servers the engine's own undo move is resurrected for one pass by the
+background connection's stale view (`undo-move-restores-placements`,
+`docs/tasks/stale-view-resurrects-own-move.md`, seen 2026-09-20).
 
 Scenario timing rule: after a server-side change on a QRESYNC server, wait for the engine to
 receive it (`wait: {log: "recv \\* VANISHED"}`) before forcing a pass; Dovecot delivers

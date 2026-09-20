@@ -93,6 +93,12 @@ records outcomes for one binary and diffs two recordings (see
 | migration-from-pre-placements-db | V10 migration of an 0df7864 DB + a DB caught mid-sweep | fake, dovecot | pass |
 | heavy-fetch-truncation-backlog | #140 1024-header truncation + draining-backlog back-off | fake, dovecot | pass |
 | modseq-truncation | CHANGEDSINCE gap > 4000 bounds the request to the newest UIDs | fake, dovecot | pass |
+| mid-pass-foreground-tombstone | foreground VANISHED vs the background's stale FETCH mid-pass | fake ×2 | pass |
+| trash-two-placements-without-uidplus | trash of two copies with no COPYUID (dest-fetch fallback) | fake | pass |
+| undo-move-restores-placements | sourceFolderIds move + undo via restorePlacements | fake ×2, dovecot ×2 | QRESYNC pass; plain xfail: stale view re-adds the moved copy for a pass |
+| mark-read-fans-out-to-all-placements | ChangeUnreadTask by threadIds hits every placement | fake ×2, dovecot | pass |
+| uidvalidity-change-large-mailbox | #140 truncated UIDVALIDITY rebuild re-loops, 2 500 msgs | fake ×2 | pass |
+| synced-draft-destroy / -courier | DestroyDraftTask on a synced draft and a local UID-0 draft | fake ×2, dovecot | pass |
 
 Gaps worth filling next: iCloud / Outlook / NetEase behaviour needs recordings
 (`tools/record_personality.py`) before their quirks can be asserted; `--mode test` and the
@@ -119,7 +125,33 @@ Harness features the placements scenarios added, worth reusing:
   is what Dovecot does and what `conformance/probe_bulk_store_modseq` now pins.
 - **`log_count: {regex: {min, max}}`** bounds how many times a log line appears, which is how
   `heavy-fetch-truncation-backlog` proves the truncated deep scan retried a bounded number of
-  times instead of looping.
+  times instead of looping. It counts the whole run, initial sync included: a folder under
+  5 000 messages is initially swept as one `1:*` range and already produces truncated
+  fetches, so count those in (`uidvalidity-change-large-mailbox`).
+- **Targeting one connection with a hook.** `at: {hook: before_command, session: background,
+  command: "^UID FETCH 1:\\*", mailbox: INBOX, delay: 1.5}` fires only on the connection
+  that has never idled, for that command line, with that mailbox selected; `delay` holds the
+  reply so the other connection (the idling foreground, which gets VANISHED at once) acts
+  first. That is how `mid-pass-foreground-tombstone` produces the stale-FETCH race
+  deterministically. The engine's background connection can be told apart from the
+  foreground only by `has_idled`; the report line names which one the hook hit.
+- **Undoing a task.** `client.undo_task: {of: label}` reads the completed task's row from the
+  `Task` table and queues its undo the way `UndoRedoStore` + `createUndoTasks()` do (same
+  class and ids, `isUndo`; for `ChangeFolderTask` the engine-written `undoPlacements` copied
+  to `restorePlacements` and `folder` set to the first recorded source). `sourceFolders:
+  [INBOX]` on the original task is the perspective's folder (`sourceFolderIds`).
+- **Thread-level tasks.** `threads: {mailbox, uids}` resolves to the distinct `threadIds` of
+  those messages, which is how the client sends ChangeUnread/ChangeStarred/ChangeFolder.
+- **Local-only rows.** `messages: {header_message_ids: [...]}` addresses a row the placements
+  view cannot see (a draft saved by SyncbackDraftTask sits at UID 0 in Drafts). Note that
+  `SyncbackDraftTask` has no remote phase - the engine never APPENDs drafts - so "a draft
+  with a UID on the server" has to be put there by another client (`mailboxes: {Drafts:
+  {messages: 2, flags: ["\\Draft", "\\Seen"]}}`).
+- **Personalities that strip a capability**: `{fake: dovecot-without-uidplus}`. The fake
+  omits COPYUID/APPENDUID when UIDPLUS is not advertised (RFC 4315), which is what drives the
+  engine's find-the-copy-in-the-destination fallback (`trash-two-placements-without-uidplus`).
+  Dovecot cannot be configured without UIDPLUS (the `plain` profile only changes the
+  advertised string), so this one has no Dovecot control.
 
 ## 4. Gotchas (each of these cost real time)
 
@@ -219,7 +251,7 @@ Servers
   `HARNESS_DOVECOT_MODE=local`.
 - Random ports everywhere; two harness runs can coexist, but they compete for CPU and the
   timing rules above get tighter. Do not run two Dovecot suites at once on a laptop.
-  Artifacts go to `test/runs/<scenario>-<server>/`, which a second session running the same
+  Artifacts go to `test/runs/session-<pid>/<scenario>-<server>/`, which a second session running the same
   scenario would delete: set `HARNESS_RUNS_DIR` per session (`ab.py` does this itself).
 - `conformance/probe_idle` compares what an idling session was told; Dovecot's IDLE timing
   makes it flake roughly one run in ten. Re-run it before treating a difference there as real;

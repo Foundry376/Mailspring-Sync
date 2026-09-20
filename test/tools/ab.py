@@ -31,10 +31,6 @@ REGRESSION = {("PASS", "FAIL"), ("PASS", "ERROR"), ("XPASS", "FAIL"), ("XPASS", 
 
 
 def run_all(binary, servers, only, keep):
-    # a recording gets its own artifacts directory so two recordings can run side by side
-    import harness.scenario as scenario_mod
-    if not os.environ.get("HARNESS_RUNS_DIR"):
-        scenario_mod.RUNS_DIR = HERE / "runs" / f"ab-{os.getpid()}"
     kinds = set(servers.split(",")) if servers else available_server_kinds()
     results = {}
     for path in discover(HERE / "scenarios"):

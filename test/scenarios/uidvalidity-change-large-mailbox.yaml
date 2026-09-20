@@ -1,0 +1,40 @@
+name: uidvalidity-change-large-mailbox
+description: >
+  uidvalidity-change on a mailbox too big to rebuild in one request. The server rebuilds a
+  2500-message INBOX under a new UIDVALIDITY (the fake renumbers UIDs, as a rebuilt mailbox
+  does). The engine resets every placement in the folder to UID 0 and re-fetches headers to
+  re-map them, but one full-headers request carries at most MAX_FULL_HEADERS_REQUEST_SIZE
+  (1024): the rebuild must report how far it got, leave syncedMinUID above the remainder,
+  ask for another iteration at once, and let the initial-sync walk finish the tail
+  (2500 -> 1476 -> 452) before any row still at UID 0 is called gone. Every message must
+  survive at its new UID, the folder must end busy false with syncedMinUID 1, and the
+  rebuild must take a bounded number of truncated fetches. Fake-only: Dovecot's doveadm
+  changes the value without renumbering and drops the session, which segfaults the engine
+  (docs/tasks/vanished-accumulator-segfault.md).
+source: "Mailspring-Sync PR #140 (truncated UIDVALIDITY rebuild re-loop); SyncWorker.cpp UIDInvalidity branch (rebuilt.truncated -> syncedMinUID, syncAgainImmediately); docs/message-placements-plan.md 2.5 defect 2 (truncated rebuild lost its tail); 4c25380 (clear busy after a complete rebuild)"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+mailboxes:
+  INBOX: {messages: {count: 2500, age_days: 30}}
+  Archive: {messages: 10}
+steps:
+  - wait: {quiescent: true, timeout: 300}
+  - server.set_uidvalidity: {mailbox: INBOX, value: 987654}
+  - sync: {timeout: 300}
+  - sync: {timeout: 300}
+expect:
+  log_count:
+    "UIDInvalidity! Resetting placement UIDs in INBOX": 1
+    # two truncated fetches during the initial single-range walk (a <5000-message folder is
+    # swept as one 1:* range), two more for the rebuild: 2500 -> 1476 -> 452. On plain
+    # servers the foreground's shallow scan of the reset folder joins in with one more.
+    "Fetching full headers for 1024 \\(of \\d+ needed\\)": {min: 4, max: 5}
+    "syncFolderUIDRange for INBOX, UIDs: 1 - \\*, Heavy: false": 1   # the rebuild's open-ended first request
+  log_absent: ["\\[critical\\]", "UNIQUE constraint"]
+  db_matches_server: {}
+  counts: {INBOX: 2500, Archive: 10, total: 2510}
+  folder_status: {INBOX: {busy: false, syncedMinUID: 1}}
+  deltas: {Message: {unpersist: 0}}
+  stable: {passes: 1}
+  running: true

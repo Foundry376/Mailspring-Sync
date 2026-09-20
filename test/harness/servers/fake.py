@@ -1,4 +1,5 @@
 """The in-process fake server behind the Server interface."""
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -113,7 +114,28 @@ class FakeServer(Server):
                 for mb, uids in t.items()}
 
     # fake-only scripting
-    def at(self, hook: str, fn, once: bool = True):
+    def at(self, hook: str, fn, once: bool = True, session: Optional[str] = None,
+           command: Optional[str] = None, mailbox: Optional[str] = None):
         """Run fn(session) at a protocol moment: idle_start, idle_tick, before_fetch_body,
-        before_command, after_command."""
-        self.imap.add_hook(hook, lambda session, a, b: fn(session), once=once)
+        before_command, after_command. Filters narrow which occasion counts: `session` is
+        "foreground" (a connection that has idled - the engine's IDLE worker) or "background"
+        (one that never has), `command` a regex on the command line (e.g. "UID FETCH 1:\\*")
+        for before/after_command, `mailbox` the session's selected mailbox."""
+        rx = re.compile(command) if command else None
+
+        def wrapped(sess, a, b):
+            if session == "foreground" and not sess.has_idled:
+                return False
+            if session == "background" and sess.has_idled:
+                return False
+            if mailbox is not None and sess.selected != mailbox:
+                return False
+            if rx is not None:
+                line = a if isinstance(a, str) else ""
+                if isinstance(b, bytes):
+                    line += " " + b.decode("utf-8", "replace").strip()
+                if not rx.search(line):
+                    return False
+            fn(sess)
+            return True
+        self.imap.add_hook(hook, wrapped, once=once)
