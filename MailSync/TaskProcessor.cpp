@@ -647,6 +647,10 @@ void _applyLabels(MailStore * store, Message * msg, const vector<Placement> & pl
         string xgmValue = _xgmKeyForLabel(item);
         labels.erase(std::remove(labels.begin(), labels.end(), xgmValue), labels.end());
     }
+    // MessageAttributesForMessage sorts the labels it reads from the server and
+    // MessageAttributesMatch compares the arrays positionally, so an unsorted local
+    // set would register as a change on the next scan and cost a no-op update + delta.
+    sort(labels.begin(), labels.end());
     store->setPlacementLabels(*msg, labels);
 }
 
