@@ -1371,6 +1371,42 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
     group->syncMembers(store, members);
 }
 
+/*
+ Whether the server says this calendar's events may be changed.
+
+ DAV:current-user-privilege-set is optional (RFC 3744 section 5.4). A server that omits it is
+ not declaring the calendar read-only, so an absent set counts as writable and the server is
+ left to reject the write if it disagrees; refusing locally would make every calendar on such
+ a server permanently uneditable. DAV:write is an aggregate, and servers may advertise the
+ privileges it contains rather than DAV:write itself, so DAV:write-content, DAV:bind and
+ DAV:all each independently mean writable. The client holds one boolean per calendar, so a
+ calendar granting write-content without bind (RFC 3744 sections 3.9 and 3.10: existing
+ events editable, new ones not) is reported writable and the server refuses the create.
+
+ The lookup is scoped to the propstat carrying a 200 status. A multistatus also carries a
+ propstat for the properties the server does not have, with those elements present but empty
+ (RFC 4918 section 9.1), and an unscoped match finds that one - reporting every calendar
+ read-only on exactly the servers that omit the property.
+
+ @param advertised Set to whether the server supplied the property at all.
+*/
+static bool calendarIsWritable(shared_ptr<DavXML> doc, xmlNodePtr responseNode, bool & advertised) {
+    const string found =
+        "./D:propstat[contains(./D:status, '200')]/D:prop/D:current-user-privilege-set";
+
+    advertised = false;
+    doc->evaluateXPath(found, ([&](xmlNodePtr) { advertised = true; }), responseNode);
+    if (!advertised) {
+        return true;
+    }
+
+    bool writable = false;
+    doc->evaluateXPath(found + "//D:write|" + found + "//D:write-content|" + found +
+                           "//D:bind|" + found + "//D:all",
+                       ([&](xmlNodePtr) { writable = true; }), responseNode);
+    return writable;
+}
+
 void DAVWorker::runCalendars() {
     // Gmail uses calHost/calPrincipal set in constructor.
     // All other accounts use dynamic discovery (cached after first run).
@@ -1464,14 +1500,11 @@ void DAVWorker::runCalendars() {
         auto description = calendarSetDoc->nodeContentAtXPath(".//caldav:calendar-description/text()", node);
         auto orderStr = calendarSetDoc->nodeContentAtXPath(".//ical:calendar-order/text()", node);
 
-        // Check for write privilege to determine read-only status
-        // Use XPath to look for write elements within current-user-privilege-set
-        // RFC 3744 defines <D:write/> nested within <D:privilege> elements
-        bool hasWritePrivilege = false;
-        calendarSetDoc->evaluateXPath(".//D:current-user-privilege-set//D:write", ([&](xmlNodePtr) {
-            hasWritePrivilege = true;
-        }), node);
-        bool readOnly = !hasWritePrivilege;
+        // Whether a calendar is writable decides whether its UI is interactive, and it comes
+        // from a property servers may omit, so the two log lines below record what the server
+        // said, on discovery and on change, for when the UI is inert.
+        bool advertisedPrivileges = false;
+        bool readOnly = !calendarIsWritable(calendarSetDoc, node, advertisedPrivileges);
 
         shared_ptr<Calendar> calendar = local[id];
         bool needsSync = true;
@@ -1500,6 +1533,7 @@ void DAVWorker::runCalendars() {
             if (calendar->readOnly() != readOnly) {
                 calendar->setReadOnly(readOnly);
                 metadataChanged = true;
+                logger->info("Calendar '{}' is now {}", name, readOnly ? "read-only" : "writable");
             }
             if (!orderStr.empty()) {
                 try {
@@ -1525,6 +1559,10 @@ void DAVWorker::runCalendars() {
             }
             calendar->setDescription(description);
             calendar->setReadOnly(readOnly);
+            const char * writability = readOnly ? "read-only"
+                                     : advertisedPrivileges ? "writable"
+                                     : "writable, server advertises no privilege set";
+            logger->info("Discovered calendar '{}' ({})", name, writability);
             if (!orderStr.empty()) {
                 try {
                     calendar->setOrder(std::stoi(orderStr));
