@@ -210,6 +210,66 @@ Located in `Vendor/` - these are built from source and some contain local modifi
 
 On Windows, external binary dependencies (OpenSSL, curl, libxml2, etc.) are managed via vcpkg rather than vendored binaries.
 
+## Coding Conventions
+
+These are the conventions the codebase already follows; match them rather than introducing
+new ones.
+
+**Naming.** Methods are camelCase verb phrases grouped by prefix: `performLocalX` /
+`performRemoteX` (TaskProcessor), `sync*` / `fetch*` (SyncWorker, MailStore), `find*` /
+`findAll<T>`. Free helper functions in TaskProcessor.cpp carry a leading underscore
+(`_moveMessagesResilient`, `_applyUnread`); MailProcessor.cpp uses an anonymous namespace.
+Member fields and private methods are underscore-prefixed (`_data`, `_lastSnapshot`,
+`_saveInsertQueries`, `_emit`). Tunables and `localStatus` keys are `#define`s (`LS_*`,
+`SHALLOW_SCAN_INTERVAL`); file-scope values are `static`. JSON keys are terse for
+engine-internal fields (`_sa`, `_suc`, `hMsgId`, `aid`, `v`, `lmrt`) and descriptive for
+client-facing ones (`folders`, `labels`, `participants`). SQL identifiers are camelCase;
+indexes are named `<Table><What>Index`.
+
+**Logging.** Top-level steps are unprefixed ("Sync loop complete."); sub-steps use `"- "`
+then `"-- "`; failures use `"-X "`. Present tense, one line.
+
+**Database access.** SQL is written inline as uppercase literals. A `SQLite::Statement` is
+either a local, or cached in a per-purpose map on `MailStore` (`_saveInsertQueries`,
+`_placementQueries`) that `rollbackTransaction` drops wholesale; every use is
+`bind` → `executeStep`/`exec` → `reset`, and every store method starts with
+`assertCorrectThread()`. Model loads go through `findAll<T>(Query)`; joins, counts and bulk
+updates are raw SQL. Writes that must batch deltas use
+`MailStoreTransaction transaction{store, "<functionName>"}` in a scoped block;
+`unsafeEraseTransactionDeltas()` is reserved for saves that change only engine-internal
+fields. Chunk sizes: 900 for `findLargeSet`, 500 for thread refreshes, 200 for UID lists,
+100 for removes per transaction, with short sleeps between heavy chunks. DDL lives in
+`constants.h` as `Vn_SETUP_QUERIES` vectors (`CREATE TABLE IF NOT EXISTS`) that `migrate()`
+loops over; a migration that needs its own transaction or a precondition (V10) gets a
+dedicated function called from the same place.
+
+**Models.** A `MailModel` subclass declares `static string TABLE_NAME`, constructors
+`(id, accountId, version)`, `(SQLite::Statement &)` and `(json)`, `columnsForQuery()` with a
+matching `bindToQuery()` binding `:column`, and `beforeSave` / `afterSave` / `afterRemove`
+hooks that call the base first. Getters return `json &` for arrays and objects and values for
+scalars; setters are `setX(...)`. Derived thread state comes from a before/after
+`MessageSnapshot` diff in `Thread::applyMessageAttributeChanges`. Small helper structs live
+in the header of their primary user (`MessageAttributes` in MailStore.hpp,
+`UIDRangeSyncResult` in SyncWorker.hpp); a struct with methods and several consumers gets its
+own file (`Placement.hpp`).
+
+**Errors.** mailcore `ErrorCode` out-params become `throw SyncException(err, "<call>")`;
+logical failures are `SyncException("<key>", message, retryable)`. Constraint races on insert
+use `catch (SQLite::Exception & ex) { if (ex.getErrorCode() != 19) throw; }`. Non-fatal
+remote failures log (`warn`/`error`) and continue.
+
+**Memory.** mailcore objects are created through their autoreleased factories
+(`Array::array()`, `IndexSet::indexSet()`, `String` via `MCSTR`/`AS_MCSTR`), never `new`
+without `autorelease()`; every thread entry point and every long function that touches
+mailcore objects opens with `AutoreleasePool pool;`. Objects returned by `session.fetch*`
+are consumed inside the owning pool. C resources from libetpan/curl are freed on every exit
+path.
+
+**Comments.** Comment density is roughly 10–20% of lines. `// Note:` for a one-to-three
+line inline remark; a `/* */` block above a function only for a non-obvious contract; longer
+inline blocks only for protocol or provider quirks, with the issue, commit or spec cited. See
+the Comment Style section above for what a comment should and should not say.
+
 ## Gmail-Specific Behavior
 Gmail accounts sync only Spam, All Mail, and Trash folders, using X-GM-LABELS extension for label handling. Virtual folders are ignored. Every message has exactly one placement, in whichever of those three folders holds it (see Message Identity and Placements).
 
