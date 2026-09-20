@@ -1,7 +1,9 @@
 # Task: on servers without QRESYNC, a stale FETCH re-adds the copy the engine just moved
 
 Status: open. Found 2026-09-20 by the integration harness on the placements branch
-(`f5c41b8`). Reproduced on the fake and on real Dovecot (`dovecot:plain`).
+(`f5c41b8`). Reproduced on the fake and on real Dovecot (`dovecot:plain`). Same root cause as
+`stale-view-delays-deep-scan-deletions.md` (fix options there); a fix that syncs the background
+connection's view before it fetches closes both.
 
 ## Symptom
 
