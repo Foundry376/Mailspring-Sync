@@ -477,11 +477,12 @@ bool SyncWorker::syncNow()
             localStatus[LS_MESSAGE_COUNT] = remoteStatus.messageCount();
             localStatus[LS_UNSEEN_COUNT] = remoteStatus.unseenCount();
             localStatus[LS_RECENT_COUNT] = remoteStatus.recentCount();
-            // This branch skips the bookkeeping at the end of the loop body, so if the rebuild left
-            // a remainder we have to ask for another iteration here or the remaining messages drain
-            // at one chunk per sleep interval while the folder sits unlinked and half empty.
+            // This branch skips the bookkeeping at the end of the loop body, which is where `busy`
+            // (set for every folder at the start of the pass) is normally cleared. If the rebuild
+            // left a remainder we have to ask for another iteration here or the remaining messages
+            // drain at one chunk per sleep interval while the folder sits unlinked and half empty.
+            localStatus[LS_BUSY] = rebuilt.truncated;
             if (rebuilt.truncated) {
-                localStatus[LS_BUSY] = true;
                 syncAgainImmediately = true;
             }
 
