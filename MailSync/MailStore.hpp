@@ -121,7 +121,6 @@ public:
     // caller can load those (and only those) to update their snapshots.
 
     vector<Placement> placementsForMessage(string messageId);
-    vector<Placement> livePlacementsForFolder(Folder & folder);
 
     // Returns the id of a different message that held (folder, uid) and lost it, or "".
     string upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs);
@@ -130,7 +129,8 @@ public:
     void setPlacementStarred(Message & msg, bool starred);
     void setPlacementLabels(Message & msg, const vector<string> & labels);
     void beginPlacementMove(Message & msg, string fromFolderId, uint32_t uid, string toFolderId);
-    void commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid);
+    // Returns the id of a different message that held (toFolderId, newUid) and lost it, or "".
+    string commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid);
     void removePlacement(Message & msg, string folderId, uint32_t uid);
     void clearTombstones(Message & msg);
     void refreshMessageFromPlacements(Message & msg);
@@ -140,8 +140,6 @@ public:
     void resetPlacementUIDs(Folder & folder);
     vector<string> tombstoneUnassignedPlacements(Folder & folder, time_t now);
     vector<string> deleteExpiredTombstones(string accountId, time_t before);
-    vector<string> orphanMessageIds(string accountId, int limit);
-    vector<string> orphanMessageIdsAmong(const vector<string> & messageIds);
     void deletePlacementsForMessage(string messageId);
     vector<string> deletePlacementsForFolder(string folderId);
 

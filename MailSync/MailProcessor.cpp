@@ -86,21 +86,27 @@ MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
 
 /*
  Ingests one copy of a message reported by a folder scan. Message ids are a hash of the
- headers, so the insert fails with a constraint error (SQLite 19) whenever the message is
- already known - from another folder, from an earlier UID in this folder, or because the
- other sync worker ingested the same UID a moment ago - and the copy is recorded as a
- placement on the existing row instead. The (folder, UID) unique index on MessageFolder
- can raise the same error when the two workers race on one UID, and takes the same path.
+ headers, so a message already known - from another folder, from an earlier UID in this
+ folder - is found by id and the copy recorded as a placement on it. The insert of a new
+ message can still fail with a constraint error (SQLite 19) when the other sync worker
+ ingested the same message a moment ago, or when the two workers race on one (folder, UID)
+ of the MessageFolder unique index; both take the same update path. Looking up first
+ keeps a flag change from starting a transaction that is rolled back on every message.
  */
 shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
+    Query q = Query().equal("id", MailUtils::idForMessage(folder.accountId(), folder.path(), mMsg));
+    auto localMessage = store->find<Message>(q);
+    if (localMessage != nullptr) {
+        updateMessage(localMessage.get(), mMsg, folder, syncDataTimestamp);
+        return localMessage;
+    }
     try {
         return insertMessage(mMsg, folder, syncDataTimestamp);
     } catch (const SQLite::Exception & ex) {
         if (ex.getErrorCode() != 19) { // constraint failed
             throw;
         }
-        Query q = Query().equal("id", MailUtils::idForMessage(folder.accountId(), folder.path(), mMsg));
-        auto localMessage = store->find<Message>(q);
+        localMessage = store->find<Message>(q);
         if (localMessage.get() == nullptr) {
             throw;
         }
@@ -546,11 +552,14 @@ void MailProcessor::tombstoneUnassignedPlacements(Folder & folder)
 }
 
 /*
- Rewrites the snapshot of every message whose rows a bulk helper just changed and saves
- it, so the client sees the copy leave its folder and the thread's refcounts follow. The
- rows are already committed; the snapshot catches up here, one transaction per chunk, so
- a mass deletion does not hold the database for the whole batch. Derived unread/starred
- are left as they were (tombstones still count) - see MailStore::refreshMessageFromPlacements.
+ Catches the snapshot of each message up with its rows after a bulk helper changed them,
+ in transactions of 100 so a mass deletion does not hold the database for the whole
+ batch. A message left with no rows at all is removed through store->remove so
+ Message::afterRemove balances the thread, deletes the body and metadata, and emits the
+ unpersist; the check is made inside the chunk's transaction so a copy the other worker
+ records meanwhile keeps its message. A message whose snapshot did not change - a second
+ copy in the same folder, or a tombstone whose flags the surviving copies still imply -
+ is not saved, so the client is not sent a persist for a version bump alone.
  */
 void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & messageIds)
 {
@@ -563,7 +572,18 @@ void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & mess
         MailStoreTransaction transaction{store, "saveMessagesAfterPlacementChange"};
         auto messages = store->findAll<Message>(Query().equal("id", chunk));
         for (auto & msg : messages) {
+            if (store->placementsForMessage(msg->id()).empty()) {
+                if (logSubjects) {
+                    logger->info("-- Removing \"{}\" ({}), no remaining copies", msg->subject(), msg->id());
+                }
+                store->remove(msg.get());
+                continue;
+            }
+            json before = msg->toJSON();
             store->refreshMessageFromPlacements(*msg);
+            if (msg->toJSON() == before) {
+                continue;
+            }
             if (logSubjects) {
                 logger->info("-- \"{}\" ({}) now in {}", msg->subject(), msg->id(), msg->folders().dump());
             }
@@ -576,13 +596,11 @@ void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & mess
 /*
  End-of-pass sweep. A tombstone older than the start of the pass has had every folder
  scanned at least once since it was written, so a copy that moved elsewhere has been
- recorded and cleared it (MailStore::upsertPlacement). What is left is dropped, and any
- message with no copies at all is removed through store->remove so Message::afterRemove
- balances the thread, deletes the body and metadata, and emits the unpersist.
-
- Deleting 100 per transaction keeps a mass deletion from holding the database; the
- orphan check runs inside each chunk's transaction so a copy the other worker records
- between the tombstone delete and the remove keeps its message.
+ recorded and cleared it (MailStore::upsertPlacement). What is left is dropped, and the
+ messages that held it are saved or removed by saveMessagesAfterPlacementChange. The
+ save matters even when copies remain: derived unread/starred are OR'd over tombstones,
+ so a message whose only unread copy was deleted elsewhere reads as unread until the
+ tombstone is gone and its flags are recomputed from the surviving copies.
  */
 void MailProcessor::sweepExpiredTombstones(time_t before)
 {
@@ -595,24 +613,8 @@ void MailProcessor::sweepExpiredTombstones(time_t before)
     if (candidates.empty()) {
         return;
     }
-    logger->info("Sweep: {} messages lost expired tombstones, checking for orphans.", candidates.size());
-
-    bool logSubjects = candidates.size() < 100;
-    for (auto chunk : MailUtils::chunksOfVector(candidates, 100)) {
-        MailStoreTransaction transaction{store, "sweepOrphanMessages"};
-        auto orphanIds = store->orphanMessageIdsAmong(chunk);
-        if (orphanIds.size() > 0) {
-            auto messages = store->findAll<Message>(Query().equal("id", orphanIds));
-            logger->info("-- Removing {} messages with no remaining copies", messages.size());
-            for (auto const & msg : messages) {
-                if (logSubjects) {
-                    logger->info("-- Removing \"{}\" ({})", msg->subject(), msg->id());
-                }
-                store->remove(msg.get());
-            }
-        }
-        transaction.commit();
-    }
+    logger->info("Sweep: {} messages lost expired tombstones, refreshing them and removing orphans.", candidates.size());
+    saveMessagesAfterPlacementChange(candidates);
 }
 
 void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull) {

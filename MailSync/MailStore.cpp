@@ -195,10 +195,10 @@ void MailStore::migrate() {
 
 /*
  V10 creates MessageFolder, backfills one placement per message and rebuilds the Message
- table without its location columns (see constants.h). Unlike earlier migrations it runs
- in one explicit transaction: a crash mid-way rolls back the new table, the backfill and
- the rebuild together - DDL included - and leaves user_version at the old value so the
- next launch retries. A fresh database already has the final Message shape from V1 and
+ table without its location columns (see constants.h). The whole step runs in one
+ explicit transaction: a crash mid-way rolls back the new table, the backfill and the
+ rebuild together - DDL included - and leaves user_version at the old value so the next
+ launch retries. A fresh database already has the final Message shape from V1 and
  only needs the new table and its indexes.
 
  The rebuilt Message table, the placements and their indexes are written to the WAL and
@@ -446,6 +446,9 @@ void MailStore::rollbackTransaction() {
     _saveInsertQueries = {};
     _removeQueries = {};
     _placementQueries = {};
+    // Deltas describe writes that never happened; left in place they would be emitted
+    // with the next commit and the client would render rolled-back state.
+    _transactionDeltas = {};
     try {
         _stmtRollbackTransaction.exec();
         _stmtRollbackTransaction.reset();
@@ -635,20 +638,6 @@ vector<Placement> MailStore::placementsForMessage(string messageId) {
     auto & stmt = _placementStatement("forMessage",
         "SELECT " + PLACEMENT_COLUMNS + " FROM MessageFolder WHERE messageId = ? ORDER BY rowid");
     stmt.bind(1, messageId);
-    vector<Placement> results;
-    while (stmt.executeStep()) {
-        results.push_back(Placement::fromRow(stmt));
-    }
-    stmt.reset();
-    return results;
-}
-
-vector<Placement> MailStore::livePlacementsForFolder(Folder & folder) {
-    assertCorrectThread();
-    auto & stmt = _placementStatement("liveForFolder",
-        "SELECT " + PLACEMENT_COLUMNS + " FROM MessageFolder WHERE accountId = ? AND folderId = ? AND unlinkedAt IS NULL ORDER BY remoteUID");
-    stmt.bind(1, folder.accountId());
-    stmt.bind(2, folder.id());
     vector<Placement> results;
     while (stmt.executeStep()) {
         results.push_back(Placement::fromRow(stmt));
@@ -852,22 +841,53 @@ void MailStore::beginPlacementMove(Message & msg, string fromFolderId, uint32_t 
     refreshMessageFromPlacements(msg);
 }
 
-void MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid) {
-    assertCorrectThread();
-    // If the destination already holds this copy (a scan got there first), the moved row
-    // would violate the unique (folder, UID) index; drop it and keep the existing one.
-    auto & existing = _placementStatement("commitMoveExisting",
-        "SELECT rowid FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID = ? AND remoteUID > 0 AND messageId != ?");
-    existing.bind(1, msg.accountId());
-    existing.bind(2, toFolderId);
-    existing.bind(3, (long long)newUid);
-    existing.bind(4, msg.id());
-    bool conflict = existing.executeStep();
-    existing.reset();
+/*
+ Records that the copy at (fromFolderId, oldUid) now sits at (toFolderId, newUid). The
+ destination row may already exist, because the destination folder's scan can run
+ between the MOVE and this commit:
 
-    if (conflict) {
+ - held by this message: the scan recorded the moved copy. That row is kept (revived if
+   it was tombstoned) and the source row deleted, since both describe one server copy.
+ - held by another message: a stale row for a UID the server has since reassigned. It
+   is deleted so the unique (folder, UID) index admits ours, and that message's id is
+   returned so the caller rewrites its snapshot, as after upsertPlacement.
+ */
+string MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid) {
+    assertCorrectThread();
+
+    string holder;
+    if (newUid > 0) {
+        auto & existing = _placementStatement("commitMoveExisting",
+            "SELECT messageId FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID = ? AND remoteUID > 0");
+        existing.bind(1, msg.accountId());
+        existing.bind(2, toFolderId);
+        existing.bind(3, (long long)newUid);
+        if (existing.executeStep()) {
+            holder = existing.getColumn(0).getString();
+        }
+        existing.reset();
+    }
+
+    if (holder == msg.id()) {
+        auto & revive = _placementStatement("commitMoveRevive",
+            "UPDATE MessageFolder SET unlinkedAt = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
+        revive.bind(1, msg.id());
+        revive.bind(2, toFolderId);
+        revive.bind(3, (long long)newUid);
+        revive.exec();
+        revive.reset();
         removePlacement(msg, fromFolderId, oldUid);
-        return;
+        return "";
+    }
+
+    if (!holder.empty()) {
+        auto & displace = _placementStatement("commitMoveDisplace",
+            "DELETE FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID = ?");
+        displace.bind(1, msg.accountId());
+        displace.bind(2, toFolderId);
+        displace.bind(3, (long long)newUid);
+        displace.exec();
+        displace.reset();
     }
 
     auto & stmt = _placementStatement("commitMove",
@@ -880,6 +900,7 @@ void MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32_t
     stmt.exec();
     stmt.reset();
     refreshMessageFromPlacements(msg);
+    return holder;
 }
 
 void MailStore::removePlacement(Message & msg, string folderId, uint32_t uid) {
@@ -980,34 +1001,6 @@ vector<string> MailStore::deleteExpiredTombstones(string accountId, time_t befor
     stmt.bind(1, accountId);
     stmt.bind(2, (long long)before);
     return _collectMessageIds(stmt);
-}
-
-// Scans the account's messages; prefer orphanMessageIdsAmong when the candidates are known.
-vector<string> MailStore::orphanMessageIds(string accountId, int limit) {
-    assertCorrectThread();
-    auto & stmt = _placementStatement("orphans",
-        "SELECT id FROM Message WHERE accountId = ? AND NOT EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id) LIMIT ?");
-    stmt.bind(1, accountId);
-    stmt.bind(2, limit);
-    return _collectMessageIds(stmt);
-}
-
-vector<string> MailStore::orphanMessageIdsAmong(const vector<string> & messageIds) {
-    assertCorrectThread();
-    vector<string> orphans;
-    vector<string> all = messageIds;
-    for (auto chunk : MailUtils::chunksOfVector(all, 500)) {
-        SQLite::Statement stmt(_db,
-            "SELECT id FROM Message WHERE id IN (" + MailUtils::qmarks(chunk.size()) + ") "
-            "AND NOT EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id)");
-        int idx = 1;
-        for (auto & id : chunk) {
-            stmt.bind(idx++, id);
-        }
-        auto ids = _collectMessageIds(stmt);
-        orphans.insert(orphans.end(), ids.begin(), ids.end());
-    }
-    return orphans;
 }
 
 void MailStore::deletePlacementsForMessage(string messageId) {

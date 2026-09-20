@@ -77,11 +77,7 @@ public:
     // Written by the MailStore placement helpers, read by the client and by Thread.
     json & folders();
     vector<string> folderIds();
-    int placementFlags(string folderId);
-    bool hasFolder(string folderId);
     string folderRole(MailStore * store, string folderId);
-    void _setFolderBits(string folderId, int bits);
-    void _eraseFolder(string folderId);
 
     bool inAllMail(MailStore * store);
 

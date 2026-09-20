@@ -97,13 +97,10 @@ static json _clientVisibleState(Message & msg) {
     };
 }
 
+static bool _hasLiveCopyIn(const vector<Placement> & placements, const string & folderId);
+
 static bool _hasLiveCopyIn(MailStore * store, Message & msg, const string & folderId) {
-    for (auto & p : store->placementsForMessage(msg.id())) {
-        if (p.isLive() && p.remoteUID > 0 && p.folderId == folderId) {
-            return true;
-        }
-    }
-    return false;
+    return _hasLiveCopyIn(store->placementsForMessage(msg.id()), folderId);
 }
 
 // The UID each item's copy received in `dest`, aligned with `items` (0 when unknown):
@@ -140,15 +137,21 @@ static vector<uint32_t> _resolveNewUIDs(IMAPSession * session, HashMap * uidmap,
     if (recent == nullptr) {
         return result;
     }
-    map<string, uint32_t> uidsById;
+    // Several copies of one message (Exchange duplicates) arrive as several UIDs that
+    // hash to the same id; each moved copy takes one so no two commit to the same UID.
+    map<string, deque<uint32_t>> uidsById;
     for (unsigned int ii = 0; ii < recent->count(); ii++) {
         IMAPMessage * m = (IMAPMessage *)recent->objectAtIndex(ii);
-        uidsById[MailUtils::idForMessage(dest.accountId(), dest.path(), m)] = m->uid();
+        uidsById[MailUtils::idForMessage(dest.accountId(), dest.path(), m)].push_back(m->uid());
+    }
+    for (auto & pair : uidsById) {
+        std::sort(pair.second.begin(), pair.second.end());
     }
     for (size_t i = 0; i < items.size(); i++) {
         auto it = uidsById.find(items[i]->message->id());
-        if (it != uidsById.end()) {
-            result[i] = it->second;
+        if (it != uidsById.end() && !it->second.empty()) {
+            result[i] = it->second.front();
+            it->second.pop_front();
         }
     }
     return result;
@@ -376,6 +379,9 @@ static vector<string> _restoreFolderIdsFor(Message * msg, json & data) {
         return ids;
     }
     for (auto & entry : restore[msg->id()]) {
+        if (entry.count("removed") && entry["removed"].is_boolean() && entry["removed"].get<bool>()) {
+            continue;
+        }
         ids.push_back(entry["folderId"].get<string>());
     }
     return ids;
@@ -386,15 +392,21 @@ static vector<string> _restoreFolderIdsFor(Message * msg, json & data) {
  data and the message's current rows, so the remote phase finds the same copies after the
  local phase (which only marks them) and after an earlier task has moved them on.
 
- An undo task carries `restorePlacements` ({ messageId: [{folderId, remoteUID}] }, the
- `undoPlacements` the engine recorded when it ran the original task) and its `folder` and
- `sourceFolderIds` are ignored. The copies the original task moved are the ones now
+ A copy at UID 0 is never selected: it is not on the server, so no scan can ever report
+ where it went, and a marker on it would show the copy in the destination forever. A
+ never-synced draft in a trashed thread stays in Drafts.
+
+ An undo task carries `restorePlacements` ({ messageId: [{folderId, remoteUID, removed?}] },
+ the `undoPlacements` the engine recorded when it ran the original task) and its `folder`
+ and `sourceFolderIds` are ignored. The copies the original task moved are the ones now
  outside the recorded folders; a copy in a recorded folder is already home and a Sent or
  Drafts copy was never taken (a move takes them only when the user pointed at that folder,
  which then is a recorded folder). The moved copies go back to the recorded folders in
  order, surplus ones to the first; a recorded folder left without a copy is filled by
  COPY afterwards (_restoreAdditionalCopies). A copy that is home but still carries a
- pending marker is moved in place so the marker clears.
+ pending marker is moved in place so the marker clears. An entry marked `removed` is a
+ copy the original task deleted because the destination already held one; it is not a
+ recorded folder, so the pre-existing destination copy is not taken away.
 
  Otherwise (plan §3.1) a move to Trash or Spam takes every copy; any other move takes the
  copies in `sourceFolderIds` when the client named the folder it was looking at, else every
@@ -415,7 +427,7 @@ static vector<PlacementMove> _movesForMessage(MailStore * store, Message * msg, 
         set<string> home(targets.begin(), targets.end());
         vector<Placement> displaced;
         for (auto & p : placements) {
-            if (!p.isLive()) {
+            if (!p.isLive() || p.remoteUID == 0) {
                 continue;
             }
             string role = msg->folderRole(store, p.folderId);
@@ -458,7 +470,7 @@ static vector<PlacementMove> _movesForMessage(MailStore * store, Message * msg, 
     };
 
     for (auto & p : placements) {
-        if (!p.isLive()) {
+        if (!p.isLive() || p.remoteUID == 0) {
             continue;
         }
         bool pendingElsewhere = !p.pendingFolderId.empty() && p.pendingFolderId != dest;
@@ -477,12 +489,28 @@ static vector<PlacementMove> _movesForMessage(MailStore * store, Message * msg, 
     return moves;
 }
 
+static bool _hasLiveCopyIn(const vector<Placement> & placements, const string & folderId) {
+    for (auto & p : placements) {
+        if (p.isLive() && p.remoteUID > 0 && p.folderId == folderId) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Marks the selected copies so the client sees them in the destination immediately, and
-// records what moved as `undoPlacements` on the task for the client's undo.
+// records what moved as `undoPlacements` on the task for the client's undo. A copy bound
+// for a folder that already holds one is recorded as `removed`: the remote phase deletes
+// it rather than moving it (_applyFolderMoveInIMAPFolder), so an undo has nothing to
+// move back.
 void _applyFolder(MailStore * store, Message * msg, const vector<Placement> & placements, json & data) {
     json undo = json::array();
     for (auto & move : _movesForMessage(store, msg, placements, data)) {
-        undo.push_back({{"folderId", move.placement.folderId}, {"remoteUID", move.placement.remoteUID}});
+        json entry = {{"folderId", move.placement.folderId}, {"remoteUID", move.placement.remoteUID}};
+        if (move.placement.folderId != move.destFolderId && _hasLiveCopyIn(placements, move.destFolderId)) {
+            entry["removed"] = true;
+        }
+        undo.push_back(entry);
         store->beginPlacementMove(*msg, move.placement.folderId, move.placement.remoteUID, move.destFolderId);
     }
     if (!undo.empty()) {
@@ -504,7 +532,6 @@ static shared_ptr<Folder> _moveDestination(MailStore * store, string accountId, 
 /*
  Moves the items' copies out of `source`. A copy of a message that already has a live copy
  in the destination is deleted instead of moved, so the user ends up with one copy there.
- A copy at UID 0 is not on the server; its marker is left for the next scan to resolve.
  */
 void _applyFolderMoveInIMAPFolder(IMAPSession * session, MailStore * store, string accountId, Folder & source, vector<TaskPlacement *> & items, json & data) {
     String * path = AS_MCSTR(source.path());
@@ -522,8 +549,6 @@ void _applyFolderMoveInIMAPFolder(IMAPSession * session, MailStore * store, stri
             if (item->placement.folderId == dest->id()) {
                 item->moved = true;
                 item->movedUID = item->placement.remoteUID;
-            } else if (item->placement.remoteUID == 0) {
-                spdlog::get("logger")->info("-- Message {} has no copy of its {} placement on the server, nothing to move", item->message->id(), source.path());
             } else if (_hasLiveCopyIn(store, *item->message, dest->id())) {
                 toRemove.push_back(item);
             } else {
@@ -1194,11 +1219,15 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
         bool clientVisibleChange = false;
         vector<shared_ptr<Message>> safeMessages = inflateMessages(data).messages;
         
+        vector<string> displacedIds;
         for (auto safe : safeMessages) {
             json before = _clientVisibleState(*safe);
             auto rows = store->placementsForMessage(safe->id());
             for (auto item : itemsByMessage[safe->id()]) {
-                confirmPlacementChange(*safe, *item, rows);
+                string displaced = confirmPlacementChange(*safe, *item, rows);
+                if (!displaced.empty()) {
+                    displacedIds.push_back(displaced);
+                }
             }
             if (_clientVisibleState(*safe) != before) {
                 clientVisibleChange = true;
@@ -1211,6 +1240,18 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
             }
             store->save(safe.get());
         }
+        // A message that lost a stale (folder, UID) row to a moved copy has a snapshot
+        // listing a copy it no longer has.
+        for (auto & id : displacedIds) {
+            auto displaced = store->find<Message>(Query().equal("id", id));
+            if (displaced == nullptr) {
+                continue;
+            }
+            logger->warn("-- Message {} lost a placement to a moved copy at the same UID", id);
+            store->refreshMessageFromPlacements(*displaced);
+            store->save(displaced.get());
+            clientVisibleChange = true;
+        }
         if (!clientVisibleChange) {
             store->unsafeEraseTransactionDeltas();
         }
@@ -1222,16 +1263,17 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
 // captured (folder, UID) - reset to UID 0 by a UIDVALIDITY change while the task ran -
 // is left alone with its marker; the folder's next scan records where the copy is.
 // A marker a later task's local phase put on the row (an undo issued before this move
-// reached the server) must survive the commit, which clears it.
-void TaskProcessor::confirmPlacementChange(Message & msg, TaskPlacement & item, const vector<Placement> & rows) {
+// reached the server) must survive the commit, which clears it. Returns the id of another
+// message displaced from the destination UID, or "" (MailStore::commitPlacementMove).
+string TaskProcessor::confirmPlacementChange(Message & msg, TaskPlacement & item, const vector<Placement> & rows) {
     auto & p = item.placement;
 
     if (item.removed) {
         store->removePlacement(msg, p.folderId, p.remoteUID);
-        return;
+        return "";
     }
     if (!item.moved) {
-        return;
+        return "";
     }
 
     const Placement * current = nullptr;
@@ -1243,10 +1285,10 @@ void TaskProcessor::confirmPlacementChange(Message & msg, TaskPlacement & item, 
     }
     if (current == nullptr) {
         logger->warn("-- Message {} no longer has a placement at ({}, {}); leaving its move to be re-derived", msg.id(), p.folderId, p.remoteUID);
-        return;
+        return "";
     }
     string laterPending = current->pendingFolderId;
-    store->commitPlacementMove(msg, p.folderId, p.remoteUID, item.destFolderId, item.movedUID);
+    string displaced = store->commitPlacementMove(msg, p.folderId, p.remoteUID, item.destFolderId, item.movedUID);
     if (!laterPending.empty() && laterPending != item.destFolderId) {
         store->beginPlacementMove(msg, item.destFolderId, item.movedUID, laterPending);
     }
@@ -1259,6 +1301,7 @@ void TaskProcessor::confirmPlacementChange(Message & msg, TaskPlacement & item, 
         MessageAttributes attrs{copy.second, p.unread, p.starred, p.draft, _labelsOf(p)};
         store->upsertPlacement(msg, *folder, copy.second, attrs);
     }
+    return displaced;
 }
 
 void TaskProcessor::performLocalSaveDraft(Task * task) {
@@ -2517,8 +2560,11 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
     // Get total count without loading all message objects into memory
     int total = 0;
     {
+        // The same join as the page query below, so a placement whose Message row is
+        // missing is not counted as an export that never happens.
         SQLite::Statement count(store->db(),
-            "SELECT COUNT(*) FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID > 0 AND unlinkedAt IS NULL");
+            "SELECT COUNT(*) FROM MessageFolder INNER JOIN Message ON Message.id = MessageFolder.messageId "
+            "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0 AND MessageFolder.unlinkedAt IS NULL");
         count.bind(1, task->accountId());
         count.bind(2, folderId);
         if (count.executeStep()) {

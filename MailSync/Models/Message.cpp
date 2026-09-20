@@ -209,29 +209,9 @@ vector<string> Message::folderIds() {
     return ids;
 }
 
-int Message::placementFlags(string folderId) {
-    auto & f = folders();
-    if (!f.count(folderId) || !f[folderId].is_number()) {
-        return 0;
-    }
-    return f[folderId].get<int>();
-}
-
-bool Message::hasFolder(string folderId) {
-    return folders().count(folderId) > 0;
-}
-
 string Message::folderRole(MailStore * store, string folderId) {
     auto folder = store->folderById(accountId(), folderId);
     return folder == nullptr ? "" : folder->role();
-}
-
-void Message::_setFolderBits(string folderId, int bits) {
-    folders()[folderId] = bits;
-}
-
-void Message::_eraseFolder(string folderId) {
-    folders().erase(folderId);
 }
 
 // A message is "in all mail" when at least one of its copies is somewhere other than

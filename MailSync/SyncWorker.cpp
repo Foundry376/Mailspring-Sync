@@ -983,6 +983,15 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             store->remove(item.second.get());
         }
         transaction.commit();
+
+        // The messages that held copies in a removed folder are updated after the folder
+        // transaction commits: there can be as many as the account has messages.
+        for (auto const & item : unusedLocalFolders) {
+            processor->saveMessagesAfterPlacementChange(item.second->messageIdsAffectedByRemove());
+        }
+        for (auto const & item : unusedLocalLabels) {
+            processor->saveMessagesAfterPlacementChange(item.second->messageIdsAffectedByRemove());
+        }
     }
 
     return foldersToSync;
@@ -1309,18 +1318,31 @@ static const string HAS_LIVE_COPY_IN_FOLDER =
     " AND EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id AND MessageFolder.folderId = ? "
     "AND MessageFolder.remoteUID > 0 AND MessageFolder.unlinkedAt IS NULL)";
 
+// Messages wanted in the body cache are the recent ones plus drafts of any age. They are
+// always addressed as two statements - recent from MessageListDateIndex, older drafts from
+// the partial MessageListDraftIndex - because with the two conditions OR'd in one WHERE the
+// planner drops the date bound and walks the whole account, and given a choice of index
+// for the draft statement it picks the date index and walks every older message too, so
+// the draft statement names its index.
+static const string RECENT_BODY_CANDIDATES =
+    "FROM Message WHERE Message.accountId = ? AND Message.date > ?";
+static const string OLDER_DRAFT_BODY_CANDIDATES =
+    "FROM Message INDEXED BY MessageListDraftIndex WHERE Message.accountId = ? AND Message.draft = 1 AND Message.date <= ?";
+
 long long SyncWorker::countBodiesNeeded(Folder & folder) {
     if (!shouldCacheBodiesInFolder(folder)) {
         return 0;
     }
-    // The OR is served as a multi-index OR over MessageListDateIndex and MessageListDraftIndex.
-    SQLite::Statement count(store->db(),
-        "SELECT COUNT(*) FROM Message WHERE Message.accountId = ? AND (Message.date > ? OR Message.draft = 1)" + HAS_LIVE_COPY_IN_FOLDER);
-    count.bind(1, folder.accountId());
-    count.bind(2, (double)(time(0) - maxAgeForBodySync(folder)));
-    count.bind(3, folder.id());
-    count.executeStep();
-    return count.getColumn(0).getInt64();
+    long long total = 0;
+    for (const string * candidates : {&RECENT_BODY_CANDIDATES, &OLDER_DRAFT_BODY_CANDIDATES}) {
+        SQLite::Statement count(store->db(), "SELECT COUNT(*) " + *candidates + HAS_LIVE_COPY_IN_FOLDER);
+        count.bind(1, folder.accountId());
+        count.bind(2, (double)(time(0) - maxAgeForBodySync(folder)));
+        count.bind(3, folder.id());
+        count.executeStep();
+        total += count.getColumn(0).getInt64();
+    }
+    return total;
 }
 
 /*
@@ -1334,19 +1356,15 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
     vector<string> ids{};
     vector<shared_ptr<Message>> results{};
 
-    // Newest first, stopping at the limit: MessageListDateIndex is walked from now down to
-    // the cutoff and each message checked for a copy here and a missing body. Drafts are
-    // wanted whatever their age and come from MessageListDraftIndex in a second statement,
-    // because an OR in one statement would cost the date bound and walk the whole account.
+    // Newest first, stopping at the limit: each index is walked from now downwards and
+    // each message checked for a copy here and a missing body.
     const size_t limit = 30;
     const string tail = HAS_LIVE_COPY_IN_FOLDER +
         " AND NOT EXISTS (SELECT 1 FROM MessageBody WHERE MessageBody.id = Message.id)"
         " ORDER BY Message.date DESC LIMIT ?";
     double cutoff = (double)(time(0) - maxAgeForBodySync(folder)); // three months TODO pref!
-    SQLite::Statement recent(store->db(),
-        "SELECT Message.id FROM Message WHERE Message.accountId = ? AND Message.date > ?" + tail);
-    SQLite::Statement drafts(store->db(),
-        "SELECT Message.id FROM Message WHERE Message.accountId = ? AND Message.draft = 1 AND Message.date <= ?" + tail);
+    SQLite::Statement recent(store->db(), "SELECT Message.id " + RECENT_BODY_CANDIDATES + tail);
+    SQLite::Statement drafts(store->db(), "SELECT Message.id " + OLDER_DRAFT_BODY_CANDIDATES + tail);
     for (SQLite::Statement * missing : {&recent, &drafts}) {
         if (ids.size() >= limit) {
             break;
@@ -1415,7 +1433,7 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
  so the choice only matters for cost and reliability: the folder the caller is working in
  is already selected, and a Spam or Trash copy may be purged by the server at any time.
  A copy the server refuses to FETCH (typically expunged since our last scan) is skipped in
- favour of the next one; any other error aborts as before.
+ favour of the next one; any other error is thrown to the caller.
  */
 void SyncWorker::syncMessageBody(Message * message, Folder * preferredFolder) {
     // allocated mailcore objects freed when `pool` is removed from the stack

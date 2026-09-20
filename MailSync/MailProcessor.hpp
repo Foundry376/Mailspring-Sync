@@ -49,9 +49,9 @@ public:
     void tombstonePlacements(Folder & folder, Query & uidQuery);
     void tombstoneUnassignedPlacements(Folder & folder);
     void sweepExpiredTombstones(time_t before);
+    void saveMessagesAfterPlacementChange(const vector<string> & messageIds);
     
 private:
-    void saveMessagesAfterPlacementChange(const vector<string> & messageIds);
     void saveDisplacedMessage(const string & messageId);
     void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
     void upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references);

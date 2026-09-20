@@ -80,10 +80,12 @@ void Folder::beforeSave(MailStore * store) {
 }
 
 /*
- Removing a folder (or a Label, which inherits this) deletes every placement in it. The
- messages that held those placements are then loaded, their snapshot rewritten so the
- client sees the copy leave, and any message left with no copies at all is removed via
- store->remove so Message::afterRemove balances the thread and drops the body/metadata.
+ Removing a folder (or a Label, which inherits this) deletes every placement in it as
+ one statement. The messages that held them are not loaded here: this runs inside the
+ caller's transaction, and a folder can hold every message of the account. Their ids
+ are kept on the object so the caller can rewrite their snapshots - and remove any left
+ with no copies - in its own short transactions after this one commits
+ (MailProcessor::saveMessagesAfterPlacementChange).
  */
 void Folder::afterRemove(MailStore * store) {
     MailModel::afterRemove(store);
@@ -92,16 +94,9 @@ void Folder::afterRemove(MailStore * store) {
     count.bind(1, id());
     count.exec();
 
-    vector<string> messageIds = store->deletePlacementsForFolder(id());
-    for (auto chunk : MailUtils::chunksOfVector(messageIds, 500)) {
-        auto messages = store->findAll<Message>(Query().equal("id", chunk));
-        for (auto & msg : messages) {
-            store->refreshMessageFromPlacements(*msg);
-            if (store->placementsForMessage(msg->id()).empty()) {
-                store->remove(msg.get());
-            } else {
-                store->save(msg.get());
-            }
-        }
-    }
+    _messageIdsAffectedByRemove = store->deletePlacementsForFolder(id());
+}
+
+const vector<string> & Folder::messageIdsAffectedByRemove() {
+    return _messageIdsAffectedByRemove;
 }
