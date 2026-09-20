@@ -241,27 +241,37 @@ static vector<string> V10_SETUP_QUERIES = {
 
 // Upgrade of a pre-V10 database (a fresh database gets the final Message shape from
 // V1_SETUP_QUERIES and skips this). One placement per message is backfilled from the
-// IMAP truth (remoteFolderId / remoteUID, not data.folder); unlink sentinels
-// (UINT32_MAX - phase) become UID 0 tombstones dated now so the first sweep after the
-// upgrade deletes them, as the phase sweep would have.
+// IMAP truth (remoteFolderId / remoteUID). A row whose data.folder differs from
+// remoteFolderId is a move whose remote phase has not run; it becomes the optimistic
+// representation the engine writes itself - pendingFolderId = data.folder.id, reported
+// under that folder - so thread refcounts match and the queued task's remote phase
+// commits it. Two kinds of row become UID 0 tombstones dated now, which the first sweep
+// after the upgrade removes through Message::afterRemove: unlink sentinels
+// (UINT32_MAX - phase), as the phase sweep would have, and "deleted-*" draft
+// placeholders at UID 0: the draft they stand in for was never on the server, so there
+// is no deletion to wait for and no scan that could ever retire them. A placeholder with
+// a real UID keeps a live placement, since DestroyDraftTask's remote phase addresses it.
 //
 // The Message table is then rebuilt without remoteUID / remoteXGMLabels / remoteFolderId
 // - the same table rewrite SQLite performs for each DROP COLUMN, done once - and the
 // same pass rewrites each row's JSON to the placements contract: the embedded folder
-// copies go and "folders" ({ folderId: flagBits }) arrives. Sentinel rows keep their
-// folder key: the single-folder unlink never decremented the thread, so the snapshot
-// must still name the folder for Message::afterRemove to balance the refcount when the
-// sweep removes them. Rows with and without a folder are copied by separate statements
-// rather than one CASE: json_set only embeds its argument as an object when the JSON
-// subtype reaches it, and whether the subtype survives a CASE expression depends on the
-// SQLite version; a lost subtype would store the map as a string.
+// copies go and "folders" ({ folderId: flagBits }) arrives, keyed by the folder the
+// client saw the message in (data.folder, the pending destination when a move is in
+// flight). Tombstoned rows keep their folder key: the single-folder unlink never
+// decremented the thread, so the snapshot must still name the folder for
+// Message::afterRemove to balance the refcount when the sweep removes them. Rows with
+// and without a folder are copied by separate statements rather than one CASE: json_set
+// only embeds its argument as an object when the JSON subtype reaches it, and whether
+// the subtype survives a CASE expression depends on the SQLite version; a lost subtype
+// would store the map as a string.
 static vector<string> V10_UPGRADE_QUERIES = {
-    "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt) "
+    "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt, pendingFolderId) "
     "SELECT accountId, id, remoteFolderId, "
            "CASE WHEN remoteUID > 4294967290 THEN 0 ELSE remoteUID END, "
            "IFNULL(unread, 0), IFNULL(starred, 0), IFNULL(draft, 0), IFNULL(remoteXGMLabels, '[]'), "
            "IFNULL(CAST(json_extract(data, '$._sa') AS INTEGER), 0), "
-           "CASE WHEN remoteUID > 4294967290 THEN strftime('%s', 'now') ELSE NULL END "
+           "CASE WHEN remoteUID > 4294967290 OR (id LIKE 'deleted-%' AND remoteUID = 0) THEN strftime('%s', 'now') ELSE NULL END, "
+           "CASE WHEN json_extract(data, '$.folder.id') != remoteFolderId THEN json_extract(data, '$.folder.id') ELSE NULL END "
     "FROM Message WHERE remoteFolderId IS NOT NULL AND remoteFolderId != ''",
 
     "CREATE TABLE Message_v10 ("
@@ -283,7 +293,8 @@ static vector<string> V10_UPGRADE_QUERIES = {
     "INSERT INTO Message_v10 (id, accountId, version, data, headerMessageId, gMsgId, gThrId, subject, date, draft, unread, starred, replyToHeaderMessageId, threadId) "
     "SELECT id, accountId, version, "
            "json_set(json_remove(data, '$.folder', '$.remoteFolder', '$.remoteUID', '$.remoteFolderId'), '$.folders', "
-               "json_object(remoteFolderId, IFNULL(unread, 0) | (IFNULL(starred, 0) << 1) | (IFNULL(draft, 0) << 2))), "
+               "json_object(COALESCE(NULLIF(json_extract(data, '$.folder.id'), ''), remoteFolderId), "
+                           "IFNULL(unread, 0) | (IFNULL(starred, 0) << 1) | (IFNULL(draft, 0) << 2))), "
            "headerMessageId, gMsgId, gThrId, subject, date, draft, unread, starred, replyToHeaderMessageId, threadId "
     "FROM Message WHERE remoteFolderId IS NOT NULL AND remoteFolderId != ''",
 
