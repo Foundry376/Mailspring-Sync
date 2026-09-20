@@ -325,6 +325,20 @@ void SyncWorker::markAllFoldersBusy() {
 }
 
 
+void SyncWorker::markFolderStatusSynced(json & localStatus, IMAPFolderStatus & remoteStatus) {
+    localStatus[LS_LAST_SHALLOW] = time(0);
+    localStatus[LS_LAST_DEEP] = time(0);
+    localStatus[LS_BODIES_WANTED] = 0;
+    localStatus[LS_SYNCED_MIN_UID] = 1;
+    localStatus[LS_UIDNEXT] = remoteStatus.uidNext();
+    localStatus[LS_MESSAGE_COUNT] = remoteStatus.messageCount();
+    localStatus[LS_UNSEEN_COUNT] = remoteStatus.unseenCount();
+    localStatus[LS_RECENT_COUNT] = remoteStatus.recentCount();
+    // Note: markAllFoldersBusy sets `busy` on every folder at launch and on wake-workers; a
+    // folder that never reaches the end-of-pass bookkeeping has to clear it here.
+    localStatus[LS_BUSY] = false;
+}
+
 bool SyncWorker::syncNow()
 {
     AutoreleasePool pool;
@@ -429,14 +443,7 @@ bool SyncWorker::syncNow()
 
         if (isDuplicateAllMail) {
             logger->info("SyncNow: skipped duplicate \\All folder {}", folder->path());
-            localStatus[LS_LAST_SHALLOW] = time(0); // pretend we synced now
-            localStatus[LS_LAST_DEEP] = time(0);
-            localStatus[LS_BODIES_WANTED] = 0; // pretend we want no message contents
-            localStatus[LS_SYNCED_MIN_UID] = 1; // pretend we have scanned all the way to the oldest message
-            localStatus[LS_UIDNEXT] = remoteStatus.uidNext();
-            localStatus[LS_MESSAGE_COUNT] = remoteStatus.messageCount();
-            localStatus[LS_UNSEEN_COUNT] = remoteStatus.unseenCount();
-            localStatus[LS_RECENT_COUNT] = remoteStatus.recentCount();
+            markFolderStatusSynced(localStatus, remoteStatus);
             store->saveFolderStatus(folder.get(), initialLocalStatus);
             continue;
         }

@@ -80,6 +80,11 @@ private:
     void removeDuplicateFolders(Array * remoteFolders);
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
+
+    // Writes every localStatus key that "this folder is fully synced and idle" implies, for a
+    // folder the worker deliberately never scans. Not for the end of a real pass, where `busy`
+    // reflects work left behind.
+    void markFolderStatusSynced(json & localStatus, IMAPFolderStatus & remoteStatus);
         
     // Result of syncing a UID range. `truncated` is set when the range contained more
     // messages needing full headers than we were willing to request at once; in that case
