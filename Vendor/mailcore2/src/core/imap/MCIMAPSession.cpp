@@ -2133,7 +2133,14 @@ void IMAPSession::findUIDsOfRecentHeaderMessageID(String * folder, String * head
     IndexSet * set = IndexSet::indexSet();
     ErrorCode err;
 
-    selectIfNeeded(folder, &err);
+    // Always re-SELECT: mFolderMsgCount is captured by select() alone and an untagged EXISTS
+    // does not refresh it, so on a folder this session already had selected the range below
+    // would stop short of a copy the SMTP gateway filed after that SELECT - on every retry.
+    loginIfNeeded(&err);
+    if (err != ErrorNone) {
+        return;
+    }
+    select(folder, &err);
     if (err != ErrorNone) {
         return;
     }
