@@ -17,5 +17,5 @@ steps:
 expect:
   folder_status: {INBOX: {busy: false}, Archive: {busy: false}}
   stable: {passes: 2}
-  db_matches_server: {xfail: "identical copies in two folders collapse onto one row until message placements land"}
+  db_matches_server: {}
   running: true

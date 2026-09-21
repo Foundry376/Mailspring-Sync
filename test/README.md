@@ -13,8 +13,8 @@ test/
   scenarios/      one YAML file per scenario
   conformance/    proves the fake answers like Dovecot for everything mailsync sends
   tools/          ab.py (before/after regression comparison), record_personality.py
-  docs/           adding-scenarios.md (workflow + gotchas), handoff-refactor-regression.md,
-                  tasks/ (engine bugs the suite found, ready to hand off)
+  docs/           adding-scenarios.md (workflow + gotchas), handoff-refactor-regression.md;
+                  tasks/ holds write-ups of engine bugs the suite finds until they are fixed
   runs/           per-run artifacts (gitignored): engine log, DB, server transcript
   ab/             gitignored: baseline binaries and ab.py recordings
 ```
@@ -234,15 +234,12 @@ Things learned from Dovecot while building the conformance suite, all now modell
 | synced-draft-destroy (+ -courier) | DestroyDraftTask on a server-synced draft and a local UID-0 draft | fake ×2, dovecot |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
-lists them and an `XPASS` line means the marker can be removed. At the time of writing: the
-placements cases (`self-addressed-inbox-and-sent` db match, `o365-duplicate-sent-copies`,
-`two-folders-identical-messages` db match), `connection-dropped-during-idle` (SIGSEGV in
-mailcore `IMAPSession::connectIfNeeded` -> `collectVanishedFromLastResponse` when the
-connection dies around IDLE), `proton-all-mail-duplicates` (`\All` skip never clears
-`busy`), and the one-pass delay in `plain-expunge-found-by-deep-scan`. All seen 2026-09-19.
-On non-QRESYNC servers the engine's own undo move is resurrected for one pass by the
-background connection's stale view (`undo-move-restores-placements`,
-`docs/tasks/stale-view-resurrects-own-move.md`, seen 2026-09-20).
+lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up
+in `docs/tasks/` (symptom, failing scenario, how it was found, likely cause, definition of
+done) that is deleted when the fix lands. As of 2026-09-21 there are none: the suite found
+five engine bugs on 2026-09-19/20 (two VANISHED-accumulator segfaults, the `\\All` mailbox
+never clearing `busy`, and two consequences of Dovecot's stale per-connection view) and all
+five were fixed within two days (`6c1395e`, `4c25380`, `c5619a8`, `5080fb2`).
 
 Scenario timing rule: after a server-side change on a QRESYNC server, wait for the engine to
 receive it (`wait: {log: "recv \\* VANISHED"}`) before forcing a pass; Dovecot delivers

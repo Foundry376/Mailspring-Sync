@@ -19,5 +19,5 @@ steps:
   - wait: quiescent
 expect:
   stable: {passes: 3}
-  db_matches_server: {xfail: "one row cannot be in two folders until message placements land"}
+  db_matches_server: {}
   running: true

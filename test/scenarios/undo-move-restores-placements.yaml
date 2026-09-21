@@ -45,13 +45,7 @@ steps:
   - sync: pass
 expect:
   server_counts: {INBOX: 10, Sent: 4, Archive: 3}
-  counts:
-    INBOX: 10
-    Sent: 4
-    Archive: 3
-    xfail: &stale
-      "fake:plain": "non-QRESYNC: the background connection's stale view of Archive re-adds the copy the undo moved out (see description)"
-      "dovecot:plain": "non-QRESYNC: the background connection's stale view of Archive re-adds the copy the undo moved out (see description)"
-  db_matches_server: {xfail: *stale}
-  stable: {passes: 2, xfail: *stale}
+  counts: {INBOX: 10, Sent: 4, Archive: 3}
+  db_matches_server: {}
+  stable: {passes: 2}
   running: true

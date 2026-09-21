@@ -17,5 +17,5 @@ steps:
   - wait: quiescent
 expect:
   stable: {passes: 3}
-  db_matches_server: {xfail: "one row cannot hold three placements until message placements land"}
+  db_matches_server: {}
   running: true

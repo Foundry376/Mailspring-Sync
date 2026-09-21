@@ -84,22 +84,17 @@ fixed  two-folders-identical-messages[fake:dovecot]:     XFAIL -> XPASS
 
 Two things to do with that:
 
-- **Remove the now-wrong `xfail` markers** (`db_matches_server` in
-  `self-addressed-inbox-and-sent.yaml`, `o365-duplicate-sent-copies.yaml`,
-  `two-folders-identical-messages.yaml`) so a later regression in exactly these cases fails
-  loudly instead of quietly reverting to XFAIL. `ab.py` treats XPASS->XFAIL as a regression,
-  but pytest alone would not.
+- The `xfail` markers on those three scenarios were removed on 2026-09-21, so a regression
+  in exactly these cases now fails loudly.
 - **Re-record `after` on every engine change** you want to evaluate and compare against
   `before-0df7864.json`; do not re-record the baseline unless the scenarios change (then
   re-record both, so the comparison is like for like).
 
-Still XFAIL on both sides, and *not* yours: `connection-dropped-during-idle` and
-`uidvalidity-change` on Dovecot (segfaults in the #141 VANISHED accumulator,
-`docs/tasks/vanished-accumulator-segfault.md`), `proton-all-mail-duplicates` (`busy` never
-cleared, `docs/tasks/all-mail-busy-never-clears.md`), and `plain-expunge-found-by-deep-scan`
-(one-pass delay caused by Dovecot's stale session view, §3). Leave them xfail unless you fix
-them; if one flips to XPASS in your run, say so in the PR, it means a side effect worth
-understanding.
+The engine bugs the suite found on 2026-09-19/20 (VANISHED-accumulator segfaults, the `\\All`
+`busy` flag, and the stale-view consequences in §3) were all fixed by 2026-09-21
+(`6c1395e`, `4c25380`, `c5619a8`, `5080fb2`), and every `xfail` marker is gone, including
+the placements ones. A baseline recorded against `0df7864` will therefore show those cases
+as FAIL/XFAIL on the before side; `ab.py compare` reports them as "fixed", not regressions.
 
 ## 3. Things learned about servers that bear on the placements design
 

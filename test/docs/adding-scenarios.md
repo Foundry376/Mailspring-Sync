@@ -50,7 +50,10 @@ client would see (the database / delta stream), never on internal function behav
    document a known bug with `xfail: reason` on the affected expectations (string for all
    servers, or `{dovecot: reason}` / `{"fake:plain": reason}` per server). Write the reason
    so that someone reading `pytest -rxX` output knows what to fix. Then add a task document
-   under `docs/tasks/` (see the two there for the shape).
+   under `docs/tasks/`: symptom with the stack or log lines, the failing (scenario, server)
+   pairs and a one-line repro, how it was found, the likely root cause with file:line, fix
+   options, and a definition of done naming the markers to remove. Delete the document when
+   the fix lands (git history keeps it; `f65f88b`..`2feef7d` hold five examples).
 8. **Add it to the table in `README.md`** and, if it protects a PR, mention the scenario name
    in that PR's follow-up or in the commit that fixes the bug.
 

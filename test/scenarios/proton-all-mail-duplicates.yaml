@@ -7,8 +7,6 @@ source: Mailspring-Sync PR #137 (15 folder reassignments in 7 min before; 0 afte
 servers:
   - {fake: proton-bridge}
   - {dovecot: proton-like}
-quiescence:
-  ignore_busy: ["All Mail"]     # the skip branch never clears busy; see the xfail below
 mailboxes:
   INBOX: {messages: 25}
   Sent: {messages: 6}
@@ -22,5 +20,5 @@ expect:
   counts: {INBOX: 25, Sent: 6, "All Mail": 0}
   stable: {passes: 3}
   log_present: ["skipped duplicate"]
-  folder_status: {"All Mail": {busy: false}, xfail: "the \\All skip branch sets lastDeep/syncedMinUID but never clears busy, so markAllFoldersBusy leaves it spinning forever"}
+  folder_status: {"All Mail": {busy: false}}
   running: true
