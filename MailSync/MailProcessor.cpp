@@ -422,6 +422,17 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
     // enter transaction
     {
         MailStoreTransaction transaction{store, "retrievedMessageBody"};
+
+        // The caller's object predates the body fetch - up to 30 fetches, on the other
+        // worker's schedule - and the message's placements or flags may have changed since.
+        // Saving it would write that stale folders snapshot and unread state over the row,
+        // and no scan repairs the snapshot: scans compare MessageFolder against the server.
+        auto fresh = store->find<Message>(Query().equal("id", message->id()));
+        if (fresh == nullptr) {
+            logger->info("Message {} was removed while its body was fetched, discarding the body.", message->id());
+            return;
+        }
+        message = fresh.get();
         
         // write body to the MessageBodies table
         SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value, fetchedAt) VALUES (?, ?, datetime('now'))");
