@@ -272,11 +272,16 @@ void SyncWorker::idleCycleIteration()
             uint32_t bottomUID = store->fetchMessageUIDAtDepth(*inbox, 100, uidnext);
             if (bottomUID < syncedMinUID) { bottomUID = syncedMinUID; }
             // Guard against underflow if uidnext <= bottomUID (server inconsistency)
+            bool truncated = false;
             if (uidnext > bottomUID) {
-                syncFolderUIDRange(*inbox, RangeMake(bottomUID, uidnext - bottomUID), false);
+                truncated = syncFolderUIDRange(*inbox, RangeMake(bottomUID, uidnext - bottomUID), false).truncated;
             }
             inbox->localStatus()[LS_LAST_SHALLOW] = time(0);
-            inbox->localStatus()[LS_UIDNEXT] = uidnext;
+            // uidnext is what the background pass reads to find new mail; advancing it past a
+            // truncated fetch would hide the remainder from that path until the next deep scan.
+            if (!truncated) {
+                inbox->localStatus()[LS_UIDNEXT] = uidnext;
+            }
         }
 
         syncMessageBodies(*inbox, remoteStatus);
