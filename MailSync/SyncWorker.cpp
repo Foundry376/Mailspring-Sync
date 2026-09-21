@@ -347,7 +347,11 @@ bool SyncWorker::syncNow()
     // Tombstones written before this instant have had every folder scanned since by the
     // time the pass ends, which is the grace period for a copy that moved between folders.
     // Recorded before any scan so the foreground worker's tombstones get the same grace.
+    // The grace only holds if every folder's scan this pass covered its whole range: a
+    // skipped folder or a truncated fetch leaves copies unrecorded that the sweep would
+    // otherwise treat as gone.
     time_t passStartedAt = time(0);
+    bool everyFolderCovered = true;
 
     vector<shared_ptr<Folder>> folders = syncFoldersAndLabels();
     bool hasCondstore = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
@@ -388,6 +392,7 @@ bool SyncWorker::syncNow()
         IMAPFolderStatus * remoteStatusPtr = session.folderStatus(&path, &err);
         if (err != ErrorNone) {
             logger->warn("SyncNow: unable to get folder status for {} ({}), skipping...", folder->path(), ErrorCodeToTypeMap[err]);
+            everyFolderCovered = false;
             continue;
         }
 
@@ -473,6 +478,8 @@ bool SyncWorker::syncNow()
             auto rebuilt = syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
             if (!rebuilt.truncated) {
                 processor->tombstoneUnassignedPlacements(*folder);
+            } else {
+                everyFolderCovered = false;
             }
 
             if (localStatus.count(LS_UIDVALIDITY_RESET_COUNT) == 0) {
@@ -567,6 +574,7 @@ bool SyncWorker::syncNow()
                 // throw would skip every folder after this one and retry forever.
                 try {
                     auto deep = syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
+                    everyFolderCovered = everyFolderCovered && !deep.truncated;
                     // If there were more gaps than one pass can fill, leave lastDeep alone so we
                     // come back immediately rather than in another day - but only while the
                     // backlog is actually shrinking.
@@ -579,6 +587,7 @@ bool SyncWorker::syncNow()
                     logger->warn("- {}: gap scan failed ({}), will retry after the normal interval.",
                                  folder->path(), ex.toJSON().dump());
                     localStatus[LS_LAST_DEEP] = time(0);
+                    everyFolderCovered = false;
                 }
             }
         } else {
@@ -605,6 +614,8 @@ bool SyncWorker::syncNow()
                 // is what resurrects a copy the foreground connection has just moved out.
                 if (!fetched.truncated) {
                     localStatus[LS_UIDNEXT] = remoteUidnext;
+                } else {
+                    everyFolderCovered = false;
                 }
                 
                 if ((folder->role() == "inbox") || (folder->role() == "all")) {
@@ -632,7 +643,8 @@ bool SyncWorker::syncNow()
                 }
                 // Guard against underflow if remoteUidnext <= bottomUID (server inconsistency)
                 if (remoteUidnext > bottomUID) {
-                    syncFolderUIDRange(*folder, RangeMake(bottomUID, remoteUidnext - bottomUID), false);
+                    auto shallow = syncFolderUIDRange(*folder, RangeMake(bottomUID, remoteUidnext - bottomUID), false);
+                    everyFolderCovered = everyFolderCovered && !shallow.truncated;
                 }
                 localStatus[LS_LAST_SHALLOW] = time(0);
                 localStatus[LS_UIDNEXT] = remoteUidnext;
@@ -640,6 +652,7 @@ bool SyncWorker::syncNow()
             
             if (timeForDeepScan) {
                 auto deep = syncFolderUIDRange(*folder, RangeMake(syncedMinUID, UINT64_MAX), false);
+                everyFolderCovered = everyFolderCovered && !deep.truncated;
                 if (syncedMinUID == 0) {
                     syncedMinUID = 1;
                     localStatus[LS_SYNCED_MIN_UID] = 1;
@@ -700,8 +713,15 @@ bool SyncWorker::syncNow()
     
     // Copies that vanished before this pass began have had every folder scanned since; if
     // they reappeared elsewhere the upsert cleared their tombstones. Drop the rest and remove
-    // messages left with no copies at all.
-    processor->sweepExpiredTombstones(passStartedAt);
+    // messages left with no copies at all. A pass that skipped a folder or truncated a fetch
+    // at MAX_FULL_HEADERS_REQUEST_SIZE has not recorded every copy: a bulk move of more
+    // messages than one fetch carries would otherwise have its remainder removed here and
+    // re-created, without metadata, once the destination catches up.
+    if (everyFolderCovered) {
+        processor->sweepExpiredTombstones(passStartedAt);
+    } else {
+        logger->info("Skipping the tombstone sweep: a folder was skipped or a fetch truncated this pass.");
+    }
     
     logger->info("Sync loop complete.");
     iterationsSinceLaunch += 1;
