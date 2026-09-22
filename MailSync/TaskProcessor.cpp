@@ -1233,16 +1233,23 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
             }
             store->save(safe.get());
         }
-        // A message that lost a stale (folder, UID) row to a moved copy has a snapshot
-        // listing a copy it no longer has.
+        // A message that lost a stale (folder, UID) row to a moved or restored copy has a
+        // snapshot listing a copy it no longer has, and when that was its last row it is
+        // gone: refreshMessageFromPlacements leaves a row-less message's derived flags
+        // alone, so saving it would keep an orphan alive in no folder at all.
         for (auto & id : displacedIds) {
             auto displaced = store->find<Message>(Query().equal("id", id));
             if (displaced == nullptr) {
                 continue;
             }
             logger->warn("-- Message {} lost a placement to a moved copy at the same UID", id);
-            store->refreshMessageFromPlacements(*displaced);
-            store->save(displaced.get());
+            if (store->placementsForMessage(id).empty()) {
+                logger->warn("-- Message {} has no remaining copies, removing it", id);
+                store->remove(displaced.get());
+            } else {
+                store->refreshMessageFromPlacements(*displaced);
+                store->save(displaced.get());
+            }
             clientVisibleChange = true;
         }
         if (!clientVisibleChange) {

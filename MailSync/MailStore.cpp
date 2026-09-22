@@ -702,7 +702,9 @@ void MailStore::refreshMessageFromPlacements(Message & msg) {
 
  - A row already at (folder, uid) is refreshed in place. If it belonged to a different
    message (a UID the server reused without a UIDVALIDITY change) that message loses the
-   copy and its id is returned so the caller can rewrite its snapshot.
+   copy and its id is returned so the caller can rewrite its snapshot. A tombstoned row
+   is taken over the same way: the copy it named is gone from the server either way, and
+   it still occupies the unique (folder, UID) index.
  - A row for this message in this folder at UID 0 is a placement whose UID is unknown:
    a local draft, or a copy waiting for a UIDVALIDITY rebuild to relink it. It is
    replaced by the real row so the rebuild converges instead of leaving both.

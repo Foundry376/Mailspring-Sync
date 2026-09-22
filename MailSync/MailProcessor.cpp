@@ -276,7 +276,11 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
 }
 
 // A (folder, UID) row taken over from another message leaves that message's snapshot
-// listing a copy it no longer has.
+// listing a copy it no longer has. When it was that message's last row the message is
+// gone, not merely relocated: refreshMessageFromPlacements leaves the derived flags of a
+// row-less message alone, so saving it here would keep an orphan alive in no folder at
+// all, and no later pass would find it - orphans are only ever reached through
+// MessageFolder.
 void MailProcessor::saveDisplacedMessage(const string & messageId) {
     if (messageId.empty()) {
         return;
@@ -286,6 +290,11 @@ void MailProcessor::saveDisplacedMessage(const string & messageId) {
         return;
     }
     logger->warn("- Message {} lost a placement to another message at the same UID", messageId);
+    if (store->placementsForMessage(messageId).empty()) {
+        logger->warn("- Message {} has no remaining copies, removing it", messageId);
+        store->remove(displaced.get());
+        return;
+    }
     store->refreshMessageFromPlacements(*displaced);
     store->save(displaced.get());
 }
