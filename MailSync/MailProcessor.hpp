@@ -13,6 +13,7 @@
 #define MailProcessor_hpp
 
 #include <stdio.h>
+#include <chrono>
 
 #include <MailCore/MailCore.h>
 #include <SQLiteCpp/SQLiteCpp.h>
@@ -49,10 +50,12 @@ public:
     void tombstonePlacements(Folder & folder, Query & uidQuery);
     void tombstoneUnassignedPlacements(Folder & folder);
     void sweepExpiredTombstones(time_t before);
+    void sweepOrphanMessages();
     void saveMessagesAfterPlacementChange(const vector<string> & messageIds);
+    void detachMessagesFromFolder(string folderId, std::chrono::milliseconds pause = std::chrono::milliseconds(0));
     
 private:
-    void refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects);
+    int refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects);
     void saveDisplacedMessage(const string & messageId);
     void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
     void upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references);

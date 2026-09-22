@@ -1055,6 +1055,46 @@ void MailStore::deletePlacementsForMessage(string messageId) {
     stmt.reset();
 }
 
+// The ids the folder's deletion will affect, including messages only pointed at it by a
+// move still in flight, so the caller can detach them in bounded transactions.
+vector<string> MailStore::messageIdsWithPlacementsInFolder(string folderId) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("messagesInFolder",
+        "SELECT DISTINCT messageId FROM MessageFolder WHERE folderId = ? OR pendingFolderId = ?");
+    stmt.bind(1, folderId);
+    stmt.bind(2, folderId);
+    return _collectMessageIds(stmt);
+}
+
+void MailStore::deletePlacementsForFolder(string folderId, const vector<string> & messageIds) {
+    assertCorrectThread();
+    if (messageIds.empty()) {
+        return;
+    }
+    string inList = " AND messageId IN (" + MailUtils::qmarks(messageIds.size()) + ")";
+    SQLite::Statement abandon(_db, "UPDATE MessageFolder SET pendingFolderId = NULL WHERE pendingFolderId = ?" + inList);
+    SQLite::Statement remove(_db, "DELETE FROM MessageFolder WHERE folderId = ?" + inList);
+    for (auto stmt : {&abandon, &remove}) {
+        stmt->bind(1, folderId);
+        int idx = 2;
+        for (auto & id : messageIds) {
+            stmt->bind(idx++, id);
+        }
+        stmt->exec();
+    }
+}
+
+// Every other path to a message id runs through MessageFolder, so a message that has lost
+// its last row is both invisible in the client and unreachable by any later pass. This is
+// the backstop that finds them; it is a full scan of Message, so it runs rarely.
+vector<string> MailStore::orphanMessageIds(string accountId) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("orphanMessages",
+        "SELECT id FROM Message WHERE accountId = ? AND NOT EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id)");
+    stmt.bind(1, accountId);
+    return _collectMessageIds(stmt);
+}
+
 // A move still in flight towards the deleted folder is abandoned: the copy stays where
 // the server has it.
 vector<string> MailStore::deletePlacementsForFolder(string folderId) {

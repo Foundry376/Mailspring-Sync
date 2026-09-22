@@ -17,6 +17,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <thread>
 
 #if defined(_MSC_VER)
 #include <direct.h>
@@ -591,9 +593,10 @@ void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & mess
 }
 
 // The caller owns the transaction so a bulk row change and the messages it affects can be
-// committed together.
-void MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects)
+// committed together. Returns how many messages were removed for having no copies left.
+int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects)
 {
+    int removed = 0;
     vector<string> ids = messageIds;
     auto messages = store->findAll<Message>(Query().equal("id", ids));
     for (auto & msg : messages) {
@@ -602,6 +605,7 @@ void MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & mess
                 logger->info("-- Removing \"{}\" ({}), no remaining copies", msg->subject(), msg->id());
             }
             store->remove(msg.get());
+            removed++;
             continue;
         }
         json before = msg->toJSON();
@@ -614,6 +618,55 @@ void MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & mess
         }
         store->save(msg.get());
     }
+    return removed;
+}
+
+/*
+ Detaches every copy in a folder and catches the messages up, in transactions of 100: a
+ message whose only copy was there is removed (store->remove balances its thread and
+ deletes the body and metadata), one with copies elsewhere just loses this folder.
+
+ Deleting all of the folder's rows first and rewriting the messages afterwards would leave
+ a window - minutes wide when a large Trash is emptied with a pause between chunks - in
+ which a quit or a crash strands messages with no MessageFolder row and a stale snapshot.
+ `pause` gives the client time to keep up with a mass deletion.
+ */
+void MailProcessor::detachMessagesFromFolder(string folderId, std::chrono::milliseconds pause)
+{
+    vector<string> affected = store->messageIdsWithPlacementsInFolder(folderId);
+    if (affected.empty()) {
+        return;
+    }
+    bool logSubjects = affected.size() < 20;
+    for (auto chunk : MailUtils::chunksOfVector(affected, 100)) {
+        int removed = 0;
+        {
+            MailStoreTransaction transaction{store, "detachMessagesFromFolder"};
+            store->deletePlacementsForFolder(folderId, chunk);
+            removed = refreshMessagesInOpenTransaction(chunk, logSubjects);
+            transaction.commit();
+        }
+        logger->info("-- Deleted {} local messages, {} kept copies elsewhere", removed, chunk.size() - removed);
+        if (pause.count() > 0) {
+            std::this_thread::sleep_for(pause);
+        }
+    }
+}
+
+/*
+ Backstop for messages left with no MessageFolder row at all. Every other path to a
+ message id runs through MessageFolder, so an orphan is invisible in the client and
+ immortal in the database; only a scan of Message itself can find one. The placement
+ helpers are not supposed to produce any, so a non-zero count is worth a warning.
+ */
+void MailProcessor::sweepOrphanMessages()
+{
+    vector<string> orphans = store->orphanMessageIds(account->id());
+    if (orphans.empty()) {
+        return;
+    }
+    logger->warn("Sync loop removing {} messages left with no copies at all.", orphans.size());
+    saveMessagesAfterPlacementChange(orphans);
 }
 
 /*

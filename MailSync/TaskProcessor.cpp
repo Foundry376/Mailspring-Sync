@@ -2402,36 +2402,11 @@ void TaskProcessor::performRemoteExpungeAllInFolder(Task * task) {
     }
     logger->info("-- Expunged {}", path);
     
-    // Drop the folder's placements, then rewrite the affected messages: a message whose
-    // only copy was here is removed (store->remove balances its thread and deletes the
-    // body), one with copies elsewhere just loses this folder. This runs in performRemote
-    // because it takes too long for performLocal, in chunks with a pause so the app can
-    // keep up with the mass deletion.
-    vector<string> affected;
-    {
-        MailStoreTransaction t{store, "performRemoteExpungeAllInFolder"};
-        affected = store->deletePlacementsForFolder(id);
-        t.commit();
-    }
-    for (auto chunk : MailUtils::chunksOfVector(affected, 100)) {
-        int removed = 0;
-        {
-            MailStoreTransaction t{store, "performRemoteExpungeAllInFolder"};
-            auto messages = store->findAll<Message>(Query().equal("id", chunk));
-            for (auto & msg : messages) {
-                store->refreshMessageFromPlacements(*msg);
-                if (store->placementsForMessage(msg->id()).empty()) {
-                    store->remove(msg.get());
-                    removed++;
-                } else {
-                    store->save(msg.get());
-                }
-            }
-            t.commit();
-        }
-        logger->info("-- Deleted {} local messages, {} kept copies elsewhere", removed, chunk.size() - removed);
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    }
+    // Drop the folder's placements and rewrite the affected messages. This runs in
+    // performRemote because it takes too long for performLocal, in chunks with a pause so
+    // the app can keep up with the mass deletion.
+    MailProcessor processor{account, store};
+    processor.detachMessagesFromFolder(id, std::chrono::milliseconds(300));
 }
 
 void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {

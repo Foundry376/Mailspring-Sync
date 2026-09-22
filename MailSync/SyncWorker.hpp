@@ -39,6 +39,7 @@ class SyncWorker {
     std::atomic<bool> idleShouldReloop{false};
     bool idleExitedWithError = false;
     int iterationsSinceLaunch = 0;
+    time_t lastOrphanSweepAt = 0;
 
     // Per-folder count of messages the last truncated full-folder scan still needed, used to tell
     // a draining backlog (count falls each pass) from one that can never drain (count stays put).

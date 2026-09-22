@@ -142,7 +142,10 @@ public:
     vector<string> expiredTombstoneMessageIds(string accountId, time_t before);
     void deleteExpiredTombstones(string accountId, time_t before, const vector<string> & messageIds);
     void deletePlacementsForMessage(string messageId);
+    vector<string> messageIdsWithPlacementsInFolder(string folderId);
+    void deletePlacementsForFolder(string folderId, const vector<string> & messageIds);
     vector<string> deletePlacementsForFolder(string folderId);
+    vector<string> orphanMessageIds(string accountId);
 
     void setStreamDelay(int streamMaxDelay);
     

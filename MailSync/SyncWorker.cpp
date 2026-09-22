@@ -27,6 +27,7 @@
 
 
 #define CACHE_CLEANUP_INTERVAL      60 * 60
+#define ORPHAN_SWEEP_INTERVAL       60 * 60
 #define SHALLOW_SCAN_INTERVAL       60 * 2
 #define DEEP_SCAN_INTERVAL          60 * 10
 // How often we verify a CONDSTORE+QRESYNC folder against the server in full. These servers tell us
@@ -730,6 +731,12 @@ bool SyncWorker::syncNow()
     // re-created, without metadata, once the destination catches up.
     if (everyFolderCovered) {
         processor->sweepExpiredTombstones(passStartedAt);
+        // Backstop for messages a bulk deletion left with no copies at all. It is a full
+        // scan of Message, so it runs on the body-cache cadence rather than every pass.
+        if (time(0) - lastOrphanSweepAt > ORPHAN_SWEEP_INTERVAL) {
+            lastOrphanSweepAt = time(0);
+            processor->sweepOrphanMessages();
+        }
     } else {
         logger->info("Skipping the tombstone sweep: a folder was skipped, still in initial sync, or had a fetch truncated this pass.");
     }
@@ -1011,6 +1018,17 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             }
         }
 
+        // Detach the copies in folders the server no longer has before their rows go, in
+        // bounded transactions. Folder::afterRemove deletes them inside the transaction
+        // below and the messages were caught up only after it committed, so a quit in
+        // between left them with no placements and a stale snapshot.
+        for (auto const & item : unusedLocalFolders) {
+            processor->detachMessagesFromFolder(item.first);
+        }
+        for (auto const & item : unusedLocalLabels) {
+            processor->detachMessagesFromFolder(item.first);
+        }
+
         // Phase 2: SHORT transaction with only writes.
         // Existing items are reloaded fresh to avoid overwriting concurrent changes.
         MailStoreTransaction transaction{store, "syncFoldersAndLabels"};
@@ -1049,8 +1067,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         }
         transaction.commit();
 
-        // The messages that held copies in a removed folder are updated after the folder
-        // transaction commits: there can be as many as the account has messages.
+        // Anything the detach above missed - a copy another worker recorded while it ran.
         for (auto const & item : unusedLocalFolders) {
             processor->saveMessagesAfterPlacementChange(item.second->messageIdsAffectedByRemove());
         }
