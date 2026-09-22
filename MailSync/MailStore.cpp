@@ -854,9 +854,27 @@ void MailStore::beginPlacementMove(Message & msg, string fromFolderId, uint32_t 
  - held by another message: a stale row for a UID the server has since reassigned. It
    is deleted so the unique (folder, UID) index admits ours, and that message's id is
    returned so the caller rewrites its snapshot, as after upsertPlacement.
+
+ A move whose source and destination are the same copy is not a move: it settles a copy
+ that is already where it belongs, and its only effect is to clear the pending marker.
+ It has to be handled before the holder lookup, which would otherwise find this very row,
+ treat it as the destination the scan already recorded, and delete it as the source -
+ leaving the message with no placement at all.
  */
 string MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid) {
     assertCorrectThread();
+
+    if (fromFolderId == toFolderId && oldUid == newUid) {
+        auto & settle = _placementStatement("commitMoveInPlace",
+            "UPDATE MessageFolder SET pendingFolderId = NULL, unlinkedAt = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
+        settle.bind(1, msg.id());
+        settle.bind(2, fromFolderId);
+        settle.bind(3, (long long)oldUid);
+        settle.exec();
+        settle.reset();
+        refreshMessageFromPlacements(msg);
+        return "";
+    }
 
     string holder;
     if (newUid > 0) {
