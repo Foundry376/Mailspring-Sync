@@ -1015,13 +1015,34 @@ vector<string> MailStore::tombstoneUnassignedPlacements(Folder & folder, time_t 
     return _collectMessageIds(stmt);
 }
 
-vector<string> MailStore::deleteExpiredTombstones(string accountId, time_t before) {
+// The sweep is split so the deletion and the repair of the messages that held the rows
+// can happen in one transaction per chunk (MailProcessor::sweepExpiredTombstones). A
+// tombstone deleted without its message being revisited is unrecoverable: nothing else
+// produces the id of a message that has no MessageFolder row left.
+vector<string> MailStore::expiredTombstoneMessageIds(string accountId, time_t before) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("deleteExpired",
-        "DELETE FROM MessageFolder WHERE accountId = ? AND unlinkedAt IS NOT NULL AND unlinkedAt < ? RETURNING messageId");
+    auto & stmt = _placementStatement("expiredTombstoneIds",
+        "SELECT DISTINCT messageId FROM MessageFolder WHERE accountId = ? AND unlinkedAt IS NOT NULL AND unlinkedAt < ?");
     stmt.bind(1, accountId);
     stmt.bind(2, (long long)before);
     return _collectMessageIds(stmt);
+}
+
+void MailStore::deleteExpiredTombstones(string accountId, time_t before, const vector<string> & messageIds) {
+    assertCorrectThread();
+    if (messageIds.empty()) {
+        return;
+    }
+    SQLite::Statement stmt(_db,
+        "DELETE FROM MessageFolder WHERE accountId = ? AND unlinkedAt IS NOT NULL AND unlinkedAt < ? "
+        "AND messageId IN (" + MailUtils::qmarks(messageIds.size()) + ")");
+    stmt.bind(1, accountId);
+    stmt.bind(2, (long long)before);
+    int idx = 3;
+    for (auto & id : messageIds) {
+        stmt.bind(idx++, id);
+    }
+    stmt.exec();
 }
 
 void MailStore::deletePlacementsForMessage(string messageId) {

@@ -576,26 +576,34 @@ void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & mess
     vector<string> ids = messageIds;
     for (auto chunk : MailUtils::chunksOfVector(ids, 100)) {
         MailStoreTransaction transaction{store, "saveMessagesAfterPlacementChange"};
-        auto messages = store->findAll<Message>(Query().equal("id", chunk));
-        for (auto & msg : messages) {
-            if (store->placementsForMessage(msg->id()).empty()) {
-                if (logSubjects) {
-                    logger->info("-- Removing \"{}\" ({}), no remaining copies", msg->subject(), msg->id());
-                }
-                store->remove(msg.get());
-                continue;
-            }
-            json before = msg->toJSON();
-            store->refreshMessageFromPlacements(*msg);
-            if (msg->toJSON() == before) {
-                continue;
-            }
-            if (logSubjects) {
-                logger->info("-- \"{}\" ({}) now in {}", msg->subject(), msg->id(), msg->folders().dump());
-            }
-            store->save(msg.get());
-        }
+        refreshMessagesInOpenTransaction(chunk, logSubjects);
         transaction.commit();
+    }
+}
+
+// The caller owns the transaction so a bulk row change and the messages it affects can be
+// committed together.
+void MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects)
+{
+    vector<string> ids = messageIds;
+    auto messages = store->findAll<Message>(Query().equal("id", ids));
+    for (auto & msg : messages) {
+        if (store->placementsForMessage(msg->id()).empty()) {
+            if (logSubjects) {
+                logger->info("-- Removing \"{}\" ({}), no remaining copies", msg->subject(), msg->id());
+            }
+            store->remove(msg.get());
+            continue;
+        }
+        json before = msg->toJSON();
+        store->refreshMessageFromPlacements(*msg);
+        if (msg->toJSON() == before) {
+            continue;
+        }
+        if (logSubjects) {
+            logger->info("-- \"{}\" ({}) now in {}", msg->subject(), msg->id(), msg->folders().dump());
+        }
+        store->save(msg.get());
     }
 }
 
@@ -606,20 +614,28 @@ void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & mess
  that held it saved or removed. The save matters even when copies remain: derived
  unread/starred are OR'd over tombstones, so a message whose only unread copy was
  deleted elsewhere reads as unread until the tombstone is gone.
+
+ Each chunk deletes its rows and repairs its messages in one transaction. Deleting every
+ tombstone first and repairing afterwards would leave a window - the whole chunked loop,
+ seconds when a large trash is emptied - in which a quit or a crash strands messages with
+ no MessageFolder row and a stale, non-empty snapshot. Nothing would ever revisit them:
+ the tombstones that named them are gone, and folder scans only produce ids through
+ MessageFolder.
  */
 void MailProcessor::sweepExpiredTombstones(time_t before)
 {
-    vector<string> candidates;
-    {
-        MailStoreTransaction transaction{store, "deleteExpiredTombstones"};
-        candidates = store->deleteExpiredTombstones(account->id(), before);
-        transaction.commit();
-    }
+    vector<string> candidates = store->expiredTombstoneMessageIds(account->id(), before);
     if (candidates.empty()) {
         return;
     }
     logger->info("Sync loop sweeping expired tombstones from {} messages.", candidates.size());
-    saveMessagesAfterPlacementChange(candidates);
+    bool logSubjects = candidates.size() < 20;
+    for (auto chunk : MailUtils::chunksOfVector(candidates, 100)) {
+        MailStoreTransaction transaction{store, "sweepExpiredTombstones"};
+        store->deleteExpiredTombstones(account->id(), before, chunk);
+        refreshMessagesInOpenTransaction(chunk, logSubjects);
+        transaction.commit();
+    }
 }
 
 void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull) {

@@ -139,7 +139,8 @@ public:
     vector<string> tombstonePlacements(Folder & folder, Query & uidQuery, time_t now);
     void resetPlacementUIDs(Folder & folder);
     vector<string> tombstoneUnassignedPlacements(Folder & folder, time_t now);
-    vector<string> deleteExpiredTombstones(string accountId, time_t before);
+    vector<string> expiredTombstoneMessageIds(string accountId, time_t before);
+    void deleteExpiredTombstones(string accountId, time_t before, const vector<string> & messageIds);
     void deletePlacementsForMessage(string messageId);
     vector<string> deletePlacementsForFolder(string folderId);
 

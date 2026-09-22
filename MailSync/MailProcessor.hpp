@@ -52,6 +52,7 @@ public:
     void saveMessagesAfterPlacementChange(const vector<string> & messageIds);
     
 private:
+    void refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects);
     void saveDisplacedMessage(const string & messageId);
     void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
     void upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references);
