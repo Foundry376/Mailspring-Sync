@@ -1217,8 +1217,7 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
             json before = _clientVisibleState(*safe);
             auto rows = store->placementsForMessage(safe->id());
             for (auto item : itemsByMessage[safe->id()]) {
-                string displaced = confirmPlacementChange(*safe, *item, rows);
-                if (!displaced.empty()) {
+                for (auto & displaced : confirmPlacementChange(*safe, *item, rows)) {
                     displacedIds.push_back(displaced);
                 }
             }
@@ -1263,17 +1262,20 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
 // captured (folder, UID) - reset to UID 0 by a UIDVALIDITY change while the task ran -
 // is left alone with its marker; the folder's next scan records where the copy is.
 // A marker a later task's local phase put on the row (an undo issued before this move
-// reached the server) must survive the commit, which clears it. Returns the id of another
-// message displaced from the destination UID, or "" (MailStore::commitPlacementMove).
-string TaskProcessor::confirmPlacementChange(Message & msg, TaskPlacement & item, const vector<Placement> & rows) {
+// reached the server) must survive the commit, which clears it. Returns the ids of the
+// other messages displaced from the UIDs this item claimed - the destination of the move
+// and the landing UID of every copy an undo restored by COPY - so the caller can rewrite
+// their snapshots (MailStore::commitPlacementMove, MailStore::upsertPlacement).
+vector<string> TaskProcessor::confirmPlacementChange(Message & msg, TaskPlacement & item, const vector<Placement> & rows) {
     auto & p = item.placement;
+    vector<string> displacedIds;
 
     if (item.removed) {
         store->removePlacement(msg, p.folderId, p.remoteUID);
-        return "";
+        return displacedIds;
     }
     if (!item.moved) {
-        return "";
+        return displacedIds;
     }
 
     const Placement * current = nullptr;
@@ -1285,10 +1287,13 @@ string TaskProcessor::confirmPlacementChange(Message & msg, TaskPlacement & item
     }
     if (current == nullptr) {
         logger->warn("-- Message {} no longer has a placement at ({}, {}); leaving its move to be re-derived", msg.id(), p.folderId, p.remoteUID);
-        return "";
+        return displacedIds;
     }
     string laterPending = current->pendingFolderId;
     string displaced = store->commitPlacementMove(msg, p.folderId, p.remoteUID, item.destFolderId, item.movedUID);
+    if (!displaced.empty()) {
+        displacedIds.push_back(displaced);
+    }
     if (!laterPending.empty() && laterPending != item.destFolderId) {
         store->beginPlacementMove(msg, item.destFolderId, item.movedUID, laterPending);
     }
@@ -1299,9 +1304,12 @@ string TaskProcessor::confirmPlacementChange(Message & msg, TaskPlacement & item
             continue;
         }
         MessageAttributes attrs{copy.second, p.unread, p.starred, p.draft, _labelsOf(p)};
-        store->upsertPlacement(msg, *folder, copy.second, attrs);
+        string displacedByCopy = store->upsertPlacement(msg, *folder, copy.second, attrs);
+        if (!displacedByCopy.empty()) {
+            displacedIds.push_back(displacedByCopy);
+        }
     }
-    return displaced;
+    return displacedIds;
 }
 
 void TaskProcessor::performLocalSaveDraft(Task * task) {

@@ -79,7 +79,7 @@ private:
 
     void performLocalChangeOnMessages(Task * task, LocalChangeFn modifyLocalMessage);
     void performRemoteChangeOnMessages(Task * task, bool isMove, RemoteChangeFn applyInFolder);
-    string confirmPlacementChange(Message & msg, TaskPlacement & item, const vector<Placement> & rows);
+    vector<string> confirmPlacementChange(Message & msg, TaskPlacement & item, const vector<Placement> & rows);
     void performLocalSaveDraft(Task * task);
     void performLocalDestroyDraft(Task * task);
     void performRemoteDestroyDraft(Task * task);
