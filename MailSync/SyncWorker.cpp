@@ -1292,9 +1292,11 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     // we ask for changes within the last 25,000 UIDs only. Our intermittent "deep" scan
     // will recover the rest of the changes so it's safe not to ingest them here.
     IndexSet * uids = IndexSet::indexSetWithRange(RangeMake(1, UINT64_MAX));
+    bool limited = false;
     if (!mustSyncAll && remoteModseq - modseq > MODSEQ_TRUNCATION_THRESHOLD) {
         uint32_t bottomUID = remoteUIDNext > MODSEQ_TRUNCATION_UID_COUNT ? remoteUIDNext - MODSEQ_TRUNCATION_UID_COUNT : 1;
         uids = IndexSet::indexSetWithRange(RangeMake(bottomUID, UINT64_MAX));
+        limited = true;
         logger->warn("syncFolderChangesViaCondstore - request limited to {}-*, remaining changes will be detected via deep scan", bottomUID);
     }
 
@@ -1328,7 +1330,12 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     tombstoneVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
 
     folder.localStatus()[LS_UIDNEXT] = remoteUIDNext;
-    folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
+    // A limited request has not applied the changes below its bottom UID. Recording the
+    // server's modseq here would make the background pass, which asks for everything, see
+    // nothing left to fetch, and those changes would wait for the daily gap scan.
+    if (!limited) {
+        folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
+    }
 }
 
 void SyncWorker::tombstoneVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source) {
