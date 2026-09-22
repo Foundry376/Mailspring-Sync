@@ -557,7 +557,13 @@ bool SyncWorker::syncNow()
                 processor->tombstoneUnassignedPlacements(*folder);
             }
         }
-        
+
+        // A folder still walking down towards UID 1 has copies this pass has not recorded,
+        // so the sweep cannot tell a copy that moved into it from one the server dropped.
+        // Same reasoning as the truncation guards below, for the other way a pass can end
+        // without having seen a folder's whole range.
+        everyFolderCovered = everyFolderCovered && (syncedMinUID <= 1);
+
         // Step 3: A) Retrieve new messages  B) update existing messages  C) delete missing messages
         // CONDSTORE, when available, does A + B.
         // XYZRESYNC, when available, does C
@@ -725,7 +731,7 @@ bool SyncWorker::syncNow()
     if (everyFolderCovered) {
         processor->sweepExpiredTombstones(passStartedAt);
     } else {
-        logger->info("Skipping the tombstone sweep: a folder was skipped or a fetch truncated this pass.");
+        logger->info("Skipping the tombstone sweep: a folder was skipped, still in initial sync, or had a fetch truncated this pass.");
     }
     
     logger->info("Sync loop complete.");
