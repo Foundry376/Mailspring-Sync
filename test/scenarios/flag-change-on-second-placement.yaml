@@ -34,6 +34,3 @@ expect:
   counts: {INBOX: 14, Sent: 7}
   stable: {passes: 2}
   running: true
-  # Foreground and background update the same message concurrently and the thread delta is
-  # applied twice: docs/tasks/concurrent-update-double-counts-thread.md
-  invariants: {skip: [thread_refcounts]}

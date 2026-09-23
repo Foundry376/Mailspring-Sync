@@ -250,12 +250,12 @@ Things learned from Dovecot while building the conformance suite, all now modell
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up
 in `docs/tasks/` (symptom, failing scenario, how it was found, likely cause, definition of
-done) that is deleted when the fix lands. As of 2026-09-21 there are none: the suite found
+done) that is deleted when the fix lands. As of 2026-09-22 there are none: the suite found
 five engine bugs on 2026-09-19/20 (two VANISHED-accumulator segfaults, the `\\All` mailbox
 never clearing `busy`, and two consequences of Dovecot's stale per-connection view) and all
-five were fixed within two days (`6c1395e`, `4c25380`, `c5619a8`, `5080fb2`). Open on
-2026-09-22: `concurrent-update-double-counts-thread.md` (found by the invariants; four
-scenarios skip `thread_refcounts` until it is fixed).
+five were fixed within two days (`6c1395e`, `4c25380`, `c5619a8`, `5080fb2`). The invariants
+found a sixth on 2026-09-22, both workers applying one server change's thread delta to a
+message loaded outside the transaction, fixed the same day.
 
 Scenario timing rule: after a server-side change on a QRESYNC server, wait for the engine to
 receive it (`wait: {log: "recv \\* VANISHED"}`) before forcing a pass; Dovecot delivers

@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <optional>
 #include <thread>
 
 #if defined(_MSC_VER)
@@ -86,20 +87,53 @@ MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
 
 }
 
+namespace {
+
+// The copy of `messageId` at (folder, UID), if one is recorded - live or tombstoned.
+optional<Placement> placementAt(MailStore * store, const string & messageId, const string & folderId, uint32_t uid) {
+    for (auto & p : store->placementsForMessage(messageId)) {
+        if (p.folderId == folderId && p.remoteUID == uid) {
+            return p;
+        }
+    }
+    return nullopt;
+}
+
+MessageAttributes attributesOfPlacement(const Placement & p) {
+    MessageAttributes attrs{p.remoteUID, p.unread, p.starred, p.draft, {}};
+    for (auto & l : p.labels) {
+        attrs.labels.push_back(l.get<string>());
+    }
+    return attrs;
+}
+
+bool placementIsCurrent(const optional<Placement> & p, const MessageAttributes & reported) {
+    return p && p->isLive() && MessageAttributesMatch(attributesOfPlacement(*p), reported);
+}
+
+} // namespace
+
 /*
  Ingests one copy of a message reported by a folder scan. Message ids are a hash of the
  headers, so a message already known from another folder or UID is found by id and the
- copy recorded as a placement on it. The lookup comes first so a flag change does not
- start a transaction that is rolled back on every message; the insert can still hit a
- constraint error (SQLite 19) when the other worker ingested the same message a moment
- ago, or the two race on one (folder, UID) of the MessageFolder unique index.
+ copy recorded as a placement on it. The lookup and placement comparison come first so an
+ unchanged copy - most of every scan - does not open a transaction; updateMessage makes the
+ decision again inside one. The insert can still hit a constraint error (SQLite 19) when
+ the other worker ingested the same message a moment ago, or the two race on one
+ (folder, UID) of the MessageFolder unique index.
  */
 shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
-    Query q = Query().equal("id", MailUtils::idForMessage(folder.accountId(), folder.path(), mMsg));
-    auto localMessage = store->find<Message>(q);
+    string id = MailUtils::idForMessage(folder.accountId(), folder.path(), mMsg);
+    auto localMessage = store->find<Message>(Query().equal("id", id));
     if (localMessage != nullptr) {
-        updateMessage(localMessage.get(), mMsg, folder, syncDataTimestamp);
-        return localMessage;
+        auto existing = placementAt(store, id, folder.id(), mMsg->uid());
+        if (placementIsCurrent(existing, MessageAttributesForMessage(mMsg))) {
+            return localMessage;
+        }
+        localMessage = updateMessage(id, mMsg, folder, syncDataTimestamp);
+        if (localMessage != nullptr) {
+            return localMessage;
+        }
     }
     try {
         return insertMessage(mMsg, folder, syncDataTimestamp);
@@ -107,11 +141,10 @@ shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * m
         if (ex.getErrorCode() != 19) { // constraint failed
             throw;
         }
-        localMessage = store->find<Message>(q);
+        localMessage = updateMessage(id, mMsg, folder, syncDataTimestamp);
         if (localMessage.get() == nullptr) {
             throw;
         }
-        updateMessage(localMessage.get(), mMsg, folder, syncDataTimestamp);
         return localMessage;
     }
 }
@@ -196,37 +229,42 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
 }
 
 /*
- Records the copy at (folder, uid) on a message that already exists. Only that placement
- is compared against what the server reported. The `syncedAt` guard is message-level:
- while a task the user queued is in flight, a scan of the source folder must not
- resurrect the copy being moved away.
+ Records the copy at (folder, uid) on a message that already exists and returns the message
+ as saved, or nullptr if it no longer exists. The message and its placements are read after
+ BEGIN IMMEDIATE: both workers can process the same server change at once, and a copy loaded
+ before the other worker committed would apply that change's thread delta a second time and
+ write its stale JSON over the other worker's. Only the placement at (folder, uid) is compared
+ against what the server reported. The `syncedAt` guard is message-level: while a task the
+ user queued is in flight, a scan of the source folder must not resurrect the copy being
+ moved away.
  */
-void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
+shared_ptr<Message> MailProcessor::updateMessage(const string & messageId, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
 {
-    if (local->syncedAt() > syncDataTimestamp) {
-        logger->warn("Ignoring changes to {}, local data is newer {} < {}", local->subject(), syncDataTimestamp, local->syncedAt());
-        return;
-    }
-    
     auto updated = MessageAttributesForMessage(remote);
 
-    bool noChanges = false;
-    bool known = false;
-    for (auto & p : store->placementsForMessage(local->id())) {
-        if (p.folderId != folder.id() || p.remoteUID != updated.uid) {
-            continue;
-        }
-        known = true;
-        MessageAttributes existing{p.remoteUID, p.unread, p.starred, p.draft, {}};
-        for (auto & l : p.labels) {
-            existing.labels.push_back(l.get<string>());
-        }
-        noChanges = p.isLive() && MessageAttributesMatch(existing, updated);
-        if (noChanges) {
-            break;
-        }
+    // Every return commits: a rollback would also drop the store's cached statements.
+    MailStoreTransaction transaction{store, "updateMessage"};
+
+    auto local = store->find<Message>(Query().equal("id", messageId));
+    if (local == nullptr) {
+        transaction.commit();
+        return nullptr;
+    }
+    if (local->syncedAt() > syncDataTimestamp) {
+        logger->warn("Ignoring changes to {}, local data is newer {} < {}", local->subject(), syncDataTimestamp, local->syncedAt());
+        transaction.commit();
+        return local;
+    }
+
+    auto p = placementAt(store, messageId, folder.id(), updated.uid);
+    if (placementIsCurrent(p, updated)) {
+        transaction.commit();
+        return local;
+    }
+    if (p) {
+        auto existing = attributesOfPlacement(*p);
         logger->info("- Updating message {} in {}", local->id(), folder.path());
-        if (!p.isLive()) {
+        if (!p->isLive()) {
             logger->info("-- UID {} reappeared", updated.uid);
         }
         if (updated.unread != existing.unread) {
@@ -241,40 +279,32 @@ void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder 
         if (updated.labels != existing.labels) {
             logger->info("-- XGMLabels ({} to {})", json(existing.labels).dump(), json(updated.labels).dump());
         }
-        break;
-    }
-    if (noChanges) {
-        return;
-    }
-    if (!known) {
+    } else {
         logger->info("- Message {} has a copy in {} (UID {})", local->id(), folder.path(), updated.uid);
     }
 
-    {
-        MailStoreTransaction transaction{store, "updateMessage"};
+    json before = local->toJSON();
+    string displaced = store->upsertPlacement(*local, folder, updated.uid, updated);
 
-        json before = local->toJSON();
-        string displaced = store->upsertPlacement(*local, folder, updated.uid, updated);
-
-        if (account->provider() == "gmail") {
-            string role = folder.role();
-            if (role == "all" || role == "spam" || role == "trash") {
-                store->removePlacementsOutsideFolder(*local, folder.id());
-            }
+    if (account->provider() == "gmail") {
+        string role = folder.role();
+        if (role == "all" || role == "spam" || role == "trash") {
+            store->removePlacementsOutsideFolder(*local, folder.id());
         }
-
-        // Only a change the client can see is worth a persist delta and a thread update; a
-        // second copy's flags or a UIDVALIDITY relink may have changed the row alone.
-        if (local->toJSON() != before) {
-            logger->info("-- Folders now {}", local->folders().dump());
-            local->setSyncedAt(syncDataTimestamp);
-            store->save(local);
-        }
-
-        saveDisplacedMessage(displaced);
-
-        transaction.commit();
     }
+
+    // Only a change the client can see is worth a persist delta and a thread update; a
+    // second copy's flags or a UIDVALIDITY relink may have changed the row alone.
+    if (local->toJSON() != before) {
+        logger->info("-- Folders now {}", local->folders().dump());
+        local->setSyncedAt(syncDataTimestamp);
+        store->save(local.get());
+    }
+
+    saveDisplacedMessage(displaced);
+
+    transaction.commit();
+    return local;
 }
 
 // A (folder, UID) row taken over from another message leaves that message's snapshot
