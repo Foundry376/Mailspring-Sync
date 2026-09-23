@@ -11,7 +11,7 @@ description: >
   next new-mail fetch there (`UID FETCH 4:5`, re-issued every pass because the plain path
   only advances LS_UIDNEXT in shallow/deep scans) is answered from that connection's stale
   view, so the Archive copy the undo just moved out is re-added as a placement and only
-  tombstoned a pass later - the engine's own move flaps once. The plan's Phase 5
+  deleted a pass later - the engine's own move flaps once. The plan's Phase 5
   end-of-pass `UID FETCH (UID)` verification would catch it.
 source: "docs/message-placements-plan.md 3.1 (sourceFolderIds) and 3.3 (engine writes undoPlacements; client copies it to restorePlacements); TaskProcessor.cpp _movesForMessage restorePlacements branch; client change-folder-task.ts createUndoTasks"
 servers:

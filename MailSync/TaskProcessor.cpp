@@ -97,10 +97,10 @@ static json _clientVisibleState(Message & msg) {
     };
 }
 
-static bool _hasLiveCopyIn(const vector<Placement> & placements, const string & folderId);
+static bool _hasServerCopyIn(const vector<Placement> & placements, const string & folderId);
 
-static bool _hasLiveCopyIn(MailStore * store, Message & msg, const string & folderId) {
-    return _hasLiveCopyIn(store->placementsForMessage(msg.id()), folderId);
+static bool _hasServerCopyIn(MailStore * store, Message & msg, const string & folderId) {
+    return _hasServerCopyIn(store->placementsForMessage(msg.id()), folderId);
 }
 
 // The UID each item's copy received in `dest`, aligned with `items` (0 when unknown):
@@ -307,12 +307,12 @@ void _removeMessagesResilient(IMAPSession * session, MailStore * store, string a
     }
 }
 
-// Deletes the message's live server copies, grouped by folder. Used for drafts, whose
+// Deletes the message's server copies, grouped by folder. Used for drafts, whose
 // copies are never moved anywhere.
 static void _removeMessageCopiesResilient(IMAPSession * session, MailStore * store, string accountId, Message & msg) {
     map<string, IndexSet *> uidsByPath;
     for (auto & p : store->placementsForMessage(msg.id())) {
-        if (!p.isLive() || p.remoteUID == 0) {
+        if (p.remoteUID == 0) {
             continue;
         }
         auto folder = store->folderById(accountId, p.folderId);
@@ -422,7 +422,7 @@ static vector<PlacementMove> _movesForMessage(MailStore * store, Message * msg, 
         set<string> home(targets.begin(), targets.end());
         vector<Placement> displaced;
         for (auto & p : placements) {
-            if (!p.isLive() || p.remoteUID == 0) {
+            if (p.remoteUID == 0) {
                 continue;
             }
             string role = msg->folderRole(store, p.folderId);
@@ -465,7 +465,7 @@ static vector<PlacementMove> _movesForMessage(MailStore * store, Message * msg, 
     };
 
     for (auto & p : placements) {
-        if (!p.isLive() || p.remoteUID == 0) {
+        if (p.remoteUID == 0) {
             continue;
         }
         bool pendingElsewhere = !p.pendingFolderId.empty() && p.pendingFolderId != dest;
@@ -484,9 +484,9 @@ static vector<PlacementMove> _movesForMessage(MailStore * store, Message * msg, 
     return moves;
 }
 
-static bool _hasLiveCopyIn(const vector<Placement> & placements, const string & folderId) {
+static bool _hasServerCopyIn(const vector<Placement> & placements, const string & folderId) {
     for (auto & p : placements) {
-        if (p.isLive() && p.remoteUID > 0 && p.folderId == folderId) {
+        if (p.remoteUID > 0 && p.folderId == folderId) {
             return true;
         }
     }
@@ -502,7 +502,7 @@ void _applyFolder(MailStore * store, Message * msg, const vector<Placement> & pl
     json undo = json::array();
     for (auto & move : _movesForMessage(store, msg, placements, data)) {
         json entry = {{"folderId", move.placement.folderId}, {"remoteUID", move.placement.remoteUID}};
-        if (move.placement.folderId != move.destFolderId && _hasLiveCopyIn(placements, move.destFolderId)) {
+        if (move.placement.folderId != move.destFolderId && _hasServerCopyIn(placements, move.destFolderId)) {
             entry["removed"] = true;
         }
         undo.push_back(entry);
@@ -544,7 +544,7 @@ void _applyFolderMoveInIMAPFolder(IMAPSession * session, MailStore * store, stri
             if (item->placement.folderId == dest->id()) {
                 item->moved = true;
                 item->movedUID = item->placement.remoteUID;
-            } else if (_hasLiveCopyIn(store, *item->message, dest->id())) {
+            } else if (_hasServerCopyIn(store, *item->message, dest->id())) {
                 toRemove.push_back(item);
             } else {
                 toMove.push_back(item);
@@ -586,7 +586,7 @@ static void _restoreAdditionalCopies(IMAPSession * session, MailStore * store, s
             covered.insert(item->destFolderId);
         }
         for (auto & folderId : _restoreFolderIdsFor(source->message.get(), data)) {
-            if (covered.count(folderId) || _hasLiveCopyIn(store, *source->message, folderId)) {
+            if (covered.count(folderId) || _hasServerCopyIn(store, *source->message, folderId)) {
                 continue;
             }
             covered.insert(folderId);
@@ -1162,7 +1162,7 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, LocalChangeFn modi
 }
 
 /*
- Runs the server side of a message task: every live copy the task addresses is grouped by
+ Runs the server side of a message task: every server copy the task addresses is grouped by
  the folder holding it and `applyInFolder` runs once per folder. The network I/O happens
  outside any transaction, so the messages are reloaded afterwards and the outcome applied
  to their rows then, together with releasing the syncedAt lock. The confirm save usually
@@ -1182,7 +1182,7 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
             }
         } else {
             for (auto & p : placements) {
-                if (p.isLive() && p.remoteUID > 0) {
+                if (p.remoteUID > 0) {
                     items.push_back(TaskPlacement{msg, p, ""});
                 }
             }
@@ -1233,22 +1233,16 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
             store->save(safe.get());
         }
         // A message that lost a stale (folder, UID) row to a moved or restored copy has a
-        // snapshot listing a copy it no longer has, and when that was its last row it is
-        // gone: refreshMessageFromPlacements leaves a row-less message's derived flags
-        // alone, so saving it would keep an orphan alive in no folder at all.
+        // snapshot listing a copy it no longer has. Without another row it is an orphan,
+        // swept at the end of the pass like any other vanished copy.
         for (auto & id : displacedIds) {
             auto displaced = store->find<Message>(Query().equal("id", id));
             if (displaced == nullptr) {
                 continue;
             }
             logger->warn("-- Message {} lost a placement to a moved copy at the same UID", id);
-            if (store->placementsForMessage(id).empty()) {
-                logger->warn("-- Message {} has no remaining copies, removing it", id);
-                store->remove(displaced.get());
-            } else {
-                store->refreshMessageFromPlacements(*displaced);
-                store->save(displaced.get());
-            }
+            store->refreshMessageFromPlacements(*displaced);
+            store->save(displaced.get());
             clientVisibleChange = true;
         }
         if (!clientVisibleChange) {
@@ -1351,14 +1345,12 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
     }
 }
 
-// A draft with no live copy anywhere would be swept as an orphan at the end of the next
-// sync pass. A brand-new draft, or one whose server copy vanished while the user kept
-// editing it, is given a Drafts-folder placement at UID 0 (not on the server).
+// A draft with no copy anywhere would be swept as an orphan at the end of the next sync
+// pass. A brand-new draft, or one whose server copy vanished while the user kept editing
+// it, is given a Drafts-folder placement at UID 0 (not on the server).
 void TaskProcessor::ensureDraftPlacement(Message & draft) {
-    for (auto & p : store->placementsForMessage(draft.id())) {
-        if (p.isLive()) {
-            return;
-        }
+    if (!store->placementsForMessage(draft.id()).empty()) {
+        return;
     }
     auto folder = draftsFolder();
     MessageAttributes attrs{0, draft.isUnread(), draft.isStarred(), true, {}};
@@ -1391,7 +1383,7 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
             
             auto stub = Message::messageWithDeletionPlaceholderFor(draft);
             for (auto & p : placements) {
-                if (!p.isLive() || p.remoteUID == 0) {
+                if (p.remoteUID == 0) {
                     continue;
                 }
                 auto folder = store->folderById(account->id(), p.folderId);
@@ -1404,6 +1396,8 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
                     store->beginPlacementMove(*stub, p.folderId, p.remoteUID, trash->id());
                 }
             }
+            // Records a stub for a draft that was never on the server as an orphan.
+            store->refreshMessageFromPlacements(*stub);
             // The placement keeps the draft's flags so the Drafts scan sees no change;
             // the placeholder itself must not appear in the draft list.
             stub->setDraft(false);
@@ -2426,7 +2420,7 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
     shared_ptr<Folder> folder = nullptr;
     uint32_t uid = 0;
     for (auto & p : store->placementsForMessage(msg->id())) {
-        if (!p.isLive() || p.remoteUID == 0) {
+        if (p.remoteUID == 0) {
             continue;
         }
         auto candidate = store->folderById(msg->accountId(), p.folderId);
@@ -2547,7 +2541,7 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
         // missing is not counted as an export that never happens.
         SQLite::Statement count(store->db(),
             "SELECT COUNT(*) FROM MessageFolder INNER JOIN Message ON Message.id = MessageFolder.messageId "
-            "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0 AND MessageFolder.unlinkedAt IS NULL");
+            "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0");
         count.bind(1, task->accountId());
         count.bind(2, folderId);
         if (count.executeStep()) {
@@ -2604,7 +2598,7 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
             SQLite::Statement page(store->db(),
                 "SELECT MessageFolder.remoteUID, Message.id, Message.subject, Message.date FROM MessageFolder "
                 "INNER JOIN Message ON Message.id = MessageFolder.messageId "
-                "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > ? AND MessageFolder.unlinkedAt IS NULL "
+                "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > ? "
                 "ORDER BY MessageFolder.remoteUID ASC LIMIT ?");
             page.bind(1, task->accountId());
             page.bind(2, folderId);

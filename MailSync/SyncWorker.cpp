@@ -27,7 +27,6 @@
 
 
 #define CACHE_CLEANUP_INTERVAL      60 * 60
-#define ORPHAN_SWEEP_INTERVAL       60 * 60
 #define SHALLOW_SCAN_INTERVAL       60 * 2
 #define DEEP_SCAN_INTERVAL          60 * 10
 // How often we verify a CONDSTORE+QRESYNC folder against the server in full. These servers tell us
@@ -258,7 +257,7 @@ void SyncWorker::idleCycleIteration()
         // Expunges the server told us about on this connection - during the IDLE we just
         // exited, but also alongside the body fetches and task commands above. It only
         // tells us once, so these are lost if we don't apply them before the FETCH below.
-        tombstoneVanishedUIDs(*inbox, session.takeVanishedMessages(&path), "this connection");
+        deleteVanishedUIDs(*inbox, session.takeVanishedMessages(&path), "this connection");
 
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
 
@@ -350,9 +349,9 @@ bool SyncWorker::syncNow()
     AutoreleasePool pool;
     bool syncAgainImmediately = false;
 
-    // Tombstones written before this instant have had every folder scanned since by the
+    // Messages orphaned before this instant have had every folder scanned since by the
     // time the pass ends, which is the grace period for a copy that moved between folders.
-    // Recorded before any scan so the foreground worker's tombstones get the same grace.
+    // Recorded before any scan so the foreground worker's orphans get the same grace.
     // The grace only holds if every folder's scan this pass covered its whole range: a
     // skipped folder or a truncated fetch leaves copies unrecorded that the sweep would
     // otherwise treat as gone.
@@ -470,12 +469,12 @@ bool SyncWorker::syncNow()
 
         if (localStatus[LS_UIDVALIDITY].get<uint32_t>() != remoteStatus.uidValidity()) {
             // The UIDs the server previously reported for this folder mean nothing now. Every
-            // placement in the folder is set to UID 0 - still live, still visible, no deltas -
+            // placement in the folder is set to UID 0 - still visible, no deltas -
             // and a full scan re-fetches the headers, hashes them to the same message ids and
             // assigns the new UIDs through the ordinary upsert. Only once the scan has covered
             // the whole folder can a row still at UID 0 be called gone; a truncated rebuild
             // leaves its tail at UID 0 for the initial-sync walk to finish, and the walk
-            // tombstones the leftovers when it reaches UID 1.
+            // deletes the leftovers when it reaches UID 1.
             //
             // syncedMinUID is reset to 1 (or to the rebuild's remainder). If the initial scan of
             // the folder had not finished, this can create a large number of messages at once.
@@ -483,7 +482,7 @@ bool SyncWorker::syncNow()
             store->resetPlacementUIDs(*folder);
             auto rebuilt = syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
             if (!rebuilt.truncated) {
-                processor->tombstoneUnassignedPlacements(*folder);
+                processor->deleteUnassignedPlacements(*folder);
             } else {
                 everyFolderCovered = false;
             }
@@ -555,7 +554,7 @@ bool SyncWorker::syncNow()
                 localStatus[LS_LAST_DEEP] = time(0);
                 // Every UID has now been fetched once, so a placement still at UID 0 (the tail
                 // of a truncated UIDVALIDITY rebuild) is a copy the server no longer has.
-                processor->tombstoneUnassignedPlacements(*folder);
+                processor->deleteUnassignedPlacements(*folder);
             }
         }
 
@@ -723,22 +722,16 @@ bool SyncWorker::syncNow()
         store->saveFolderStatus(folder.get(), initialLocalStatus);
     }
     
-    // Copies that vanished before this pass began have had every folder scanned since; if
-    // they reappeared elsewhere the upsert cleared their tombstones. Drop the rest and remove
-    // messages left with no copies at all. A pass that skipped a folder or truncated a fetch
+    // Messages that lost their last copy before this pass began have had every folder scanned
+    // since; if a copy reappeared elsewhere the upsert cleared the orphan record. Remove the
+    // rest. A pass that skipped a folder or truncated a fetch
     // at MAX_FULL_HEADERS_REQUEST_SIZE has not recorded every copy: a bulk move of more
     // messages than one fetch carries would otherwise have its remainder removed here and
     // re-created, without metadata, once the destination catches up.
     if (everyFolderCovered) {
-        processor->sweepExpiredTombstones(passStartedAt);
-        // Backstop for messages a bulk deletion left with no copies at all. It is a full
-        // scan of Message, so it runs on the body-cache cadence rather than every pass.
-        if (time(0) - lastOrphanSweepAt > ORPHAN_SWEEP_INTERVAL) {
-            lastOrphanSweepAt = time(0);
-            processor->sweepOrphanMessages();
-        }
+        processor->sweepExpiredOrphans(passStartedAt);
     } else {
-        logger->info("Skipping the tombstone sweep: a folder was skipped, still in initial sync, or had a fetch truncated this pass.");
+        logger->info("Skipping the orphan sweep: a folder was skipped, still in initial sync, or had a fetch truncated this pass.");
     }
     
     logger->info("Sync loop complete.");
@@ -1069,10 +1062,10 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 
         // Anything the detach above missed - a copy another worker recorded while it ran.
         for (auto const & item : unusedLocalFolders) {
-            processor->saveMessagesAfterPlacementChange(item.second->messageIdsAffectedByRemove());
+            processor->saveMessagesAfterPlacementChange(item.second->messageIdsAffectedByRemove(), true);
         }
         for (auto const & item : unusedLocalLabels) {
-            processor->saveMessagesAfterPlacementChange(item.second->messageIdsAffectedByRemove());
+            processor->saveMessagesAfterPlacementChange(item.second->messageIdsAffectedByRemove(), true);
         }
     }
 
@@ -1143,7 +1136,7 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
     // A FETCH on the folder this connection already has selected is answered from its stale
     // view, with the EXPUNGE lines following the data, so a copy the foreground connection
     // just moved out would be re-added as a live placement. Without QRESYNC no VANISHED
-    // arrives to correct that; with it the trailing VANISHED is harvested and tombstoned.
+    // arrives to correct that; with it the trailing VANISHED is harvested and applied.
     // A folder that is not the selected one is brought up to date by the SELECT the fetch issues.
     if (!session.isQResyncEnabled()) {
         String * selected = session.currentFolder();
@@ -1255,16 +1248,16 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
         }
     }
 
-    // Step 5: Tombstone. The UIDs left in the local map are copies we had in the range which
-    // the server no longer reports. The end-of-pass sweep removes messages that do not turn
-    // up in another folder first.
+    // Step 5: Delete. The UIDs left in the local map are copies we had in the range which
+    // the server no longer reports. The end-of-pass sweep removes messages left with no copy
+    // that do not turn up in another folder first.
     if (local.size() > 0) {
         vector<uint32_t> deletedUIDs {};
         for (auto const &ent : local) {
             deletedUIDs.push_back(ent.first);
         }
         for (vector<uint32_t> chunk : MailUtils::chunksOfVector(deletedUIDs, 200)) {
-            processor->tombstonePlacements(folder, chunk);
+            processor->deleteVanishedPlacements(folder, chunk);
         }
     }
 
@@ -1303,7 +1296,7 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     String path(AS_MCSTR(folder.path()));
 
     // Must happen before the early return below, and before LS_HIGHESTMODSEQ moves.
-    tombstoneVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
+    deleteVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
 
     if (modseq == remoteModseq && uidnext == remoteUIDNext) {
         return;
@@ -1344,13 +1337,13 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
         processor->insertFallbackToUpdateMessage(msg, folder, syncDataTimestamp);
     }
     
-    // for deleted messages, collect UIDs and tombstone. Note: vanishedMessages is only
-    // populated when QRESYNC is available.
-    tombstoneVanishedUIDs(folder, vanished, "FETCH CHANGEDSINCE");
+    // for deleted messages, collect UIDs and delete their placements. Note: vanishedMessages
+    // is only populated when QRESYNC is available.
+    deleteVanishedUIDs(folder, vanished, "FETCH CHANGEDSINCE");
 
     // libetpan only hands the first VANISHED line of the response to IMAPSyncResult, and
     // an unrelated expunge can arrive untagged while this FETCH is in flight.
-    tombstoneVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
+    deleteVanishedUIDs(folder, session.takeVanishedMessages(&path), "this connection");
 
     folder.localStatus()[LS_UIDNEXT] = remoteUIDNext;
     // A limited request has not applied the changes below its bottom UID. Recording the
@@ -1361,20 +1354,20 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
     }
 }
 
-void SyncWorker::tombstoneVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source) {
+void SyncWorker::deleteVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source) {
     // Test rangesCount, not count(): count() sums `length + 1` per range, so an open-ended
     // range like 12:* (length UINT64_MAX) wraps it to zero.
     if (vanished == NULL || vanished->rangesCount() == 0) {
         return;
     }
-    logger->info("Tombstoning {} VANISHED UID range(s) in {} reported by {}",
+    logger->info("Deleting {} VANISHED UID range(s) in {} reported by {}",
                  vanished->rangesCount(), folder.path(), source);
 
     // IMPORTANT: vanished may include an infinite range, like 12:*, so we can't convert
     // it to a fixed array.
     vector<Query> queries = MailUtils::queriesForUIDRangesInIndexSet(folder.id(), vanished);
     for (Query & query : queries) {
-        processor->tombstonePlacements(folder, query);
+        processor->deleteVanishedPlacements(folder, query);
     }
 }
 
@@ -1387,7 +1380,7 @@ void SyncWorker::cleanMessageCache(Folder & folder) {
     SQLite::Statement purge(store->db(),
         "DELETE FROM MessageBody WHERE MessageBody.fetchedAt < datetime('now', '-14 days') AND MessageBody.id IN ("
         "SELECT Message.id FROM MessageFolder INNER JOIN Message ON Message.id = MessageFolder.messageId "
-        "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0 AND MessageFolder.unlinkedAt IS NULL "
+        "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0 "
         "AND Message.draft = 0 AND Message.date < ?)");
     purge.bind(1, folder.accountId());
     purge.bind(2, folder.id());
@@ -1418,7 +1411,7 @@ bool SyncWorker::shouldCacheBodiesInFolder(Folder & folder) {
 long long SyncWorker::countBodiesDownloaded(Folder & folder) {
     SQLite::Statement count(store->db(),
         "SELECT COUNT(DISTINCT MessageFolder.messageId) FROM MessageFolder INNER JOIN MessageBody ON MessageBody.id = MessageFolder.messageId "
-        "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0 AND MessageFolder.unlinkedAt IS NULL "
+        "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0 "
         "AND MessageBody.value IS NOT NULL");
     count.bind(1, folder.accountId());
     count.bind(2, folder.id());
@@ -1426,13 +1419,13 @@ long long SyncWorker::countBodiesDownloaded(Folder & folder) {
     return count.getColumn(0).getInt64();
 }
 
-// "Has a live copy in this folder", as a correlated subquery on Message. The body queries
+// "Has a server copy in this folder", as a correlated subquery on Message. The body queries
 // are driven from the Message date indexes rather than from the folder's placements: on a
 // 180k-message folder the placement walk costs three B-tree lookups per copy (0.8-1.3 s),
 // while the date-bounded walk over the account's recent messages is 30-70 ms.
-static const string HAS_LIVE_COPY_IN_FOLDER =
+static const string HAS_SERVER_COPY_IN_FOLDER =
     " AND EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id AND MessageFolder.folderId = ? "
-    "AND MessageFolder.remoteUID > 0 AND MessageFolder.unlinkedAt IS NULL)";
+    "AND MessageFolder.remoteUID > 0)";
 
 // Messages wanted in the body cache are the recent ones plus drafts of any age. They are
 // always addressed as two statements - recent from MessageListDateIndex, older drafts from
@@ -1451,7 +1444,7 @@ long long SyncWorker::countBodiesNeeded(Folder & folder) {
     }
     long long total = 0;
     for (const string * candidates : {&RECENT_BODY_CANDIDATES, &OLDER_DRAFT_BODY_CANDIDATES}) {
-        SQLite::Statement count(store->db(), "SELECT COUNT(*) " + *candidates + HAS_LIVE_COPY_IN_FOLDER);
+        SQLite::Statement count(store->db(), "SELECT COUNT(*) " + *candidates + HAS_SERVER_COPY_IN_FOLDER);
         count.bind(1, folder.accountId());
         count.bind(2, (double)(time(0) - maxAgeForBodySync(folder)));
         count.bind(3, folder.id());
@@ -1475,7 +1468,7 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
     // Newest first, stopping at the limit: each index is walked from now downwards and
     // each message checked for a copy here and a missing body.
     const size_t limit = 30;
-    const string tail = HAS_LIVE_COPY_IN_FOLDER +
+    const string tail = HAS_SERVER_COPY_IN_FOLDER +
         " AND NOT EXISTS (SELECT 1 FROM MessageBody WHERE MessageBody.id = Message.id)"
         " ORDER BY Message.date DESC LIMIT ?";
     double cutoff = (double)(time(0) - maxAgeForBodySync(folder)); // three months TODO pref!
@@ -1562,7 +1555,7 @@ void SyncWorker::syncMessageBody(Message * message, Folder * preferredFolder) {
     };
     vector<Candidate> candidates;
     for (auto & p : store->placementsForMessage(message->id())) {
-        if (!p.isLive() || p.remoteUID == 0) {
+        if (p.remoteUID == 0) {
             continue;
         }
         auto folder = store->folderById(message->accountId(), p.folderId);

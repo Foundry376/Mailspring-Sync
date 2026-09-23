@@ -24,21 +24,15 @@ MAX_REPORTED_PER_CHECK = 12
 
 # -- semantics the engine may tighten later; each lives in exactly one place ----------------
 
-def is_live(row) -> bool:
-    """A MessageFolder row that still names a copy on the server (Placement::isLive)."""
-    return row["unlinkedAt"] is None or row["unlinkedAt"] == 0
-
-
 def expected_message_flags(rows, drafts_folder_ids: set):
     """unread / starred / draft as MailStore::refreshMessageFromPlacements derives them, or
-    None when the message keeps whatever flags it had. Today: OR over live *and* tombstoned
-    rows, draft also set by a live copy in a drafts-role folder, flags untouched with no rows."""
+    None when the message keeps whatever flags it had: OR over its rows, draft also set by a
+    copy in a drafts-role folder, flags untouched with no rows (an orphan awaiting the sweep)."""
     if not rows:
         return None
     unread = any(r["unread"] for r in rows)
     starred = any(r["starred"] for r in rows)
-    draft = any(r["draft"] for r in rows) or any(
-        is_live(r) and r["folderId"] in drafts_folder_ids for r in rows)
+    draft = any(r["draft"] or r["folderId"] in drafts_folder_ids for r in rows)
     return {"unread": unread, "starred": starred, "draft": draft}
 
 
@@ -68,6 +62,10 @@ class _Snapshot:
             r = dict(r)
             r["labels"] = json.loads(r["remoteXGMLabels"]) if r["remoteXGMLabels"] else []
             self.rows[r["messageId"]].append(r)
+
+        self.orphans = {}       # message id -> since
+        if has_table(conn, "MessageOrphan"):
+            self.orphans = {r["messageId"]: r["since"] for r in conn.execute("SELECT messageId, since FROM MessageOrphan")}
 
         self.threads = {}
         for r in conn.execute("SELECT id, subject, data FROM Thread"):
@@ -120,16 +118,14 @@ def _thread(s: _Snapshot, tid: str) -> str:
 # -- checks --------------------------------------------------------------------------------
 
 def check_message_snapshot(s: _Snapshot) -> list:
-    """Message.data.folders == {reported folder: OR of bits} over its live rows, and
-    Message.data.labels == sorted union of the live rows' X-GM-LABELS (when it has rows)."""
+    """Message.data.folders == {reported folder: OR of bits} over its rows, and
+    Message.data.labels == sorted union of the rows' X-GM-LABELS (when it has rows)."""
     out = []
     for mid, m in s.messages.items():
         rows = s.rows.get(mid, [])
         want = {}
         labels = set()
         for r in rows:
-            if not is_live(r):
-                continue
             key = r["pendingFolderId"] or r["folderId"]
             want[key] = want.get(key, 0) | (UNREAD if r["unread"] else 0) | (STARRED if r["starred"] else 0) \
                 | (DRAFT if r["draft"] else 0)
@@ -263,11 +259,15 @@ def check_thread_counts(s: _Snapshot) -> list:
 
 
 def check_orphans(s: _Snapshot) -> list:
-    """No Message without a single MessageFolder row. Tombstoned rows count: a message whose
-    copies are all tombstoned is inside the sweep's grace, not an orphan."""
-    return [f"{_msg(s, mid)}: no MessageFolder rows (folders={json.dumps(m['data'].get('folders'))}, "
-            f"threadId={m['data'].get('threadId')})"
-            for mid, m in s.messages.items() if not s.rows.get(mid)]
+    """MessageOrphan lists exactly the messages with no MessageFolder row: the end-of-pass
+    sweep finds orphans only through it, so a missing record is a message that lives forever."""
+    out = [f"{_msg(s, mid)}: no MessageFolder rows and no MessageOrphan record "
+           f"(folders={json.dumps(m['data'].get('folders'))}, threadId={m['data'].get('threadId')})"
+           for mid, m in s.messages.items() if not s.rows.get(mid) and mid not in s.orphans]
+    out += [f"MessageOrphan record for {_msg(s, mid)} (since {since}), which "
+            + (f"has MessageFolder rows {_rows(s.rows[mid])}" if s.rows.get(mid) else "does not exist")
+            for mid, since in s.orphans.items() if s.rows.get(mid) or mid not in s.messages]
+    return out
 
 
 CHECKS = {
@@ -305,7 +305,6 @@ def check(conn: sqlite3.Connection, skip=()) -> list:
 def _rows(rows) -> str:
     return "[" + ", ".join(
         f"{{folder={r['folderId']} uid={r['remoteUID']} u={r['unread']} s={r['starred']} d={r['draft']}"
-        + (f" unlinkedAt={r['unlinkedAt']}" if not is_live(r) else "")
         + (f" pending={r['pendingFolderId']}" if r["pendingFolderId"] else "")
         + (f" labels={r['labels']}" if r["labels"] else "") + "}"
         for r in rows) + "]"

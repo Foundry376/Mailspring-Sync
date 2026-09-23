@@ -257,10 +257,10 @@ void MailStore::_migrateToV10(bool freshDatabase, const string & verb) {
     if (!freshDatabase) {
         SQLite::Statement placements(_db, "SELECT COUNT(*) FROM MessageFolder");
         placements.executeStep();
-        SQLite::Statement orphans(_db, "SELECT COUNT(*) FROM Message WHERE NOT EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id)");
+        SQLite::Statement orphans(_db, "SELECT COUNT(*) FROM MessageOrphan");
         orphans.executeStep();
         cout << "\nMigration V10: " << placements.getColumn(0).getInt64() << " placements created, "
-             << orphans.getColumn(0).getInt64() << " messages without a folder";
+             << orphans.getColumn(0).getInt64() << " messages without a copy";
         cout.flush();
     }
 }
@@ -306,13 +306,12 @@ SQLite::Database & MailStore::db()
 
 // Both range reads are served by MessageFolder rather than Message so the fat JSON row
 // is never visited. The explicit `remoteUID > 0` term is what lets the planner use the
-// partial MessageFolderUIDIndex; `unlinkedAt IS NULL` is load-bearing: a tombstoned UID
-// that reappears must look unknown so it is fetched and its upsert clears the tombstone.
+// partial MessageFolderUIDIndex.
 map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range range, Folder & folder) {
     assertCorrectThread();
     auto & query = _placementStatement("attrsInRange",
         "SELECT remoteUID, unread, starred, draft, remoteXGMLabels FROM MessageFolder "
-        "WHERE accountId = ? AND folderId = ? AND remoteUID >= ? AND remoteUID <= ? AND remoteUID > 0 AND unlinkedAt IS NULL");
+        "WHERE accountId = ? AND folderId = ? AND remoteUID >= ? AND remoteUID <= ? AND remoteUID > 0");
     query.bind(1, folder.accountId());
     query.bind(2, folder.id());
     query.bind(3, (long long)(range.location));
@@ -362,7 +361,7 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
 uint32_t MailStore::fetchMessageUIDAtDepth(Folder & folder, uint32_t depth, uint32_t before) {
     assertCorrectThread();
     auto & query = _placementStatement("uidAtDepth",
-        "SELECT remoteUID FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID < ? AND remoteUID > 0 AND unlinkedAt IS NULL "
+        "SELECT remoteUID FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID < ? AND remoteUID > 0 "
         "ORDER BY remoteUID DESC LIMIT 1 OFFSET ?");
     query.bind(1, folder.accountId());
     query.bind(2, folder.id());
@@ -634,7 +633,7 @@ vector<string> MailStore::_collectMessageIds(SQLite::Statement & stmt) {
     return ids;
 }
 
-static const string PLACEMENT_COLUMNS = "rowid, accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt, pendingFolderId";
+static const string PLACEMENT_COLUMNS = "rowid, accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, pendingFolderId";
 
 vector<Placement> MailStore::placementsForMessage(string messageId) {
     assertCorrectThread();
@@ -654,14 +653,13 @@ vector<Placement> MailStore::placementsForMessage(string messageId) {
  end of every helper that changed the rows of a message it has in hand, so the snapshot
  is only recomputed for messages whose placements changed.
 
- - "folders" lists live copies keyed by the folder the client should see them in (the
-   pending destination during an optimistic move), OR-ing bits when one folder holds
-   several copies.
- - unread / starred / draft are OR'd over live AND tombstoned copies so a message in
-   transit between folders does not flip read -> unread -> read across the two scans;
-   draft is also true when any live copy sits in the Drafts folder.
- - A message with no rows keeps its flags: it is about to be swept.
- - "labels" is the union of the live copies' X-GM-LABELS (Gmail has one placement).
+ - "folders" lists copies keyed by the folder the client should see them in (the pending
+   destination during an optimistic move), OR-ing bits when one folder holds several.
+ - unread / starred / draft are OR'd over the rows; draft is also true when a copy sits in
+   the Drafts folder. "labels" is the union of the rows' X-GM-LABELS (Gmail has one).
+ - A message with no rows keeps its flags and labels and is recorded in MessageOrphan: it
+   is either in transit to a folder not scanned yet or about to be swept. Any row clears
+   the record, which is what keeps a moved message's id when its destination is scanned.
  */
 void MailStore::refreshMessageFromPlacements(Message & msg) {
     auto rows = placementsForMessage(msg.id());
@@ -673,9 +671,6 @@ void MailStore::refreshMessageFromPlacements(Message & msg) {
         unread = unread || p.unread;
         starred = starred || p.starred;
         draft = draft || p.draft;
-        if (!p.isLive()) {
-            continue;
-        }
         string key = p.reportedFolderId();
         int existing = folders.count(key) ? folders[key].get<int>() : 0;
         folders[key] = existing | p.flagBits();
@@ -689,12 +684,26 @@ void MailStore::refreshMessageFromPlacements(Message & msg) {
     }
 
     msg.folders() = folders;
-    if (!rows.empty()) {
-        msg._data["unread"] = unread;
-        msg._data["starred"] = starred;
-        msg._data["draft"] = draft;
-        msg._data["labels"] = json(vector<string>(labels.begin(), labels.end()));
+    if (rows.empty()) {
+        auto & record = _placementStatement("recordOrphan",
+            "INSERT OR IGNORE INTO MessageOrphan (messageId, accountId, since) VALUES (?, ?, ?)");
+        record.bind(1, msg.id());
+        record.bind(2, msg.accountId());
+        record.bind(3, (long long)time(0));
+        record.exec();
+        record.reset();
+        return;
     }
+
+    auto & clear = _placementStatement("clearOrphan", "DELETE FROM MessageOrphan WHERE messageId = ?");
+    clear.bind(1, msg.id());
+    clear.exec();
+    clear.reset();
+
+    msg._data["unread"] = unread;
+    msg._data["starred"] = starred;
+    msg._data["draft"] = draft;
+    msg._data["labels"] = json(vector<string>(labels.begin(), labels.end()));
 }
 
 /*
@@ -702,13 +711,10 @@ void MailStore::refreshMessageFromPlacements(Message & msg) {
 
  - A row already at (folder, uid) is refreshed in place. If it belonged to a different
    message (a UID the server reused without a UIDVALIDITY change) that message loses the
-   copy and its id is returned so the caller can rewrite its snapshot. A tombstoned row
-   is taken over the same way: the copy it named is gone from the server either way, and
-   it still occupies the unique (folder, UID) index.
+   copy and its id is returned so the caller can rewrite its snapshot.
  - A row for this message in this folder at UID 0 is a placement whose UID is unknown:
    a local draft, or a copy waiting for a UIDVALIDITY rebuild to relink it. It is
    replaced by the real row so the rebuild converges instead of leaving both.
- - Every tombstone of the message is dropped: a live copy anywhere makes them moot.
  */
 string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs) {
     assertCorrectThread();
@@ -731,29 +737,28 @@ string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, 
         // UID 0 rows are outside the unique index, so refresh one by hand rather than
         // accumulating a row per save of a local draft.
         auto & unassigned = _placementStatement("upsertUnassigned",
-            "UPDATE MessageFolder SET unread = ?, starred = ?, draft = ?, remoteXGMLabels = ?, syncedAt = ?, unlinkedAt = NULL, pendingFolderId = NULL "
+            "UPDATE MessageFolder SET unread = ?, starred = ?, draft = ?, remoteXGMLabels = ?, pendingFolderId = NULL "
             "WHERE messageId = ? AND folderId = ? AND remoteUID = 0");
         unassigned.bind(1, attrs.unread);
         unassigned.bind(2, attrs.starred);
         unassigned.bind(3, attrs.draft);
         unassigned.bind(4, json(attrs.labels).dump());
-        unassigned.bind(5, (long long)msg.syncedAt());
-        unassigned.bind(6, msg.id());
-        unassigned.bind(7, folder.id());
+        unassigned.bind(5, msg.id());
+        unassigned.bind(6, folder.id());
         int updated = unassigned.exec();
         unassigned.reset();
         if (updated > 0) {
-            clearTombstones(msg);
+            refreshMessageFromPlacements(msg);
             return displacedMessageId;
         }
     }
 
     auto & stmt = _placementStatement("upsert",
-        "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt, pendingFolderId) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL) "
+        "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, pendingFolderId) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL) "
         "ON CONFLICT (accountId, folderId, remoteUID) WHERE remoteUID > 0 DO UPDATE SET "
         "messageId = excluded.messageId, unread = excluded.unread, starred = excluded.starred, draft = excluded.draft, "
-        "remoteXGMLabels = excluded.remoteXGMLabels, syncedAt = excluded.syncedAt, unlinkedAt = NULL, pendingFolderId = NULL");
+        "remoteXGMLabels = excluded.remoteXGMLabels, pendingFolderId = NULL");
     stmt.bind(1, msg.accountId());
     stmt.bind(2, msg.id());
     stmt.bind(3, folder.id());
@@ -762,7 +767,6 @@ string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, 
     stmt.bind(6, attrs.starred);
     stmt.bind(7, attrs.draft);
     stmt.bind(8, json(attrs.labels).dump());
-    stmt.bind(9, (long long)msg.syncedAt());
     stmt.exec();
     stmt.reset();
 
@@ -775,7 +779,7 @@ string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, 
         relinked.reset();
     }
 
-    clearTombstones(msg);
+    refreshMessageFromPlacements(msg);
     return displacedMessageId;
 }
 
@@ -793,9 +797,9 @@ void MailStore::removePlacementsOutsideFolder(Message & msg, string folderId) {
     refreshMessageFromPlacements(msg);
 }
 
-// A client flag change fans out to every copy, tombstones included: otherwise the next
-// scan of an untouched copy re-derives the old value. Each flag is written on its own so
-// copies that disagree on the other flag keep their own value.
+// A client flag change fans out to every copy: otherwise the next scan of an untouched
+// copy re-derives the old value. Each flag is written on its own so copies that disagree
+// on the other flag keep their own value.
 void MailStore::setPlacementUnread(Message & msg, bool unread) {
     assertCorrectThread();
     auto & stmt = _placementStatement("setUnreadAll",
@@ -836,7 +840,7 @@ void MailStore::setPlacementLabels(Message & msg, const vector<string> & labels)
 void MailStore::beginPlacementMove(Message & msg, string fromFolderId, uint32_t uid, string toFolderId) {
     assertCorrectThread();
     auto & stmt = _placementStatement("beginMove",
-        "UPDATE MessageFolder SET pendingFolderId = ? WHERE messageId = ? AND folderId = ? AND remoteUID = ? AND unlinkedAt IS NULL");
+        "UPDATE MessageFolder SET pendingFolderId = ? WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
     stmt.bind(1, toFolderId);
     stmt.bind(2, msg.id());
     stmt.bind(3, fromFolderId);
@@ -851,8 +855,8 @@ void MailStore::beginPlacementMove(Message & msg, string fromFolderId, uint32_t 
  destination row may already exist, because the destination folder's scan can run
  between the MOVE and this commit:
 
- - held by this message: the scan recorded the moved copy. That row is kept (revived if
-   it was tombstoned) and the source row deleted, since both describe one server copy.
+ - held by this message: the scan recorded the moved copy. The source row is deleted,
+   since both describe one server copy.
  - held by another message: a stale row for a UID the server has since reassigned. It
    is deleted so the unique (folder, UID) index admits ours, and that message's id is
    returned so the caller rewrites its snapshot, as after upsertPlacement.
@@ -868,7 +872,7 @@ string MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32
 
     if (fromFolderId == toFolderId && oldUid == newUid) {
         auto & settle = _placementStatement("commitMoveInPlace",
-            "UPDATE MessageFolder SET pendingFolderId = NULL, unlinkedAt = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
+            "UPDATE MessageFolder SET pendingFolderId = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
         settle.bind(1, msg.id());
         settle.bind(2, fromFolderId);
         settle.bind(3, (long long)oldUid);
@@ -892,13 +896,6 @@ string MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32
     }
 
     if (holder == msg.id()) {
-        auto & revive = _placementStatement("commitMoveRevive",
-            "UPDATE MessageFolder SET unlinkedAt = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
-        revive.bind(1, msg.id());
-        revive.bind(2, toFolderId);
-        revive.bind(3, (long long)newUid);
-        revive.exec();
-        revive.reset();
         removePlacement(msg, fromFolderId, oldUid);
         return "";
     }
@@ -914,7 +911,7 @@ string MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32
     }
 
     auto & stmt = _placementStatement("commitMove",
-        "UPDATE MessageFolder SET folderId = ?, remoteUID = ?, pendingFolderId = NULL, unlinkedAt = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
+        "UPDATE MessageFolder SET folderId = ?, remoteUID = ?, pendingFolderId = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
     stmt.bind(1, toFolderId);
     stmt.bind(2, (long long)newUid);
     stmt.bind(3, msg.id());
@@ -938,61 +935,73 @@ void MailStore::removePlacement(Message & msg, string folderId, uint32_t uid) {
     refreshMessageFromPlacements(msg);
 }
 
-void MailStore::clearTombstones(Message & msg) {
-    assertCorrectThread();
-    auto & clear = _placementStatement("clearTombstones",
-        "DELETE FROM MessageFolder WHERE messageId = ? AND unlinkedAt IS NOT NULL");
-    clear.bind(1, msg.id());
-    clear.exec();
-    clear.reset();
-    refreshMessageFromPlacements(msg);
+/*
+ Bulk helpers: rows only, no Message loaded. Every one that deletes rows records the
+ messages it left with none in MessageOrphan in the same transaction, because the caller
+ catches the snapshots up in later transactions and nothing but MessageOrphan leads back to
+ a message that has no row. UID 0 rows (local drafts, UIDVALIDITY resets) are never
+ matched by a range scan because the server never reported them.
+ */
+
+void MailStore::_recordOrphansAmong(const vector<string> & messageIds) {
+    vector<string> ids = messageIds;
+    for (auto chunk : MailUtils::chunksOfVector(ids, 500)) {
+        SQLite::Statement stmt(_db,
+            "INSERT OR IGNORE INTO MessageOrphan (messageId, accountId, since) "
+            "SELECT id, accountId, ? FROM Message WHERE id IN (" + MailUtils::qmarks(chunk.size()) + ") "
+            "AND NOT EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id)");
+        stmt.bind(1, (long long)time(0));
+        int idx = 2;
+        for (auto & id : chunk) {
+            stmt.bind(idx++, id);
+        }
+        stmt.exec();
+    }
 }
 
-// Bulk helpers: rows only, no Message loaded. UID 0 rows (local drafts, UIDVALIDITY
-// resets) are never tombstoned by a range scan because the server never reported them.
-
-vector<string> MailStore::tombstonePlacements(Folder & folder, const vector<uint32_t> & uids, time_t now) {
+vector<string> MailStore::deleteVanishedPlacements(Folder & folder, const vector<uint32_t> & uids) {
     assertCorrectThread();
     vector<string> affected;
     vector<uint32_t> all = uids;
     for (auto chunk : MailUtils::chunksOfVector(all, 500)) {
         SQLite::Statement stmt(_db,
-            "UPDATE MessageFolder SET unlinkedAt = ? WHERE accountId = ? AND folderId = ? AND unlinkedAt IS NULL AND remoteUID > 0 "
+            "DELETE FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID > 0 "
             "AND remoteUID IN (" + MailUtils::qmarks(chunk.size()) + ") RETURNING messageId");
-        stmt.bind(1, (long long)now);
-        stmt.bind(2, folder.accountId());
-        stmt.bind(3, folder.id());
-        int idx = 4;
+        stmt.bind(1, folder.accountId());
+        stmt.bind(2, folder.id());
+        int idx = 3;
         for (auto uid : chunk) {
             stmt.bind(idx++, (long long)uid);
         }
         auto ids = _collectMessageIds(stmt);
         affected.insert(affected.end(), ids.begin(), ids.end());
     }
+    _recordOrphansAmong(affected);
     return affected;
 }
 
 // Accepts the folderId / remoteUID queries built by MailUtils::queriesForUIDRangesInIndexSet,
 // which may describe an open-ended range like 12:* that cannot be expanded to a list.
-vector<string> MailStore::tombstonePlacements(Folder & folder, Query & uidQuery, time_t now) {
+vector<string> MailStore::deleteVanishedPlacements(Folder & folder, Query & uidQuery) {
     assertCorrectThread();
     string clauses = uidQuery.getSQL();
     const string wherePrefix = " WHERE ";
     if (clauses.compare(0, wherePrefix.size(), wherePrefix) != 0) {
-        throw SyncException("query-builder", "tombstonePlacements requires a query with clauses", false);
+        throw SyncException("query-builder", "deleteVanishedPlacements requires a query with clauses", false);
     }
     clauses = clauses.substr(wherePrefix.size());
 
     SQLite::Statement stmt(_db,
-        "UPDATE MessageFolder SET unlinkedAt = ?1 WHERE accountId = ?2 AND unlinkedAt IS NULL AND remoteUID > 0 AND (" + clauses + ") RETURNING messageId");
-    stmt.bind(1, (long long)now);
-    stmt.bind(2, folder.accountId());
-    uidQuery.bind(stmt, 3);
-    return _collectMessageIds(stmt);
+        "DELETE FROM MessageFolder WHERE accountId = ?1 AND remoteUID > 0 AND (" + clauses + ") RETURNING messageId");
+    stmt.bind(1, folder.accountId());
+    uidQuery.bind(stmt, 2);
+    auto affected = _collectMessageIds(stmt);
+    _recordOrphansAmong(affected);
+    return affected;
 }
 
-// UIDVALIDITY changed: every UID in the folder is meaningless. Rows stay live at UID 0
-// (still visible, still counted) until the rebuild assigns new UIDs. Nothing to emit.
+// UIDVALIDITY changed: every UID in the folder is meaningless. Rows stay at UID 0 (still
+// visible, still counted) until the rebuild assigns new UIDs. Nothing to emit.
 // The `remoteUID > 0` term is what lets the partial MessageFolderUIDIndex serve this.
 void MailStore::resetPlacementUIDs(Folder & folder) {
     assertCorrectThread();
@@ -1007,52 +1016,37 @@ void MailStore::resetPlacementUIDs(Folder & folder) {
 // After a UIDVALIDITY rebuild has visited every UID in the folder, a row still at UID 0 is
 // a copy the server no longer has. Draft rows are exempt: a local draft sits at UID 0 by
 // design until it is sent.
-vector<string> MailStore::tombstoneUnassignedPlacements(Folder & folder, time_t now) {
+vector<string> MailStore::deleteUnassignedPlacements(Folder & folder) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("tombstoneUnassigned",
-        "UPDATE MessageFolder SET unlinkedAt = ? WHERE accountId = ? AND folderId = ? AND remoteUID = 0 AND unlinkedAt IS NULL AND draft = 0 RETURNING messageId");
-    stmt.bind(1, (long long)now);
-    stmt.bind(2, folder.accountId());
-    stmt.bind(3, folder.id());
-    return _collectMessageIds(stmt);
+    auto & stmt = _placementStatement("deleteUnassigned",
+        "DELETE FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID = 0 AND draft = 0 RETURNING messageId");
+    stmt.bind(1, folder.accountId());
+    stmt.bind(2, folder.id());
+    auto affected = _collectMessageIds(stmt);
+    _recordOrphansAmong(affected);
+    return affected;
 }
 
-// The sweep is split so the deletion and the repair of the messages that held the rows
-// can happen in one transaction per chunk (MailProcessor::sweepExpiredTombstones). A
-// tombstone deleted without its message being revisited is unrecoverable: nothing else
-// produces the id of a message that has no MessageFolder row left.
-vector<string> MailStore::expiredTombstoneMessageIds(string accountId, time_t before) {
+vector<string> MailStore::orphanMessageIdsBefore(string accountId, time_t before) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("expiredTombstoneIds",
-        "SELECT DISTINCT messageId FROM MessageFolder WHERE accountId = ? AND unlinkedAt IS NOT NULL AND unlinkedAt < ?");
+    auto & stmt = _placementStatement("orphansBefore",
+        "SELECT messageId FROM MessageOrphan WHERE accountId = ? AND since < ?");
     stmt.bind(1, accountId);
     stmt.bind(2, (long long)before);
     return _collectMessageIds(stmt);
 }
 
-void MailStore::deleteExpiredTombstones(string accountId, time_t before, const vector<string> & messageIds) {
-    assertCorrectThread();
-    if (messageIds.empty()) {
-        return;
-    }
-    SQLite::Statement stmt(_db,
-        "DELETE FROM MessageFolder WHERE accountId = ? AND unlinkedAt IS NOT NULL AND unlinkedAt < ? "
-        "AND messageId IN (" + MailUtils::qmarks(messageIds.size()) + ")");
-    stmt.bind(1, accountId);
-    stmt.bind(2, (long long)before);
-    int idx = 3;
-    for (auto & id : messageIds) {
-        stmt.bind(idx++, id);
-    }
-    stmt.exec();
-}
-
+// Called from Message::afterRemove, so the orphan record goes with the message.
 void MailStore::deletePlacementsForMessage(string messageId) {
     assertCorrectThread();
     auto & stmt = _placementStatement("deleteForMessage", "DELETE FROM MessageFolder WHERE messageId = ?");
     stmt.bind(1, messageId);
     stmt.exec();
     stmt.reset();
+    auto & orphan = _placementStatement("deleteOrphanForMessage", "DELETE FROM MessageOrphan WHERE messageId = ?");
+    orphan.bind(1, messageId);
+    orphan.exec();
+    orphan.reset();
 }
 
 // The ids the folder's deletion will affect, including messages only pointed at it by a
@@ -1082,17 +1076,7 @@ void MailStore::deletePlacementsForFolder(string folderId, const vector<string> 
         }
         stmt->exec();
     }
-}
-
-// Every other path to a message id runs through MessageFolder, so a message that has lost
-// its last row is both invisible in the client and unreachable by any later pass. This is
-// the backstop that finds them; it is a full scan of Message, so it runs rarely.
-vector<string> MailStore::orphanMessageIds(string accountId) {
-    assertCorrectThread();
-    auto & stmt = _placementStatement("orphanMessages",
-        "SELECT id FROM Message WHERE accountId = ? AND NOT EXISTS (SELECT 1 FROM MessageFolder WHERE MessageFolder.messageId = Message.id)");
-    stmt.bind(1, accountId);
-    return _collectMessageIds(stmt);
+    _recordOrphansAmong(messageIds);
 }
 
 // A move still in flight towards the deleted folder is abandoned: the copy stays where
@@ -1112,6 +1096,7 @@ vector<string> MailStore::deletePlacementsForFolder(string folderId) {
             affected.push_back(id);
         }
     }
+    _recordOrphansAmong(affected);
     return affected;
 }
 

@@ -8,7 +8,7 @@ description: >
   Archive -> INBOX is seen by the foreground IDLE connection as an INBOX arrival long before
   the background pass finds the Archive copy gone. Either way the message must gain the new
   placement and lose the old one without ever being deleted and re-created.
-source: "docs/message-placements-plan.md 2.5 (tombstones and the end-of-pass sweep: either folder may be scanned first); SyncWorker.cpp roleOrder sort in syncNow; handoff-refactor-regression.md 5.1"
+source: "docs/message-placements-plan.md 2.5 (orphans and the end-of-pass sweep: either folder may be scanned first); SyncWorker.cpp roleOrder sort in syncNow; handoff-refactor-regression.md 5.1"
 servers:
   - {fake: dovecot}
   - {fake: plain}

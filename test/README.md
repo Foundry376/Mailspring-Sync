@@ -115,12 +115,12 @@ and reported as XPASS once it starts passing.
 **Invariants** run after every scenario's expectations, on every server, without being
 listed (`harness/invariants.py`). Once the engine is quiescent they recompute each derived
 layer of the engine's state from the stored layer below it, so a bug is reported once, where
-it starts: `message_snapshot` (`Message.folders` / `labels` from live `MessageFolder` rows),
+it starts: `message_snapshot` (`Message.folders` / `labels` from `MessageFolder` rows),
 `message_flags` (message unread / starred / draft from its rows, JSON vs indexed columns),
 `thread_refcounts` (thread folder and label `_refs` / `_u`, unread / starred, inAllMail from
 its messages' snapshots), `thread_categories` (`ThreadCategory` from the thread's arrays),
-`thread_counts` (`ThreadCounts` from `ThreadCategory`) and `orphans` (a `Message` with no
-`MessageFolder` row at all; tombstoned rows count, so the sweep's grace is not an orphan).
+`thread_counts` (`ThreadCounts` from `ThreadCategory`) and `orphans` (`MessageOrphan` lists
+exactly the messages with no `MessageFolder` row, which is how the end-of-pass sweep finds them).
 A scenario that trips one because of a known engine bug says so rather than skipping it
 silently: `expect: {invariants: {skip: [thread_counts]}}` with a comment naming the bug,
 `invariants: {xfail: reason}`, or `invariants: false` to disable all of them. They also work

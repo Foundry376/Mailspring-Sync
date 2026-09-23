@@ -46,16 +46,15 @@ public:
     bool retrievedFileData(File * file, Data * data);
 
     // Placement bookkeeping for copies the server no longer reports.
-    void tombstonePlacements(Folder & folder, const vector<uint32_t> & uids);
-    void tombstonePlacements(Folder & folder, Query & uidQuery);
-    void tombstoneUnassignedPlacements(Folder & folder);
-    void sweepExpiredTombstones(time_t before);
-    void sweepOrphanMessages();
-    void saveMessagesAfterPlacementChange(const vector<string> & messageIds);
+    void deleteVanishedPlacements(Folder & folder, const vector<uint32_t> & uids);
+    void deleteVanishedPlacements(Folder & folder, Query & uidQuery);
+    void deleteUnassignedPlacements(Folder & folder);
+    void sweepExpiredOrphans(time_t before);
+    void saveMessagesAfterPlacementChange(const vector<string> & messageIds, bool removeUnplaced = false);
     void detachMessagesFromFolder(string folderId, std::chrono::milliseconds pause = std::chrono::milliseconds(0));
     
 private:
-    int refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects);
+    int refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects, bool removeUnplaced);
     void saveDisplacedMessage(const string & messageId);
     void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
     void upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references);

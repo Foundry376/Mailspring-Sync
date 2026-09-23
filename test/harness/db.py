@@ -68,13 +68,12 @@ def placements(conn: sqlite3.Connection) -> Placements:
 
 
 def _placements_from_join_table(conn, paths, out):
-    # Post-refactor layout (docs/message-placements-plan.md). Tombstoned rows are not on
-    # the server any more and are excluded; UID 0 rows are local-only.
+    # Post-refactor layout (docs/message-placements-plan.md). UID 0 rows are local-only.
     rows = conn.execute(
         "SELECT mf.messageId, mf.folderId, mf.remoteUID, mf.unread, mf.starred, mf.draft, "
         "mf.remoteXGMLabels, m.headerMessageId FROM MessageFolder mf "
         "JOIN Message m ON m.id = mf.messageId "
-        "WHERE mf.remoteUID > 0 AND (mf.unlinkedAt IS NULL OR mf.unlinkedAt = 0)"
+        "WHERE mf.remoteUID > 0"
     ).fetchall()
     for r in rows:
         path = paths.get(r["folderId"], f"<unknown folder {r['folderId']}>")

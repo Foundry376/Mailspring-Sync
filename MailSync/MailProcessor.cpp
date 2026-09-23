@@ -89,7 +89,7 @@ MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
 
 namespace {
 
-// The copy of `messageId` at (folder, UID), if one is recorded - live or tombstoned.
+// The copy of `messageId` at (folder, UID), if one is recorded.
 optional<Placement> placementAt(MailStore * store, const string & messageId, const string & folderId, uint32_t uid) {
     for (auto & p : store->placementsForMessage(messageId)) {
         if (p.folderId == folderId && p.remoteUID == uid) {
@@ -108,7 +108,7 @@ MessageAttributes attributesOfPlacement(const Placement & p) {
 }
 
 bool placementIsCurrent(const optional<Placement> & p, const MessageAttributes & reported) {
-    return p && p->isLive() && MessageAttributesMatch(attributesOfPlacement(*p), reported);
+    return p && MessageAttributesMatch(attributesOfPlacement(*p), reported);
 }
 
 } // namespace
@@ -264,9 +264,6 @@ shared_ptr<Message> MailProcessor::updateMessage(const string & messageId, IMAPM
     if (p) {
         auto existing = attributesOfPlacement(*p);
         logger->info("- Updating message {} in {}", local->id(), folder.path());
-        if (!p->isLive()) {
-            logger->info("-- UID {} reappeared", updated.uid);
-        }
         if (updated.unread != existing.unread) {
             logger->info("-- Unread ({} to {})", existing.unread, updated.unread);
         }
@@ -308,11 +305,8 @@ shared_ptr<Message> MailProcessor::updateMessage(const string & messageId, IMAPM
 }
 
 // A (folder, UID) row taken over from another message leaves that message's snapshot
-// listing a copy it no longer has. When it was that message's last row the message is
-// gone, not merely relocated: refreshMessageFromPlacements leaves the derived flags of a
-// row-less message alone, so saving it here would keep an orphan alive in no folder at
-// all, and no later pass would find it - orphans are only ever reached through
-// MessageFolder.
+// listing a copy it no longer has. Losing its last row makes it an orphan like any other
+// vanished copy, swept at the end of the pass unless another folder turns it up.
 void MailProcessor::saveDisplacedMessage(const string & messageId) {
     if (messageId.empty()) {
         return;
@@ -322,11 +316,6 @@ void MailProcessor::saveDisplacedMessage(const string & messageId) {
         return;
     }
     logger->warn("- Message {} lost a placement to another message at the same UID", messageId);
-    if (store->placementsForMessage(messageId).empty()) {
-        logger->warn("- Message {} has no remaining copies, removing it", messageId);
-        store->remove(displaced.get());
-        return;
-    }
     store->refreshMessageFromPlacements(*displaced);
     store->save(displaced.get());
 }
@@ -561,40 +550,40 @@ bool MailProcessor::retrievedFileData(File * file, Data * data) {
 #endif
 }
 
-void MailProcessor::tombstonePlacements(Folder & folder, const vector<uint32_t> & uids)
+void MailProcessor::deleteVanishedPlacements(Folder & folder, const vector<uint32_t> & uids)
 {
-    logger->info("Tombstoning {} UIDs no longer present in {}.", uids.size(), folder.path());
+    logger->info("Deleting {} UIDs no longer present in {}.", uids.size(), folder.path());
     vector<string> affected;
     {
-        MailStoreTransaction transaction{store, "tombstonePlacements"};
-        affected = store->tombstonePlacements(folder, uids, time(0));
+        MailStoreTransaction transaction{store, "deleteVanishedPlacements"};
+        affected = store->deleteVanishedPlacements(folder, uids);
         transaction.commit();
     }
     saveMessagesAfterPlacementChange(affected);
 }
 
-void MailProcessor::tombstonePlacements(Folder & folder, Query & uidQuery)
+void MailProcessor::deleteVanishedPlacements(Folder & folder, Query & uidQuery)
 {
-    logger->info("Tombstoning UIDs matching {} no longer present in {}.", uidQuery.getSQL(), folder.path());
+    logger->info("Deleting UIDs matching {} no longer present in {}.", uidQuery.getSQL(), folder.path());
     vector<string> affected;
     {
-        MailStoreTransaction transaction{store, "tombstonePlacements"};
-        affected = store->tombstonePlacements(folder, uidQuery, time(0));
+        MailStoreTransaction transaction{store, "deleteVanishedPlacements"};
+        affected = store->deleteVanishedPlacements(folder, uidQuery);
         transaction.commit();
     }
     saveMessagesAfterPlacementChange(affected);
 }
 
-void MailProcessor::tombstoneUnassignedPlacements(Folder & folder)
+void MailProcessor::deleteUnassignedPlacements(Folder & folder)
 {
     vector<string> affected;
     {
-        MailStoreTransaction transaction{store, "tombstoneUnassignedPlacements"};
-        affected = store->tombstoneUnassignedPlacements(folder, time(0));
+        MailStoreTransaction transaction{store, "deleteUnassignedPlacements"};
+        affected = store->deleteUnassignedPlacements(folder);
         transaction.commit();
     }
     if (affected.size() > 0) {
-        logger->info("Tombstoned {} copies in {} the UIDVALIDITY rebuild did not find.", affected.size(), folder.path());
+        logger->info("Deleted {} copies in {} the UIDVALIDITY rebuild did not find.", affected.size(), folder.path());
     }
     saveMessagesAfterPlacementChange(affected);
 }
@@ -602,13 +591,12 @@ void MailProcessor::tombstoneUnassignedPlacements(Folder & folder)
 /*
  Catches each message's snapshot up with its rows after a bulk helper changed them, in
  transactions of 100 so a mass deletion does not hold the database for the whole batch.
- A message left with no rows goes through store->remove so Message::afterRemove balances
- the thread and deletes the body and metadata; the check runs inside the chunk's
- transaction so a copy the other worker records meanwhile keeps its message. A message
- whose snapshot did not change is not saved, so the client gets no persist for a version
- bump alone.
+ A message left with no rows is saved with an empty snapshot and left for the end-of-pass
+ sweep (the bulk helper already recorded it in MessageOrphan), unless `removeUnplaced`
+ says its copies are gone for good. A message whose snapshot did not change is not saved,
+ so the client gets no persist for a version bump alone.
  */
-void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & messageIds)
+void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & messageIds, bool removeUnplaced)
 {
     if (messageIds.empty()) {
         return;
@@ -617,20 +605,23 @@ void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & mess
     vector<string> ids = messageIds;
     for (auto chunk : MailUtils::chunksOfVector(ids, 100)) {
         MailStoreTransaction transaction{store, "saveMessagesAfterPlacementChange"};
-        refreshMessagesInOpenTransaction(chunk, logSubjects);
+        refreshMessagesInOpenTransaction(chunk, logSubjects, removeUnplaced);
         transaction.commit();
     }
 }
 
 // The caller owns the transaction so a bulk row change and the messages it affects can be
-// committed together. Returns how many messages were removed for having no copies left.
-int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects)
+// committed together. With `removeUnplaced`, a message with no rows goes through
+// store->remove so Message::afterRemove balances the thread and deletes the body, metadata
+// and orphan record; the check runs inside the transaction so a copy the other worker
+// records meanwhile keeps its message. Returns how many messages were removed.
+int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects, bool removeUnplaced)
 {
     int removed = 0;
     vector<string> ids = messageIds;
     auto messages = store->findAll<Message>(Query().equal("id", ids));
     for (auto & msg : messages) {
-        if (store->placementsForMessage(msg->id()).empty()) {
+        if (removeUnplaced && store->placementsForMessage(msg->id()).empty()) {
             if (logSubjects) {
                 logger->info("-- Removing \"{}\" ({}), no remaining copies", msg->subject(), msg->id());
             }
@@ -652,13 +643,15 @@ int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messa
 }
 
 /*
- Detaches every copy in a folder and catches the messages up, in transactions of 100: a
- message whose only copy was there is removed (store->remove balances its thread and
- deletes the body and metadata), one with copies elsewhere just loses this folder.
+ Detaches every copy in a folder that is gone from the server (deleted, or emptied by
+ ExpungeAllInFolder) and catches the messages up, in transactions of 100: a message whose
+ only copy was there is removed right away (store->remove balances its thread and deletes
+ the body and metadata), one with copies elsewhere just loses this folder.
 
  Deleting all of the folder's rows first and rewriting the messages afterwards would leave
  a window - minutes wide when a large Trash is emptied with a pause between chunks - in
- which a quit or a crash strands messages with no MessageFolder row and a stale snapshot.
+ which a quit or a crash strands messages with copies elsewhere whose snapshot still lists
+ the folder: nothing would revisit them.
  `pause` gives the client time to keep up with a mass deletion.
  */
 void MailProcessor::detachMessagesFromFolder(string folderId, std::chrono::milliseconds pause)
@@ -673,7 +666,7 @@ void MailProcessor::detachMessagesFromFolder(string folderId, std::chrono::milli
         {
             MailStoreTransaction transaction{store, "detachMessagesFromFolder"};
             store->deletePlacementsForFolder(folderId, chunk);
-            removed = refreshMessagesInOpenTransaction(chunk, logSubjects);
+            removed = refreshMessagesInOpenTransaction(chunk, logSubjects, true);
             transaction.commit();
         }
         logger->info("-- Deleted {} local messages, {} kept copies elsewhere", removed, chunk.size() - removed);
@@ -684,48 +677,24 @@ void MailProcessor::detachMessagesFromFolder(string folderId, std::chrono::milli
 }
 
 /*
- Backstop for messages left with no MessageFolder row at all. Every other path to a
- message id runs through MessageFolder, so an orphan is invisible in the client and
- immortal in the database; only a scan of Message itself can find one. The placement
- helpers are not supposed to produce any, so a non-zero count is worth a warning.
+ End-of-pass sweep. A message that lost its last copy before the start of the pass has had
+ every folder scanned since, so a copy that moved elsewhere has already been recorded and
+ cleared its orphan record (MailStore::refreshMessageFromPlacements). What is still listed
+ is removed through store->remove, which balances the thread and deletes the body,
+ metadata and orphan record. The row check runs inside each chunk's transaction so a copy
+ the foreground worker records meanwhile keeps its message.
  */
-void MailProcessor::sweepOrphanMessages()
+void MailProcessor::sweepExpiredOrphans(time_t before)
 {
-    vector<string> orphans = store->orphanMessageIds(account->id());
-    if (orphans.empty()) {
-        return;
-    }
-    logger->warn("Sync loop removing {} messages left with no copies at all.", orphans.size());
-    saveMessagesAfterPlacementChange(orphans);
-}
-
-/*
- End-of-pass sweep. A tombstone older than the start of the pass has had every folder
- scanned since it was written, so a copy that moved elsewhere has already been recorded
- and cleared it (MailStore::upsertPlacement). What is left is dropped and the messages
- that held it saved or removed. The save matters even when copies remain: derived
- unread/starred are OR'd over tombstones, so a message whose only unread copy was
- deleted elsewhere reads as unread until the tombstone is gone.
-
- Each chunk deletes its rows and repairs its messages in one transaction. Deleting every
- tombstone first and repairing afterwards would leave a window - the whole chunked loop,
- seconds when a large trash is emptied - in which a quit or a crash strands messages with
- no MessageFolder row and a stale, non-empty snapshot. Nothing would ever revisit them:
- the tombstones that named them are gone, and folder scans only produce ids through
- MessageFolder.
- */
-void MailProcessor::sweepExpiredTombstones(time_t before)
-{
-    vector<string> candidates = store->expiredTombstoneMessageIds(account->id(), before);
+    vector<string> candidates = store->orphanMessageIdsBefore(account->id(), before);
     if (candidates.empty()) {
         return;
     }
-    logger->info("Sync loop sweeping expired tombstones from {} messages.", candidates.size());
+    logger->info("Sync loop removing {} messages left with no copies.", candidates.size());
     bool logSubjects = candidates.size() < 20;
     for (auto chunk : MailUtils::chunksOfVector(candidates, 100)) {
-        MailStoreTransaction transaction{store, "sweepExpiredTombstones"};
-        store->deleteExpiredTombstones(account->id(), before, chunk);
-        refreshMessagesInOpenTransaction(chunk, logSubjects);
+        MailStoreTransaction transaction{store, "sweepExpiredOrphans"};
+        refreshMessagesInOpenTransaction(chunk, logSubjects, true);
         transaction.commit();
     }
 }

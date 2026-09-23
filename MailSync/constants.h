@@ -43,6 +43,7 @@ static vector<string> ACCOUNT_RESET_QUERIES = {
     "DELETE FROM `Label` WHERE `accountId` = ?",
     "DELETE FROM `MessageBody` WHERE `id` IN (SELECT id FROM `Message` WHERE `accountId` = ?)",
     "DELETE FROM `MessageFolder` WHERE `accountId` = ?",
+    "DELETE FROM `MessageOrphan` WHERE `accountId` = ?",
     "DELETE FROM `Message` WHERE `accountId` = ?",
     "DELETE FROM `Task` WHERE `accountId` = ?",
     "DELETE FROM `Folder` WHERE `accountId` = ?",
@@ -221,7 +222,9 @@ static vector<string> V9_SETUP_QUERIES = {
 // V10: MessageFolder holds one row per physical copy of a message on the server
 // (account, folder, UID) with that copy's IMAP flags, so a message can live in several
 // folders at once. Message.unread/starred/draft are OR-derived from these rows and the
-// Message JSON carries a { folderId: flagBits } snapshot of them.
+// Message JSON carries a { folderId: flagBits } snapshot of them. MessageOrphan lists the
+// messages that have no row at all and since when, for the end-of-pass sweep; it is a
+// table rather than a Message column because MailStore::save rebinds every Message column.
 static vector<string> V10_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS MessageFolder ("
         "rowid INTEGER PRIMARY KEY,"
@@ -233,9 +236,11 @@ static vector<string> V10_SETUP_QUERIES = {
         "starred TINYINT(1) NOT NULL DEFAULT 0,"
         "draft TINYINT(1) NOT NULL DEFAULT 0,"
         "remoteXGMLabels TEXT NOT NULL DEFAULT '[]',"
-        "syncedAt INTEGER NOT NULL DEFAULT 0,"
-        "unlinkedAt INTEGER NULL,"
         "pendingFolderId VARCHAR(40) NULL)",
+    "CREATE TABLE IF NOT EXISTS MessageOrphan ("
+        "messageId VARCHAR(40) PRIMARY KEY,"
+        "accountId VARCHAR(8) NOT NULL,"
+        "since INTEGER NOT NULL)",
 };
 
 // Upgrade of a pre-V10 database (a fresh one gets the final Message shape from V1 and
@@ -243,9 +248,11 @@ static vector<string> V10_SETUP_QUERIES = {
 // - data.folder != remoteFolderId is a move whose remote phase has not run, so the row
 //   gets pendingFolderId = data.folder.id and the queued task's remote phase commits it.
 // - Unlink sentinels (UINT32_MAX - phase) and "deleted-*" draft placeholders at UID 0
-//   (the draft was never on the server, so no scan could ever retire them) become UID 0
-//   tombstones dated now, which the first sweep removes through Message::afterRemove.
-//   Their JSON keeps its folder key so afterRemove can balance the thread refcount.
+//   (the draft was never on the server, so no scan could ever retire them) get no row and
+//   an orphan record dated now, which the first sweep removes through Message::afterRemove.
+//   Their JSON keeps its folder key: the pre-V10 thread counted them in that folder, and
+//   afterRemove balances the refcount from the snapshot, so until then the snapshot lists
+//   a folder the message has no row in.
 // The Message table is then rebuilt without the location columns (one table rewrite
 // instead of one per DROP COLUMN) and each row's JSON gains "folders" keyed by the folder
 // the client saw the message in. Rows with and without a folder are copied by separate
@@ -253,14 +260,17 @@ static vector<string> V10_SETUP_QUERIES = {
 // the JSON subtype reaches it, and whether the subtype survives a CASE expression depends
 // on the SQLite version; a lost subtype would store the map as a string.
 static vector<string> V10_UPGRADE_QUERIES = {
-    "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, syncedAt, unlinkedAt, pendingFolderId) "
-    "SELECT accountId, id, remoteFolderId, "
-           "CASE WHEN remoteUID > 4294967290 THEN 0 ELSE remoteUID END, "
+    "INSERT INTO MessageFolder (accountId, messageId, folderId, remoteUID, unread, starred, draft, remoteXGMLabels, pendingFolderId) "
+    "SELECT accountId, id, remoteFolderId, remoteUID, "
            "IFNULL(unread, 0), IFNULL(starred, 0), IFNULL(draft, 0), IFNULL(remoteXGMLabels, '[]'), "
-           "IFNULL(CAST(json_extract(data, '$._sa') AS INTEGER), 0), "
-           "CASE WHEN remoteUID > 4294967290 OR (id LIKE 'deleted-%' AND remoteUID = 0) THEN strftime('%s', 'now') ELSE NULL END, "
            "CASE WHEN json_extract(data, '$.folder.id') != remoteFolderId THEN json_extract(data, '$.folder.id') ELSE NULL END "
-    "FROM Message WHERE remoteFolderId IS NOT NULL AND remoteFolderId != ''",
+    "FROM Message WHERE remoteFolderId IS NOT NULL AND remoteFolderId != '' "
+    "AND remoteUID <= 4294967290 AND NOT (id LIKE 'deleted-%' AND remoteUID = 0)",
+
+    "INSERT INTO MessageOrphan (messageId, accountId, since) "
+    "SELECT id, accountId, strftime('%s', 'now') FROM Message "
+    "WHERE remoteFolderId IS NULL OR remoteFolderId = '' "
+    "OR remoteUID > 4294967290 OR (id LIKE 'deleted-%' AND remoteUID = 0)",
 
     "CREATE TABLE Message_v10 ("
         "id VARCHAR(40) PRIMARY KEY,"
@@ -305,7 +315,7 @@ static vector<string> V10_UPGRADE_QUERIES = {
 static vector<string> V10_INDEX_QUERIES = {
     "CREATE UNIQUE INDEX IF NOT EXISTS MessageFolderUIDIndex ON MessageFolder (accountId, folderId, remoteUID) WHERE remoteUID > 0",
     "CREATE INDEX IF NOT EXISTS MessageFolderMessageIndex ON MessageFolder (messageId)",
-    "CREATE INDEX IF NOT EXISTS MessageFolderUnlinkedIndex ON MessageFolder (accountId, unlinkedAt) WHERE unlinkedAt IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS MessageOrphanSinceIndex ON MessageOrphan (accountId, since)",
     // Drives the body-sync queries newest-first with a correlated placement check
     // (SyncWorker::syncMessageBodies).
     "CREATE INDEX IF NOT EXISTS MessageListDateIndex ON Message (accountId, date DESC)",

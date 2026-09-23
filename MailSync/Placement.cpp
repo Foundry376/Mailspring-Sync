@@ -20,10 +20,6 @@ Placement Placement::fromRow(SQLite::Statement & row) {
     p.unread = row.getColumn("unread").getInt() != 0;
     p.starred = row.getColumn("starred").getInt() != 0;
     p.draft = row.getColumn("draft").getInt() != 0;
-    p.syncedAt = (time_t)row.getColumn("syncedAt").getInt64();
-
-    auto unlinked = row.getColumn("unlinkedAt");
-    p.unlinkedAt = unlinked.isNull() ? 0 : (time_t)unlinked.getInt64();
 
     auto pending = row.getColumn("pendingFolderId");
     p.pendingFolderId = pending.isNull() ? "" : pending.getString();
@@ -37,10 +33,6 @@ Placement Placement::fromRow(SQLite::Statement & row) {
         }
     }
     return p;
-}
-
-bool Placement::isLive() const {
-    return unlinkedAt == 0;
 }
 
 int Placement::flagBits() const {

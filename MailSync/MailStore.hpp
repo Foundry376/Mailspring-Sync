@@ -118,7 +118,8 @@ public:
     // Message also rewrites its "folders" snapshot and derived unread/starred/draft so the
     // two never drift. The caller saves the Message afterwards so the client sees the change.
     // Bulk helpers touch rows only and return the ids of the messages they affected so the
-    // caller can load those (and only those) to update their snapshots.
+    // caller can load those (and only those) to update their snapshots. Either kind keeps
+    // MessageOrphan exact: a message is listed there iff it has no MessageFolder row.
 
     vector<Placement> placementsForMessage(string messageId);
 
@@ -132,20 +133,17 @@ public:
     // Returns the id of a different message that held (toFolderId, newUid) and lost it, or "".
     string commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid);
     void removePlacement(Message & msg, string folderId, uint32_t uid);
-    void clearTombstones(Message & msg);
     void refreshMessageFromPlacements(Message & msg);
 
-    vector<string> tombstonePlacements(Folder & folder, const vector<uint32_t> & uids, time_t now);
-    vector<string> tombstonePlacements(Folder & folder, Query & uidQuery, time_t now);
+    vector<string> deleteVanishedPlacements(Folder & folder, const vector<uint32_t> & uids);
+    vector<string> deleteVanishedPlacements(Folder & folder, Query & uidQuery);
     void resetPlacementUIDs(Folder & folder);
-    vector<string> tombstoneUnassignedPlacements(Folder & folder, time_t now);
-    vector<string> expiredTombstoneMessageIds(string accountId, time_t before);
-    void deleteExpiredTombstones(string accountId, time_t before, const vector<string> & messageIds);
+    vector<string> deleteUnassignedPlacements(Folder & folder);
+    vector<string> orphanMessageIdsBefore(string accountId, time_t before);
     void deletePlacementsForMessage(string messageId);
     vector<string> messageIdsWithPlacementsInFolder(string folderId);
     void deletePlacementsForFolder(string folderId, const vector<string> & messageIds);
     vector<string> deletePlacementsForFolder(string folderId);
-    vector<string> orphanMessageIds(string accountId);
 
     void setStreamDelay(int streamMaxDelay);
     
@@ -274,6 +272,7 @@ private:
     void _migrateToV10(bool freshDatabase, const string & verb);
     SQLite::Statement & _placementStatement(const string & key, const string & sql);
     vector<string> _collectMessageIds(SQLite::Statement & stmt);
+    void _recordOrphansAmong(const vector<string> & messageIds);
 };
 
 

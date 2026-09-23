@@ -215,7 +215,7 @@ string Message::folderRole(MailStore * store, string folderId) {
 }
 
 // A message is "in all mail" when at least one of its copies is somewhere other than
-// spam or trash. A message with no live copies (in transit between folders) is not.
+// spam or trash. A message with no copies (in transit between folders) is not.
 bool Message::inAllMail(MailStore * store) {
     for (auto & folderId : folderIds()) {
         string role = folderRole(store, folderId);

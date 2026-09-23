@@ -3,13 +3,13 @@ description: >
   A database written by the last pre-placements engine (0df7864: Message.remoteFolderId /
   remoteUID, one folder per row, unlinked rows parked at remoteUID = UINT32_MAX - phase) is
   handed to the current build. The V10 migration must turn every located row into a
-  MessageFolder placement and every parked row into an expired tombstone, and the engine
+  MessageFolder placement and every parked row into an orphan record, and the engine
   must then converge: the self-addressed copies the old model could only file once gain
   their second placement, the ten messages another client expunged while the old engine was
   mid-sweep (unlinked but not yet deleted) are removed without touching anything else, and
   further passes move nothing. Starts on `binary:` (test/ab/mailsync-0df7864, rebuilt per
   docs/handoff-refactor-regression.md 4) and restarts onto the build under test.
-source: "MailStore::_migrateToV10 (constants.h V10_UPGRADE_QUERIES: remoteUID > 4294967290 -> UID 0 + unlinkedAt); docs/message-placements-plan.md 2.5; handoff-refactor-regression.md 5.5"
+source: "MailStore::_migrateToV10 (constants.h V10_UPGRADE_QUERIES: remoteUID > 4294967290 -> no row + MessageOrphan); docs/message-placements-plan.md 2.5; handoff-refactor-regression.md 5.5"
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}

@@ -206,7 +206,7 @@ class MailsyncProcess:
 
     def migrate(self):
         r = self.run_mode("migrate")
-        # e.g. "Migration V10: 376 placements created, 0 messages without a folder"
+        # e.g. "Migration V10: 376 placements created, 10 messages without a copy"
         self.migrate_output = " ".join(r.stdout.split())
         if r.returncode != 0 or '"error":null' not in r.stdout.replace(" ", ""):
             hint = " (exit 2 with no output is the executable-path check: argv[0] must contain 'mailspring')" if r.returncode == 2 else ""

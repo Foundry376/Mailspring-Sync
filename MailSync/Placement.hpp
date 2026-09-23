@@ -41,13 +41,10 @@ struct Placement {
     bool starred = false;
     bool draft = false;
     json labels = json::array(); // X-GM-LABELS of this copy (Gmail only)
-    time_t syncedAt = 0;
-    time_t unlinkedAt = 0;       // 0 = live; otherwise the tombstone timestamp
     string pendingFolderId;      // set while an optimistic move is in flight
 
     static Placement fromRow(SQLite::Statement & row);
 
-    bool isLive() const;
     int flagBits() const;
 
     // The folder the client should see this copy in: the optimistic destination while

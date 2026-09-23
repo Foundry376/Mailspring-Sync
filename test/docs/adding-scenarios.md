@@ -44,7 +44,7 @@ client would see (the database / delta stream), never on internal function behav
    (README, "Invariants") run on every scenario without being listed.
 6. **Run it on the fake, then on Dovecot**, with `--keep`, and read the artifacts once even
    when it passes: `report.txt` for the timeline, `config/mailsync-*.log` (grep `Marking`,
-   `Sync loop complete`, `syncFolderUIDRange`, `Tombstoning`/`Unlinking`, `recv * VANISHED`)
+   `Sync loop complete`, `syncFolderUIDRange`, `Deleting`/`Unlinking`, `recv * VANISHED`)
    to confirm the engine took the path you meant to test. A scenario that passes because the
    engine never exercised the branch is worse than none.
 7. **If it fails on the current engine**, decide whether that is the point. A scenario may
@@ -202,9 +202,10 @@ Timing
 - **Dovecot answers FETCH/STATUS from the session's stale view** after another session's
   expunge (rows still returned, EXPUNGE lines after the data). The engine's deep scan sees
   deletions one pass late on plain servers; this is real and is modelled in the fake.
-- **Deferred deletion is not churn.** The engine unlinks/tombstones first and deletes rows a
-  pass later, so `unpersist` deltas can appear on an "idle" pass. `stable` only counts a
-  message that was placed at the start of the pass and got deleted during it.
+- **Deferred deletion is not churn.** The engine deletes a vanished copy at once but keeps a
+  message that lost its last copy (an orphan) until the end of the next pass, so `unpersist`
+  deltas can appear on an "idle" pass. `stable` only counts a message that was placed at the
+  start of the pass and got deleted during it.
 - Dovecot's `mailbox_idle_check_interval` is set to 2 s in the harness config; the 30 s default
   is not what causes the burst behaviour.
 - **Background folder order is a role sort**: `inbox, sent, drafts, all, archive, trash,
