@@ -1036,6 +1036,23 @@ vector<string> MailStore::orphanMessageIdsBefore(string accountId, time_t before
     return _collectMessageIds(stmt);
 }
 
+// The subset of `among` (at most a few hundred ids) still listed as orphaned before `before`.
+vector<string> MailStore::orphanMessageIdsBefore(string accountId, time_t before, const vector<string> & among) {
+    assertCorrectThread();
+    if (among.empty()) {
+        return {};
+    }
+    SQLite::Statement stmt(_db,
+        "SELECT messageId FROM MessageOrphan WHERE accountId = ? AND since < ? AND messageId IN (" + MailUtils::qmarks(among.size()) + ")");
+    stmt.bind(1, accountId);
+    stmt.bind(2, (long long)before);
+    int idx = 3;
+    for (auto & id : among) {
+        stmt.bind(idx++, id);
+    }
+    return _collectMessageIds(stmt);
+}
+
 // Called from Message::afterRemove, so the orphan record goes with the message.
 void MailStore::deletePlacementsForMessage(string messageId) {
     assertCorrectThread();

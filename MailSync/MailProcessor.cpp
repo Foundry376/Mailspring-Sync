@@ -618,6 +618,9 @@ void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & mess
 int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects, bool removeUnplaced)
 {
     int removed = 0;
+    if (messageIds.empty()) {
+        return removed;
+    }
     vector<string> ids = messageIds;
     auto messages = store->findAll<Message>(Query().equal("id", ids));
     for (auto & msg : messages) {
@@ -681,8 +684,8 @@ void MailProcessor::detachMessagesFromFolder(string folderId, std::chrono::milli
  every folder scanned since, so a copy that moved elsewhere has already been recorded and
  cleared its orphan record (MailStore::refreshMessageFromPlacements). What is still listed
  is removed through store->remove, which balances the thread and deletes the body,
- metadata and orphan record. The row check runs inside each chunk's transaction so a copy
- the foreground worker records meanwhile keeps its message.
+ metadata and orphan record. Both the orphan record and the rows are checked inside each
+ chunk's transaction so a copy the foreground worker records meanwhile keeps its message.
  */
 void MailProcessor::sweepExpiredOrphans(time_t before)
 {
@@ -694,7 +697,10 @@ void MailProcessor::sweepExpiredOrphans(time_t before)
     bool logSubjects = candidates.size() < 20;
     for (auto chunk : MailUtils::chunksOfVector(candidates, 100)) {
         MailStoreTransaction transaction{store, "sweepExpiredOrphans"};
-        refreshMessagesInOpenTransaction(chunk, logSubjects, true);
+        // The foreground worker can revive and re-orphan a candidate while earlier chunks
+        // run, restarting its grace period, so its record is re-read under the lock.
+        auto expired = store->orphanMessageIdsBefore(account->id(), before, chunk);
+        refreshMessagesInOpenTransaction(expired, logSubjects, true);
         transaction.commit();
     }
 }

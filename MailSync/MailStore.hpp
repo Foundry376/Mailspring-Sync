@@ -140,6 +140,7 @@ public:
     void resetPlacementUIDs(Folder & folder);
     vector<string> deleteUnassignedPlacements(Folder & folder);
     vector<string> orphanMessageIdsBefore(string accountId, time_t before);
+    vector<string> orphanMessageIdsBefore(string accountId, time_t before, const vector<string> & among);
     void deletePlacementsForMessage(string messageId);
     vector<string> messageIdsWithPlacementsInFolder(string folderId);
     void deletePlacementsForFolder(string folderId, const vector<string> & messageIds);
