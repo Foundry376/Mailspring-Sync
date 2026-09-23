@@ -175,6 +175,7 @@ void SyncWorker::idleCycleIteration()
     if (err != ErrorCode::ErrorNone) {
         throw SyncException(err, "loginIfNeeded");
     }
+    processor->setIsGmail(session.storedCapabilities()->containsIndex(IMAPCapabilityGmail));
 
     if (idleShouldReloop) {
         idleShouldReloop = false;
@@ -362,6 +363,7 @@ bool SyncWorker::syncNow()
     bool hasCondstore = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
     bool hasQResync = session.storedCapabilities()->containsIndex(IMAPCapabilityQResync);
     bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
+    processor->setIsGmail(isGmail);
 
     // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
     // responses and doesn't send the ENABLED untagged response per RFC. This causes

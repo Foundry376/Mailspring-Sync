@@ -36,9 +36,13 @@ class MailProcessor {
     MailStore * store;
     shared_ptr<Account> account;
     shared_ptr<spdlog::logger> logger;
+    bool _isGmail = false;
 
 public:
     MailProcessor(shared_ptr<Account> account, MailStore * store);
+
+    // Set by the owning worker once its session has logged in and knows the capabilities.
+    void setIsGmail(bool isGmail);
     shared_ptr<Message> insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
     shared_ptr<Message> insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
     shared_ptr<Message> updateMessage(const string & messageId, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp);

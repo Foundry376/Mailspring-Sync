@@ -87,6 +87,12 @@ MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
 
 }
 
+// Detected from the X-GM-EXT-1 capability rather than the account's provider, which is
+// "imap" for a Gmail account added with generic IMAP settings.
+void MailProcessor::setIsGmail(bool isGmail) {
+    _isGmail = isGmail;
+}
+
 namespace {
 
 // The copy of `messageId` at (folder, UID), if one is recorded.
@@ -290,7 +296,7 @@ shared_ptr<Message> MailProcessor::updateMessage(const string & messageId, IMAPM
     json before = local->toJSON();
     string displaced = store->upsertPlacement(*local, folder, updated.uid, updated);
 
-    if (account->provider() == "gmail") {
+    if (_isGmail) {
         string role = folder.role();
         if (role == "all" || role == "spam" || role == "trash") {
             store->removePlacementsOutsideFolder(*local, folder.id());
