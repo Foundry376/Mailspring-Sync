@@ -1,0 +1,38 @@
+name: remote-move-while-task-in-flight
+description: >
+  The user stars a message and, while the star's STORE is still on its way to the server,
+  another client moves the message's only copy INBOX -> Archive. The star task holds the
+  message's syncedAt lock for its whole remote phase, which on the fake is held for 12 s
+  while the background worker runs a pass. The INBOX scan finds the copy gone and the
+  message becomes an orphan; the Archive scan must record the new copy despite the lock, so
+  the end-of-pass sweep keeps the message (same id, no unpersist, metadata and body kept)
+  and it shows in Archive. On Dovecot there is no hook, so the same steps check an ordinary
+  star followed by a remote move.
+source: "MailProcessor::updateMessage (the syncedAt lock only protects copies already recorded); a lost copy stays missing on QRESYNC servers because CHANGEDSINCE moves past it"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 8}
+  Archive: {messages: 2}
+steps:
+  - wait: quiescent
+  - server.pause: {at: {hook: before_command, session: foreground, command: "^UID STORE", delay: 12}}
+  - client.task: {__cls: ChangeStarredTask, messages: {mailbox: INBOX, uids: [3]}, starred: true}
+    as: star
+  - wait: {seconds: 1}
+  - server.move: {mailbox: INBOX, uids: "3", to: Archive}
+  - wait: {seconds: 1}
+  - sync: pass
+  - sync: pass
+  - wait: {task: star, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  server_counts: {INBOX: 7, Archive: 3}
+  counts: {INBOX: 7, Archive: 3}
+  db_matches_server: {}
+  deltas: {Message: {unpersist: 0}}
+  stable: {passes: 1}
+  running: true

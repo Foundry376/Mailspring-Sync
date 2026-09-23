@@ -105,6 +105,7 @@ records outcomes for one binary and diffs two recordings (see
 | mark-read-fans-out-to-all-placements | ChangeUnreadTask by threadIds hits every placement | fake ×2, dovecot | pass |
 | uidvalidity-change-large-mailbox | #140 truncated UIDVALIDITY rebuild re-loops, 2 500 msgs | fake ×2 | pass |
 | synced-draft-destroy / -courier | DestroyDraftTask on a synced draft and a local UID-0 draft | fake ×2, dovecot | pass |
+| remote-move-while-task-in-flight | new copy recorded under the syncedAt lock; message not swept | fake ×2, dovecot | pass (fails on 2f83306) |
 
 Gaps worth filling next: iCloud / Outlook / NetEase behaviour needs recordings
 (`tools/record_personality.py`) before their quirks can be asserted; `--mode test` and the

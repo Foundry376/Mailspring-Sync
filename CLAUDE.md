@@ -173,11 +173,16 @@ server" (a local draft, or a row awaiting relink after a UIDVALIDITY change).
   source-first therefore streams `persist {folders: {}}` then `persist {folders: {dest}}`
   on the same id — never `unpersist` — and metadata survives. Both workers share this
   grace rule because it is keyed on the pass timestamp, not on a per-worker phase.
-- **The `syncedAt` guard is message-level.** `updateMessage` ignores server data older than
-  `Message._sa` (set to now + 24h by a task's local phase and reset by its remote phase).
-  This is what stops a scan of the *source* folder from resurrecting a copy the user just
-  moved away; after the local phase the source placement is the thing in flight, so a
-  per-placement timestamp would have nowhere to live.
+- **The `syncedAt` guard is message-level.** While `Message._sa` is in the future (now + 24h
+  from a task's local phase; `_suc` counts the tasks holding it, and each task's remote
+  phase releases its hold), `updateMessage` ignores server data for copies it has already
+  recorded. This is what stops a scan of the *source* folder from
+  resurrecting a copy the user just moved away or reverting a flag the user just changed;
+  after the local phase the source placement is the thing in flight, so a per-placement
+  timestamp would have nowhere to live. A copy at a (folder, UID) the message has no row for
+  is always recorded, with the server's flags: another client may have moved the message's
+  only copy, and skipping it would leave the message to the orphan sweep. A scan never
+  clears a row's `pendingFolderId`; only the task's commit does.
 - **Optimistic moves are pending placements.** A task's local phase sets
   `pendingFolderId` on the placements it decided to move; the snapshot reports them under
   the pending folder, so the client updates immediately. The remote phase MOVEs (or

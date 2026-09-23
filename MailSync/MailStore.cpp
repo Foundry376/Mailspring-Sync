@@ -716,6 +716,10 @@ void MailStore::refreshMessageFromPlacements(Message & msg) {
  - A row for this message in this folder at UID 0 is a placement whose UID is unknown:
    a local draft, or a copy waiting for a UIDVALIDITY rebuild to relink it. It is
    replaced by the real row so the rebuild converges instead of leaving both.
+
+ An existing row's pending move marker is kept: a scan can run between a task's MOVE and
+ its commit, and only commitPlacementMove or an abandoned task settles the marker. A row
+ taken over from another message loses it, since the move was that message's.
  */
 string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs) {
     assertCorrectThread();
@@ -738,7 +742,7 @@ string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, 
         // UID 0 rows are outside the unique index, so refresh one by hand rather than
         // accumulating a row per save of a local draft.
         auto & unassigned = _placementStatement("upsertUnassigned",
-            "UPDATE MessageFolder SET unread = ?, starred = ?, draft = ?, remoteXGMLabels = ?, pendingFolderId = NULL "
+            "UPDATE MessageFolder SET unread = ?, starred = ?, draft = ?, remoteXGMLabels = ? "
             "WHERE messageId = ? AND folderId = ? AND remoteUID = 0");
         unassigned.bind(1, attrs.unread);
         unassigned.bind(2, attrs.starred);
@@ -759,7 +763,8 @@ string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, 
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL) "
         "ON CONFLICT (accountId, folderId, remoteUID) WHERE remoteUID > 0 DO UPDATE SET "
         "messageId = excluded.messageId, unread = excluded.unread, starred = excluded.starred, draft = excluded.draft, "
-        "remoteXGMLabels = excluded.remoteXGMLabels, pendingFolderId = NULL");
+        "remoteXGMLabels = excluded.remoteXGMLabels, "
+        "pendingFolderId = CASE WHEN messageId = excluded.messageId THEN pendingFolderId END");
     stmt.bind(1, msg.accountId());
     stmt.bind(2, msg.id());
     stmt.bind(3, folder.id());

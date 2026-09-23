@@ -248,6 +248,7 @@ Things learned from Dovecot while building the conformance suite, all now modell
 | mark-read-fans-out-to-all-placements | ChangeUnreadTask by threadIds hits every placement | fake ×2, dovecot |
 | uidvalidity-change-large-mailbox | #140 truncated UIDVALIDITY rebuild re-loops (2 500 msgs) | fake ×2 |
 | synced-draft-destroy (+ -courier) | DestroyDraftTask on a server-synced draft and a local UID-0 draft | fake ×2, dovecot |
+| remote-move-while-task-in-flight | another client moves a message's only copy while a star task holds its syncedAt lock; the new copy is recorded, no unpersist | fake ×2, dovecot |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up

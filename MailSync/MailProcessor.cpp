@@ -236,9 +236,14 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
  BEGIN IMMEDIATE: both workers can process the same server change at once, and a copy loaded
  before the other worker committed would apply that change's thread delta a second time and
  write its stale JSON over the other worker's. Only the placement at (folder, uid) is compared
- against what the server reported. The `syncedAt` guard is message-level: while a task the
- user queued is in flight, a scan of the source folder must not resurrect the copy being
- moved away.
+ against what the server reported.
+
+ The `syncedAt` guard is message-level: while a task the user queued is in flight, its local
+ phase has already written the copies' new flags or marked them for a move, and a scan of
+ those copies must not revert that. It only protects copies already recorded. A copy the
+ message has nowhere yet is recorded with the server's flags even under the lock: another
+ client may have moved the message's only copy, and skipping the new one would leave the
+ message an orphan for the sweep. The lock is left in place for the task to release.
  */
 shared_ptr<Message> MailProcessor::updateMessage(const string & messageId, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
 {
@@ -252,14 +257,14 @@ shared_ptr<Message> MailProcessor::updateMessage(const string & messageId, IMAPM
         transaction.commit();
         return nullptr;
     }
-    if (local->syncedAt() > syncDataTimestamp) {
-        logger->warn("Ignoring changes to {}, local data is newer {} < {}", local->subject(), syncDataTimestamp, local->syncedAt());
+    auto p = placementAt(store, messageId, folder.id(), updated.uid);
+    if (placementIsCurrent(p, updated)) {
         transaction.commit();
         return local;
     }
-
-    auto p = placementAt(store, messageId, folder.id(), updated.uid);
-    if (placementIsCurrent(p, updated)) {
+    bool locked = local->syncedAt() > syncDataTimestamp;
+    if (p && locked) {
+        logger->warn("Ignoring changes to {}, local data is newer {} < {}", local->subject(), syncDataTimestamp, local->syncedAt());
         transaction.commit();
         return local;
     }
@@ -297,7 +302,9 @@ shared_ptr<Message> MailProcessor::updateMessage(const string & messageId, IMAPM
     store->refreshMessageFromPlacements(*local);
     if (local->toJSON() != before) {
         logger->info("-- Folders now {}", local->folders().dump());
-        local->setSyncedAt(syncDataTimestamp);
+        if (!locked) {
+            local->setSyncedAt(syncDataTimestamp);
+        }
         store->save(local.get());
     }
 
