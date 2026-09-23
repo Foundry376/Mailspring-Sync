@@ -173,7 +173,10 @@ server" (a local draft, or a row awaiting relink after a UIDVALIDITY change).
   rebuild, a failed gap scan) to the start of the last pass that did (kept in memory,
   `SyncWorker::folderCoveredAt`; never covered since launch counts as 0) — but never below
   `ORPHAN_SWEEP_MAX_WAIT` (24h; env `ORPHAN_SWEEP_MAX_WAIT` overrides) ago, so one folder
-  that is never covered delays the sweep instead of disabling it. Skipped `\All` folders
+  that is never covered delays the sweep instead of disabling it. A folder whose initial
+  walk moved down during the pass is exempt from that floor and holds the bound at its
+  last coverage however long the walk takes; a walk that stops moving falls back to the
+  floor. Skipped `\All` folders
   count as covered. Deleting a folder (or ExpungeAllInFolder) removes the messages
   whose only copy was there right away. A plain-IMAP MOVE seen
   source-first therefore streams `persist {folders: {}}` then `persist {folders: {dest}}`

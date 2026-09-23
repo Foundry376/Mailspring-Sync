@@ -258,6 +258,7 @@ Things learned from Dovecot while building the conformance suite, all now modell
 | remote-move-while-task-in-flight | another client moves a message's only copy while a star task holds its syncedAt lock; the new copy is recorded, no unpersist | fake ×2, dovecot |
 | move-rejected-by-server | MOVE answered NO [OVERQUOTA]: the copy shows in INBOX again and the syncedAt lock is released | fake ×2 |
 | orphan-sweep-with-unreadable-folder | a folder whose STATUS always fails delays the orphan sweep by ORPHAN_SWEEP_MAX_WAIT instead of disabling it | fake |
+| orphan-sweep-waits-for-initial-walk | an initial walk that moves down every pass holds the orphan sweep past ORPHAN_SWEEP_MAX_WAIT | fake |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up

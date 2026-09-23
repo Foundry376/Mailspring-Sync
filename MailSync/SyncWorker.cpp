@@ -41,7 +41,9 @@
 // waiting costs only disk. Past the wait an orphan is swept even if such a folder holds its
 // last copy, which comes back without its plugin metadata if the folder ever becomes readable:
 // the accepted cost, since the user cannot see an unreadable mailbox, and dropping the limit
-// would stall the sweep for good. The ORPHAN_SWEEP_MAX_WAIT environment variable (seconds)
+// would stall the sweep for good. A folder whose initial walk towards UID 1 moved down in the
+// pass is exempt: the walk will reach every copy, and a first sync of a folder with hundreds of
+// thousands of messages can take days. The ORPHAN_SWEEP_MAX_WAIT environment variable (seconds)
 // overrides it so the test harness can reach it.
 #define ORPHAN_SWEEP_MAX_WAIT       60 * 60 * 24
 
@@ -360,16 +362,21 @@ bool SyncWorker::syncNow()
     // A folder the pass does not cover in full (STATUS failed, still in initial sync, a
     // truncated fetch) may hold a copy the sweep would otherwise treat as gone, so the sweep
     // only takes orphans older than that folder's last full coverage - but never waits more
-    // than orphanSweepMaxWait() for it.
+    // than orphanSweepMaxWait() for it, unless its initial walk moved down this pass. A walk
+    // through a very large folder can take days, and it will reach every copy eventually.
     time_t waitLimit = passStartedAt - orphanSweepMaxWait();
     time_t sweepBefore = passStartedAt;
-    auto recordCoverage = [&](Folder & folder, bool covered) {
+    auto recordCoverage = [&](Folder & folder, bool covered, bool walkProgressed = false) {
         if (covered) {
             folderCoveredAt[folder.id()] = passStartedAt;
             foldersPastOrphanWait.erase(folder.id());
             return;
         }
         time_t coveredAt = folderCoveredAt.count(folder.id()) ? folderCoveredAt[folder.id()] : 0;
+        if (walkProgressed) {
+            sweepBefore = min(sweepBefore, coveredAt);
+            return;
+        }
         if (coveredAt < waitLimit && foldersPastOrphanWait.insert(folder.id()).second) {
             if (coveredAt) {
                 logger->warn("Orphans older than {}s are swept without waiting for {}, not fully scanned for {:.1f}h.",
@@ -553,6 +560,7 @@ bool SyncWorker::syncNow()
         // fetch across the whole chunk for every MAX_FULL_HEADERS_REQUEST_SIZE messages ingested.
         uint32_t chunkSize = firstChunk ? 750 : MAX_FULL_HEADERS_REQUEST_SIZE;
 
+        uint32_t walkStartUID = syncedMinUID;
         if (syncedMinUID > 1) {
             // The UID value space is sparse, meaning there can be huge gaps where there are no
             // messages. If the folder indicates UIDNext is 100000 but there are only 100 messages,
@@ -750,14 +758,16 @@ bool SyncWorker::syncNow()
         // Save the folder - note that helper methods above mutated localStatus.
         // Avoid the save if we can, because this creates a lot of noise in the client.
         store->saveFolderStatus(folder.get(), initialLocalStatus);
-        recordCoverage(*folder, covered);
+        recordCoverage(*folder, covered, syncedMinUID < walkStartUID);
     }
     
     // If a copy of an orphan reappeared in a scanned folder, the upsert cleared its record;
     // remove the rest that are old enough. Without the per-folder bound, a bulk move of more
     // messages than one fetch carries would have its remainder removed here and re-created,
     // without metadata, once the destination catches up.
-    if (sweepBefore < passStartedAt) {
+    if (sweepBefore == 0) {
+        logger->info("Orphan sweep skipped: a folder still in initial sync has not been fully scanned since launch.");
+    } else if (sweepBefore < passStartedAt) {
         logger->info("Orphan sweep limited to messages orphaned more than {}s before this pass: a folder was skipped, still in initial sync, or had a fetch truncated.", passStartedAt - sweepBefore);
     }
     processor->sweepExpiredOrphans(sweepBefore);
