@@ -55,24 +55,6 @@
 #define MODSEQ_TRUNCATION_THRESHOLD 4000
 #define MODSEQ_TRUNCATION_UID_COUNT 12000
 
-// These keys are saved to the folder object's "localState".
-// Starred keys are used in the client to show sync progress.
-#define LS_BUSY                     "busy"           // *
-#define LS_UIDNEXT                  "uidnext"        // *
-#define LS_SYNCED_MIN_UID           "syncedMinUID"   // *
-#define LS_BODIES_PRESENT           "bodiesPresent"  // *
-#define LS_BODIES_WANTED            "bodiesWanted"   // *
-#define LS_LAST_CLEANUP             "lastCleanup"
-/// IMPORTANT: deep/shallow are only used for some IMAP servers
-#define LS_LAST_SHALLOW             "lastShallow"
-#define LS_LAST_DEEP                "lastDeep"
-#define LS_HIGHESTMODSEQ            "highestmodseq"
-#define LS_UIDVALIDITY              "uidvalidity"
-#define LS_UIDVALIDITY_RESET_COUNT  "uidvalidityResetCount"
-#define LS_MESSAGE_COUNT            "messageCount"
-#define LS_UNSEEN_COUNT             "unseenCount"
-#define LS_RECENT_COUNT             "recentCount"
-
 using namespace mailcore;
 using namespace std;
 

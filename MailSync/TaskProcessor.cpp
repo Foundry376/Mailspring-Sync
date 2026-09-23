@@ -115,7 +115,7 @@ static void _rescanFoldersForFlags(MailStore * store, string accountId, const ma
             continue;
         }
         json initialStatus = folder->localStatus();
-        folder->localStatus()["lastDeep"] = 0;
+        folder->localStatus()[LS_LAST_DEEP] = 0;
         store->saveFolderStatus(folder.get(), initialStatus);
     }
 }
