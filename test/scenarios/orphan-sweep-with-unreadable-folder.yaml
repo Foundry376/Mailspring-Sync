@@ -12,8 +12,6 @@ servers:
   - {fake: dovecot}
 env:
   ORPHAN_SWEEP_MAX_WAIT: 8
-quiescence:
-  ignore_busy: [Shared]   # a folder whose STATUS fails never reaches the bookkeeping that clears busy
 mailboxes:
   INBOX: {messages: 6}
   Archive: {messages: 3}

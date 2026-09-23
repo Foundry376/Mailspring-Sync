@@ -432,6 +432,10 @@ bool SyncWorker::syncNow()
         IMAPFolderStatus * remoteStatusPtr = session.folderStatus(&path, &err);
         if (err != ErrorNone) {
             logger->warn("SyncNow: unable to get folder status for {} ({}), skipping...", folder->path(), ErrorCodeToTypeMap[err]);
+            // markAllFoldersBusy set `busy`, and nothing below will run to clear it.
+            json initialLocalStatus = folder->localStatus();
+            folder->localStatus()[LS_BUSY] = false;
+            store->saveFolderStatus(folder.get(), initialLocalStatus);
             recordCoverage(*folder, false);
             continue;
         }
