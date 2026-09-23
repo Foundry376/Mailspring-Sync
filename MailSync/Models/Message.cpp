@@ -62,6 +62,7 @@ Message::Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTi
 MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folder.accountId(), 0)
 {
     _skipThreadUpdatesAfterSave = false;
+    _placementsChanged = false;
     _lastSnapshot = MessageEmptySnapshot;
     _data["_sa"] = syncDataTimestamp;
     _data["_suc"] = 0;
@@ -131,6 +132,7 @@ Message::Message(SQLite::Statement & query) :
     MailModel(query)
 {
     _skipThreadUpdatesAfterSave = false;
+    _placementsChanged = false;
     _lastSnapshot = getSnapshot();
 }
 
@@ -138,6 +140,7 @@ Message::Message(json json) :
     MailModel(json)
 {
     _skipThreadUpdatesAfterSave = false;
+    _placementsChanged = false;
 
     // Client-authored draft JSON carries no "folders"; the engine assigns placements.
     if (!_data.count("folders") || !_data["folders"].is_object()) {
@@ -442,6 +445,15 @@ void Message::bindToQuery(SQLite::Statement * query) {
     query->bind(":subject", subject());
     query->bind(":threadId", threadId());
     query->bind(":gMsgId", gMsgId());
+}
+
+// Runs before bindToQuery serializes the JSON and before afterSave diffs the thread
+// against _lastSnapshot, so both see the rebuilt snapshot.
+void Message::beforeSave(MailStore * store) {
+    MailModel::beforeSave(store);
+    if (_placementsChanged) {
+        store->refreshMessageFromPlacements(*this);
+    }
 }
 
 void Message::afterSave(MailStore * store) {

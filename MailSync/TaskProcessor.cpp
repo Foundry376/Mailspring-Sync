@@ -1221,6 +1221,9 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
                     displacedIds.push_back(displaced);
                 }
             }
+            if (safe->_placementsChanged) {
+                store->refreshMessageFromPlacements(*safe);
+            }
             if (_clientVisibleState(*safe) != before) {
                 clientVisibleChange = true;
             }
@@ -1241,7 +1244,7 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
                 continue;
             }
             logger->warn("-- Message {} lost a placement to a moved copy at the same UID", id);
-            store->refreshMessageFromPlacements(*displaced);
+            displaced->_placementsChanged = true;
             store->save(displaced.get());
             clientVisibleChange = true;
         }
@@ -1396,7 +1399,8 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
                     store->beginPlacementMove(*stub, p.folderId, p.remoteUID, trash->id());
                 }
             }
-            // Records a stub for a draft that was never on the server as an orphan.
+            // Rebuilt before the flags below so the save keeps them, and unconditionally so a
+            // stub for a draft that was never on the server is recorded as an orphan.
             store->refreshMessageFromPlacements(*stub);
             // The placement keeps the draft's flags so the Drafts scan sees no change;
             // the placeholder itself must not appear in the draft list.

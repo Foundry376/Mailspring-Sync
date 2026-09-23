@@ -74,7 +74,7 @@ public:
     bool isHiddenReminder();
 
     // Placement snapshot: { "<folderId>": bits }, live copies only (see Placement.hpp).
-    // Written by the MailStore placement helpers, read by the client and by Thread.
+    // Rebuilt from the rows on save (see _placementsChanged); read by the client and Thread.
     json & folders();
     vector<string> folderIds();
     string folderRole(MailStore * store, string folderId);
@@ -121,8 +121,8 @@ public:
     bool isInInbox(MailStore * store);
     bool _isIn(MailStore * store, string roleAlsoLabelName);
 
-    // X-GM-LABELS of the message's live copies (Gmail has one). Written by the MailStore
-    // placement helpers alongside "folders"; the client reads it as `labels`.
+    // X-GM-LABELS of the message's live copies (Gmail has one). Rebuilt alongside
+    // "folders"; the client reads it as `labels`.
     json & labels();
 
     // immutable attributes
@@ -142,12 +142,18 @@ public:
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 
+    void beforeSave(MailStore * store);
     void afterSave(MailStore * store);
     void afterRemove(MailStore * store);
 
     json toJSONDispatch();
 
     bool _skipThreadUpdatesAfterSave;
+
+    // Set by the MailStore placement helpers when they change this message's rows. The
+    // save rebuilds the snapshot from the rows (MailStore::refreshMessageFromPlacements),
+    // which clears it. In memory only.
+    bool _placementsChanged;
 };
 
 #endif /* Message_hpp */

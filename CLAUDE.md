@@ -143,15 +143,18 @@ server" (a local draft, or a row awaiting relink after a UIDVALIDITY change).
   any copy in a `drafts`-role folder). The snapshot exists so the Thread refcount diff and
   the client never need a join. It carries folder ids only — no path or role; resolve those
   through `MailStore::folderById`.
-- **The snapshot is maintained incrementally by the helpers that write the rows, never
-  rebuilt from a query.** Every location change goes through a `MailStore` placement helper
-  (`upsertPlacement`, `setPlacementUnread/Starred/Labels`, `beginPlacementMove` /
-  `commitPlacementMove`, `removePlacement`, `refreshMessageFromPlacements`; bulk SQL-only
-  `deleteVanishedPlacements`, `resetPlacementUIDs`, `deleteUnassignedPlacements`,
-  `deletePlacementsForMessage/Folder`). The bulk helpers return the affected message ids so
-  the caller can refresh and save exactly those messages. This
-  invariant is disciplinary, not structural: do not write `MessageFolder` or `folders`
-  anywhere else. After every scenario the test harness (`test/harness/invariants.py`)
+- **The snapshot is rebuilt from the rows when the message is saved.** Every row change
+  goes through a `MailStore` placement helper (`upsertPlacement`,
+  `setPlacementUnread/Starred/Labels`, `beginPlacementMove` / `commitPlacementMove`,
+  `removePlacement`; bulk SQL-only `deleteVanishedPlacements`, `resetPlacementUIDs`,
+  `deleteUnassignedPlacements`, `deletePlacementsForMessage/Folder`). A per-message helper
+  sets `Message::_placementsChanged`, and `Message::beforeSave` then runs
+  `refreshMessageFromPlacements` (one indexed query, plus `MessageOrphan` bookkeeping) once
+  however many helpers ran; saves that touched no rows run no query. Callers that must see
+  the result before deciding whether to save (`updateMessage`, `insertMessage`'s thread
+  diff) call `refreshMessageFromPlacements` themselves, which clears the flag. Bulk helpers
+  return the affected message ids; the caller loads, refreshes and saves those. Do not write
+  `MessageFolder` or `folders` anywhere else, and save every message a helper marked. After every scenario the test harness (`test/harness/invariants.py`)
   recomputes each derived layer from the one below it and fails on any difference:
   `folders`/`labels`/flags from `MessageFolder`, thread `_refs`/`_u` and counters from the
   message snapshots, `ThreadCategory` from the thread arrays, `ThreadCounts` from

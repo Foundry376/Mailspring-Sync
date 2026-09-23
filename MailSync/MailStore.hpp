@@ -115,11 +115,11 @@ public:
     shared_ptr<Folder> folderById(string accountId, string folderId);
 
     // Placements (MessageFolder rows). The table is canonical; every helper that takes a
-    // Message also rewrites its "folders" snapshot and derived unread/starred/draft so the
-    // two never drift. The caller saves the Message afterwards so the client sees the change.
+    // Message marks it (Message::_placementsChanged) and the caller saves it, which
+    // rebuilds its "folders" snapshot and derived unread/starred/draft from the rows.
     // Bulk helpers touch rows only and return the ids of the messages they affected so the
-    // caller can load those (and only those) to update their snapshots. Either kind keeps
-    // MessageOrphan exact: a message is listed there iff it has no MessageFolder row.
+    // caller can load those (and only those) to update their snapshots. MessageOrphan is
+    // exact once the transaction commits: a message is listed iff it has no MessageFolder row.
 
     vector<Placement> placementsForMessage(string messageId);
 

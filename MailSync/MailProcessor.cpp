@@ -197,9 +197,11 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         
         msg->setThreadId(thread->id());
 
-        // Written before the Message row so the thread diff below reads the snapshot the helper
-        // wrote; an id collision on the insert rolls the row back with the transaction.
+        // Written before the Message row and rebuilt now rather than on save, because the
+        // thread diff below runs before the save; an id collision on the insert rolls the
+        // row back with the transaction.
         string displaced = store->upsertPlacement(*msg, folder, mMsg->uid(), MessageAttributesForMessage(mMsg));
+        store->refreshMessageFromPlacements(*msg);
 
         // Apply the new message's attributes to the thread (folder/label refcounts,
         // unread/starred counters, timestamps) BEFORE saving the thread. This avoids
@@ -292,6 +294,7 @@ shared_ptr<Message> MailProcessor::updateMessage(const string & messageId, IMAPM
 
     // Only a change the client can see is worth a persist delta and a thread update; a
     // second copy's flags or a UIDVALIDITY relink may have changed the row alone.
+    store->refreshMessageFromPlacements(*local);
     if (local->toJSON() != before) {
         logger->info("-- Folders now {}", local->folders().dump());
         local->setSyncedAt(syncDataTimestamp);
@@ -316,7 +319,7 @@ void MailProcessor::saveDisplacedMessage(const string & messageId) {
         return;
     }
     logger->warn("- Message {} lost a placement to another message at the same UID", messageId);
-    store->refreshMessageFromPlacements(*displaced);
+    displaced->_placementsChanged = true;
     store->save(displaced.get());
 }
 
@@ -624,7 +627,9 @@ int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messa
     vector<string> ids = messageIds;
     auto messages = store->findAll<Message>(Query().equal("id", ids));
     for (auto & msg : messages) {
-        if (removeUnplaced && store->placementsForMessage(msg->id()).empty()) {
+        json before = msg->toJSON();
+        store->refreshMessageFromPlacements(*msg);
+        if (removeUnplaced && msg->folders().empty()) {
             if (logSubjects) {
                 logger->info("-- Removing \"{}\" ({}), no remaining copies", msg->subject(), msg->id());
             }
@@ -632,8 +637,6 @@ int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messa
             removed++;
             continue;
         }
-        json before = msg->toJSON();
-        store->refreshMessageFromPlacements(*msg);
         if (msg->toJSON() == before) {
             continue;
         }
