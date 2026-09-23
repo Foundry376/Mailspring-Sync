@@ -84,7 +84,7 @@ void Folder::beforeSave(MailStore * store) {
  statement. The messages that held them are not loaded here - this runs inside the caller's
  transaction and a folder can hold every message of the account - so their ids are kept
  for the caller to rewrite in its own short transactions afterwards
- (MailProcessor::saveMessagesAfterPlacementChange).
+ (MailProcessor::refreshMessages).
  */
 void Folder::afterRemove(MailStore * store) {
     MailModel::afterRemove(store);

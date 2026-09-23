@@ -327,13 +327,8 @@ void MailProcessor::saveDisplacedMessage(const string & messageId) {
     if (messageId.empty()) {
         return;
     }
-    auto displaced = store->find<Message>(Query().equal("id", messageId));
-    if (displaced == nullptr) {
-        return;
-    }
     logger->warn("- Message {} lost a placement to another message at the same UID", messageId);
-    displaced->setPlacementsChanged(true);
-    store->save(displaced.get());
+    refreshMessagesInOpenTransaction({messageId}, UnplacedMessages::KeepAsOrphan);
 }
 
 namespace {
@@ -575,7 +570,7 @@ void MailProcessor::deleteVanishedPlacements(Folder & folder, const vector<uint3
         affected = store->deleteVanishedPlacements(folder, uids);
         transaction.commit();
     }
-    saveMessagesAfterPlacementChange(affected);
+    refreshMessages(affected, UnplacedMessages::KeepAsOrphan, "deleteVanishedPlacements");
 }
 
 void MailProcessor::deleteVanishedPlacements(Folder & folder, Query & uidQuery)
@@ -587,7 +582,7 @@ void MailProcessor::deleteVanishedPlacements(Folder & folder, Query & uidQuery)
         affected = store->deleteVanishedPlacements(folder, uidQuery);
         transaction.commit();
     }
-    saveMessagesAfterPlacementChange(affected);
+    refreshMessages(affected, UnplacedMessages::KeepAsOrphan, "deleteVanishedPlacements");
 }
 
 void MailProcessor::deleteUnassignedPlacements(Folder & folder)
@@ -601,18 +596,18 @@ void MailProcessor::deleteUnassignedPlacements(Folder & folder)
     if (affected.size() > 0) {
         logger->info("Deleted {} copies in {} the UIDVALIDITY rebuild did not find.", affected.size(), folder.path());
     }
-    saveMessagesAfterPlacementChange(affected);
+    refreshMessages(affected, UnplacedMessages::KeepAsOrphan, "deleteUnassignedPlacements");
 }
 
 /*
- Catches each message's snapshot up with its rows after a bulk helper changed them, in
- transactions of 100 so a mass deletion does not hold the database for the whole batch.
- A message left with no rows is saved with an empty snapshot and left for the end-of-pass
- sweep (the bulk helper already recorded it in MessageOrphan), unless `removeUnplaced`
- says its copies are gone for good. A message whose snapshot did not change is not saved,
- so the client gets no persist for a version bump alone.
+ Catches each message's snapshot up with its rows, in transactions of 100 so a mass change
+ does not hold the database for the whole batch. `inTransaction`, when given, runs first in
+ each chunk's transaction and returns the ids to refresh: it is where a caller deletes the
+ rows or re-checks a condition under the lock, so the change and the snapshots commit
+ together. `pause` gives the client time to keep up with a mass deletion.
  */
-void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & messageIds, bool removeUnplaced)
+void MailProcessor::refreshMessages(const vector<string> & messageIds, UnplacedMessages unplaced, const string & transactionName,
+                                    const RefreshChunkStep & inTransaction, std::chrono::milliseconds pause)
 {
     if (messageIds.empty()) {
         return;
@@ -620,18 +615,34 @@ void MailProcessor::saveMessagesAfterPlacementChange(const vector<string> & mess
     bool logSubjects = messageIds.size() < 20;
     vector<string> ids = messageIds;
     for (auto chunk : MailUtils::chunksOfVector(ids, 100)) {
-        MailStoreTransaction transaction{store, "saveMessagesAfterPlacementChange"};
-        refreshMessagesInOpenTransaction(chunk, logSubjects, removeUnplaced);
-        transaction.commit();
+        int removed = 0;
+        size_t refreshed = 0;
+        {
+            MailStoreTransaction transaction{store, transactionName};
+            vector<string> refresh = inTransaction ? inTransaction(chunk) : chunk;
+            refreshed = refresh.size();
+            removed = refreshMessagesInOpenTransaction(refresh, unplaced, logSubjects);
+            transaction.commit();
+        }
+        if (unplaced == UnplacedMessages::Remove) {
+            logger->info("-- Deleted {} local messages, {} kept copies elsewhere", removed, refreshed - removed);
+        }
+        if (pause.count() > 0) {
+            std::this_thread::sleep_for(pause);
+        }
     }
 }
 
-// The caller owns the transaction so a bulk row change and the messages it affects can be
-// committed together. With `removeUnplaced`, a message with no rows goes through
-// store->remove so Message::afterRemove balances the thread and deletes the body, metadata
-// and orphan record; the check runs inside the transaction so a copy the other worker
-// records meanwhile keeps its message. Returns how many messages were removed.
-int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects, bool removeUnplaced)
+/*
+ The caller owns the transaction so a row change and the messages it affects commit
+ together. A message with no rows is either kept as an orphan (its snapshot empties and
+ refreshMessageFromPlacements records it) or, with UnplacedMessages::Remove, goes through
+ store->remove so Message::afterRemove balances the thread and deletes the body, metadata
+ and orphan record; the check runs inside the transaction so a copy the other worker
+ records meanwhile keeps its message. A message whose snapshot did not change is not saved,
+ so the client gets no persist for a version bump alone. Returns how many were removed.
+ */
+int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messageIds, UnplacedMessages unplaced, bool logSubjects)
 {
     int removed = 0;
     if (messageIds.empty()) {
@@ -642,7 +653,7 @@ int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messa
     for (auto & msg : messages) {
         json before = msg->toJSON();
         store->refreshMessageFromPlacements(*msg);
-        if (removeUnplaced && msg->folders().empty()) {
+        if (unplaced == UnplacedMessages::Remove && msg->folders().empty()) {
             if (logSubjects) {
                 logger->info("-- Removing \"{}\" ({}), no remaining copies", msg->subject(), msg->id());
             }
@@ -663,36 +674,21 @@ int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messa
 
 /*
  Detaches every copy in a folder that is gone from the server (deleted, or emptied by
- ExpungeAllInFolder) and catches the messages up, in transactions of 100: a message whose
- only copy was there is removed right away (store->remove balances its thread and deletes
- the body and metadata), one with copies elsewhere just loses this folder.
+ ExpungeAllInFolder) and catches the messages up chunk by chunk: a message whose only copy
+ was there is removed right away, one with copies elsewhere just loses this folder.
 
  Deleting all of the folder's rows first and rewriting the messages afterwards would leave
  a window - minutes wide when a large Trash is emptied with a pause between chunks - in
  which a quit or a crash strands messages with copies elsewhere whose snapshot still lists
  the folder: nothing would revisit them.
- `pause` gives the client time to keep up with a mass deletion.
  */
 void MailProcessor::detachMessagesFromFolder(string folderId, std::chrono::milliseconds pause)
 {
-    vector<string> affected = store->messageIdsWithPlacementsInFolder(folderId);
-    if (affected.empty()) {
-        return;
-    }
-    bool logSubjects = affected.size() < 20;
-    for (auto chunk : MailUtils::chunksOfVector(affected, 100)) {
-        int removed = 0;
-        {
-            MailStoreTransaction transaction{store, "detachMessagesFromFolder"};
-            store->deletePlacementsForFolder(folderId, chunk);
-            removed = refreshMessagesInOpenTransaction(chunk, logSubjects, true);
-            transaction.commit();
-        }
-        logger->info("-- Deleted {} local messages, {} kept copies elsewhere", removed, chunk.size() - removed);
-        if (pause.count() > 0) {
-            std::this_thread::sleep_for(pause);
-        }
-    }
+    refreshMessages(store->messageIdsWithPlacementsInFolder(folderId), UnplacedMessages::Remove, "detachMessagesFromFolder",
+                    [&](const vector<string> & chunk) {
+                        store->deletePlacementsForFolder(folderId, chunk);
+                        return chunk;
+                    }, pause);
 }
 
 /*
@@ -700,10 +696,7 @@ void MailProcessor::detachMessagesFromFolder(string folderId, std::chrono::milli
  scanned in full since a message orphaned before it (except a folder that has gone
  unscanned for longer than ORPHAN_SWEEP_MAX_WAIT), so a copy that moved elsewhere has
  already been recorded and cleared its orphan record
- (MailStore::refreshMessageFromPlacements). What is still listed is removed through
- store->remove, which balances the thread and deletes the body,
- metadata and orphan record. Both the orphan record and the rows are checked inside each
- chunk's transaction so a copy the foreground worker records meanwhile keeps its message.
+ (MailStore::refreshMessageFromPlacements). What is still listed is removed.
  */
 void MailProcessor::sweepExpiredOrphans(time_t before)
 {
@@ -712,15 +705,11 @@ void MailProcessor::sweepExpiredOrphans(time_t before)
         return;
     }
     logger->info("Sync loop removing {} messages left with no copies.", candidates.size());
-    bool logSubjects = candidates.size() < 20;
-    for (auto chunk : MailUtils::chunksOfVector(candidates, 100)) {
-        MailStoreTransaction transaction{store, "sweepExpiredOrphans"};
-        // The foreground worker can revive and re-orphan a candidate while earlier chunks
-        // run, restarting its grace period, so its record is re-read under the lock.
-        auto expired = store->orphanMessageIdsBefore(account->id(), before, chunk);
-        refreshMessagesInOpenTransaction(expired, logSubjects, true);
-        transaction.commit();
-    }
+    // The foreground worker can revive and re-orphan a candidate while earlier chunks run,
+    // restarting its grace period, so its record is re-read under the lock.
+    refreshMessages(candidates, UnplacedMessages::Remove, "sweepExpiredOrphans", [&](const vector<string> & chunk) {
+        return store->orphanMessageIdsBefore(account->id(), before, chunk);
+    });
 }
 
 void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull) {

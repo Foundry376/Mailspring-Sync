@@ -14,6 +14,7 @@
 
 #include <stdio.h>
 #include <chrono>
+#include <functional>
 
 #include <MailCore/MailCore.h>
 #include <SQLiteCpp/SQLiteCpp.h>
@@ -31,6 +32,15 @@
 
 using namespace mailcore;
 using namespace std;
+
+// What refreshing a message's snapshot does with a message left with no rows.
+enum class UnplacedMessages {
+    KeepAsOrphan, // recorded in MessageOrphan for the end-of-pass sweep
+    Remove,       // its copies are gone for good; store->remove cleans up after it
+};
+
+// Runs first inside each chunk's transaction and returns the ids to refresh.
+typedef std::function<vector<string>(const vector<string> & chunk)> RefreshChunkStep;
 
 class MailProcessor {
     MailStore * store;
@@ -54,11 +64,15 @@ public:
     void deleteVanishedPlacements(Folder & folder, Query & uidQuery);
     void deleteUnassignedPlacements(Folder & folder);
     void sweepExpiredOrphans(time_t before);
-    void saveMessagesAfterPlacementChange(const vector<string> & messageIds, bool removeUnplaced = false);
     void detachMessagesFromFolder(string folderId, std::chrono::milliseconds pause = std::chrono::milliseconds(0));
-    
+
+    // Catching snapshots up with rows a caller already changed.
+    void refreshMessages(const vector<string> & messageIds, UnplacedMessages unplaced, const string & transactionName,
+                         const RefreshChunkStep & inTransaction = nullptr,
+                         std::chrono::milliseconds pause = std::chrono::milliseconds(0));
+    int refreshMessagesInOpenTransaction(const vector<string> & messageIds, UnplacedMessages unplaced, bool logSubjects = true);
+
 private:
-    int refreshMessagesInOpenTransaction(const vector<string> & messageIds, bool logSubjects, bool removeUnplaced);
     void saveDisplacedMessage(const string & messageId);
     void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
     void upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references);

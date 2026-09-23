@@ -1108,10 +1108,10 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 
         // Anything the detach above missed - a copy another worker recorded while it ran.
         for (auto const & item : unusedLocalFolders) {
-            processor->saveMessagesAfterPlacementChange(item.second->messageIdsAffectedByRemove(), true);
+            processor->refreshMessages(item.second->messageIdsAffectedByRemove(), UnplacedMessages::Remove, "syncFoldersAndLabels");
         }
         for (auto const & item : unusedLocalLabels) {
-            processor->saveMessagesAfterPlacementChange(item.second->messageIdsAffectedByRemove(), true);
+            processor->refreshMessages(item.second->messageIdsAffectedByRemove(), UnplacedMessages::Remove, "syncFoldersAndLabels");
         }
     }
 

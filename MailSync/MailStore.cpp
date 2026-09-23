@@ -714,7 +714,8 @@ void MailStore::refreshMessageFromPlacements(Message & msg) {
 
  - A row already at (folder, uid) is refreshed in place. If it belonged to a different
    message (a UID the server reused without a UIDVALIDITY change) that message loses the
-   copy and its id is returned so the caller can rewrite its snapshot.
+   copy, is recorded in MessageOrphan if it has no other, and its id is returned so the
+   caller can rewrite its snapshot.
  - A row for this message in this folder at UID 0 is a placement whose UID is unknown:
    a local draft, or a copy waiting for a UIDVALIDITY rebuild to relink it. It is
    replaced by the real row so the rebuild converges instead of leaving both.
@@ -778,6 +779,9 @@ string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, 
     stmt.exec();
     stmt.reset();
 
+    if (!displacedMessageId.empty()) {
+        _recordOrphansAmong({displacedMessageId});
+    }
     if (uid > 0) {
         auto & relinked = _placementStatement("deleteUnassignedInFolder",
             "DELETE FROM MessageFolder WHERE messageId = ? AND folderId = ? AND remoteUID = 0");
@@ -866,8 +870,8 @@ void MailStore::beginPlacementMove(Message & msg, string fromFolderId, uint32_t 
  - held by this message: the scan recorded the moved copy. The source row is deleted,
    since both describe one server copy.
  - held by another message: a stale row for a UID the server has since reassigned. It
-   is deleted so the unique (folder, UID) index admits ours, and that message's id is
-   returned so the caller rewrites its snapshot, as after upsertPlacement.
+   is deleted so the unique (folder, UID) index admits ours, and that message is recorded
+   and returned as after upsertPlacement.
 
  A move whose source and destination are the same copy is not a move: it settles a copy
  that is already where it belongs, and its only effect is to clear the pending marker.
@@ -916,6 +920,7 @@ string MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32
         displace.bind(3, (long long)newUid);
         displace.exec();
         displace.reset();
+        _recordOrphansAmong({holder});
     }
 
     auto & stmt = _placementStatement("commitMove",

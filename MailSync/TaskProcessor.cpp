@@ -1171,15 +1171,10 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
         // listing a copy it no longer has. Without another row it is an orphan, swept at
         // the end of the pass like any other vanished copy.
         for (auto & id : displacedIds) {
-            auto displaced = store->find<Message>(Query().equal("id", id));
-            if (displaced == nullptr) {
-                continue;
-            }
             logger->warn("-- Message {} lost a placement to a moved copy at the same UID", id);
-            displaced->setPlacementsChanged(true);
-            store->save(displaced.get());
             clientVisibleChange = true;
         }
+        MailProcessor{account, store}.refreshMessagesInOpenTransaction(displacedIds, UnplacedMessages::KeepAsOrphan);
         if (!clientVisibleChange) {
             store->unsafeEraseTransactionDeltas();
         }
