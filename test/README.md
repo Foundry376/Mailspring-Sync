@@ -88,6 +88,7 @@ Steps:
 | `server.expunge / flags / move / copy / duplicate / append / create_mailbox / set_uidvalidity / set_uidnext / drop_connections / pause` | what another client does to the mailbox (`pause` changes nothing: with `at` and `delay` it holds one reply, as in `undo-before-remote-phase`); `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
 | `at: {hook, session: foreground|background, command: regex, mailbox, delay: s}` | the same, narrowed to one connection (`foreground` = the one that has idled), one command line (`"^UID FETCH 1:\\*"`) and one selected mailbox; `delay` holds that connection's reply so another connection acts on the change first (`mid-pass-foreground-tombstone`) |
 | `server.reject: {at: {hook: before_command, command: regex}, code, text}` | the hooked command is answered `NO [code] text` instead of being run (fake only; commands without literals), as in `move-rejected-by-server` |
+| `at: {..., every: true}` | keep the hook armed instead of firing once, e.g. a folder whose STATUS fails on every pass (`orphan-sweep-with-unreadable-folder`) |
 | `server.flags: {..., per_message: true}` | one STORE per UID, so HIGHESTMODSEQ advances once per message - how a modseq gap larger than one grows on a real server (used by `modseq-truncation`) |
 | `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids (`{mailbox, uids}`, or `{header_message_ids: [...]}` for rows without a server placement such as a local draft), `threads: {mailbox, uids}` to their `threadIds`, `folder`/`labelsTo*` to Folder JSON, `sourceFolders: [paths]` to `sourceFolderIds` |
 | `client.undo_task: {of: label}` | queue the undo of a completed task from its stored data, as `UndoRedoStore` does: for a `ChangeFolderTask` the engine-written `undoPlacements` become `restorePlacements` and the original destination its `sourceFolderIds` |
@@ -102,6 +103,10 @@ older engine is handed to the current one (`migration-from-pre-placements-db`). 
 still sets the build under test that a `restart` with no `binary:` lands on. The harness runs
 `--mode migrate` on every launch, as the client does, so a restart onto a newer build
 upgrades the schema.
+
+A top-level `env: {NAME: value}` is added to the engine's environment on every launch, for
+the knobs the engine reads from it: `ORPHAN_SWEEP_MAX_WAIT` (seconds; default one day) is how
+long the orphan sweep waits for a folder that has not been fully scanned.
 
 Expectations: `db_matches_server` (placements: every (folder, UID) on the server is a
 message locally with the same Message-ID and tracked flags, and nothing local is missing on
@@ -252,6 +257,7 @@ Things learned from Dovecot while building the conformance suite, all now modell
 | synced-draft-destroy (+ -courier) | DestroyDraftTask on a server-synced draft and a local UID-0 draft | fake ×2, dovecot |
 | remote-move-while-task-in-flight | another client moves a message's only copy while a star task holds its syncedAt lock; the new copy is recorded, no unpersist | fake ×2, dovecot |
 | move-rejected-by-server | MOVE answered NO [OVERQUOTA]: the copy shows in INBOX again and the syncedAt lock is released | fake ×2 |
+| orphan-sweep-with-unreadable-folder | a folder whose STATUS always fails delays the orphan sweep by ORPHAN_SWEEP_MAX_WAIT instead of disabling it | fake |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up

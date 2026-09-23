@@ -33,6 +33,14 @@
 // about every change, so this is only a safety net for messages we never ingested in the first
 // place (which no modseq will ever cover) and can be very infrequent.
 #define CONDSTORE_GAP_SCAN_INTERVAL 60 * 60 * 24
+// The longest the orphan sweep waits for a folder that has not been fully scanned since a
+// message was orphaned. A folder whose STATUS fails on every pass (a shared mailbox without
+// the `r` right, RFC 4314 4) or whose scan truncates on every pass would otherwise keep every
+// orphan forever. A day outlasts a server outage or a backlog draining one
+// MAX_FULL_HEADERS_REQUEST_SIZE batch per pass, and orphans are invisible to the client, so
+// waiting costs only disk. The ORPHAN_SWEEP_MAX_WAIT environment variable (seconds) overrides
+// it so the test harness can reach it.
+#define ORPHAN_SWEEP_MAX_WAIT       60 * 60 * 24
 
 #define MAX_FULL_HEADERS_REQUEST_SIZE  1024
 // How many messages a folder can hold and still be swept in a single UID range during initial
@@ -64,6 +72,14 @@
 
 using namespace mailcore;
 using namespace std;
+
+static time_t orphanSweepMaxWait() {
+    static const time_t wait = [] {
+        long long seconds = atoll(MailUtils::getEnvUTF8("ORPHAN_SWEEP_MAX_WAIT").c_str());
+        return seconds > 0 ? (time_t)seconds : (time_t)(ORPHAN_SWEEP_MAX_WAIT);
+    }();
+    return wait;
+}
 
 
 SyncWorker::SyncWorker(shared_ptr<Account> account) :
@@ -350,14 +366,31 @@ bool SyncWorker::syncNow()
     AutoreleasePool pool;
     bool syncAgainImmediately = false;
 
-    // Messages orphaned before this instant have had every folder scanned since by the
-    // time the pass ends, which is the grace period for a copy that moved between folders.
-    // Recorded before any scan so the foreground worker's orphans get the same grace.
-    // The grace only holds if every folder's scan this pass covered its whole range: a
-    // skipped folder or a truncated fetch leaves copies unrecorded that the sweep would
-    // otherwise treat as gone.
+    // A message orphaned before this instant has had every folder that this pass covers in
+    // full scanned since, so a copy that moved into one of them has been recorded. Recorded
+    // before any scan so the foreground worker's orphans get the same grace, and it is the
+    // pass start rather than a folder's scan start so one clock serves every folder.
     time_t passStartedAt = time(0);
-    bool everyFolderCovered = true;
+
+    // A folder the pass does not cover in full (STATUS failed, still in initial sync, a
+    // truncated fetch) may hold a copy the sweep would otherwise treat as gone, so the sweep
+    // only takes orphans older than that folder's last full coverage - but never waits more
+    // than orphanSweepMaxWait() for it.
+    time_t waitLimit = passStartedAt - orphanSweepMaxWait();
+    time_t sweepBefore = passStartedAt;
+    auto recordCoverage = [&](Folder & folder, bool covered) {
+        if (covered) {
+            folderCoveredAt[folder.id()] = passStartedAt;
+            foldersPastOrphanWait.erase(folder.id());
+            return;
+        }
+        time_t coveredAt = folderCoveredAt.count(folder.id()) ? folderCoveredAt[folder.id()] : 0;
+        if (coveredAt < waitLimit && foldersPastOrphanWait.insert(folder.id()).second) {
+            logger->warn("- Orphans older than {}s are swept without waiting for {}, not fully scanned {}.",
+                         orphanSweepMaxWait(), folder.path(), coveredAt ? "since " + to_string(coveredAt) : "since launch");
+        }
+        sweepBefore = min(sweepBefore, max(coveredAt, waitLimit));
+    };
 
     vector<shared_ptr<Folder>> folders = syncFoldersAndLabels();
     bool hasCondstore = session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore);
@@ -399,7 +432,7 @@ bool SyncWorker::syncNow()
         IMAPFolderStatus * remoteStatusPtr = session.folderStatus(&path, &err);
         if (err != ErrorNone) {
             logger->warn("SyncNow: unable to get folder status for {} ({}), skipping...", folder->path(), ErrorCodeToTypeMap[err]);
-            everyFolderCovered = false;
+            recordCoverage(*folder, false);
             continue;
         }
 
@@ -408,6 +441,7 @@ bool SyncWorker::syncNow()
         IMAPFolderStatus & remoteStatus = *remoteStatusPtr;
         bool firstChunk = false;
         bool deepScanIncomplete = false;
+        bool covered = true;
 
         // NetEase omits UIDNEXT from STATUS, so new mail cannot be detected from it. The
         // message / unseen / recent counts are the only signal, and a change in any of them
@@ -466,6 +500,7 @@ bool SyncWorker::syncNow()
             logger->info("SyncNow: skipped duplicate \\All folder {}", folder->path());
             markFolderStatusSynced(localStatus, remoteStatus);
             store->saveFolderStatus(folder.get(), initialLocalStatus);
+            recordCoverage(*folder, true);
             continue;
         }
 
@@ -485,8 +520,6 @@ bool SyncWorker::syncNow()
             auto rebuilt = syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
             if (!rebuilt.truncated) {
                 processor->deleteUnassignedPlacements(*folder);
-            } else {
-                everyFolderCovered = false;
             }
 
             if (localStatus.count(LS_UIDVALIDITY_RESET_COUNT) == 0) {
@@ -514,6 +547,7 @@ bool SyncWorker::syncNow()
             }
 
             store->saveFolderStatus(folder.get(), initialLocalStatus);
+            recordCoverage(*folder, !rebuilt.truncated);
             continue;
         }
         
@@ -564,7 +598,7 @@ bool SyncWorker::syncNow()
         // so the sweep cannot tell a copy that moved into it from one the server dropped.
         // Same reasoning as the truncation guards below, for the other way a pass can end
         // without having seen a folder's whole range.
-        everyFolderCovered = everyFolderCovered && (syncedMinUID <= 1);
+        covered = (syncedMinUID <= 1);
 
         // Step 3: A) Retrieve new messages  B) update existing messages  C) delete missing messages
         // CONDSTORE, when available, does A + B.
@@ -587,7 +621,7 @@ bool SyncWorker::syncNow()
                 // throw would skip every folder after this one and retry forever.
                 try {
                     auto deep = syncFolderUIDRange(*folder, RangeMake(1, UINT64_MAX), false);
-                    everyFolderCovered = everyFolderCovered && !deep.truncated;
+                    covered = covered && !deep.truncated;
                     // If there were more gaps than one pass can fill, leave lastDeep alone so we
                     // come back immediately rather than in another day - but only while the
                     // backlog is actually shrinking.
@@ -600,7 +634,7 @@ bool SyncWorker::syncNow()
                     logger->warn("- {}: gap scan failed ({}), will retry after the normal interval.",
                                  folder->path(), ex.toJSON().dump());
                     localStatus[LS_LAST_DEEP] = time(0);
-                    everyFolderCovered = false;
+                    covered = false;
                 }
             }
         } else {
@@ -628,7 +662,7 @@ bool SyncWorker::syncNow()
                 if (!fetched.truncated) {
                     localStatus[LS_UIDNEXT] = remoteUidnext;
                 } else {
-                    everyFolderCovered = false;
+                    covered = false;
                 }
                 
                 if ((folder->role() == "inbox") || (folder->role() == "all")) {
@@ -657,7 +691,7 @@ bool SyncWorker::syncNow()
                 // Guard against underflow if remoteUidnext <= bottomUID (server inconsistency)
                 if (remoteUidnext > bottomUID) {
                     auto shallow = syncFolderUIDRange(*folder, RangeMake(bottomUID, remoteUidnext - bottomUID), false);
-                    everyFolderCovered = everyFolderCovered && !shallow.truncated;
+                    covered = covered && !shallow.truncated;
                 }
                 localStatus[LS_LAST_SHALLOW] = time(0);
                 localStatus[LS_UIDNEXT] = remoteUidnext;
@@ -665,7 +699,7 @@ bool SyncWorker::syncNow()
             
             if (timeForDeepScan) {
                 auto deep = syncFolderUIDRange(*folder, RangeMake(syncedMinUID, UINT64_MAX), false);
-                everyFolderCovered = everyFolderCovered && !deep.truncated;
+                covered = covered && !deep.truncated;
                 if (syncedMinUID == 0) {
                     syncedMinUID = 1;
                     localStatus[LS_SYNCED_MIN_UID] = 1;
@@ -722,19 +756,17 @@ bool SyncWorker::syncNow()
         // Save the folder - note that helper methods above mutated localStatus.
         // Avoid the save if we can, because this creates a lot of noise in the client.
         store->saveFolderStatus(folder.get(), initialLocalStatus);
+        recordCoverage(*folder, covered);
     }
     
-    // Messages that lost their last copy before this pass began have had every folder scanned
-    // since; if a copy reappeared elsewhere the upsert cleared the orphan record. Remove the
-    // rest. A pass that skipped a folder or truncated a fetch
-    // at MAX_FULL_HEADERS_REQUEST_SIZE has not recorded every copy: a bulk move of more
-    // messages than one fetch carries would otherwise have its remainder removed here and
-    // re-created, without metadata, once the destination catches up.
-    if (everyFolderCovered) {
-        processor->sweepExpiredOrphans(passStartedAt);
-    } else {
-        logger->info("Skipping the orphan sweep: a folder was skipped, still in initial sync, or had a fetch truncated this pass.");
+    // If a copy of an orphan reappeared in a scanned folder, the upsert cleared its record;
+    // remove the rest that are old enough. Without the per-folder bound, a bulk move of more
+    // messages than one fetch carries would have its remainder removed here and re-created,
+    // without metadata, once the destination catches up.
+    if (sweepBefore < passStartedAt) {
+        logger->info("Orphan sweep limited to messages orphaned before {}: a folder was skipped, still in initial sync, or had a fetch truncated.", sweepBefore);
     }
+    processor->sweepExpiredOrphans(sweepBefore);
     
     logger->info("Sync loop complete.");
     iterationsSinceLaunch += 1;

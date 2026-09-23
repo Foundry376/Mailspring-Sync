@@ -107,6 +107,7 @@ records outcomes for one binary and diffs two recordings (see
 | synced-draft-destroy / -courier | DestroyDraftTask on a synced draft and a local UID-0 draft | fake ×2, dovecot | pass |
 | remote-move-while-task-in-flight | new copy recorded under the syncedAt lock; message not swept | fake ×2, dovecot | pass (fails on 2f83306) |
 | move-rejected-by-server | failed MOVE drops the task's markers and releases the lock | fake ×2 | pass (fails on 2f83306) |
+| orphan-sweep-with-unreadable-folder | STATUS NO on every pass delays the orphan sweep, not disables it | fake | pass (fails on 67469d4) |
 
 Gaps worth filling next: iCloud / Outlook / NetEase behaviour needs recordings
 (`tools/record_personality.py`) before their quirks can be asserted; `--mode test` and the

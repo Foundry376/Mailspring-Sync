@@ -214,7 +214,12 @@ class ScenarioRun:
         if self.sc.get("account"):
             kw.update(self.sc["account"])
         account = account_json(**kw)
-        self.ms = MailsyncProcess(account, self.work, binary=self._initial_binary(), verbose=True)
+        self.ms = MailsyncProcess(account, self.work, binary=self._initial_binary(), verbose=True, env=self._engine_env())
+
+    def _engine_env(self) -> dict:
+        """A scenario's top-level `env:` is added to the engine's environment, for the knobs the
+        engine reads from it (e.g. ORPHAN_SWEEP_MAX_WAIT)."""
+        return {k: str(v) for k, v in (self.sc.get("env") or {}).items()}
 
     def teardown(self):
         if self.ms:
@@ -352,7 +357,7 @@ class ScenarioRun:
         # Without `binary:` the restart lands on the build under test, whatever the scenario
         # started on. Relative paths resolve against test/, like the top-level `binary:`.
         binary = self._binary_path(arg["binary"]) if arg.get("binary") else self.binary
-        self.ms = MailsyncProcess(account, self.work, binary=binary, verbose=True)
+        self.ms = MailsyncProcess(account, self.work, binary=binary, verbose=True, env=self._engine_env())
         self.ms.start()
         self._note(f"mailsync {self.ms.binary.resolve().name} restarted; migrate said: {self.ms.migrate_output}")
         if arg.get("wait", True):
@@ -424,6 +429,8 @@ class ScenarioRun:
             # answers that session's command late - long enough for another connection to
             # act on the change first.
             delay = float(spec.pop("delay", 0))
+            # `every: true` keeps the hook armed, e.g. to fail a folder's STATUS on every pass.
+            once = not spec.pop("every", False)
 
             def fire(session):
                 self._note(f"hook {hook} {spec or ''} fired on session {session.sid} "
@@ -435,7 +442,7 @@ class ScenarioRun:
                     self._server_op(op, arg)
                 if delay:
                     time.sleep(delay)
-            self.server.at(hook, fire, once=True, **spec)
+            self.server.at(hook, fire, once=once, **spec)
             return
         if at:
             self._note(f"(server {self.spec.kind} has no hook {at}; applying server.{op} immediately)")

@@ -1,0 +1,39 @@
+name: orphan-sweep-with-unreadable-folder
+description: >
+  One folder answers STATUS with NO on every pass (a shared mailbox the user may list but
+  not read), so no pass ever covers it in full. Another client expunges an INBOX message,
+  leaving it an orphan. The sweep keeps it while it is younger than ORPHAN_SWEEP_MAX_WAIT
+  (set to 8s here), because the unreadable folder could hold a copy that moved there, and
+  removes it once it is older - a folder that is never covered delays the sweep instead of
+  disabling it. The STATUS failure is a hook that stays armed (`every: true`), so this is
+  fake-only.
+source: "RFC 4314 4 (STATUS needs the `r` right, LIST only `l`, so a listed folder can refuse STATUS); RFC 5530 3 NOPERM; SyncWorker::syncNow sweepBefore / ORPHAN_SWEEP_MAX_WAIT"
+servers:
+  - {fake: dovecot}
+env:
+  ORPHAN_SWEEP_MAX_WAIT: 8
+quiescence:
+  ignore_busy: [Shared]   # a folder whose STATUS fails never reaches the bookkeeping that clears busy
+mailboxes:
+  INBOX: {messages: 6}
+  Archive: {messages: 3}
+  Shared: {}
+setup:
+  - server.reject: {at: {hook: before_command, command: "^STATUS \"?Shared\"? ", every: true}, code: NOPERM, text: "Permission denied"}
+steps:
+  - wait: quiescent
+  - server.expunge: {mailbox: INBOX, uids: [3]}
+  - wait: {log: "recv \\* VANISHED 3", timeout: 30}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert: {counts: {INBOX: 5, total: 9}}
+  - wait: {seconds: 9}
+  - sync: pass
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 5, Archive: 3, total: 8}
+  deltas: {Message: {unpersist: 1}}
+  log_present: ["unable to get folder status for Shared", "Orphans older than 8s are swept without waiting for Shared"]
+  log_count: {"Orphans older than 8s are swept without waiting for Shared": 1}
+  stable: {passes: 1}
+  running: true

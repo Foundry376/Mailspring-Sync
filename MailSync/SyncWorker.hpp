@@ -17,6 +17,7 @@
 #include <atomic>
 #include <iostream>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 #include <MailCore/MailCore.h>
@@ -44,6 +45,14 @@ class SyncWorker {
     // a draining backlog (count falls each pass) from one that can never drain (count stays put).
     // Not persisted: it only has to survive between iterations of the same process.
     std::map<std::string, size_t> lastTruncatedScanNeeded {};
+
+    // Per-folder start of the last pass whose scan covered the folder's whole range, which
+    // bounds how old an orphan must be before the sweep may remove it (see syncNow). Not
+    // persisted: after a relaunch a folder counts as never covered, which only makes the
+    // sweep wait longer. Writing it to localStatus would persist every folder on every pass.
+    std::map<std::string, time_t> folderCoveredAt {};
+    std::set<std::string> foldersPastOrphanWait {};
+
     vector<string> idleFetchBodyIDs;
     std::mutex idleMtx;
     std::condition_variable idleCv;

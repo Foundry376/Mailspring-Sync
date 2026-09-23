@@ -696,10 +696,12 @@ void MailProcessor::detachMessagesFromFolder(string folderId, std::chrono::milli
 }
 
 /*
- End-of-pass sweep. A message that lost its last copy before the start of the pass has had
- every folder scanned since, so a copy that moved elsewhere has already been recorded and
- cleared its orphan record (MailStore::refreshMessageFromPlacements). What is still listed
- is removed through store->remove, which balances the thread and deletes the body,
+ End-of-pass sweep. SyncWorker::syncNow picks `before` so that every folder has been
+ scanned in full since a message orphaned before it (except a folder that has gone
+ unscanned for longer than ORPHAN_SWEEP_MAX_WAIT), so a copy that moved elsewhere has
+ already been recorded and cleared its orphan record
+ (MailStore::refreshMessageFromPlacements). What is still listed is removed through
+ store->remove, which balances the thread and deletes the body,
  metadata and orphan record. Both the orphan record and the rows are checked inside each
  chunk's transaction so a copy the foreground worker records meanwhile keeps its message.
  */
