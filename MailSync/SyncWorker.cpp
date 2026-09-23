@@ -38,8 +38,11 @@
 // the `r` right, RFC 4314 4) or whose scan truncates on every pass would otherwise keep every
 // orphan forever. A day outlasts a server outage or a backlog draining one
 // MAX_FULL_HEADERS_REQUEST_SIZE batch per pass, and orphans are invisible to the client, so
-// waiting costs only disk. The ORPHAN_SWEEP_MAX_WAIT environment variable (seconds) overrides
-// it so the test harness can reach it.
+// waiting costs only disk. Past the wait an orphan is swept even if such a folder holds its
+// last copy, which comes back without its plugin metadata if the folder ever becomes readable:
+// the accepted cost, since the user cannot see an unreadable mailbox, and dropping the limit
+// would stall the sweep for good. The ORPHAN_SWEEP_MAX_WAIT environment variable (seconds)
+// overrides it so the test harness can reach it.
 #define ORPHAN_SWEEP_MAX_WAIT       60 * 60 * 24
 
 #define MAX_FULL_HEADERS_REQUEST_SIZE  1024
@@ -386,8 +389,13 @@ bool SyncWorker::syncNow()
         }
         time_t coveredAt = folderCoveredAt.count(folder.id()) ? folderCoveredAt[folder.id()] : 0;
         if (coveredAt < waitLimit && foldersPastOrphanWait.insert(folder.id()).second) {
-            logger->warn("- Orphans older than {}s are swept without waiting for {}, not fully scanned {}.",
-                         orphanSweepMaxWait(), folder.path(), coveredAt ? "since " + to_string(coveredAt) : "since launch");
+            if (coveredAt) {
+                logger->warn("Orphans older than {}s are swept without waiting for {}, not fully scanned for {:.1f}h.",
+                             orphanSweepMaxWait(), folder.path(), (passStartedAt - coveredAt) / 3600.0);
+            } else {
+                logger->warn("Orphans older than {}s are swept without waiting for {}, not fully scanned since launch.",
+                             orphanSweepMaxWait(), folder.path());
+            }
         }
         sweepBefore = min(sweepBefore, max(coveredAt, waitLimit));
     };
@@ -768,7 +776,7 @@ bool SyncWorker::syncNow()
     // messages than one fetch carries would have its remainder removed here and re-created,
     // without metadata, once the destination catches up.
     if (sweepBefore < passStartedAt) {
-        logger->info("Orphan sweep limited to messages orphaned before {}: a folder was skipped, still in initial sync, or had a fetch truncated.", sweepBefore);
+        logger->info("Orphan sweep limited to messages orphaned more than {}s before this pass: a folder was skipped, still in initial sync, or had a fetch truncated.", passStartedAt - sweepBefore);
     }
     processor->sweepExpiredOrphans(sweepBefore);
     
