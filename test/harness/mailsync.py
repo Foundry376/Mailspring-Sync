@@ -19,6 +19,7 @@ import contextlib
 import json
 import os
 import re
+import signal
 import sqlite3
 import subprocess
 import threading
@@ -28,6 +29,18 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def describe_exit(code: Optional[int]) -> str:
+    """A negative returncode is a signal, not an exit status: a migrate or sync the OS killed
+    (e.g. SIGKILL under memory pressure) must not read like an engine error."""
+    if code is None or code >= 0:
+        return f"exit {code}"
+    try:
+        name = signal.Signals(-code).name
+    except ValueError:
+        name = "unknown signal"
+    return f"killed by signal {-code} ({name})"
 
 LOG_LINE = re.compile(
     r"^(?P<pid>\d+) \[(?P<ts>[^\]]+)\] \[(?P<thread>[^\]]+)\] \[(?P<level>[^\]]+)\] (?P<msg>.*)$"
@@ -208,6 +221,8 @@ class MailsyncProcess:
         r = self.run_mode("migrate")
         # e.g. "Migration V10: 376 placements created, 10 messages without a copy"
         self.migrate_output = " ".join(r.stdout.split())
+        if r.returncode < 0:
+            raise MailsyncError(f"migrate {describe_exit(r.returncode)}: {r.stdout[-500:]} {r.stderr[-500:]}")
         if r.returncode != 0 or '"error":null' not in r.stdout.replace(" ", ""):
             hint = " (exit 2 with no output is the executable-path check: argv[0] must contain 'mailspring')" if r.returncode == 2 else ""
             raise MailsyncError(f"migrate failed ({r.returncode}){hint}: {r.stdout[-500:]} {r.stderr[-500:]}")
@@ -266,7 +281,7 @@ class MailsyncProcess:
 
     def send(self, packet: dict):
         if not self.running:
-            raise MailsyncError(f"mailsync is not running (exit {self.exit_code})")
+            raise MailsyncError(f"mailsync is not running ({describe_exit(self.exit_code)})")
         self.proc.stdin.write(json.dumps(packet) + "\n")
         self.proc.stdin.flush()
 
@@ -427,7 +442,7 @@ class MailsyncProcess:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if not self.running:
-                raise MailsyncError(f"mailsync exited with {self.exit_code} while waiting for {what}"
+                raise MailsyncError(f"mailsync stopped ({describe_exit(self.exit_code)}) while waiting for {what}"
                                     f"\n--- stderr ---\n{self.stderr_tail()}")
             if predicate():
                 return
@@ -529,7 +544,7 @@ class MailsyncProcess:
         folders = {p: {k: v for k, v in f["localStatus"].items() if k in ("busy", "syncedMinUID", "uidnext")}
                    for p, f in self.db_folders().items()}
         return (
-            f"elapsed={self.elapsed():.1f}s exit={self.exit_code} deltas={len(self.state.deltas)}\n"
+            f"elapsed={self.elapsed():.1f}s exit={describe_exit(self.exit_code)} deltas={len(self.state.deltas)}\n"
             f"folders={json.dumps(folders)}\n"
             f"bg tail: {[l.msg[:100] for l in bg]}\nfg tail: {[l.msg[:100] for l in fg]}\n"
             f"fg idling={self._foreground_idling()} waiting because: {self.wait_reason!r} "

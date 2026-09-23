@@ -31,7 +31,7 @@ from . import db as dbmod
 from . import invariants
 from . import mailgen
 from .assertions import compare_placements, placement_changes
-from .mailsync import MailsyncError, MailsyncProcess, account_json
+from .mailsync import MailsyncError, MailsyncProcess, account_json, describe_exit
 from .servers.base import Server
 
 TEST_DIR = Path(__file__).resolve().parents[1]
@@ -224,7 +224,7 @@ class ScenarioRun:
     def teardown(self):
         if self.ms:
             code = self.ms.stop()
-            self._note(f"mailsync stopped (exit {code})")
+            self._note(f"mailsync stopped ({describe_exit(code)})")
         if self.server:
             self.server.stop()
         if self.work.exists():
@@ -586,7 +586,7 @@ class ScenarioRun:
                 continue
             problems += found
         if self.ms and self.ms.exit_code is not None and not expect.get("exit") and not crash_expected:
-            problems.append(f"mailsync exited with {self.ms.exit_code}\n{self.ms.stderr_tail()}")
+            problems.append(f"mailsync stopped ({describe_exit(self.ms.exit_code)})\n{self.ms.stderr_tail()}")
         for p in problems:
             self._note("FAIL " + p)
         if problems:
@@ -687,7 +687,7 @@ class ScenarioRun:
         return out
 
     def expect_running(self, arg) -> list:
-        return [] if self.ms.running else [f"mailsync is not running (exit {self.ms.exit_code})"]
+        return [] if self.ms.running else [f"mailsync is not running ({describe_exit(self.ms.exit_code)})"]
 
     def expect_exit(self, arg) -> list:
         code = self.ms.exit_code
@@ -695,7 +695,7 @@ class ScenarioRun:
         if code is None:
             return [f"expected mailsync to exit with {want}, but it is still running"]
         if want is not None and code != want:
-            return [f"expected exit code {want}, got {code}"]
+            return [f"expected exit code {want}, got {describe_exit(code)}"]
         return []
 
     def expect_folder_status(self, arg: dict) -> list:
