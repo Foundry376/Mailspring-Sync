@@ -112,6 +112,20 @@ log lines match, to bound a loop the engine should take a known number of times)
 expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,
 and reported as XPASS once it starts passing.
 
+**Invariants** run after every scenario's expectations, on every server, without being
+listed (`harness/invariants.py`). Once the engine is quiescent they recompute each derived
+layer of the engine's state from the stored layer below it, so a bug is reported once, where
+it starts: `message_snapshot` (`Message.folders` / `labels` from live `MessageFolder` rows),
+`message_flags` (message unread / starred / draft from its rows, JSON vs indexed columns),
+`thread_refcounts` (thread folder and label `_refs` / `_u`, unread / starred, inAllMail from
+its messages' snapshots), `thread_categories` (`ThreadCategory` from the thread's arrays),
+`thread_counts` (`ThreadCounts` from `ThreadCategory`) and `orphans` (a `Message` with no
+`MessageFolder` row at all; tombstoned rows count, so the sweep's grace is not an orphan).
+A scenario that trips one because of a known engine bug says so rather than skipping it
+silently: `expect: {invariants: {skip: [thread_counts]}}` with a comment naming the bug,
+`invariants: {xfail: reason}`, or `invariants: false` to disable all of them. They also work
+mid-scenario as `assert: {invariants: {}}`.
+
 **Quiescence** is inferred, since the engine has no "done" signal: every Folder's
 `localStatus.busy` is false and `syncedMinUID <= 1`; the background thread's last log line
 is `Sync loop complete.` and older than the settle window (it loops without sleeping while
@@ -239,7 +253,9 @@ in `docs/tasks/` (symptom, failing scenario, how it was found, likely cause, def
 done) that is deleted when the fix lands. As of 2026-09-21 there are none: the suite found
 five engine bugs on 2026-09-19/20 (two VANISHED-accumulator segfaults, the `\\All` mailbox
 never clearing `busy`, and two consequences of Dovecot's stale per-connection view) and all
-five were fixed within two days (`6c1395e`, `4c25380`, `c5619a8`, `5080fb2`).
+five were fixed within two days (`6c1395e`, `4c25380`, `c5619a8`, `5080fb2`). Open on
+2026-09-22: `concurrent-update-double-counts-thread.md` (found by the invariants; four
+scenarios skip `thread_refcounts` until it is fixed).
 
 Scenario timing rule: after a server-side change on a QRESYNC server, wait for the engine to
 receive it (`wait: {log: "recv \\* VANISHED"}`) before forcing a pass; Dovecot delivers

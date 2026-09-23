@@ -40,7 +40,8 @@ client would see (the database / delta stream), never on internal function behav
 5. **Choose expectations.** The default set is `db_matches_server` (the oracle), `counts`
    (so a wrong-but-consistent state is still caught), `stable: {passes: N}` (nothing moves on
    further passes) and `running: true`. Add `log_absent: ["UNIQUE constraint", "\\[critical\\]"]`
-   when the bug was a crash. Prefer these over golden values.
+   when the bug was a crash. Prefer these over golden values. The derived-state invariants
+   (README, "Invariants") run on every scenario without being listed.
 6. **Run it on the fake, then on Dovecot**, with `--keep`, and read the artifacts once even
    when it passes: `report.txt` for the timeline, `config/mailsync-*.log` (grep `Marking`,
    `Sync loop complete`, `syncFolderUIDRange`, `Tombstoning`/`Unlinking`, `recv * VANISHED`)

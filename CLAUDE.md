@@ -151,8 +151,11 @@ server" (a local draft, or a row awaiting relink after a UIDVALIDITY change).
   `deleteExpiredTombstones`, `deletePlacementsForMessage/Folder`). The bulk helpers return
   the affected message ids so the caller can refresh and save exactly those messages. This
   invariant is disciplinary, not structural: do not write `MessageFolder` or `folders`
-  anywhere else. The test harness reconciles the snapshot against the table after every
-  scenario.
+  anywhere else. After every scenario the test harness (`test/harness/invariants.py`)
+  recomputes each derived layer from the one below it and fails on any difference:
+  `folders`/`labels`/flags from `MessageFolder`, thread `_refs`/`_u` and counters from the
+  message snapshots, `ThreadCategory` from the thread arrays, `ThreadCounts` from
+  `ThreadCategory`, plus messages with no `MessageFolder` row at all.
 - **A move never deletes the `Message`.** When a folder scan (range diff, QRESYNC VANISHED,
   untagged EXPUNGE) finds a copy gone, the placement is *tombstoned* (`unlinkedAt = now`),
   the folder key is dropped from the snapshot and the message saved, so the client sees the

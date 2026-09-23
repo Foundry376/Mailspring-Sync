@@ -28,6 +28,7 @@ from typing import Optional
 import yaml
 
 from . import db as dbmod
+from . import invariants
 from . import mailgen
 from .assertions import compare_placements, placement_changes
 from .mailsync import MailsyncError, MailsyncProcess, account_json
@@ -242,7 +243,7 @@ class ScenarioRun:
             self._note(f"mailsync {self.ms.binary.resolve().name} started against {self.spec.id} on port {self.server.port}; migrate said: {self.ms.migrate_output}")
             for step in self.sc.get("steps") or []:
                 self.run_step(step)
-            self.check_expectations(self.sc.get("expect") or {})
+            self.check_expectations(self._final_expectations())
         except ScenarioSkipped:
             raise
         except ScenarioFailure as e:
@@ -255,7 +256,7 @@ class ScenarioRun:
             # reported as xfail rather than as an error.
             self._note(f"mailsync died: {e}")
             try:
-                self.check_expectations(self.sc.get("expect") or {})
+                self.check_expectations(self._final_expectations())
             except ScenarioFailure as e2:
                 self.failures.append(str(e2))
             except MailsyncError as e2:
@@ -534,6 +535,15 @@ class ScenarioRun:
 
     # -- expectations ---------------------------------------------------------------------------
 
+    def _final_expectations(self) -> dict:
+        """The scenario's `expect`, with `invariants` appended last unless it is `false`, so
+        every scenario ends with the derived-state consistency check."""
+        expect = dict(self.sc.get("expect") or {})
+        inv = expect.pop("invariants", {})
+        if inv is not False:
+            expect["invariants"] = inv
+        return expect
+
     def check_expectations(self, expect: dict):
         problems = []
         crash_expected = False
@@ -583,6 +593,19 @@ class ScenarioRun:
         truth = self.server.truth()
         return compare_placements(local, truth, mailboxes=arg.get("mailboxes"),
                                   check_flags=arg.get("flags", True), check_labels=arg.get("labels", False))
+
+    def expect_invariants(self, arg: dict) -> list:
+        """Derived state (message snapshots, thread refcounts, ThreadCategory, ThreadCounts)
+        recomputed from the canonical tables; see harness/invariants.py. `skip: [names]`
+        disables individual checks. Several derived layers are written in separate
+        transactions, so the check waits for quiescence first."""
+        if self.ms.running:
+            try:
+                self.ms.wait_quiescent(timeout=60, ignore_busy=self.ignore_busy)
+            except TimeoutError:
+                self._note(f"invariants: engine not quiescent after 60s ({getattr(self.ms, 'wait_reason', '')}); checking anyway")
+        with self.ms.db() as c:
+            return invariants.check(c, skip=arg.get("skip") or [])
 
     def expect_counts(self, arg: dict) -> list:
         with self.ms.db() as c:
