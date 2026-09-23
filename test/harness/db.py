@@ -98,6 +98,18 @@ def counts_by_folder(conn: sqlite3.Connection) -> dict:
     return {path: len(uids) for path, uids in placements(conn).items()}
 
 
+def shown_counts_by_folder(conn: sqlite3.Connection) -> dict:
+    """Messages per folder path as the client sees them: the keys of each Message's
+    `folders` snapshot, where a copy in flight is listed under its pending destination."""
+    paths = {r["id"]: r["path"] for r in conn.execute("SELECT id, path FROM Folder")}
+    out: dict = {}
+    for (data,) in conn.execute("SELECT data FROM Message"):
+        for folder_id in (json.loads(data).get("folders") or {}):
+            path = paths.get(folder_id, folder_id)
+            out[path] = out.get(path, 0) + 1
+    return out
+
+
 def messages(conn: sqlite3.Connection) -> list:
     rows = conn.execute("SELECT id, headerMessageId, subject, unread, starred, draft, threadId, data FROM Message").fetchall()
     out = []

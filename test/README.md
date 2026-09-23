@@ -87,6 +87,7 @@ Steps:
 | `sync: pass` | `wake-workers` on stdin, then wait for that pass to finish |
 | `server.expunge / flags / move / copy / duplicate / append / create_mailbox / set_uidvalidity / set_uidnext / drop_connections / pause` | what another client does to the mailbox (`pause` changes nothing: with `at` and `delay` it holds one reply, as in `undo-before-remote-phase`); `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
 | `at: {hook, session: foreground|background, command: regex, mailbox, delay: s}` | the same, narrowed to one connection (`foreground` = the one that has idled), one command line (`"^UID FETCH 1:\\*"`) and one selected mailbox; `delay` holds that connection's reply so another connection acts on the change first (`mid-pass-foreground-tombstone`) |
+| `server.reject: {at: {hook: before_command, command: regex}, code, text}` | the hooked command is answered `NO [code] text` instead of being run (fake only; commands without literals), as in `move-rejected-by-server` |
 | `server.flags: {..., per_message: true}` | one STORE per UID, so HIGHESTMODSEQ advances once per message - how a modseq gap larger than one grows on a real server (used by `modseq-truncation`) |
 | `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids (`{mailbox, uids}`, or `{header_message_ids: [...]}` for rows without a server placement such as a local draft), `threads: {mailbox, uids}` to their `threadIds`, `folder`/`labelsTo*` to Folder JSON, `sourceFolders: [paths]` to `sourceFolderIds` |
 | `client.undo_task: {of: label}` | queue the undo of a completed task from its stored data, as `UndoRedoStore` does: for a `ChangeFolderTask` the engine-written `undoPlacements` become `restorePlacements` and the original destination its `sourceFolderIds` |
@@ -104,7 +105,8 @@ upgrades the schema.
 
 Expectations: `db_matches_server` (placements: every (folder, UID) on the server is a
 message locally with the same Message-ID and tracked flags, and nothing local is missing on
-the server), `counts`, `server_counts`, `stable: {passes: N}` (N more passes over an
+the server), `counts`, `shown` (messages per folder as the client sees them: the
+`Message.folders` snapshot, so a copy in flight counts in its pending destination), `server_counts`, `stable: {passes: N}` (N more passes over an
 unchanged mailbox must not move a single placement - the flapping detector), `folder_status`,
 `log_present` / `log_absent`, `log_count: {regex: n}` or `{regex: {min, max}}` (how many
 log lines match, to bound a loop the engine should take a known number of times),
@@ -249,6 +251,7 @@ Things learned from Dovecot while building the conformance suite, all now modell
 | uidvalidity-change-large-mailbox | #140 truncated UIDVALIDITY rebuild re-loops (2 500 msgs) | fake ×2 |
 | synced-draft-destroy (+ -courier) | DestroyDraftTask on a server-synced draft and a local UID-0 draft | fake ×2, dovecot |
 | remote-move-while-task-in-flight | another client moves a message's only copy while a star task holds its syncedAt lock; the new copy is recorded, no unpersist | fake ×2, dovecot |
+| move-rejected-by-server | MOVE answered NO [OVERQUOTA]: the copy shows in INBOX again and the syncedAt lock is released | fake ×2 |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up

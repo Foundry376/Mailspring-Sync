@@ -175,14 +175,14 @@ server" (a local draft, or a row awaiting relink after a UIDVALIDITY change).
   grace rule because it is keyed on the pass timestamp, not on a per-worker phase.
 - **The `syncedAt` guard is message-level.** While `Message._sa` is in the future (now + 24h
   from a task's local phase; `_suc` counts the tasks holding it, and each task's remote
-  phase releases its hold), `updateMessage` ignores server data for copies it has already
+  phase releases its hold, whether it succeeds or fails), `updateMessage` ignores server data for copies it has already
   recorded. This is what stops a scan of the *source* folder from
   resurrecting a copy the user just moved away or reverting a flag the user just changed;
   after the local phase the source placement is the thing in flight, so a per-placement
   timestamp would have nowhere to live. A copy at a (folder, UID) the message has no row for
   is always recorded, with the server's flags: another client may have moved the message's
   only copy, and skipping it would leave the message to the orphan sweep. A scan never
-  clears a row's `pendingFolderId`; only the task's commit does.
+  clears a row's `pendingFolderId`; only the task's commit or its failure does.
 - **Optimistic moves are pending placements.** A task's local phase sets
   `pendingFolderId` on the placements it decided to move; the snapshot reports them under
   the pending folder, so the client updates immediately. The remote phase MOVEs (or
@@ -196,7 +196,9 @@ server" (a local draft, or a row awaiting relink after a UIDVALIDITY change).
   `sourceFolderIds = [original destination]` and moves that many of the message's copies
   in the destination back, one to each recorded folder (copies still in flight first,
   then the highest UIDs). A later task's pending marker survives an earlier task's
-  commit, so an undo queued before the move reached the server still lands.
+  commit, so an undo queued before the move reached the server still lands. When a
+  folder's MOVE fails, the copies already moved are committed and the task's markers on
+  the rest are dropped, so they show where the server has them.
 - **Flags fan out.** Mark-read / star set every placement locally and STORE in every
   folder that holds a copy; per-folder thread unread counts use the copy's own bit, so a
   message unread in Inbox and read in Sent bolds the thread in Inbox only.

@@ -106,6 +106,7 @@ records outcomes for one binary and diffs two recordings (see
 | uidvalidity-change-large-mailbox | #140 truncated UIDVALIDITY rebuild re-loops, 2 500 msgs | fake ×2 | pass |
 | synced-draft-destroy / -courier | DestroyDraftTask on a synced draft and a local UID-0 draft | fake ×2, dovecot | pass |
 | remote-move-while-task-in-flight | new copy recorded under the syncedAt lock; message not swept | fake ×2, dovecot | pass (fails on 2f83306) |
+| move-rejected-by-server | failed MOVE drops the task's markers and releases the lock | fake ×2 | pass (fails on 2f83306) |
 
 Gaps worth filling next: iCloud / Outlook / NetEase behaviour needs recordings
 (`tools/record_personality.py`) before their quirks can be asserted; `--mode test` and the
@@ -142,6 +143,14 @@ Harness features the placements scenarios added, worth reusing:
   first. That is how `mid-pass-foreground-tombstone` produces the stale-FETCH race
   deterministically. The engine's background connection can be told apart from the
   foreground only by `has_idled`; the report line names which one the hook hit.
+- **Failing a command.** `server.reject: {at: {hook: before_command, session: foreground,
+  command: "^UID (MOVE|COPY)"}, code: OVERQUOTA, text: "..."}` answers the next matching
+  command `NO [OVERQUOTA] ...` without running it, which is how a task's remote phase is made
+  to fail (`move-rejected-by-server`). It is a failure injection, not a server behaviour, so
+  it needs no conformance probe; cite the real server's NO for the command you reject. Only
+  use it on commands without literals (the arguments are never read), and pair it with the
+  `shown` expectation when what matters is where the client sees a copy rather than where
+  its row is.
 - **Undoing a task.** `client.undo_task: {of: label}` reads the completed task's row from the
   `Task` table and queues its undo the way `UndoRedoStore` + `createUndoTasks()` do (same
   class and ids, `isUndo`; for `ChangeFolderTask` the engine-written `undoPlacements` copied

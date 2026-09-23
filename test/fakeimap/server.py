@@ -136,6 +136,7 @@ class Session(socketserver.StreamRequestHandler):
         self.idling = False
         self.has_idled = False
         self.commands: list = []
+        self.reject_next: Optional[tuple] = None  # (code, text): answer the next command NO, set by a hook
         self.pending: list = []              # StoreEvents not yet reported
         self.recent_uids: set = set()        # \Recent messages this session claimed
         self.sent_vanished = False           # a VANISHED went out during the current command
@@ -305,6 +306,12 @@ class Session(socketserver.StreamRequestHandler):
             uid_mode = True
         self.commands.append(cmd)
         self.srv.fire("before_command", self, cmd, args.rest())
+        if self.reject_next is not None:
+            # Only for commands without literals: the arguments are never read.
+            code, text = self.reject_next
+            self.reject_next = None
+            self.no(tag, text, code=code)
+            return True
         handler = getattr(self, "cmd_" + cmd.replace(" ", "_").replace(".", "_").lower(), None)
         if handler is None:
             self.send(tag + b" BAD Error in IMAP command " + cmd.encode() + b": Unknown command.")

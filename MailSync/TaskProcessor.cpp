@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <set>
 #include <deque>
+#include <exception>
 #include <iomanip>
 #include <thread>
 #include <chrono>
@@ -1059,6 +1060,12 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, LocalChangeFn modi
  to their rows then, together with releasing the syncedAt lock. The confirm save usually
  changes nothing the client can see (the optimistic marker already reported the
  destination), so its deltas are dropped unless the client-visible state changed.
+
+ A failing folder ends the server work, and the error is rethrown only after the outcome is
+ applied: copies already moved are committed, copies that were not go back to the folder the
+ server has them in, and the lock is released either way, so later scans and tasks see the
+ message normally. Flags a failed flag task wrote locally are left for the next scan that
+ reports the copy to correct; the task's pre-change values per copy are not kept.
  */
 void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, RemoteChangeFn applyInFolder) {
     json & data = task->data();
@@ -1086,13 +1093,22 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
         itemsByFolder[item.placement.folderId].push_back(&item);
         itemsByMessage[item.message->id()].push_back(&item);
     }
+    std::exception_ptr failure = nullptr;
     for (auto & pair : itemsByFolder) {
         auto folder = store->folderById(account->id(), pair.first);
         if (folder == nullptr) {
             logger->warn("-- {} copies are in a folder ({}) that no longer exists, skipping", pair.second.size(), pair.first);
             continue;
         }
-        applyInFolder(session, store, account->id(), *folder, pair.second, data);
+        try {
+            applyInFolder(session, store, account->id(), *folder, pair.second, data);
+        } catch (SQLite::Exception &) {
+            throw; // leaves the task queued (see performRemote), so nothing is released twice
+        } catch (...) {
+            logger->error("-X Changing copies in {} failed; releasing the task's messages", folder->path());
+            failure = std::current_exception();
+            break;
+        }
     }
 
     {
@@ -1105,6 +1121,10 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
             json before = _clientVisibleState(*safe);
             auto rows = store->placementsForMessage(safe->id());
             for (auto item : itemsByMessage[safe->id()]) {
+                if (failure && !item->moved && !item->destFolderId.empty()) {
+                    store->abandonPlacementMove(*safe, item->placement.folderId, item->placement.remoteUID, item->destFolderId);
+                    continue;
+                }
                 string displaced = confirmPlacementChange(*safe, *item, rows);
                 if (!displaced.empty()) {
                     displacedIds.push_back(displaced);
@@ -1141,6 +1161,10 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
             store->unsafeEraseTransactionDeltas();
         }
         transaction.commit();
+    }
+
+    if (failure) {
+        std::rethrow_exception(failure);
     }
 }
 

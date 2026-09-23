@@ -132,6 +132,7 @@ public:
     void beginPlacementMove(Message & msg, string fromFolderId, uint32_t uid, string toFolderId);
     // Returns the id of a different message that held (toFolderId, newUid) and lost it, or "".
     string commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid);
+    void abandonPlacementMove(Message & msg, string folderId, uint32_t uid, string toFolderId);
     void removePlacement(Message & msg, string folderId, uint32_t uid);
     void refreshMessageFromPlacements(Message & msg);
 

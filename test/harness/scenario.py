@@ -429,7 +429,10 @@ class ScenarioRun:
                 self._note(f"hook {hook} {spec or ''} fired on session {session.sid} "
                            f"({'foreground' if session.has_idled else 'background'}, {session.selected} selected): "
                            f"server.{op} {json.dumps(arg)}")
-                self._server_op(op, arg)
+                if op == "reject":
+                    session.reject_next = (arg.get("code"), arg.get("text", "Command failed."))
+                else:
+                    self._server_op(op, arg)
                 if delay:
                     time.sleep(delay)
             self.server.at(hook, fire, once=True, **spec)
@@ -466,6 +469,8 @@ class ScenarioRun:
             s.drop_connections()
         elif op == "pause":
             pass  # with `at` + `delay`: holds one reply without changing the server
+        elif op == "reject":
+            pass  # only meaningful with `at` on the fake, which answers the hooked command NO
         else:
             raise ScenarioFailure(f"unknown server op {op!r}")
 
@@ -622,6 +627,12 @@ class ScenarioRun:
             elif counts.get(mb, 0) != n:
                 out.append(f"expected {n} messages in {mb}, found {counts.get(mb, 0)}")
         return out
+
+    def expect_shown(self, arg: dict) -> list:
+        with self.ms.db() as c:
+            shown = dbmod.shown_counts_by_folder(c)
+        return [f"expected {n} messages shown in {mb}, found {shown.get(mb, 0)}"
+                for mb, n in arg.items() if shown.get(mb, 0) != n]
 
     def expect_stable(self, arg: dict) -> list:
         """The flapping detector: N further passes must not change any placement."""

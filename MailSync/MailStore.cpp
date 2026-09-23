@@ -929,6 +929,22 @@ string MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32
     return holder;
 }
 
+// A move whose server operation failed: the copy stays where the server has it. A marker
+// towards another folder belongs to a later task and is left for that task.
+void MailStore::abandonPlacementMove(Message & msg, string folderId, uint32_t uid, string toFolderId) {
+    assertCorrectThread();
+    auto & stmt = _placementStatement("abandonMove",
+        "UPDATE MessageFolder SET pendingFolderId = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ? AND pendingFolderId = ?");
+    stmt.bind(1, msg.id());
+    stmt.bind(2, folderId);
+    stmt.bind(3, (long long)uid);
+    stmt.bind(4, toFolderId);
+    if (stmt.exec() > 0) {
+        msg._placementsChanged = true;
+    }
+    stmt.reset();
+}
+
 void MailStore::removePlacement(Message & msg, string folderId, uint32_t uid) {
     assertCorrectThread();
     auto & stmt = _placementStatement("removeOne",
