@@ -389,6 +389,14 @@ void Message::setSyncUnsavedChanges(int t) {
     _data["_suc"] = t;
 }
 
+bool Message::placementsChanged() {
+    return _placementsChanged;
+}
+
+void Message::setPlacementsChanged(bool changed) {
+    _placementsChanged = changed;
+}
+
 // immutable attributes
 
 json & Message::to() {

@@ -332,7 +332,7 @@ void MailProcessor::saveDisplacedMessage(const string & messageId) {
         return;
     }
     logger->warn("- Message {} lost a placement to another message at the same UID", messageId);
-    displaced->_placementsChanged = true;
+    displaced->setPlacementsChanged(true);
     store->save(displaced.get());
 }
 

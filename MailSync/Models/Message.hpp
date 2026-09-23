@@ -74,7 +74,7 @@ public:
     bool isHiddenReminder();
 
     // Placement snapshot: { "<folderId>": bits }, live copies only (see Placement.hpp).
-    // Rebuilt from the rows on save (see _placementsChanged); read by the client and Thread.
+    // Rebuilt from the rows on save (see placementsChanged); read by the client and Thread.
     json & folders();
     vector<string> folderIds();
     string folderRole(MailStore * store, string folderId);
@@ -153,6 +153,10 @@ public:
     // Set by the MailStore placement helpers when they change this message's rows. The
     // save rebuilds the snapshot from the rows (MailStore::refreshMessageFromPlacements),
     // which clears it. In memory only.
+    bool placementsChanged();
+    void setPlacementsChanged(bool changed);
+
+private:
     bool _placementsChanged;
 };
 

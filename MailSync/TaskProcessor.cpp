@@ -1153,7 +1153,7 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
                     displacedIds.push_back(displaced);
                 }
             }
-            if (safe->_placementsChanged) {
+            if (safe->placementsChanged()) {
                 store->refreshMessageFromPlacements(*safe);
             }
             if (_clientVisibleState(*safe) != before) {
@@ -1176,7 +1176,7 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
                 continue;
             }
             logger->warn("-- Message {} lost a placement to a moved copy at the same UID", id);
-            displaced->_placementsChanged = true;
+            displaced->setPlacementsChanged(true);
             store->save(displaced.get());
             clientVisibleChange = true;
         }

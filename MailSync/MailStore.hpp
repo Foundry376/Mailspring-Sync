@@ -115,7 +115,7 @@ public:
     shared_ptr<Folder> folderById(string accountId, string folderId);
 
     // Placements (MessageFolder rows). The table is canonical; every helper that takes a
-    // Message marks it (Message::_placementsChanged) and the caller saves it, which
+    // Message marks it (Message::setPlacementsChanged) and the caller saves it, which
     // rebuilds its "folders" snapshot and derived unread/starred/draft from the rows.
     // Bulk helpers touch rows only and return the ids of the messages they affected so the
     // caller can load those (and only those) to update their snapshots. MessageOrphan is

@@ -650,7 +650,7 @@ vector<Placement> MailStore::placementsForMessage(string messageId) {
 
 /*
  Rebuilds the message's "folders" snapshot and derived flags from its rows and clears
- Message::_placementsChanged. Message::beforeSave calls it when a helper marked the
+ Message::placementsChanged(). Message::beforeSave calls it when a helper marked the
  message; call it directly only to inspect the result before deciding whether to save.
 
  - "folders" lists copies keyed by the folder the client should see them in (the pending
@@ -662,7 +662,7 @@ vector<Placement> MailStore::placementsForMessage(string messageId) {
    the record, which is what keeps a moved message's id when its destination is scanned.
  */
 void MailStore::refreshMessageFromPlacements(Message & msg) {
-    msg._placementsChanged = false;
+    msg.setPlacementsChanged(false);
     auto rows = placementsForMessage(msg.id());
 
     json folders = json::object();
@@ -686,6 +686,8 @@ void MailStore::refreshMessageFromPlacements(Message & msg) {
 
     msg.folders() = folders;
     if (rows.empty()) {
+        // Note: OR IGNORE keeps the earliest `since` on purpose. OR REPLACE would restart the
+        // grace period on every rebuild, so an orphan refreshed every pass would never expire.
         auto & record = _placementStatement("recordOrphan",
             "INSERT OR IGNORE INTO MessageOrphan (messageId, accountId, since) VALUES (?, ?, ?)");
         record.bind(1, msg.id());
@@ -753,7 +755,7 @@ string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, 
         int updated = unassigned.exec();
         unassigned.reset();
         if (updated > 0) {
-            msg._placementsChanged = true;
+            msg.setPlacementsChanged(true);
             return displacedMessageId;
         }
     }
@@ -785,7 +787,7 @@ string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, 
         relinked.reset();
     }
 
-    msg._placementsChanged = true;
+    msg.setPlacementsChanged(true);
     return displacedMessageId;
 }
 
@@ -800,7 +802,7 @@ void MailStore::removePlacementsOutsideFolder(Message & msg, string folderId) {
     stmt.bind(2, folderId);
     stmt.exec();
     stmt.reset();
-    msg._placementsChanged = true;
+    msg.setPlacementsChanged(true);
 }
 
 // A client flag change fans out to every copy: otherwise the next scan of an untouched
@@ -814,7 +816,7 @@ void MailStore::setPlacementUnread(Message & msg, bool unread) {
     stmt.bind(2, msg.id());
     stmt.exec();
     stmt.reset();
-    msg._placementsChanged = true;
+    msg.setPlacementsChanged(true);
 }
 
 void MailStore::setPlacementStarred(Message & msg, bool starred) {
@@ -825,7 +827,7 @@ void MailStore::setPlacementStarred(Message & msg, bool starred) {
     stmt.bind(2, msg.id());
     stmt.exec();
     stmt.reset();
-    msg._placementsChanged = true;
+    msg.setPlacementsChanged(true);
 }
 
 void MailStore::setPlacementLabels(Message & msg, const vector<string> & labels) {
@@ -836,7 +838,7 @@ void MailStore::setPlacementLabels(Message & msg, const vector<string> & labels)
     stmt.bind(2, msg.id());
     stmt.exec();
     stmt.reset();
-    msg._placementsChanged = true;
+    msg.setPlacementsChanged(true);
 }
 
 // Optimistic move of one copy: the row keeps its server folder and UID so the remote
@@ -853,7 +855,7 @@ void MailStore::beginPlacementMove(Message & msg, string fromFolderId, uint32_t 
     stmt.bind(4, (long long)uid);
     stmt.exec();
     stmt.reset();
-    msg._placementsChanged = true;
+    msg.setPlacementsChanged(true);
 }
 
 /*
@@ -884,7 +886,7 @@ string MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32
         settle.bind(3, (long long)oldUid);
         settle.exec();
         settle.reset();
-        msg._placementsChanged = true;
+        msg.setPlacementsChanged(true);
         return "";
     }
 
@@ -925,7 +927,7 @@ string MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32
     stmt.bind(5, (long long)oldUid);
     stmt.exec();
     stmt.reset();
-    msg._placementsChanged = true;
+    msg.setPlacementsChanged(true);
     return holder;
 }
 
@@ -940,7 +942,7 @@ void MailStore::abandonPlacementMove(Message & msg, string folderId, uint32_t ui
     stmt.bind(3, (long long)uid);
     stmt.bind(4, toFolderId);
     if (stmt.exec() > 0) {
-        msg._placementsChanged = true;
+        msg.setPlacementsChanged(true);
     }
     stmt.reset();
 }
@@ -954,7 +956,7 @@ void MailStore::removePlacement(Message & msg, string folderId, uint32_t uid) {
     stmt.bind(3, (long long)uid);
     stmt.exec();
     stmt.reset();
-    msg._placementsChanged = true;
+    msg.setPlacementsChanged(true);
 }
 
 /*
