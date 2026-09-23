@@ -98,6 +98,28 @@ static json _clientVisibleState(Message & msg) {
     };
 }
 
+/*
+ A flag task whose STORE failed leaves its copies with the user's new flags while the server
+ keeps the old ones, and on a CONDSTORE server the copy's modseq never changed, so
+ CHANGEDSINCE never reports it again. Zeroing SyncWorker's LS_LAST_DEEP makes the background
+ worker's next pass run the full-folder attributes scan, which compares flags.
+
+ saveFolderStatus writes only this key over the current row, and the background worker's
+ own saveFolderStatus writes only keys its pass changed, so the reset survives unless that
+ pass ran the full scan itself.
+ */
+static void _rescanFoldersForFlags(MailStore * store, string accountId, const map<string, vector<TaskPlacement *>> & itemsByFolder) {
+    for (auto & pair : itemsByFolder) {
+        auto folder = store->find<Folder>(Query().equal("accountId", accountId).equal("id", pair.first));
+        if (folder == nullptr) {
+            continue;
+        }
+        json initialStatus = folder->localStatus();
+        folder->localStatus()["lastDeep"] = 0;
+        store->saveFolderStatus(folder.get(), initialStatus);
+    }
+}
+
 // The UID each item's copy received in `dest`, aligned with `items` (0 when unknown):
 // from the COPYUID map when the server has UIDPLUS, otherwise by fetching the newest
 // headers in the destination and matching them by message id, which is what makes the
@@ -1064,8 +1086,9 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, LocalChangeFn modi
  A failing folder ends the server work, and the error is rethrown only after the outcome is
  applied: copies already moved are committed, copies that were not go back to the folder the
  server has them in, and the lock is released either way, so later scans and tasks see the
- message normally. Flags a failed flag task wrote locally are left for the next scan that
- reports the copy to correct; the task's pre-change values per copy are not kept.
+ message normally. Flags a failed flag task wrote locally are left for the folders' next
+ full scan to correct (_rescanFoldersForFlags); the task's pre-change values per copy are
+ not kept.
  */
 void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, RemoteChangeFn applyInFolder) {
     json & data = task->data();
@@ -1164,6 +1187,9 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
     }
 
     if (failure) {
+        if (!isMove) {
+            _rescanFoldersForFlags(store, account->id(), itemsByFolder);
+        }
         std::rethrow_exception(failure);
     }
 }
