@@ -182,12 +182,16 @@ server" (a local draft, or a row awaiting relink after a UIDVALIDITY change).
   `pendingFolderId` on the placements it decided to move; the snapshot reports them under
   the pending folder, so the client updates immediately. The remote phase MOVEs (or
   COPY + `\Deleted` + EXPUNGE without MOVE) per source folder and rewrites each row in
-  place with the new UID. If the destination already holds a copy, the source copy is
-  removed instead of moved. `ChangeFolderTask` carries `sourceFolderIds[]` from the
-  client (destination role trash/spam → every placement; otherwise the listed folders, or
-  every non-sent/drafts placement when empty), and the engine writes `undoPlacements`
-  into the task during its local phase; an undo task carries `restorePlacements`, which
-  overrides `folder`/`sourceFolderIds`.
+  place with the new UID. A copy is moved even when the destination already holds one
+  (two copies in one folder are two placements). `ChangeFolderTask` carries
+  `sourceFolderIds[]` from the client (destination role trash/spam → every placement;
+  otherwise the listed folders, or every non-sent/drafts placement when empty), and the
+  engine writes `undoPlacements` (`{ messageId: [folderId per moved copy] }`) into the
+  task during its local phase. The undo task carries it as `restorePlacements` with
+  `sourceFolderIds = [original destination]` and moves that many of the message's copies
+  in the destination back, one to each recorded folder (copies still in flight first,
+  then the highest UIDs). A later task's pending marker survives an earlier task's
+  commit, so an undo queued before the move reached the server still lands.
 - **Flags fan out.** Mark-read / star set every placement locally and STORE in every
   folder that holds a copy; per-folder thread unread counts use the copy's own bit, so a
   message unread in Inbox and read in Sent bolds the thread in Inbox only.

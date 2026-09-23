@@ -40,11 +40,9 @@ struct ChangeMailModels {
 struct TaskPlacement {
     shared_ptr<Message> message;
     Placement placement;
-    string destFolderId;                   // moves: where this copy should end up
-    bool moved = false;                    // the copy is now at (destFolderId, movedUID)
+    string destFolderId; // moves: where this copy should end up
+    bool moved = false;  // the copy is now at (destFolderId, movedUID)
     uint32_t movedUID = 0;
-    bool removed = false;                  // the copy was deleted from the server
-    vector<pair<string, uint32_t>> copies; // undo: (folderId, UID) copies created by COPY
 };
 
 // The local variant runs inside a transaction with the message's placements in hand;
@@ -79,7 +77,7 @@ private:
 
     void performLocalChangeOnMessages(Task * task, LocalChangeFn modifyLocalMessage);
     void performRemoteChangeOnMessages(Task * task, bool isMove, RemoteChangeFn applyInFolder);
-    vector<string> confirmPlacementChange(Message & msg, TaskPlacement & item, const vector<Placement> & rows);
+    string confirmPlacementChange(Message & msg, TaskPlacement & item, const vector<Placement> & rows);
     void performLocalSaveDraft(Task * task);
     void performLocalDestroyDraft(Task * task);
     void performRemoteDestroyDraft(Task * task);

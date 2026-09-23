@@ -99,7 +99,9 @@ records outcomes for one binary and diffs two recordings (see
 | modseq-truncation | CHANGEDSINCE gap > 4000 bounds the request to the newest UIDs | fake, dovecot | pass |
 | mid-pass-foreground-tombstone | foreground VANISHED vs the background's stale FETCH mid-pass | fake ×2 | pass |
 | trash-two-placements-without-uidplus | trash of two copies with no COPYUID (dest-fetch fallback) | fake | pass |
-| undo-move-restores-placements | sourceFolderIds move + undo via restorePlacements | fake ×2, dovecot ×2 | QRESYNC pass; plain xfail: stale view re-adds the moved copy for a pass |
+| undo-move-restores-placements | sourceFolderIds move and a two-copy trash, each undone via restorePlacements | fake ×2, dovecot ×2 | pass |
+| undo-before-remote-phase | undo queued while the move's MOVE is held | fake ×2, dovecot | pass |
+| move-into-folder-holding-a-copy | two copies in the destination after the move; undo returns the added one | fake ×2, dovecot | pass |
 | mark-read-fans-out-to-all-placements | ChangeUnreadTask by threadIds hits every placement | fake ×2, dovecot | pass |
 | uidvalidity-change-large-mailbox | #140 truncated UIDVALIDITY rebuild re-loops, 2 500 msgs | fake ×2 | pass |
 | synced-draft-destroy / -courier | DestroyDraftTask on a synced draft and a local UID-0 draft | fake ×2, dovecot | pass |
@@ -142,8 +144,9 @@ Harness features the placements scenarios added, worth reusing:
 - **Undoing a task.** `client.undo_task: {of: label}` reads the completed task's row from the
   `Task` table and queues its undo the way `UndoRedoStore` + `createUndoTasks()` do (same
   class and ids, `isUndo`; for `ChangeFolderTask` the engine-written `undoPlacements` copied
-  to `restorePlacements` and `folder` set to the first recorded source). `sourceFolders:
-  [INBOX]` on the original task is the perspective's folder (`sourceFolderIds`).
+  to `restorePlacements`, `sourceFolderIds` set to the original destination and `folder` to
+  the first recorded source). `sourceFolders: [INBOX]` on the original task is the
+  perspective's folder (`sourceFolderIds`).
 - **Thread-level tasks.** `threads: {mailbox, uids}` resolves to the distinct `threadIds` of
   those messages, which is how the client sends ChangeUnread/ChangeStarred/ChangeFolder.
 - **Local-only rows.** `messages: {header_message_ids: [...]}` addresses a row the placements

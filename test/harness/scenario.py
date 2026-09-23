@@ -464,6 +464,8 @@ class ScenarioRun:
             s.set_uidnext(arg["mailbox"], int(arg["value"]))
         elif op == "drop_connections":
             s.drop_connections()
+        elif op == "pause":
+            pass  # with `at` + `delay`: holds one reply without changing the server
         else:
             raise ScenarioFailure(f"unknown server op {op!r}")
 
@@ -505,7 +507,8 @@ class ScenarioRun:
         """{of: label}: queue the undo of a completed task the way UndoRedoStore does
         (Task.createIdenticalTask + ChangeFolderTask.createUndoTasks): same class and item
         ids, isUndo, and for a ChangeFolderTask the engine-written `undoPlacements` copied to
-        `restorePlacements` with `folder` set to the first recorded source folder."""
+        `restorePlacements`, `sourceFolderIds` set to the original destination and `folder`
+        to the first recorded source folder."""
         original_id = self.labels[arg["of"]]
         with self.ms.db() as c:
             row = c.execute("SELECT data FROM Task WHERE id = ?", (original_id,)).fetchone()
@@ -519,8 +522,8 @@ class ScenarioRun:
             if not placements:
                 raise ScenarioFailure(f"task {original_id} recorded no undoPlacements; the engine's local phase did not run")
             undo["restorePlacements"] = placements
-            undo["sourceFolderIds"] = []
-            first = next((p["folderId"] for entries in placements.values() for p in entries if not p.get("removed")), None)
+            undo["sourceFolderIds"] = [data["folder"]["id"]]
+            first = next((folder_id for folder_ids in placements.values() for folder_id in folder_ids), None)
             with self.ms.db() as c:
                 frow = c.execute("SELECT data FROM Folder WHERE id = ?", (first,)).fetchone()
             if frow is not None:
@@ -694,6 +697,11 @@ class ScenarioRun:
         truth = self.server.truth()
         return [f"server has {len(truth.get(mb, {}))} in {mb}, expected {n}" for mb, n in arg.items()
                 if len(truth.get(mb, {})) != n]
+
+    def expect_server_uids(self, arg: dict) -> list:
+        truth = self.server.truth()
+        return [f"server has UIDs {sorted(truth.get(mb, {}))} in {mb}, expected {sorted(uids)}" for mb, uids in arg.items()
+                if sorted(truth.get(mb, {})) != sorted(uids)]
 
     def expect_unchanged_since(self, arg) -> list:
         name = arg if isinstance(arg, str) else arg["snapshot"]

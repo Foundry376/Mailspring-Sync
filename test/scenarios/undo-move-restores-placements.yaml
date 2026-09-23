@@ -1,19 +1,14 @@
 name: undo-move-restores-placements
 description: >
-  A self-addressed message has placements in INBOX and Sent. From the Inbox perspective the
-  user archives it: the ChangeFolderTask carries sourceFolderIds = [INBOX], so only the
-  INBOX copy moves to Archive and the Sent copy stays. The engine records what it moved as
-  undoPlacements on the task during its local phase; the undo task (same message ids,
-  restorePlacements = that map, folder = the first recorded source) must move the copy back:
-  server and database both show INBOX + Sent again, Archive empty, and nothing flaps.
-  Known engine bug on servers without QRESYNC (fake:plain, dovecot:plain): the background
-  connection still has Archive selected from the pass that ingested the moved copy, and its
-  next new-mail fetch there (`UID FETCH 4:5`, re-issued every pass because the plain path
-  only advances LS_UIDNEXT in shallow/deep scans) is answered from that connection's stale
-  view, so the Archive copy the undo just moved out is re-added as a placement and only
-  deleted a pass later - the engine's own move flaps once. The plan's Phase 5
-  end-of-pass `UID FETCH (UID)` verification would catch it.
-source: "docs/message-placements-plan.md 3.1 (sourceFolderIds) and 3.3 (engine writes undoPlacements; client copies it to restorePlacements); TaskProcessor.cpp _movesForMessage restorePlacements branch; client change-folder-task.ts createUndoTasks"
+  Two self-addressed messages have placements in INBOX and Sent. From the Inbox perspective
+  the user archives the first: the ChangeFolderTask carries sourceFolderIds = [INBOX], so
+  only the INBOX copy moves to Archive and the Sent copy stays. The engine records the
+  folder each moved copy was shown in as undoPlacements during its local phase; the undo
+  task (same message ids, restorePlacements = that map, sourceFolderIds = [Archive]) must
+  move the copy back: server and database show INBOX + Sent again and Archive empty. The
+  user then trashes the second message, which takes both copies, and undoes that: one of
+  the two Trash copies must go back to INBOX and the other to Sent. Nothing may flap.
+source: "docs/message-placements-plan.md 3.1 (sourceFolderIds) and 3.3 (engine writes undoPlacements; client copies it to restorePlacements); TaskProcessor.cpp _restoreMovesForMessage; client change-folder-task.ts createUndoTasks"
 servers:
   - {fake: dovecot}
   - {fake: plain}
@@ -23,12 +18,12 @@ mailboxes:
   INBOX: {messages: 8}
   Sent: {messages: 2}
   Archive: {messages: 3}
+  Trash: {messages: 1}
 setup:
   - server.append: {mailbox: INBOX, messages: {count: 2, self_addressed: true}}
   - server.duplicate: {mailbox: INBOX, uids: "9:10", to: Sent}
 steps:
   - wait: quiescent
-  - snapshot: before
   - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [9]}, folder: Archive, sourceFolders: [INBOX]}
     as: archive
   - wait: {task: archive, timeout: 60}
@@ -39,13 +34,31 @@ steps:
       counts: {INBOX: 9, Sent: 4, Archive: 4}
       db_matches_server: {}
   - client.undo_task: {of: archive}
-    as: undo
-  - wait: {task: undo, timeout: 60}
+    as: undo_archive
+  - wait: {task: undo_archive, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      server_counts: {INBOX: 10, Sent: 4, Archive: 3}
+      counts: {INBOX: 10, Sent: 4, Archive: 3}
+      db_matches_server: {}
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [10]}, folder: Trash, sourceFolders: [INBOX]}
+    as: trash
+  - wait: {task: trash, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      server_counts: {INBOX: 9, Sent: 3, Trash: 3}
+      counts: {INBOX: 9, Sent: 3, Trash: 3}
+      db_matches_server: {}
+  - client.undo_task: {of: trash}
+    as: undo_trash
+  - wait: {task: undo_trash, timeout: 60}
   - wait: {quiescent: true}
   - sync: pass
 expect:
-  server_counts: {INBOX: 10, Sent: 4, Archive: 3}
-  counts: {INBOX: 10, Sent: 4, Archive: 3}
+  server_counts: {INBOX: 10, Sent: 4, Archive: 3, Trash: 1}
+  counts: {INBOX: 10, Sent: 4, Archive: 3, Trash: 1}
   db_matches_server: {}
   stable: {passes: 2}
   running: true

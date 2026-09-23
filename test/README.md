@@ -85,11 +85,11 @@ Steps:
 | `wait: quiescent` / `wait: {quiescent: true, timeout: s}` | until the engine has nothing to do (see below) |
 | `wait: {seconds: n}`, `wait: {log: regex}`, `wait: {task: label}` | |
 | `sync: pass` | `wake-workers` on stdin, then wait for that pass to finish |
-| `server.expunge / flags / move / copy / duplicate / append / create_mailbox / set_uidvalidity / set_uidnext / drop_connections` | what another client does to the mailbox; `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
+| `server.expunge / flags / move / copy / duplicate / append / create_mailbox / set_uidvalidity / set_uidnext / drop_connections / pause` | what another client does to the mailbox (`pause` changes nothing: with `at` and `delay` it holds one reply, as in `undo-before-remote-phase`); `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
 | `at: {hook, session: foreground|background, command: regex, mailbox, delay: s}` | the same, narrowed to one connection (`foreground` = the one that has idled), one command line (`"^UID FETCH 1:\\*"`) and one selected mailbox; `delay` holds that connection's reply so another connection acts on the change first (`mid-pass-foreground-tombstone`) |
 | `server.flags: {..., per_message: true}` | one STORE per UID, so HIGHESTMODSEQ advances once per message - how a modseq gap larger than one grows on a real server (used by `modseq-truncation`) |
 | `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids (`{mailbox, uids}`, or `{header_message_ids: [...]}` for rows without a server placement such as a local draft), `threads: {mailbox, uids}` to their `threadIds`, `folder`/`labelsTo*` to Folder JSON, `sourceFolders: [paths]` to `sourceFolderIds` |
-| `client.undo_task: {of: label}` | queue the undo of a completed task from its stored data, as `UndoRedoStore` does: for a `ChangeFolderTask` the engine-written `undoPlacements` become `restorePlacements` |
+| `client.undo_task: {of: label}` | queue the undo of a completed task from its stored data, as `UndoRedoStore` does: for a `ChangeFolderTask` the engine-written `undoPlacements` become `restorePlacements` and the original destination its `sourceFolderIds` |
 | `client.need_bodies`, `client.wake` | the other stdin commands |
 | `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
 | `restart: {binary: path, before: [steps]}` | stop and relaunch on the same database, optionally with another build; `before:` runs steps while the engine is stopped (server state it did not watch happen) |
@@ -242,7 +242,9 @@ Things learned from Dovecot while building the conformance suite, all now modell
 | modseq-truncation | CHANGEDSINCE gap > MODSEQ_TRUNCATION_THRESHOLD bounds the request to the newest UIDs | fake, dovecot |
 | mid-pass-foreground-tombstone | foreground VANISHED while the background's stale FETCH of INBOX is in flight; no resurrection | fake ×2 |
 | trash-two-placements-without-uidplus | trash of INBOX+Sent copies without COPYUID (dest-fetch fallback) | fake |
-| undo-move-restores-placements | sourceFolderIds move of one copy, undo via restorePlacements | fake ×2, dovecot ×2 |
+| undo-move-restores-placements | sourceFolderIds move of one copy, and trash of both copies, each undone via restorePlacements | fake ×2, dovecot ×2 |
+| undo-before-remote-phase | undo queued while the move's MOVE is held: the undo's marker survives the move's commit | fake ×2, dovecot |
+| move-into-folder-holding-a-copy | move into a folder that already holds a copy leaves two there; undo returns the added one | fake ×2, dovecot |
 | mark-read-fans-out-to-all-placements | ChangeUnreadTask by threadIds hits every placement | fake ×2, dovecot |
 | uidvalidity-change-large-mailbox | #140 truncated UIDVALIDITY rebuild re-loops (2 500 msgs) | fake ×2 |
 | synced-draft-destroy (+ -courier) | DestroyDraftTask on a server-synced draft and a local UID-0 draft | fake ×2, dovecot |

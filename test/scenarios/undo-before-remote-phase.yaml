@@ -1,0 +1,39 @@
+name: undo-before-remote-phase
+description: >
+  The user trashes a self-addressed message (copies in INBOX and Sent) and undoes before
+  the trash has reached the server. On the fake the first MOVE is held for a few seconds,
+  so the undo's local phase runs while both copies are still in their original folders and
+  only marked for Trash. The undo must mark them home again; when the trash's remote phase
+  then moves them, the undo's marker is carried onto the moved rows, and the undo's own
+  remote phase moves them back. Server and database end where they started. On Dovecot
+  there is no hook, so the same steps check an ordinary undo.
+source: "TaskProcessor::confirmPlacementChange (a later task's pending marker survives the commit); TaskProcessor.cpp _restoreMovesForMessage (a copy already marked for a recorded folder keeps its course); remote phases run FIFO on the foreground worker"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 8}
+  Sent: {messages: 2}
+  Trash: {messages: 1}
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 1, self_addressed: true}}
+  - server.duplicate: {mailbox: INBOX, uids: "9", to: Sent}
+steps:
+  - wait: quiescent
+  - server.pause: {at: {hook: before_command, command: "^UID (MOVE|COPY)", delay: 5}}
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [9]}, folder: Trash, sourceFolders: [INBOX]}
+    as: trash
+  - wait: {seconds: 1}
+  - client.undo_task: {of: trash}
+    as: undo
+  - wait: {task: trash, timeout: 60}
+  - wait: {task: undo, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  server_counts: {INBOX: 9, Sent: 3, Trash: 1}
+  counts: {INBOX: 9, Sent: 3, Trash: 1}
+  db_matches_server: {}
+  stable: {passes: 2}
+  running: true

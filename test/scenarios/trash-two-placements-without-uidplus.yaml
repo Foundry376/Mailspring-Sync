@@ -6,9 +6,8 @@ description: >
   (TaskProcessor _resolveNewUIDs fallback). Mail the user sent to themself lives in INBOX and in Sent (SMTP delivery plus the client's
   saved copy). The user trashes it from the Inbox. A move to Trash or Spam takes every
   placement of the message, so the Sent copy must go too: the server must show the message
-  gone from INBOX and from Sent, with both copies now in Trash (one copy per placement - the
-  engine only collapses copies onto a destination that already held one), the database must
-  agree, and nothing may flap on later passes. A plain archive (ChangeFolderTask to Archive) of another
+  gone from INBOX and from Sent, with both copies now in Trash (one copy per placement), the
+  database must agree, and nothing may flap on later passes. A plain archive (ChangeFolderTask to Archive) of another
   self-addressed message must, by contrast, leave the Sent copy alone.
 source: "TaskProcessor.cpp _resolveNewUIDs (COPYUID map when UIDPLUS, else fetch newest headers in dest); RFC 4315 3 (COPYUID is a UIDPLUS response code); docs/message-placements-plan.md 3.1 (destination role in {trash, spam} -> every placement; otherwise every copy outside Sent and Drafts); TaskProcessor.cpp _movesForMessage"
 servers:
