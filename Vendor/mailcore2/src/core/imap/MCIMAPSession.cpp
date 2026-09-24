@@ -4456,6 +4456,32 @@ void IMAPSession::capabilitySetWithSessionState(IndexSet * capabilities)
     applyCapabilities(capabilities);
 }
 
+uint32_t IMAPSession::messageLimit()
+{
+    if (mImap == NULL || mImap->imap_connection_info == NULL ||
+        mImap->imap_connection_info->imap_capability == NULL) {
+        return 0;
+    }
+    clist * caps = mImap->imap_connection_info->imap_capability->cap_list;
+    for (clistiter * cur = clist_begin(caps); cur != NULL; cur = clist_next(cur)) {
+        struct mailimap_capability * cap = (struct mailimap_capability *) clist_content(cur);
+        if (cap->cap_type == MAILIMAP_CAPABILITY_NAME && cap->cap_data.cap_name != NULL &&
+            strncasecmp(cap->cap_data.cap_name, "MESSAGELIMIT=", 13) == 0) {
+            return (uint32_t) strtoul(cap->cap_data.cap_name + 13, NULL, 10);
+        }
+    }
+    return 0;
+}
+
+bool IMAPSession::lastResponseHitMessageLimit()
+{
+    // libetpan keeps the last unrecognised response code of each response in rsp_atom, and
+    // replaces imap_response_info for every response, so this reflects only the last command.
+    return mImap != NULL && mImap->imap_response_info != NULL &&
+        mImap->imap_response_info->rsp_atom != NULL &&
+        strcasecmp(mImap->imap_response_info->rsp_atom, "MESSAGELIMIT") == 0;
+}
+
 IndexSet * IMAPSession::storedCapabilities() {
     if (mImap == NULL ||
         mImap->imap_connection_info == NULL ||

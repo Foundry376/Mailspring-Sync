@@ -288,3 +288,22 @@ cyrus_vanished = _register(Personality(
                                     "UID present (cyrus-imapd #6071; RFC 7162 §3.2.6)",
     },
 ))
+
+yahoo_messagelimit = _register(Personality(
+    name="yahoo-messagelimit",
+    description="The yahoo personality advertising MESSAGELIMIT=50 and enforcing it on UID FETCH: "
+                "a set holding more messages is answered for the highest-UID 50 only, with "
+                "[MESSAGELIMIT 50 <lowest UID processed>] on the tagged OK. Yahoo advertises 1000 and "
+                "is not known to enforce it on clients without UIDONLY; the small limit keeps "
+                "scenarios fast.",
+    source="RFC 9738 §3 and §4.2 (servers may phase enforcement in); MESSAGELIMIT=1000 in Yahoo's "
+           "capability string (see the yahoo personality)",
+    preauth_capabilities=yahoo.preauth_capabilities,
+    postauth_capabilities=yahoo.postauth_capabilities.replace("MESSAGELIMIT=1000", "MESSAGELIMIT=50"),
+    greeting=yahoo.greeting,
+    quirks={
+        **yahoo.quirks,
+        "messagelimit-enforced": "UID FETCH over more than MESSAGELIMIT messages processes only the "
+                                 "highest-UID N and says so in the tagged OK (RFC 9738 §3)",
+    },
+))

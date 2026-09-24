@@ -1199,6 +1199,20 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
         throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID");
     }
 
+    // RFC 9738 §3: a server advertising MESSAGELIMIT (Yahoo) may answer a FETCH over more
+    // messages than the limit for only the highest-UID ones, flagged by [MESSAGELIMIT] on the
+    // tagged OK. Copies below the lowest UID returned were not looked at, so they are not gone.
+    uint32_t scannedMinUID = 0;
+    if (session.lastResponseHitMessageLimit() && remote->count() > 0) {
+        scannedMinUID = UINT32_MAX;
+        for (unsigned int ii = 0; ii < remote->count(); ii++) {
+            scannedMinUID = std::min(scannedMinUID, ((IMAPMessage *)remote->objectAtIndex(ii))->uid());
+        }
+        result.truncated = true;
+        result.syncedMinUID = std::max(result.syncedMinUID, scannedMinUID);
+        logger->warn("- {}: server applied MESSAGELIMIT, only UIDs {} and up were scanned", remotePath, scannedMinUID);
+    }
+
     clock_t lastSleepClock = clock();
 
     logger->info("- {}: remote={}, local={}, folderId={}", remotePath, remote->count(), local.size(), folder.id());
@@ -1266,10 +1280,16 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
         size_t heavyNeededIdeal = heavyNeededUIDs.size();
         result.needed = heavyNeededIdeal;
         std::sort(heavyNeededUIDs.begin(), heavyNeededUIDs.end());
-        if (heavyNeededUIDs.size() > MAX_FULL_HEADERS_REQUEST_SIZE) {
+        // Note: a request over MESSAGELIMIT would be answered only in part, see above.
+        size_t heavyRequestSize = MAX_FULL_HEADERS_REQUEST_SIZE;
+        uint32_t messageLimit = session.messageLimit();
+        if (messageLimit > 0 && messageLimit < heavyRequestSize) {
+            heavyRequestSize = messageLimit;
+        }
+        if (heavyNeededUIDs.size() > heavyRequestSize) {
             // Keep the highest (newest) UIDs, which keeps the un-synced remainder a contiguous
             // block at the bottom of the range that `result.syncedMinUID` can describe.
-            heavyNeededUIDs.erase(heavyNeededUIDs.begin(), heavyNeededUIDs.end() - MAX_FULL_HEADERS_REQUEST_SIZE);
+            heavyNeededUIDs.erase(heavyNeededUIDs.begin(), heavyNeededUIDs.end() - heavyRequestSize);
             result.truncated = true;
             result.syncedMinUID = heavyNeededUIDs.front();
         }
@@ -1303,7 +1323,9 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
     if (local.size() > 0) {
         vector<uint32_t> deletedUIDs {};
         for (auto const &ent : local) {
-            deletedUIDs.push_back(ent.first);
+            if (ent.first >= scannedMinUID) {
+                deletedUIDs.push_back(ent.first);
+            }
         }
         for (vector<uint32_t> chunk : MailUtils::chunksOfVector(deletedUIDs, 200)) {
             processor->deleteVanishedPlacements(folder, chunk);

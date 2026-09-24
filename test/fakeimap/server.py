@@ -966,6 +966,12 @@ class Session(socketserver.StreamRequestHandler):
             # VANISHED lines follow the FETCH data (conformance: probe_stale_fetch). The engine
             # must therefore not trust a FETCH's row set as the set of live messages.
             uids = self._uids_in_view(spec, uid_mode)
+            limit_code = None
+            limit = self._message_limit()
+            if limit and uid_mode and len(uids) > limit:
+                # RFC 9738 §3: only the highest-UID `limit` messages are processed.
+                uids = sorted(uids)[-limit:]
+                limit_code = "MESSAGELIMIT %d %d" % (limit, uids[0])
             just_reported = []
             if changedsince is not None:
                 if vanished and self.qresync:
@@ -995,7 +1001,19 @@ class Session(socketserver.StreamRequestHandler):
                 atts = self._fetch_atts(m, items, uid_mode, changedsince is not None, uid=u)
                 self.send(b"* %d FETCH (" % pos[u] + atts + b")")
         self.flush_events(allow_expunge=uid_mode)
-        self.ok(tag, "Fetch completed (0.001 + 0.000 secs).")
+        if limit_code:
+            self.ok(tag, "FETCH completed with %d partial results" % limit, code=limit_code)
+        else:
+            self.ok(tag, "Fetch completed (0.001 + 0.000 secs).")
+
+    def _message_limit(self) -> int:
+        """N from MESSAGELIMIT=N when the personality enforces it, else 0."""
+        if not self.p.has("messagelimit-enforced"):
+            return 0
+        for cap in self.p.capability_set(True):
+            if cap.upper().startswith("MESSAGELIMIT="):
+                return int(cap.split("=", 1)[1])
+        return 0
 
     def _uids_in_view(self, spec: str, uid_mode: bool) -> list:
         """Resolve a sequence set against this session's view (which may still hold messages

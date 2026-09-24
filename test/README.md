@@ -210,7 +210,8 @@ Things learned from Dovecot while building the conformance suite, all now modell
 - `fake:<personality>` - `dovecot` (baseline), `plain` (no CONDSTORE/QRESYNC: the deep-scan
   branch), `proton-bridge`, `gateway-duplicate-list`, `netease`, `courier`, `outlook`,
   `icloud`, `gmail`, `yahoo` (permuted COPYUID), `cyrus-vanished` (Dovecot plus Cyrus's
-  VANISHED clipped at `*`, cyrus-imapd #6071). `fake:dovecot-without-condstore-qresync` style names strip capabilities.
+  VANISHED clipped at `*`, cyrus-imapd #6071), `yahoo-messagelimit` (enforces
+  MESSAGELIMIT=50 on UID FETCH, RFC 9738). `fake:dovecot-without-condstore-qresync` style names strip capabilities.
   Hostname-gated engine behaviour (iCloud, NetEase, Outlook) needs the account's
   `imap_host` to resolve to 127.0.0.1; a scenario declares `{fake: netease, imap_host:
   imap.163.com}` and is skipped with instructions unless `/etc/hosts` maps it.

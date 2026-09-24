@@ -1,0 +1,28 @@
+name: messagelimit-partial-fetch
+description: >
+  A server advertising MESSAGELIMIT=50 answers a UID FETCH over more messages for the
+  highest-UID 50 only and flags the tagged OK with [MESSAGELIMIT 50 <lowest UID>]. Archive
+  holds 120. The initial walk must keep walking down past each partial answer until it has
+  every message, and the forced deep scan over 1:* must not treat the 70 copies below the
+  partial answer as gone, nor count Archive as fully scanned for the orphan sweep.
+source: "RFC 9738 §3 (partial FETCH results) and §4.2 (phased enforcement); Yahoo advertises MESSAGELIMIT=1000"
+servers:
+  - {fake: yahoo-messagelimit}
+mailboxes:
+  INBOX: {messages: 5}
+  Archive: {messages: {count: 120, age_days: 60}}
+steps:
+  - wait: {quiescent: true, timeout: 120}
+  - assert:
+      db_matches_server: {}
+      counts: {INBOX: 5, Archive: 120}
+  - force_scans: {}
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 5, Archive: 120}
+  deltas: {Message: {unpersist: 0}}
+  log_present:
+    - "Archive: server applied MESSAGELIMIT, only UIDs \\d+ and up were scanned"
+    - "Orphan sweep limited to messages orphaned"
+  folder_status: {Archive: {syncedMinUID: 1, busy: false}}
+  running: true
