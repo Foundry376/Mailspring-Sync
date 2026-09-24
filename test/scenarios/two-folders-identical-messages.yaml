@@ -7,6 +7,7 @@ source: Mailspring-Sync PR #140 (count oscillated 2350 -> 1174 -> 2350 indefinit
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: {count: 300, age_days: 30}}
 setup:

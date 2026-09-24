@@ -10,6 +10,7 @@ servers:
   - {fake: yahoo}
   - {fake: yahoo-without-move}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: 10}
   Archive: {messages: 2}

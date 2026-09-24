@@ -12,6 +12,7 @@ source: "TaskProcessor::performLocalDestroyDraft (placeholder takes over the ser
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: 5}
   Drafts: {messages: {count: 2}, flags: ["\\Draft", "\\Seen"]}

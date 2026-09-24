@@ -8,6 +8,7 @@ source: Observed 2026-09-19 building this harness - SIGSEGV in mailcore IMAPSess
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: 20}
 steps:

@@ -220,7 +220,7 @@ Things learned from Dovecot while building the conformance suite, all now modell
   never reappear). Profiles: `fastmail` (default: NAMESPACE `(("" "/"))`, i.e.
   `altnamespace` + `unixhierarchysep`, folders at the top level, as a live Fastmail account
   shows), `default-ns` (Debian's out-of-the-box `INBOX.`-rooted folders with `.`; no major
-  provider is known to use it), `plain` (`fastmail` with
+  provider is known to use it, so only four scenarios list it), `plain` (`fastmail` with
   `suppress_capabilities: CONDSTORE QRESYNC`). One container per run (~3 s); the image is
   built on first use and re-tagged whenever `servers/cyrus/` changes. Docker only.
   - **Namespace.** Scenarios keep their flat names. Under `default-ns` the adapter maps
@@ -242,6 +242,10 @@ Things learned from Dovecot while building the conformance suite, all now modell
     mailbox short of an exotic config), so `proton-all-mail-duplicates` does not list it.
 
 ## Scenarios
+
+Every scenario that lists a Dovecot profile also lists `cyrus:fastmail` (`cyrus:plain` where
+it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
+`cyrus:default-ns`.
 
 | scenario | protects | servers |
 |---|---|---|
@@ -297,6 +301,9 @@ never clearing `busy`, and two consequences of Dovecot's stale per-connection vi
 five were fixed within two days (`6c1395e`, `4c25380`, `c5619a8`, `5080fb2`). The invariants
 found a sixth on 2026-09-22, both workers applying one server change's thread delta to a
 message loaded outside the transaction, fixed the same day.
+Bringing up the Cyrus server kind on 2026-09-24 found one latent weakness with no failing
+scenario: `docs/tasks/cyrus-stale-selected-mailbox.md` (a connection whose selected mailbox
+was replaced keeps getting `NO` and never re-SELECTs; theoretical on Fastmail).
 
 Scenario timing rule: after a server-side change on a QRESYNC server, wait for the engine to
 receive it (`wait: {log: "recv \\* VANISHED"}`) before forcing a pass; Dovecot delivers

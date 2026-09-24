@@ -6,6 +6,7 @@ source: TaskProcessor ChangeFolderTask / ExpungeAllInFolderTask
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: 20}
   Trash: {messages: 2}

@@ -10,6 +10,9 @@ servers:
   - {fake: plain}
   - {dovecot: qresync}
   - {dovecot: plain}
+  - {cyrus: fastmail}
+  - {cyrus: default-ns}
+  - {cyrus: plain}
 mailboxes:
   INBOX:
     messages: 120

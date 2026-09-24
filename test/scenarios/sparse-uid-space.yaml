@@ -7,6 +7,7 @@ source: Mailspring-Sync PR #140 review findings (0 of 1100 after 95s; 3548 of 70
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: {count: 1100, age_days: 30}}
   Big: {messages: {count: 6000, age_days: 30}}

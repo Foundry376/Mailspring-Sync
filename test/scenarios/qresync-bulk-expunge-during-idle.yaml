@@ -7,6 +7,7 @@ source: Mailspring-Sync PR #141 (178 of 200 were deleted locally; 123 still exis
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: 200}
 steps:

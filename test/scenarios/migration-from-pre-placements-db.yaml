@@ -13,6 +13,7 @@ source: "MailStore::_migrateToV10 (constants.h V10_UPGRADE_QUERIES: remoteUID > 
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 binary: ab/mailsync-0df7864
 mailboxes:
   INBOX: {messages: {count: 300, age_days: 30}}

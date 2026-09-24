@@ -6,6 +6,7 @@ source: Mailspring-Sync PR #141 (the IDLE harvester stopped after the first exte
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: 200}
 steps:

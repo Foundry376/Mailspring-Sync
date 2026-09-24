@@ -11,6 +11,7 @@ source: "Mailspring-Sync PR #140 (truncated deep scan re-scanned forever); SyncW
 servers:
   - {fake: plain}
   - {dovecot: plain}
+  - {cyrus: plain}
 mailboxes:
   INBOX: {messages: 20}
   Archive: {messages: {count: 200, age_days: 30}}

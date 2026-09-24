@@ -12,6 +12,7 @@ source: SyncWorker.cpp deep-scan branch; PR #140 control run; 5080fb2
 servers:
   - {fake: plain}
   - {dovecot: plain}
+  - {cyrus: plain}
 mailboxes:
   INBOX: {messages: 200}
   Archive: {messages: 20}

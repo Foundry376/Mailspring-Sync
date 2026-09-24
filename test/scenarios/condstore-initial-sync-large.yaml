@@ -6,6 +6,7 @@ source: Mailspring-Sync PR #140 (1774 of 2500 synced before the fix)
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: {count: 2500, age_days: 30}}
 steps:

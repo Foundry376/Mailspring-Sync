@@ -12,6 +12,7 @@ source: "SyncWorker.cpp:1209 (remoteModseq - modseq > MODSEQ_TRUNCATION_THRESHOL
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: {count: 5000, age_days: 60}}
 steps:

@@ -11,6 +11,7 @@ servers:
   - {fake: dovecot}
   - {fake: plain}
   - {dovecot: qresync}
+  - {cyrus: fastmail}
 mailboxes:
   INBOX: {messages: 10}
   Sent: {messages: 3}
