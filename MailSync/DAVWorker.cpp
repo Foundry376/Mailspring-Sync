@@ -1465,7 +1465,13 @@ void DAVWorker::runCalendars() {
     set<string> listedIds {};
     calendarSetDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
         auto path = calendarSetDoc->nodeContentAtXPath("./D:href/text()", node);
-        if (!path.empty() && normalizeHref(path) != homePath) {
+        // Answered for, but positively not a calendar: Nextcloud lists a deleted calendar in the
+        // home for 30 days with a resourcetype of <nc:deleted-calendar/> instead.
+        bool notACalendar = false;
+        calendarSetDoc->evaluateXPath(
+            "./D:propstat[contains(D:status, ' 200 ')]/D:prop/D:resourcetype[not(caldav:calendar)]",
+            ([&](xmlNodePtr) { notACalendar = true; }), node);
+        if (!path.empty() && normalizeHref(path) != homePath && !notACalendar) {
             listedIds.insert(MailUtils::idForCalendar(account->id(), path));
         }
     }));
