@@ -111,7 +111,7 @@ long the orphan sweep waits for a folder that has not been fully scanned.
 Expectations: `db_matches_server` (placements: every (folder, UID) on the server is a
 message locally with the same Message-ID and tracked flags, and nothing local is missing on
 the server), `counts`, `shown` (messages per folder as the client sees them: the
-`Message.folders` snapshot, so a copy in flight counts in its pending destination), `server_counts`, `stable: {passes: N}` (N more passes over an
+`Message.folders` snapshot, so a copy in flight counts in its pending destination), `server_counts`, `server_has: {mailbox: [Message-IDs]}` (those messages are in that mailbox on the server, whatever the engine believes), `stable: {passes: N}` (N more passes over an
 unchanged mailbox must not move a single placement - the flapping detector), `folder_status`,
 `log_present` / `log_absent`, `log_count: {regex: n}` or `{regex: {min, max}}` (how many
 log lines match, to bound a loop the engine should take a known number of times),
@@ -206,7 +206,7 @@ Things learned from Dovecot while building the conformance suite, all now modell
 
 - `fake:<personality>` - `dovecot` (baseline), `plain` (no CONDSTORE/QRESYNC: the deep-scan
   branch), `proton-bridge`, `gateway-duplicate-list`, `netease`, `courier`, `outlook`,
-  `icloud`, `gmail`. `fake:dovecot-without-condstore-qresync` style names strip capabilities.
+  `icloud`, `gmail`, `yahoo` (permuted COPYUID). `fake:dovecot-without-condstore-qresync` style names strip capabilities.
   Hostname-gated engine behaviour (iCloud, NetEase, Outlook) needs the account's
   `imap_host` to resolve to 127.0.0.1; a scenario declares `{fake: netease, imap_host:
   imap.163.com}` and is skipped with instructions unless `/etc/hosts` maps it.

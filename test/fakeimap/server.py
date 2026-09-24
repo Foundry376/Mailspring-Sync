@@ -903,6 +903,9 @@ class Session(socketserver.StreamRequestHandler):
         if not uids:
             self.ok(tag, "No messages found.")
             return
+        if self.p.has("copyuid-permuted") and len(uids) > 1:
+            # Assigned in rotated order; the COPYUID below still pairs the sorted sets.
+            uids = uids[1:] + uids[:1]
         with self.store.lock:
             if move and self.p.gmail:
                 pairs = self.store.move(self.selected, uids, dmb.name, origin=self)

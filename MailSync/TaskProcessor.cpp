@@ -120,56 +120,97 @@ static void _rescanFoldersForFlags(MailStore * store, string accountId, const ma
     }
 }
 
-// The UID each item's copy received in `dest`, aligned with `items` (0 when unknown):
-// from the COPYUID map when the server has UIDPLUS, otherwise by fetching the newest
-// headers in the destination and matching them by message id, which is what makes the
-// fallback work - the id does not depend on the folder.
-static vector<uint32_t> _resolveNewUIDs(IMAPSession * session, HashMap * uidmap, Folder & dest, vector<TaskPlacement *> & items, const vector<uint32_t> & sourceUIDs) {
+/*
+ The UID each item's copy received in `dest`, aligned with `items` (0 when unknown). Copies
+ are matched to UIDs by message id, which does not depend on the folder: the headers of the
+ COPYUID destination set are fetched when the server returns one, and of the newest UIDs in
+ `dest` otherwise.
+
+ COPYUID is not trusted as a pairing. RFC 4315 §3 makes it one, but Yahoo answers a
+ multi-message UID MOVE with ascending source and destination ranges while assigning a
+ permutation of the destination range (observed 2026-09-24, client repo
+ docs/evidence/yahoo-copyuid). A single-message COPYUID cannot be permuted and is used as is.
+ */
+static vector<uint32_t> _resolveNewUIDs(IMAPSession * session, HashMap * uidmap, Folder & dest, vector<TaskPlacement *> & items) {
     vector<uint32_t> result(items.size(), 0);
     ErrorCode err = ErrorCode::ErrorNone;
     String * destPath = AS_MCSTR(dest.path());
 
-    if (uidmap != nullptr) {
-        for (size_t i = 0; i < items.size(); i++) {
-            Value * newUID = (Value *)uidmap->objectForKey(Value::valueWithUnsignedLongValue(sourceUIDs[i]));
-            if (newUID) {
-                result[i] = newUID->unsignedIntValue();
-            }
+    if (items.size() == 1 && uidmap != nullptr && uidmap->count() == 1) {
+        Value * newUID = (Value *)uidmap->objectForKey(Value::valueWithUnsignedLongValue(items[0]->placement.remoteUID));
+        if (newUID) {
+            result[0] = (uint32_t)newUID->unsignedLongValue();
+            return result;
         }
-        return result;
     }
 
-    auto status = session->folderStatus(destPath, &err);
-    if (status == nullptr) {
-        return result;
+    set<uint32_t> copied;
+    if (uidmap != nullptr) {
+        Array * values = uidmap->allValues();
+        for (unsigned int ii = 0; ii < values->count(); ii++) {
+            copied.insert((uint32_t)((Value *)values->objectAtIndex(ii))->unsignedLongValue());
+        }
     }
-    // Moves append at the top of the destination; twice the item count covers gaps in
-    // UID assignment without underflowing below 1.
+
+    IndexSet * candidates = IndexSet::indexSet();
+    if (!copied.empty()) {
+        for (uint32_t uid : copied) {
+            candidates->addIndex(uid);
+        }
+    } else {
+        auto status = session->folderStatus(destPath, &err);
+        if (status == nullptr) {
+            return result;
+        }
+        // Moves append at the top of the destination; twice the item count covers gaps in
+        // UID assignment without underflowing below 1.
+        uint32_t uidNext = status->uidNext();
+        uint32_t searchRange = (uint32_t)items.size() * 2;
+        uint32_t min = (uidNext > searchRange) ? (uidNext - searchRange) : 1;
+        candidates->addRange(RangeMake(min, UINT64_MAX));
+    }
+
     IMAPMessagesRequestKind kind = MailUtils::messagesRequestKindFor(session->storedCapabilities(), true);
-    uint32_t uidNext = status->uidNext();
-    uint32_t searchRange = (uint32_t)items.size() * 2;
-    uint32_t min = (uidNext > searchRange) ? (uidNext - searchRange) : 1;
-    IndexSet * set = IndexSet::indexSetWithRange(RangeMake(min, UINT64_MAX));
-    Array * recent = session->fetchMessagesByUID(destPath, kind, set, nullptr, &err);
-    if (recent == nullptr) {
+    Array * fetched = session->fetchMessagesByUID(destPath, kind, candidates, nullptr, &err);
+    if (fetched == nullptr) {
         return result;
     }
     // Several copies of one message (Exchange duplicates) arrive as several UIDs that
     // hash to the same id; each moved copy takes one so no two commit to the same UID.
     map<string, deque<uint32_t>> uidsById;
-    for (unsigned int ii = 0; ii < recent->count(); ii++) {
-        IMAPMessage * m = (IMAPMessage *)recent->objectAtIndex(ii);
+    for (unsigned int ii = 0; ii < fetched->count(); ii++) {
+        IMAPMessage * m = (IMAPMessage *)fetched->objectAtIndex(ii);
         uidsById[MailUtils::idForMessage(dest.accountId(), dest.path(), m)].push_back(m->uid());
     }
     for (auto & pair : uidsById) {
         std::sort(pair.second.begin(), pair.second.end());
     }
+    vector<size_t> unmatched;
+    size_t unpaired = 0;
     for (size_t i = 0; i < items.size(); i++) {
         auto it = uidsById.find(items[i]->message->id());
-        if (it != uidsById.end() && !it->second.empty()) {
-            result[i] = it->second.front();
-            it->second.pop_front();
+        if (it == uidsById.end() || it->second.empty()) {
+            unmatched.push_back(i);
+            continue;
         }
+        result[i] = it->second.front();
+        it->second.pop_front();
+        copied.erase(result[i]);
+        if (uidmap != nullptr) {
+            Value * paired = (Value *)uidmap->objectForKey(Value::valueWithUnsignedLongValue(items[i]->placement.remoteUID));
+            if (paired && (uint32_t)paired->unsignedLongValue() != result[i]) {
+                unpaired++;
+            }
+        }
+    }
+    if (unpaired > 0) {
+        spdlog::get("logger")->warn("-- COPYUID into {} paired {} of {} copies with another message's UID", dest.path(), unpaired, items.size());
+    }
+
+    // A message without a Date header has an id that includes its folder, so it never
+    // matches here; one such copy is identified by the one COPYUID it left unclaimed.
+    if (unmatched.size() == 1 && copied.size() == 1) {
+        result[unmatched[0]] = *copied.begin();
     }
     return result;
 }
@@ -203,11 +244,7 @@ static void _moveMessagesResilient(IMAPSession * session, String * path, Folder 
         mustApplyAttributes = true;
     }
 
-    vector<uint32_t> sourceUIDs;
-    for (auto item : items) {
-        sourceUIDs.push_back(item->placement.remoteUID);
-    }
-    auto newUIDs = _resolveNewUIDs(session, uidmap, dest, items, sourceUIDs);
+    auto newUIDs = _resolveNewUIDs(session, uidmap, dest, items);
     for (size_t i = 0; i < items.size(); i++) {
         if (newUIDs[i] == 0) {
             spdlog::get("logger")->error("-- Could not find new UID for message {} moved to {}", items[i]->message->id(), dest.path());

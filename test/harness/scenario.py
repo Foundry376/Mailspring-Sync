@@ -32,7 +32,7 @@ from . import invariants
 from . import mailgen
 from .assertions import compare_placements, placement_changes
 from .mailsync import MailsyncError, MailsyncProcess, account_json, describe_exit
-from .servers.base import Server
+from .servers.base import Server, normalize_message_id
 
 TEST_DIR = Path(__file__).resolve().parents[1]
 # Each process gets its own artifacts directory so concurrent sessions (two agents, or ab.py
@@ -720,6 +720,18 @@ class ScenarioRun:
         truth = self.server.truth()
         return [f"server has UIDs {sorted(truth.get(mb, {}))} in {mb}, expected {sorted(uids)}" for mb, uids in arg.items()
                 if sorted(truth.get(mb, {})) != sorted(uids)]
+
+    def expect_server_has(self, arg: dict) -> list:
+        """{mailbox: [Message-IDs]}: each message is in that mailbox on the server, whatever
+        the engine believes - what proves a task moved the message it was asked to."""
+        truth = self.server.truth()
+        problems = []
+        for mb, mids in arg.items():
+            held = {v["message_id"] for v in truth.get(mb, {}).values()}
+            missing = [m for m in mids if normalize_message_id(m) not in held]
+            if missing:
+                problems.append(f"server has no {missing} in {mb}")
+        return problems
 
     def expect_unchanged_since(self, arg) -> list:
         name = arg if isinstance(arg, str) else arg["snapshot"]
