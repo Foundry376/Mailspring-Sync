@@ -128,8 +128,8 @@ static void _rescanFoldersForFlags(MailStore * store, string accountId, const ma
 
  COPYUID is not trusted as a pairing. RFC 4315 §3 makes it one, but Yahoo answers a
  multi-message UID MOVE with ascending source and destination ranges while assigning a
- permutation of the destination range (observed 2026-09-24, client repo
- docs/evidence/yahoo-copyuid). A single-message COPYUID cannot be permuted and is used as is.
+ permutation of the destination range (observed on a live Yahoo account, 2026-09-24).
+ A single-message COPYUID cannot be permuted and is used as is.
  */
 static vector<uint32_t> _resolveNewUIDs(IMAPSession * session, HashMap * uidmap, Folder & dest, vector<TaskPlacement *> & items) {
     vector<uint32_t> result(items.size(), 0);

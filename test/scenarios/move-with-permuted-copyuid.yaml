@@ -5,7 +5,7 @@ description: >
   that really holds it, so that moving one of them again moves that message on the server,
   and no scan has to take a UID back from the wrong message. yahoo-without-move covers the
   COPY + EXPUNGE path; Dovecot is the control with a correct COPYUID.
-source: client docs/evidence/yahoo-copyuid (observed 2026-09-24); RFC 4315 §3
+source: permuted COPYUID observed on a live Yahoo account (2026-09-24); RFC 4315 §3
 servers:
   - {fake: yahoo}
   - {fake: yahoo-without-move}
