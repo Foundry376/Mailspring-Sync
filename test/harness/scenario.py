@@ -780,6 +780,19 @@ class ScenarioRun:
                     out.append(f"SMTP message {i} header {h} = {m.header(h)!r}, expected {v!r}")
         return out
 
+    def expect_connection_error(self, arg: dict) -> list:
+        """The ProcessState deltas from beginConnectionError / endConnectionError, which drive
+        the client's offline banner. `reported: true` needs a connectionError: true among
+        them, `cleared: true` needs the last one to be false."""
+        states = [m.get("connectionError") for d in self.ms.deltas("ProcessState") for m in d.models]
+        out = []
+        if "reported" in arg and (True in states) != bool(arg["reported"]):
+            out.append(f"expected connectionError {'to be' if arg['reported'] else 'never to be'} reported, "
+                       f"ProcessState deltas were {states}")
+        if arg.get("cleared") and (not states or states[-1] is not False):
+            out.append(f"expected the connection error to be cleared, ProcessState deltas were {states}")
+        return out
+
     def expect_deltas(self, arg: dict) -> list:
         out = []
         for cls, wants in arg.items():

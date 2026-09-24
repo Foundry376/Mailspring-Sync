@@ -117,7 +117,8 @@ the server), `counts`, `shown` (messages per folder as the client sees them: the
 unchanged mailbox must not move a single placement - the flapping detector), `folder_status`,
 `log_present` / `log_absent`, `log_count: {regex: n}` or `{regex: {min, max}}` (how many
 log lines match, to bound a loop the engine should take a known number of times),
-`deltas: {Message: {unpersist: 0}}`, `unchanged_since: snapshot`, `running`, `exit`. Any
+`deltas: {Message: {unpersist: 0}}`, `connection_error: {reported: true, cleared: true}`
+(the ProcessState stream behind the client's offline state), `unchanged_since: snapshot`, `running`, `exit`. Any
 expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,
 and reported as XPASS once it starts passing.
 
@@ -270,6 +271,7 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | client-task-move | ChangeFolder/Starred/Unread tasks | fake, dovecot |
 | client-task-trash-and-expunge | Trash + ExpungeAllInFolder | fake, dovecot |
 | connection-dropped-during-idle | reconnect after the server drops connections | fake, dovecot |
+| connection-dropped-during-command | a connection closed without BYE mid-command reads as offline, and the retry reconnects | fake, dovecot, cyrus |
 | send-draft | SendDraftTask over SMTP, Sent copy, self-addressed delivery | fake (+smtp) |
 | gmail-labels | All Mail + X-GM-LABELS views, webmail archive/label/star, trash task | fake |
 | remote-move-destination-scanned-first | placements: move seen "present in B" before "gone from A"; never deleted/re-created | fake ×2, dovecot |
