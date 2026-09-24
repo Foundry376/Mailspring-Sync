@@ -48,10 +48,13 @@ class ScenarioSkipped(Exception):
     pass
 
 
+SERVER_KINDS = ("fake", "dovecot", "cyrus")
+
+
 @dataclass
 class ServerSpec:
-    kind: str          # fake | dovecot
-    profile: str       # personality name or dovecot profile name
+    kind: str          # fake | dovecot | cyrus
+    profile: str       # personality name, or the dovecot / cyrus profile name
     options: dict = field(default_factory=dict)
 
     @classmethod
@@ -59,8 +62,8 @@ class ServerSpec:
         if isinstance(entry, str):
             kind, _, profile = entry.partition(":")
             return cls(kind, profile or "dovecot")
-        (kind, profile), = [(k, v) for k, v in entry.items() if k in ("fake", "dovecot")]
-        options = {k: v for k, v in entry.items() if k not in ("fake", "dovecot")}
+        (kind, profile), = [(k, v) for k, v in entry.items() if k in SERVER_KINDS]
+        options = {k: v for k, v in entry.items() if k not in SERVER_KINDS}
         return cls(kind, profile, options)
 
     @property
@@ -85,6 +88,9 @@ def make_server(spec: ServerSpec, log_path: Optional[str]) -> Server:
     if spec.kind == "dovecot":
         from .servers.dovecot import DovecotServer
         return DovecotServer(spec.profile, **spec.options)
+    if spec.kind == "cyrus":
+        from .servers.cyrus import CyrusServer
+        return CyrusServer(spec.profile, log_path=log_path, **spec.options)
     raise ValueError(f"unknown server kind {spec.kind}")
 
 
@@ -195,6 +201,7 @@ class ScenarioRun:
         self.work.mkdir(parents=True)
         self.server = make_server(self.spec, str(self.work / "server.log"))
         self.server.start()
+        self.ignore_busy = [self.server.server_path(p) for p in self.ignore_busy]
         existing = set(self.server.mailboxes())
         for name, mspec in (self.sc.get("mailboxes") or {}).items():
             mspec = mspec or {}
@@ -339,9 +346,13 @@ class ScenarioRun:
         if data.get("error"):
             self._note(f"task {task_id} finished with error {json.dumps(data['error'])}")
 
+    def _named(self, by_path: dict) -> dict:
+        """Re-key a {Folder.path: ...} map from the engine's database by scenario mailbox name."""
+        return {self.server.scenario_name(path): v for path, v in by_path.items()}
+
     def _snapshot(self, name: str):
         with self.ms.db() as c:
-            snap = dbmod.placements(c)
+            snap = self._named(dbmod.placements(c))
         self.snapshots[name] = snap
         return snap
 
@@ -392,7 +403,7 @@ class ScenarioRun:
                 raise ScenarioFailure(f"messages with Message-ID {missing} are not in the engine's database")
             return [by_hmid[h] for h in wanted]
         with self.ms.db() as c:
-            pl = dbmod.placements(c)
+            pl = self._named(dbmod.placements(c))
         folder = pl.get(sel["mailbox"], {})
         uids = parse_uids(sel["uids"]) if "uids" in sel else sorted(folder)
         missing = [u for u in uids if u not in folder]
@@ -409,6 +420,7 @@ class ScenarioRun:
     def _folder_json(self, path: str) -> dict:
         """Folder (or, on Gmail, Label) JSON as the client would pass it in a task."""
         with self.ms.db() as c:
+            path = self.server.server_path(path)
             row = c.execute("SELECT data FROM Folder WHERE path = ?", (path,)).fetchone()
             if row is None:
                 row = c.execute("SELECT data FROM Label WHERE path = ?", (path,)).fetchone()
@@ -604,7 +616,7 @@ class ScenarioRun:
 
     def expect_db_matches_server(self, arg: dict) -> list:
         with self.ms.db() as c:
-            local = dbmod.placements(c)
+            local = self._named(dbmod.placements(c))
         truth = self.server.truth()
         return compare_placements(local, truth, mailboxes=arg.get("mailboxes"),
                                   check_flags=arg.get("flags", True), check_labels=arg.get("labels", False))
@@ -624,7 +636,7 @@ class ScenarioRun:
 
     def expect_counts(self, arg: dict) -> list:
         with self.ms.db() as c:
-            counts = dbmod.counts_by_folder(c)
+            counts = {mb: len(uids) for mb, uids in self._named(dbmod.placements(c)).items()}
             total = dbmod.message_count(c)
         out = []
         for mb, n in arg.items():
@@ -637,7 +649,7 @@ class ScenarioRun:
 
     def expect_shown(self, arg: dict) -> list:
         with self.ms.db() as c:
-            shown = dbmod.shown_counts_by_folder(c)
+            shown = self._named(dbmod.shown_counts_by_folder(c))
         return [f"expected {n} messages shown in {mb}, found {shown.get(mb, 0)}"
                 for mb, n in arg.items() if shown.get(mb, 0) != n]
 
@@ -646,11 +658,11 @@ class ScenarioRun:
         passes = int(arg.get("passes", 2))
         out = []
         with self.ms.db() as c:
-            before = dbmod.placements(c)
+            before = self._named(dbmod.placements(c))
         for i in range(passes):
             t = self.ms.sync_pass(timeout=float(arg.get("timeout", 180)), ignore_busy=self.ignore_busy)
             with self.ms.db() as c:
-                after = dbmod.placements(c)
+                after = self._named(dbmod.placements(c))
             changes = placement_changes(before, after)
             if changes:
                 out.append(f"pass {i + 1}: {len(changes)} placement changes on an idle mailbox: "
@@ -699,7 +711,7 @@ class ScenarioRun:
         return []
 
     def expect_folder_status(self, arg: dict) -> list:
-        status = self.ms.db_folders()
+        status = self._named(self.ms.db_folders())
         out = []
         for path, wanted in arg.items():
             ls = status.get(path, {}).get("localStatus")
@@ -743,7 +755,7 @@ class ScenarioRun:
     def expect_unchanged_since(self, arg) -> list:
         name = arg if isinstance(arg, str) else arg["snapshot"]
         with self.ms.db() as c:
-            now = dbmod.placements(c)
+            now = self._named(dbmod.placements(c))
         changes = placement_changes(self.snapshots[name], now)
         return [f"placements changed since snapshot {name}: " + "; ".join(changes[:6])] if changes else []
 
@@ -790,7 +802,7 @@ def available_server_kinds() -> set:
     try:
         from .servers.dovecot import docker_available
         if docker_available():
-            kinds.add("dovecot")
+            kinds.update({"dovecot", "cyrus"})
     except Exception:
         pass
     return kinds

@@ -9,10 +9,11 @@ engine is exercised exactly as the Mailspring client exercises it.
 test/
   harness/        drives mailsync, reads its database/log/delta stream, runs scenarios
   fakeimap/       an in-process, scriptable IMAP server with server "personalities"
-  servers/        Dovecot 2.3.21 configuration + Dockerfile
+  servers/        Dockerfiles + configuration: Dovecot 2.3.21, Cyrus IMAP 3.6
   scenarios/      one YAML file per scenario
   conformance/    proves the fake answers like Dovecot for everything mailsync sends
-  tools/          ab.py (before/after regression comparison), record_personality.py
+  tools/          ab.py (before/after regression comparison), record_personality.py,
+                  cyrus_server.py (a standalone Cyrus for the Mailspring client)
   docs/           adding-scenarios.md (workflow + gotchas), handoff-refactor-regression.md;
                   tasks/ holds write-ups of engine bugs the suite finds until they are fixed
   runs/           per-run artifacts (gitignored): engine log, DB, server transcript
@@ -29,6 +30,7 @@ pip install pytest pyyaml            # the only dependencies beyond the standard
 python3 -m pytest test               # scenarios on every available server kind + conformance
 python3 -m pytest test --servers fake            # fake only (no Docker needed, ~5 min)
 python3 -m pytest test -k "qresync" --servers dovecot
+python3 -m pytest test --servers cyrus           # Cyrus IMAP (Fastmail's server) in Docker
 python3 test/run.py test/scenarios/qresync-bulk-expunge-during-idle.yaml --server dovecot:qresync --keep
 python3 test/conformance/compare.py -v          # fake vs Dovecot, all probes, full diffs
 ```
@@ -212,6 +214,32 @@ Things learned from Dovecot while building the conformance suite, all now modell
   imap.163.com}` and is skipped with instructions unless `/etc/hosts` maps it.
 - `dovecot:<profile>` - `qresync`, `plain` (capability override, as the #140 control run),
   `proton-like` (plain + `\All` "All Mail"), `tls` (self-signed, implicit TLS), `sdbox`.
+- `cyrus:<profile>` - Cyrus IMAP 3.6.1 (Debian bookworm's `cyrus-imapd`, `servers/cyrus/`),
+  the server Fastmail runs: its own CONDSTORE/QRESYNC, MOVE/COPYUID and SPECIAL-USE, and
+  `expunge_mode: delayed` as Fastmail configures it (invisible over IMAP: expunged messages
+  never reappear). Profiles: `fastmail` (default: NAMESPACE `(("" "/"))`, i.e.
+  `altnamespace` + `unixhierarchysep`, folders at the top level, as a live Fastmail account
+  shows), `default-ns` (Debian's out-of-the-box `INBOX.`-rooted folders with `.`; no major
+  provider is known to use it), `plain` (`fastmail` with
+  `suppress_capabilities: CONDSTORE QRESYNC`). One container per run (~3 s); the image is
+  built on first use and re-tagged whenever `servers/cyrus/` changes. Docker only.
+  - **Namespace.** Scenarios keep their flat names. Under `default-ns` the adapter maps
+    `Archive` to `INBOX.Archive` for every server operation, and `Server.scenario_name`
+    maps LIST output and the engine's `Folder.path` back (`ScenarioRun._named`), so
+    expectations, `counts`, task folders and reports read the same on every server kind
+    while the engine sees the real `INBOX.` paths. Both mappings are the identity elsewhere.
+  - **UID space** uses Cyrus's tools in the container: `set_uidvalidity` drops the
+    mailbox's `cyrus.index` and `reconstruct`s it (a fresh time-based UIDVALIDITY, UIDs
+    kept, flags restored over IMAP; the requested value is ignored), then drops every
+    connection as Dovecot's `mailbox update` does - a session that had the mailbox selected
+    otherwise answers `NO Mailbox does not exist` to everything until it re-SELECTs;
+    `set_uidnext` puts a message file `<n-1>.` in the spool, `reconstruct -f`, and
+    expunges it; `drop_connections` SIGTERMs every `imapd`, which closes the socket
+    without a `BYE`.
+  - `server.log` is Cyrus's per-user telemetry log: every session's full protocol
+    transcript, the engine's and the harness's own, one `===== imap-<pid>` block each.
+  - The Dovecot-only `proton-like` profile has no Cyrus counterpart (Cyrus has no `\All`
+    mailbox short of an exotic config), so `proton-all-mail-duplicates` does not list it.
 
 ## Scenarios
 
@@ -274,6 +302,40 @@ Scenario timing rule: after a server-side change on a QRESYNC server, wait for t
 receive it (`wait: {log: "recv \\* VANISHED"}`) before forcing a pass; Dovecot delivers
 IDLE notifications ~0.5 s after the change and a `wake-workers` that interrupts IDLE first
 defers the notification to the next cycle.
+
+## Live Cyrus server
+
+`tools/cyrus_server.py` runs the harness's Cyrus image as a long-lived container
+(`mailsync-cyrus-live`) with a persistent test account, for pointing the Mailspring client
+at by hand:
+
+```bash
+python3 test/tools/cyrus_server.py start     # create + seed on first run, else resume
+python3 test/tools/cyrus_server.py status    # ports, credentials, LIST as the server shows it
+python3 test/tools/cyrus_server.py stop      # stop, keeping the mail; `rm` deletes it
+```
+
+It uses the `fastmail` profile. The first `start` creates INBOX, `Sent`, `Drafts`, `Trash`,
+`Archive` and `Junk` (SPECIAL-USE, top level, `/` separator) and seeds 20 messages: 14 in INBOX (5 unread,
+2 flagged), 3 in Archive, and 3 self-addressed ones with a copy in both INBOX and Sent.
+`start` also runs the harness's SMTP sink (`fakeimap/smtp.py`) as a detached process,
+because Mailspring's account setup verifies SMTP; mail to `test@example.test` is delivered
+into the Cyrus INBOX over IMAP, as Fastmail delivers self-addressed mail, and everything
+else is accepted and dropped. Its log is `runs/cyrus-live/smtp.log`.
+
+In Mailspring choose "IMAP / SMTP Setup" and enter:
+
+| | |
+|---|---|
+| email | `test@example.test` |
+| IMAP server / port / security | `127.0.0.1` / `1143` / none (allow insecure) |
+| IMAP username / password | `test` / `pass` |
+| SMTP server / port / security | `127.0.0.1` / `1025` / none (allow insecure) |
+| SMTP username / password | `test` / `pass` |
+
+The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users over IMAP), and
+`docker exec -u cyrus mailsync-cyrus-live /usr/lib/cyrus/bin/<tool>` reaches `reconstruct`,
+`mbpath`, `cyr_expire` and friends. `--imap-port` / `--smtp-port` change the ports.
 
 ## Stopgaps and next steps
 

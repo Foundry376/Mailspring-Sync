@@ -12,7 +12,6 @@ Profiles select the advertised capabilities and folder layout:
 Population and mutation go over IMAP (imaplib), i.e. exactly what another client would do;
 UID-space manipulation uses doveadm.
 """
-import imaplib
 import os
 import shutil
 import socket
@@ -20,9 +19,10 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
-from .base import Server
+from .base import truth_via_imap
+from .imap_client import ImapClientServer
 
 HERE = Path(__file__).resolve().parent
 TEMPLATE = (HERE.parents[1] / "servers" / "dovecot" / "dovecot.conf.tmpl").read_text()
@@ -74,7 +74,7 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-class DovecotServer(Server):
+class DovecotServer(ImapClientServer):
     kind = "dovecot"
 
     def __init__(self, profile: str = "qresync", mode: Optional[str] = None, work_dir: Optional[str] = None,
@@ -209,19 +209,7 @@ class DovecotServer(Server):
             raise RuntimeError(f"doveadm {' '.join(args)} failed: {r.stderr.strip()}")
         return r.stdout
 
-    # -- IMAP client used for population and mutation ---------------------------------------------
-
-    def _client(self) -> imaplib.IMAP4:
-        if self.ssl:
-            import ssl as _ssl
-            ctx = _ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = _ssl.CERT_NONE
-            c = imaplib.IMAP4_SSL("127.0.0.1", self.port, ssl_context=ctx)
-        else:
-            c = imaplib.IMAP4("127.0.0.1", self.port)
-        c.login(self.username, self.password)
-        return c
+    # -- IMAP ------------------------------------------------------------------------------------
 
     def account_kwargs(self) -> dict:
         kw = super().account_kwargs()
@@ -230,78 +218,10 @@ class DovecotServer(Server):
         return kw
 
     def truth(self):
-        from .base import truth_via_imap
         return truth_via_imap(self.host, self.port, self.username, self.password, ssl=self.ssl)
 
-    @staticmethod
-    def _q(name: str) -> str:
-        return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-    def create_mailbox(self, name, special_use=None):
-        c = self._client()
-        try:
-            typ, data = c.create(self._q(name))
-            if typ != "OK" and b"exists" not in (data[0] or b""):
-                raise RuntimeError(f"CREATE {name}: {data}")
-            c.subscribe(self._q(name))
-        finally:
-            c.logout()
-        # special_use for an ad-hoc folder would need a config change; scenarios that need a
-        # role on a new folder should list it in the profile instead.
-
-    def append(self, mailbox, raw, flags=("\\Seen",)):
-        return self.populate(mailbox, [raw], flags)[0]
-
-    def populate(self, mailbox, raws, flags=("\\Seen",)):
-        c = self._client()
-        uids = []
-        try:
-            flag_str = "(" + " ".join(flags) + ")" if flags else None
-            for raw in raws:
-                typ, data = c.append(self._q(mailbox), flag_str, None, raw)
-                if typ != "OK":
-                    raise RuntimeError(f"APPEND to {mailbox} failed: {data}")
-                # b'[APPENDUID 1789... 12] Append completed.'
-                text = data[0].decode()
-                uids.append(int(text.split("APPENDUID")[1].split("]")[0].split()[1]))
-        finally:
-            c.logout()
-        return uids
-
-    def _with_selected(self, mailbox, fn):
-        c = self._client()
-        try:
-            typ, _ = c.select(self._q(mailbox))
-            if typ != "OK":
-                raise RuntimeError(f"SELECT {mailbox} failed")
-            return fn(c)
-        finally:
-            c.logout()
-
-    def expunge(self, mailbox, uids):
-        def go(c):
-            c.uid("STORE", _set(uids), "+FLAGS.SILENT", "(\\Deleted)")
-            c.uid("EXPUNGE", _set(uids))
-        self._with_selected(mailbox, go)
-
-    def set_flags(self, mailbox, uids, add=(), remove=(), per_message=False):
-        def go(c):
-            # per_message: one STORE per UID, so HIGHESTMODSEQ advances once per message -
-            # what builds a large modseq gap the way per-message client activity does.
-            targets = [[u] for u in uids] if per_message else [list(uids)]
-            for group in targets:
-                sset = _set(group)
-                if add:
-                    c.uid("STORE", sset, "+FLAGS.SILENT", "(" + " ".join(add) + ")")
-                if remove:
-                    c.uid("STORE", sset, "-FLAGS.SILENT", "(" + " ".join(remove) + ")")
-        self._with_selected(mailbox, go)
-
-    def move(self, mailbox, uids, dest):
-        self._with_selected(mailbox, lambda c: c.uid("MOVE", _set(uids), self._q(dest)))
-
-    def copy(self, mailbox, uids, dest):
-        self._with_selected(mailbox, lambda c: c.uid("COPY", _set(uids), self._q(dest)))
+    # special_use on create_mailbox would need a config change; scenarios that need a role on
+    # a new folder should list it in the profile instead.
 
     def set_uidvalidity(self, mailbox, value):
         self.doveadm("mailbox", "update", "-u", self.username, "--uid-validity", str(value), mailbox)
@@ -311,18 +231,6 @@ class DovecotServer(Server):
 
     def drop_connections(self):
         self.doveadm("kick", self.username)
-
-
-def _set(uids: Iterable[int]) -> str:
-    uids = sorted(set(uids))
-    parts, i = [], 0
-    while i < len(uids):
-        j = i
-        while j + 1 < len(uids) and uids[j + 1] == uids[j] + 1:
-            j += 1
-        parts.append(str(uids[i]) if i == j else f"{uids[i]}:{uids[j]}")
-        i = j + 1
-    return ",".join(parts)
 
 
 def _make_self_signed(dir_: Path):

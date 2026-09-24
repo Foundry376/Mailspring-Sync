@@ -1,6 +1,6 @@
 """
 What a scenario may ask of the server it runs against, regardless of whether that server
-is the in-process fake or Dovecot in a container. Mutations model what another client
+is the in-process fake or a real server in a container. Mutations model what another client
 (webmail, a phone) does to the mailbox while mailsync is running. `truth()` is the same
 placements structure harness.db builds from the engine's database, read back over IMAP
 so the same code answers for every server kind, real providers included.
@@ -38,6 +38,17 @@ class Server(ABC):
 
     def __exit__(self, *exc):
         self.stop()
+
+    # -- namespace
+    # Scenarios name mailboxes as a flat-namespace server spells them ("Archive", "a/b").
+    # A server that roots personal folders elsewhere maps those names to its own paths for
+    # every operation, and maps its paths (from LIST or the engine's Folder.path) back, so
+    # the harness compares and reports in scenario names on every server kind.
+    def server_path(self, name: str) -> str:
+        return name
+
+    def scenario_name(self, path: str) -> str:
+        return path
 
     # -- account
     def account_kwargs(self) -> dict:
@@ -94,7 +105,11 @@ class Server(ABC):
         return sorted(self.truth().get(mailbox, {}))
 
 
-_FETCH_LINE = re.compile(rb"^\d+ \(UID (\d+) FLAGS \(([^)]*)\)(?: X-GM-LABELS \((.*?)\))? BODY\[HEADER\.FIELDS \(MESSAGE-ID\)\] \{\d+\}$")
+# Data items come in whatever order the server chooses (Dovecot: UID FLAGS; Cyrus: FLAGS UID).
+_FETCH_HEAD = re.compile(rb"^\d+ \(.*BODY\[HEADER\.FIELDS \(MESSAGE-ID\)\] \{\d+\}$")
+_FETCH_UID = re.compile(rb"[( ]UID (\d+)")
+_FETCH_FLAGS = re.compile(rb"[( ]FLAGS \(([^)]*)\)")
+_FETCH_LABELS = re.compile(rb"[( ]X-GM-LABELS \((.*?)\)")
 
 
 def truth_via_imap(host: str, port: int, user: str, password: str, gmail: bool = False,
@@ -140,14 +155,16 @@ def _fetch_mailbox(conn, name: str, gmail: bool) -> dict:
         if not isinstance(part, tuple):
             continue
         head, body = part
-        m = _FETCH_LINE.match(head)
-        if not m:
+        if not _FETCH_HEAD.match(head):
             continue
-        uid = int(m.group(1))
-        flags = {f.decode() for f in m.group(2).split()} - {"\\Recent"}
+        uid_m, flags_m, labels_m = _FETCH_UID.search(head), _FETCH_FLAGS.search(head), _FETCH_LABELS.search(head)
+        if not uid_m or not flags_m:
+            continue
+        uid = int(uid_m.group(1))
+        flags = {f.decode() for f in flags_m.group(1).split()} - {"\\Recent"}
         labels = set()
-        if m.group(3):
-            labels = {l.strip('"') for l in re.findall(rb'"[^"]*"|\S+', m.group(3))}
+        if labels_m:
+            labels = {l.strip('"') for l in re.findall(rb'"[^"]*"|\S+', labels_m.group(1))}
             labels = {l.decode() if isinstance(l, bytes) else l for l in labels}
         mid = ""
         for line in body.split(b"\r\n"):
