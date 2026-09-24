@@ -1351,19 +1351,35 @@ void SyncWorker::syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus
         return;
     }
 
+    // A folder that has never held a message has nothing to report, and `1:0` would go on
+    // the wire as `1:*`.
+    if (remoteUIDNext == 1) {
+        folder.localStatus()[LS_UIDNEXT] = remoteUIDNext;
+        folder.localStatus()[LS_HIGHESTMODSEQ] = remoteModseq;
+        return;
+    }
+
+    // The set must end at an explicit UID, not `*`: RFC 7162 §3.2.6 limits VANISHED to UIDs
+    // in the set, and `*` is the highest UID still in the mailbox, so Cyrus never reports an
+    // expunge above it (cyrus-imapd #6071, unfixed in any release as of 2026-09). UIDNEXT-1
+    // is the bound RFC 7162 §3.2.5.1 uses for SELECT QRESYNC without known UIDs. A STATUS
+    // without UIDNEXT (NetEase) reports 0 and keeps `*`.
+    // Note: a UID appended after the STATUS is outside the set; new mail is found via UIDNEXT.
+    uint64_t topUID = remoteUIDNext > 1 ? remoteUIDNext - 1 : UINT64_MAX;
+
     // if the difference between our stored modseq and highestModseq is very large,
     // we can create a request that takes forever to complete and /blocks/ the foreground
     // worker from performing mailbox actions, which is really bad. To bound the request,
-    // we ask for changes within the last 25,000 UIDs only. Our intermittent "deep" scan
+    // we ask for changes within the last 12,000 UIDs only. Our intermittent "deep" scan
     // will recover the rest of the changes so it's safe not to ingest them here.
-    IndexSet * uids = IndexSet::indexSetWithRange(RangeMake(1, UINT64_MAX));
+    uint32_t bottomUID = 1;
     bool limited = false;
     if (!mustSyncAll && remoteModseq - modseq > MODSEQ_TRUNCATION_THRESHOLD) {
-        uint32_t bottomUID = remoteUIDNext > MODSEQ_TRUNCATION_UID_COUNT ? remoteUIDNext - MODSEQ_TRUNCATION_UID_COUNT : 1;
-        uids = IndexSet::indexSetWithRange(RangeMake(bottomUID, UINT64_MAX));
+        bottomUID = remoteUIDNext > MODSEQ_TRUNCATION_UID_COUNT ? remoteUIDNext - MODSEQ_TRUNCATION_UID_COUNT : 1;
         limited = true;
-        logger->warn("syncFolderChangesViaCondstore - request limited to {}-*, remaining changes will be detected via deep scan", bottomUID);
+        logger->warn("syncFolderChangesViaCondstore - request limited to {}:{}, remaining changes will be detected via deep scan", bottomUID, topUID);
     }
+    IndexSet * uids = IndexSet::indexSetWithRange(RangeMake(bottomUID, topUID == UINT64_MAX ? UINT64_MAX : topUID - bottomUID));
 
     IMAPProgress cb;
     ErrorCode err = ErrorCode::ErrorNone;

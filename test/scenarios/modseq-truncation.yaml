@@ -8,7 +8,7 @@ description: >
   relies on the deep gap scan for the rest. Here every UID is within that window, so the
   bounded request plus the forced gap scan must still bring every flag into agreement with
   the server, and nothing may flap. age_days keeps bodies from being prefetched.
-source: "SyncWorker.cpp:1209 (remoteModseq - modseq > MODSEQ_TRUNCATION_THRESHOLD; 'request limited to N-*'); MODSEQ_TRUNCATION_THRESHOLD 4000 / MODSEQ_TRUNCATION_UID_COUNT 12000"
+source: "SyncWorker.cpp:1209 (remoteModseq - modseq > MODSEQ_TRUNCATION_THRESHOLD; 'request limited to N:M'); MODSEQ_TRUNCATION_THRESHOLD 4000 / MODSEQ_TRUNCATION_UID_COUNT 12000"
 servers:
   - {fake: dovecot}
   - {dovecot: qresync}
@@ -28,7 +28,7 @@ steps:
   - wait: {quiescent: true, timeout: 200}
   - force_scans: {timeout: 300}
 expect:
-  log_present: ["request limited to \\d+-\\*, remaining changes will be detected via deep scan"]
+  log_present: ["request limited to \\d+:\\d+, remaining changes will be detected via deep scan"]
   db_matches_server: {flags: true}
   counts: {INBOX: 5000}
   folder_status: {INBOX: {busy: false, syncedMinUID: 1}}

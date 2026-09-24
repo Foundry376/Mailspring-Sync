@@ -271,3 +271,20 @@ yahoo = _register(Personality(
                             "Modelled as a rotation, which also applies to UID COPY (unverified on Yahoo).",
     },
 ))
+
+cyrus_vanished = _register(Personality(
+    name="cyrus-vanished",
+    description="The Dovecot baseline with one Cyrus behaviour: VANISHED (EARLIER) in reply to "
+                "UID FETCH ... (CHANGEDSINCE n VANISHED) only covers the UID set, with `*` resolved "
+                "to the highest UID still in the mailbox, so an expunge above it is never reported. "
+                "Every other Cyrus difference is left to the real cyrus: server kind.",
+    source="cyrus-imapd #6071 (fixed on master in 2957d50, in no release as of 2026-09); "
+           "reproduced against a local Cyrus 3.6 on 2026-09-24 (UID FETCH 1:* (CHANGEDSINCE n VANISHED) "
+           "reported nothing; 1:4294967295 reported VANISHED (EARLIER) for the removed top UIDs)",
+    preauth_capabilities=DOVECOT_PREAUTH,
+    postauth_capabilities=DOVECOT_POSTAUTH,
+    quirks={
+        "vanished-clipped-to-star": "VANISHED (EARLIER) is limited to the UID set with `*` = highest "
+                                    "UID present (cyrus-imapd #6071; RFC 7162 §3.2.6)",
+    },
+))

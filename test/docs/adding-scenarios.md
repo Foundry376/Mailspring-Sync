@@ -108,6 +108,7 @@ records outcomes for one binary and diffs two recordings (see
 | remote-move-while-task-in-flight | new copy recorded under the syncedAt lock; message not swept | fake ×2, dovecot | pass (fails on 2f83306) |
 | move-rejected-by-server | failed MOVE drops the task's markers and releases the lock | fake ×2 | pass (fails on 2f83306) |
 | orphan-sweep-with-unreadable-folder | STATUS NO on every pass delays the orphan sweep, not disables it | fake | pass (fails on 67469d4) |
+| qresync-vanished-above-highest-uid | CHANGEDSINCE set bounded at UIDNEXT-1 so Cyrus reports expunges above the top surviving UID (cyrus-imapd #6071) | fake, dovecot, cyrus | pass (fails on e5db7ed: fake, cyrus) |
 
 Gaps worth filling next: iCloud / Outlook / NetEase behaviour needs recordings
 (`tools/record_personality.py`) before their quirks can be asserted; `--mode test` and the

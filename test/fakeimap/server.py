@@ -976,6 +976,11 @@ class Session(socketserver.StreamRequestHandler):
                     gone = [u for (u, ms) in mb.expunged if ms > changedsince and u not in just_reported]
                     if self.p.has("vanished-earlier-not-repeated"):
                         gone = [u for u in gone if u in self.view]
+                    if self.p.has("vanished-clipped-to-star") and uid_mode:
+                        from .store import _parse_set
+                        star = max(mb.uids(), default=0)
+                        ranges = _parse_set(spec, star)
+                        gone = [u for u in gone if any(lo <= u <= hi for lo, hi in ranges)]
                     if gone:
                         for u in gone:
                             if u in self.view:
