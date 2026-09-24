@@ -1451,7 +1451,11 @@ void DAVWorker::runCalendars() {
     // we ensure our subsequent calendar-query requests with <comp-filter name="VEVENT">
     // will succeed. See comment in runForCalendar() for details on server compatibility
     // issues when comp-filter is omitted.
-    calendarSetDoc->evaluateXPath("//D:response[./D:propstat/D:prop/caldav:supported-calendar-component-set/caldav:comp[@name='VEVENT']]", ([&](xmlNodePtr node) {
+    // A calendar collection's resourcetype includes C:calendar (RFC 4791 section 4.2). Nextcloud
+    // keeps a deleted calendar in the home for 30 days as <nc:deleted-calendar/>, still
+    // advertising VEVENT, so the component set alone would bring it back as a live calendar.
+    calendarSetDoc->evaluateXPath("//D:response[./D:propstat/D:prop/D:resourcetype/caldav:calendar]"
+                                  "[./D:propstat/D:prop/caldav:supported-calendar-component-set/caldav:comp[@name='VEVENT']]", ([&](xmlNodePtr node) {
         // Make a few xpath queries relative to the "D:response" calendar node (using "./")
         // to retrieve the attributes we're interested in.
         auto name = calendarSetDoc->nodeContentAtXPath(".//D:displayname/text()", node);
