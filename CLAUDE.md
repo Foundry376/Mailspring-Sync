@@ -200,11 +200,13 @@ server" (a local draft, or a row awaiting relink after a UIDVALIDITY change).
   (two copies in one folder are two placements). `ChangeFolderTask` carries
   `sourceFolderIds[]` from the client (destination role trash/spam → every placement;
   otherwise the listed folders, or every non-sent/drafts placement when empty), and the
-  engine writes `undoPlacements` (`{ messageId: [folderId per moved copy] }`) into the
-  task during its local phase. The undo task carries it as `restorePlacements` with
-  `sourceFolderIds = [original destination]` and moves that many of the message's copies
-  in the destination back, one to each recorded folder (copies still in flight first,
-  then the highest UIDs). A later task's pending marker survives an earlier task's
+  engine writes `undoPlacements` (`{ messageId: [{ folderId, bits }] }`, one entry per
+  moved copy with its `PLACEMENT_FLAG_*` bits) into the task during its local phase. The
+  undo task carries it as `restorePlacements` with `sourceFolderIds = [original
+  destination]` and moves that many of the message's copies in the destination back, one
+  to each recorded folder: each entry first takes a copy whose bits still match (so an
+  unread Inbox copy and a read Sent copy each go home), then the rest pair in order, copies
+  still in flight first, then the highest UIDs. A later task's pending marker survives an earlier task's
   commit, so an undo queued before the move reached the server still lands. When a
   folder's MOVE fails, the copies already moved are committed and the task's markers on
   the rest are dropped, so they show where the server has them.

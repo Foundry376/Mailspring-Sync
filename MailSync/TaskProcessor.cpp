@@ -407,14 +407,17 @@ void _applyStarredInIMAPFolder(IMAPSession * session, MailStore * store, string 
 
 /*
  Undo of a ChangeFolderTask. The undo task carries `restorePlacements` ({ messageId:
- [folderId, ...] }, the `undoPlacements` the original recorded: the folder each copy it
- moved was shown in) and `sourceFolderIds` = [the original destination]. As many of the
- message's copies in that destination as there are entries go back, one to each recorded
- folder. Copies of a message are byte-identical, so any copy will do, but the ones the
- original moved are taken first: copies still in flight to the destination, then the
- highest UIDs there, since a moved copy lands above every UID the folder already held
- (RFC 3501 2.3.1.1). A copy this undo's local phase already marked for a recorded folder
- keeps that course, which is how the remote phase finds the local phase's choice.
+ [{ folderId, bits }, ...] }, the `undoPlacements` the original recorded: the folder each
+ copy it moved was shown in and that copy's PLACEMENT_FLAG_* bits) and `sourceFolderIds` =
+ [the original destination]. As many of the message's copies in that destination as there
+ are entries go back, one to each recorded folder. Copies of a message share their bytes
+ but not their flags - a self-sent message is typically unread in Inbox and read in Sent -
+ so each entry first takes a copy whose bits still equal the recorded ones, and the rest
+ are paired in order. Within both rounds the copies the original moved are preferred:
+ those still in flight to the destination, then the highest UIDs there, since a moved copy
+ lands above every UID the folder already held (RFC 3501 2.3.1.1). A copy this undo's local
+ phase already marked for a recorded folder keeps that course, which is how the remote
+ phase finds the local phase's choice.
  */
 static vector<PlacementMove> _restoreMovesForMessage(Message * msg, const vector<Placement> & placements, json & data) {
     vector<PlacementMove> moves;
@@ -423,9 +426,9 @@ static vector<PlacementMove> _restoreMovesForMessage(Message * msg, const vector
         return moves;
     }
     string from = data["sourceFolderIds"][0].get<string>();
-    vector<string> targets;
-    for (auto & id : restore[msg->id()]) {
-        targets.push_back(id.get<string>());
+    vector<pair<string, int>> targets;
+    for (auto & entry : restore[msg->id()]) {
+        targets.push_back({entry["folderId"].get<string>(), entry["bits"].get<int>()});
     }
 
     vector<Placement> candidates;
@@ -433,7 +436,13 @@ static vector<PlacementMove> _restoreMovesForMessage(Message * msg, const vector
         if (p.remoteUID == 0) {
             continue;
         }
-        auto target = p.pendingFolderId.empty() ? targets.end() : std::find(targets.begin(), targets.end(), p.pendingFolderId);
+        auto target = targets.end();
+        if (!p.pendingFolderId.empty()) {
+            target = std::find(targets.begin(), targets.end(), make_pair(p.pendingFolderId, p.flagBits()));
+            if (target == targets.end()) {
+                target = std::find_if(targets.begin(), targets.end(), [&](const pair<string, int> & t) { return t.first == p.pendingFolderId; });
+            }
+        }
         if (target != targets.end()) {
             moves.push_back({p, p.pendingFolderId});
             targets.erase(target);
@@ -449,8 +458,28 @@ static vector<PlacementMove> _restoreMovesForMessage(Message * msg, const vector
         }
         return !aInFlight && a.remoteUID > b.remoteUID;
     });
-    for (size_t i = 0; i < targets.size() && i < candidates.size(); i++) {
-        moves.push_back({candidates[i], targets[i]});
+
+    vector<bool> targetPaired(targets.size(), false);
+    vector<bool> candidateUsed(candidates.size(), false);
+    for (size_t t = 0; t < targets.size(); t++) {
+        for (size_t c = 0; c < candidates.size(); c++) {
+            if (!candidateUsed[c] && candidates[c].flagBits() == targets[t].second) {
+                moves.push_back({candidates[c], targets[t].first});
+                targetPaired[t] = candidateUsed[c] = true;
+                break;
+            }
+        }
+    }
+    size_t c = 0;
+    for (size_t t = 0; t < targets.size(); t++) {
+        while (c < candidates.size() && candidateUsed[c]) {
+            c++;
+        }
+        if (targetPaired[t] || c == candidates.size()) {
+            continue;
+        }
+        moves.push_back({candidates[c], targets[t].first});
+        candidateUsed[c] = true;
     }
     return moves;
 }
@@ -518,13 +547,13 @@ static vector<PlacementMove> _movesForMessage(MailStore * store, Message * msg, 
 }
 
 // Marks the selected copies so the client sees them in the destination immediately, and
-// records as `undoPlacements` the folder each one was shown in, which is where its undo
-// sends a copy back (_restoreMovesForMessage).
+// records as `undoPlacements` the folder each one was shown in and its flag bits, which is
+// where and how its undo sends a copy back (_restoreMovesForMessage).
 void _applyFolder(MailStore * store, Message * msg, const vector<Placement> & placements, json & data) {
     json shownIn = json::array();
     for (auto & move : _movesForMessage(store, msg, placements, data)) {
         if (move.placement.reportedFolderId() != move.destFolderId) {
-            shownIn.push_back(move.placement.reportedFolderId());
+            shownIn.push_back({{"folderId", move.placement.reportedFolderId()}, {"bits", move.placement.flagBits()}});
         }
         store->beginPlacementMove(*msg, move.placement.folderId, move.placement.remoteUID, move.destFolderId);
     }

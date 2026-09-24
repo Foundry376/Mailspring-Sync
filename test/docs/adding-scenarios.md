@@ -99,7 +99,7 @@ records outcomes for one binary and diffs two recordings (see
 | modseq-truncation | CHANGEDSINCE gap > 4000 bounds the request to the newest UIDs | fake, dovecot | pass |
 | mid-pass-foreground-tombstone | foreground VANISHED vs the background's stale FETCH mid-pass | fake ×2 | pass |
 | trash-two-placements-without-uidplus | trash of two copies with no COPYUID (dest-fetch fallback) | fake | pass |
-| undo-move-restores-placements | sourceFolderIds move and a two-copy trash, each undone via restorePlacements | fake ×2, dovecot ×2 | pass |
+| undo-move-restores-placements | sourceFolderIds move and a two-copy trash (copies differing in unread), each undone via restorePlacements | fake ×2, dovecot ×2 | pass |
 | undo-before-remote-phase | undo queued while the move's MOVE is held | fake ×2, dovecot | pass |
 | move-into-folder-holding-a-copy | two copies in the destination after the move; undo returns the added one | fake ×2, dovecot | pass |
 | mark-read-fans-out-to-all-placements | ChangeUnreadTask by threadIds hits every placement | fake ×2, dovecot | pass |

@@ -111,7 +111,7 @@ long the orphan sweep waits for a folder that has not been fully scanned.
 Expectations: `db_matches_server` (placements: every (folder, UID) on the server is a
 message locally with the same Message-ID and tracked flags, and nothing local is missing on
 the server), `counts`, `shown` (messages per folder as the client sees them: the
-`Message.folders` snapshot, so a copy in flight counts in its pending destination), `server_counts`, `server_has: {mailbox: [Message-IDs]}` (those messages are in that mailbox on the server, whatever the engine believes), `stable: {passes: N}` (N more passes over an
+`Message.folders` snapshot, so a copy in flight counts in its pending destination), `server_counts`, `server_has: {mailbox: [Message-IDs]}` (those messages are in that mailbox on the server, whatever the engine believes; an entry `{message_id, flags: [...]}` also requires a copy there with exactly those tracked flags), `stable: {passes: N}` (N more passes over an
 unchanged mailbox must not move a single placement - the flapping detector), `folder_status`,
 `log_present` / `log_absent`, `log_count: {regex: n}` or `{regex: {min, max}}` (how many
 log lines match, to bound a loop the engine should take a known number of times),
@@ -249,7 +249,7 @@ Things learned from Dovecot while building the conformance suite, all now modell
 | modseq-truncation | CHANGEDSINCE gap > MODSEQ_TRUNCATION_THRESHOLD bounds the request to the newest UIDs | fake, dovecot |
 | mid-pass-foreground-tombstone | foreground VANISHED while the background's stale FETCH of INBOX is in flight; no resurrection | fake ×2 |
 | trash-two-placements-without-uidplus | trash of INBOX+Sent copies without COPYUID (dest-fetch fallback) | fake |
-| undo-move-restores-placements | sourceFolderIds move of one copy, and trash of both copies, each undone via restorePlacements | fake ×2, dovecot ×2 |
+| undo-move-restores-placements | sourceFolderIds move of one copy, and trash of an unread and a read copy, each undone via restorePlacements to the copy's own folder | fake ×2, dovecot ×2 |
 | undo-before-remote-phase | undo queued while the move's MOVE is held: the undo's marker survives the move's commit | fake ×2, dovecot |
 | move-into-folder-holding-a-copy | move into a folder that already holds a copy leaves two there; undo returns the added one | fake ×2, dovecot |
 | mark-read-fans-out-to-all-placements | ChangeUnreadTask by threadIds hits every placement | fake ×2, dovecot |

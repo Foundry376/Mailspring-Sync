@@ -6,9 +6,11 @@ description: >
   folder each moved copy was shown in as undoPlacements during its local phase; the undo
   task (same message ids, restorePlacements = that map, sourceFolderIds = [Archive]) must
   move the copy back: server and database show INBOX + Sent again and Archive empty. The
-  user then trashes the second message, which takes both copies, and undoes that: one of
-  the two Trash copies must go back to INBOX and the other to Sent. Nothing may flap.
-source: "docs/message-placements-plan.md 3.1 (sourceFolderIds) and 3.3 (engine writes undoPlacements; client copies it to restorePlacements); TaskProcessor.cpp _restoreMovesForMessage; client change-folder-task.ts createUndoTasks"
+  user then trashes the second message, which takes both copies, and undoes that. Its
+  INBOX copy is unread and its Sent copy read, so the copies are told apart by their flags:
+  the unread one must go back to INBOX and the read one to Sent, on the server. Nothing may
+  flap.
+source: "Office 365, copies restored swapped after an undo of a trash (2026-09); docs/message-placements-plan.md 3.1 (sourceFolderIds) and 3.3 (engine writes undoPlacements; client copies it to restorePlacements); TaskProcessor.cpp _restoreMovesForMessage; client change-folder-task.ts createUndoTasks"
 servers:
   - {fake: dovecot}
   - {fake: plain}
@@ -22,6 +24,7 @@ mailboxes:
 setup:
   - server.append: {mailbox: INBOX, messages: {count: 2, self_addressed: true}}
   - server.duplicate: {mailbox: INBOX, uids: "9:10", to: Sent}
+  - server.flags: {mailbox: INBOX, uids: [10], remove: ["\\Seen"]}
 steps:
   - wait: quiescent
   - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [9]}, folder: Archive, sourceFolders: [INBOX]}
@@ -57,6 +60,9 @@ steps:
   - wait: {quiescent: true}
   - sync: pass
 expect:
+  server_has:
+    INBOX: [{message_id: "<harness-16-7a8ab980@example.test>", flags: []}]
+    Sent: [{message_id: "<harness-16-7a8ab980@example.test>", flags: ["\\Seen"]}]
   server_counts: {INBOX: 10, Sent: 4, Archive: 3, Trash: 1}
   counts: {INBOX: 10, Sent: 4, Archive: 3, Trash: 1}
   db_matches_server: {}
