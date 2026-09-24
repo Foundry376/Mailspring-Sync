@@ -83,6 +83,9 @@ MailStore::MailStore() :
     _stmtBeginTransaction(_db, "BEGIN IMMEDIATE TRANSACTION"),
     _stmtRollbackTransaction(_db, "ROLLBACK"),
     _stmtCommitTransaction(_db, "COMMIT"),
+    _transactionOpen(false),
+    // Every DAVWorker's store streams with this; only SyncWorker and main call setStreamDelay.
+    _streamMaxDelay(500),
     _owningThread(spdlog::details::os::thread_id()),
     _labelCacheVersion(0),
     _labelCache()
