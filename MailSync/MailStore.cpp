@@ -310,7 +310,7 @@ SQLite::Database & MailStore::db()
 map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range range, Folder & folder) {
     assertCorrectThread();
     auto & query = _placementStatement("attrsInRange",
-        "SELECT remoteUID, unread, starred, draft, remoteXGMLabels FROM MessageFolder "
+        "SELECT remoteUID, messageId, unread, starred, draft, remoteXGMLabels FROM MessageFolder "
         "WHERE accountId = ? AND folderId = ? AND remoteUID >= ? AND remoteUID <= ? AND remoteUID > 0");
     query.bind(1, folder.accountId());
     query.bind(2, folder.id());
@@ -336,6 +336,7 @@ map<uint32_t, MessageAttributes> MailStore::fetchMessagesAttributesInRange(Range
         MessageAttributes attrs{};
         uint32_t uid = (uint32_t)query.getColumn("remoteUID").getInt64();
         attrs.uid = uid;
+        attrs.messageId = query.getColumn("messageId").getString();
         attrs.starred = query.getColumn("starred").getInt() != 0;
         attrs.unread = query.getColumn("unread").getInt() != 0;
         attrs.draft = query.getColumn("draft").getInt() != 0;

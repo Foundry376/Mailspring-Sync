@@ -1218,6 +1218,17 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
         bool inFolder = (local.count(remoteUID) > 0);
         bool same = inFolder && MessageAttributesMatch(local[remoteUID], MessageAttributesForMessage(remoteMsg));
 
+        // With headers in hand, a row that names another message is wrong however well its
+        // flags match (a mis-paired COPYUID, see _resolveNewUIDs). Ingesting the UID gives it
+        // to the message it holds; the ingest of the displaced message's own UID relinks it.
+        if (same && heavyInitialRequest) {
+            string remoteId = MailUtils::idForMessage(folder.accountId(), remotePath, remoteMsg);
+            if (remoteId != local[remoteUID].messageId) {
+                logger->warn("- {} UID {} holds message {}, recorded as {}", remotePath, remoteUID, remoteId, local[remoteUID].messageId);
+                same = false;
+            }
+        }
+
         if (!inFolder || !same) {
             // Step 4: Attempt to insert the new message. If we get unique exceptions,
             // look for the existing message and do an update instead. This happens whenever

@@ -48,6 +48,9 @@ struct MessageAttributes {
     bool starred;
     bool draft;
     vector<string> labels;
+    // The row's message, set only by fetchMessagesAttributesInRange and not compared by
+    // MessageAttributesMatch: attributes read from the server carry no id.
+    string messageId;
 };
 
 MessageAttributes MessageAttributesForMessage(mailcore::IMAPMessage * msg);
