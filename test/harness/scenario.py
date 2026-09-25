@@ -236,7 +236,7 @@ class ScenarioRun:
             self.server.stop()
         if self.work.exists():
             (self.work / "report.txt").write_text("\n".join(self.report) + "\n")
-        if not self.keep and not self.failures and self.work.exists():
+        if not self.keep and not self.failures and not self.xfails and self.work.exists():
             shutil.rmtree(self.work, ignore_errors=True)
             try:
                 self.work.parent.rmdir()   # the session dir, once its last run is gone

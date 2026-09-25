@@ -12,6 +12,7 @@ Profiles select the advertised capabilities and folder layout:
 Population and mutation go over IMAP (imaplib), i.e. exactly what another client would do;
 UID-space manipulation uses doveadm.
 """
+import hashlib
 import os
 import shutil
 import socket
@@ -26,18 +27,28 @@ from .imap_client import ImapClientServer
 
 HERE = Path(__file__).resolve().parent
 TEMPLATE = (HERE.parents[1] / "servers" / "dovecot" / "dovecot.conf.tmpl").read_text()
-IMAGE = os.environ.get("HARNESS_DOVECOT_IMAGE", "mailsync-harness-dovecot:2.3.21")
 DOCKERFILE_DIR = HERE.parents[1] / "servers" / "dovecot"
 
 
-def ensure_image():
-    """Build the harness image once per machine (a few seconds from Alpine's package)."""
+def image_tag() -> str:
+    """Tagged by the build context's content so a change to it rebuilds the image."""
     if os.environ.get("HARNESS_DOVECOT_IMAGE"):
-        return
-    r = subprocess.run(["docker", "image", "inspect", IMAGE], capture_output=True)
-    if r.returncode == 0:
-        return
-    subprocess.run(["docker", "build", "-q", "-t", IMAGE, str(DOCKERFILE_DIR)], check=True, capture_output=True)
+        return os.environ["HARNESS_DOVECOT_IMAGE"]
+    h = hashlib.sha1()
+    for p in sorted(DOCKERFILE_DIR.iterdir()):
+        h.update(p.name.encode() + p.read_bytes())
+    return f"mailsync-harness-dovecot:2.3.21-{h.hexdigest()[:8]}"
+
+
+def ensure_image() -> str:
+    """Build the harness image once per machine (a few seconds from Alpine's package)."""
+    tag = image_tag()
+    if os.environ.get("HARNESS_DOVECOT_IMAGE"):
+        return tag
+    if subprocess.run(["docker", "image", "inspect", tag], capture_output=True).returncode != 0:
+        subprocess.run(["docker", "build", "-q", "-t", tag, str(DOCKERFILE_DIR)], check=True, capture_output=True)
+    return tag
+
 
 # Dovecot's full 2.3 capability list minus CONDSTORE/QRESYNC, for the plain profiles. Kept
 # identical to what the #140 session used for its control run.
@@ -68,6 +79,10 @@ def local_dovecot_available() -> bool:
     return shutil.which("dovecot") is not None and shutil.which("doveadm") is not None
 
 
+def default_mode() -> str:
+    return os.environ.get("HARNESS_DOVECOT_MODE") or ("local" if local_dovecot_available() else "docker")
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -83,7 +98,7 @@ class DovecotServer(ImapClientServer):
             raise ValueError(f"unknown dovecot profile {profile}; known: {sorted(PROFILES)}")
         self.profile = profile
         self.cfg = PROFILES[profile]
-        self.mode = mode or os.environ.get("HARNESS_DOVECOT_MODE") or ("local" if local_dovecot_available() else "docker")
+        self.mode = mode or default_mode()
         self.work = Path(work_dir or tempfile.mkdtemp(prefix="harness-dovecot-"))
         self.container: Optional[str] = None
         self.proc: Optional[subprocess.Popen] = None
@@ -122,11 +137,11 @@ class DovecotServer(ImapClientServer):
         conf = self.work / "dovecot.conf"
         conf.write_text(self._render("/tmp/dovecot", "/srv/mail/test", 1000, 1000, 143,
                                      "/tmp/dovecot" if self.ssl else None))
-        ensure_image()
+        image = ensure_image()
         self.port = _free_port()
         name = f"harness-dovecot-{os.getpid()}-{int(time.time() * 1000) % 100000}"
         subprocess.run(["docker", "create", "--name", name, "-p", f"127.0.0.1:{self.port}:143",
-                        "--entrypoint", "sh", IMAGE, "-c",
+                        "--entrypoint", "sh", image, "-c",
                         "mkdir -p /tmp/dovecot /srv/mail/test && chown 1000:1000 /srv/mail/test && "
                         + ("openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/dovecot/key.pem -out /tmp/dovecot/cert.pem -days 2 -subj /CN=localhost 2>/dev/null && " if self.ssl else "")
                         + "exec dovecot -c /tmp/harness.conf -F"],

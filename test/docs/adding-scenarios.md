@@ -270,10 +270,9 @@ Servers
   processes die under emulation; the harness builds `mailsync-harness-dovecot:2.3.21` from
   Alpine's package. Agent containers without Docker: `apt install dovecot-imapd` and
   `HARNESS_DOVECOT_MODE=local`.
-- Random ports everywhere; two harness runs can coexist, but they compete for CPU and the
-  timing rules above get tighter. Do not run two Dovecot suites at once on a laptop.
-  Artifacts go to `test/runs/session-<pid>/<scenario>-<server>/`, which a second session running the same
-  scenario would delete: set `HARNESS_RUNS_DIR` per session (`ab.py` does this itself).
+- Random ports, containers and config dirs everywhere, so `pytest` runs cases in parallel
+  (`-n 16` in `pytest.ini`) and two sessions can coexist. Artifacts go to
+  `test/runs/session-<pid>/<scenario>-<server>/`, one directory per worker process.
 - `conformance/probe_idle` compares what an idling session was told; Dovecot's IDLE timing
   makes it flake roughly one run in ten. Re-run it before treating a difference there as real;
   a difference in any other probe is real.

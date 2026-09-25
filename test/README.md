@@ -26,34 +26,32 @@ Start with `docs/adding-scenarios.md` if you are here to add a test, and
 ## Running
 
 ```bash
-pip install pytest pyyaml            # the only dependencies beyond the standard library
-python3 -m pytest test               # scenarios on every available server kind + conformance
-python3 -m pytest test --servers fake            # fake only (no Docker needed, ~5 min)
-python3 -m pytest test -k "qresync" --servers dovecot
-python3 -m pytest test --servers cyrus           # Cyrus IMAP (Fastmail's server) in Docker
+pip install -r test/requirements.txt   # pytest, pytest-xdist, pyyaml
+python3 -m pytest test                 # everything, 16 cases at a time: ~6 min
+python3 -m pytest test --servers fake -k qresync       # narrow by server kind / name
+python3 -m pytest test -n 0 -k baseline-initial-sync   # serially, for debugging
 python3 test/run.py test/scenarios/qresync-bulk-expunge-during-idle.yaml --server dovecot:qresync --keep
-python3 test/conformance/compare.py -v          # fake vs Dovecot, all probes, full diffs
+python3 test/conformance/compare.py -v                  # fake vs Dovecot, full diffs
 ```
 
-The binary comes from `MAILSYNC_BIN`, else `../app/mailsync`, else the Linux cmake output
-at the repo root, else Xcode's DerivedData. `--mailsync PATH` overrides per run. Release
-builds refuse to start unless argv[0] contains "mailspring"; the harness launches through a
-symlink so this never bites.
+Server kinds are `fake` (in-process) and, with Docker, `dovecot` and `cyrus`; their images
+are built once at session start and re-tagged whenever `servers/<kind>/` changes. The log
+prints a line when a case starts and `[gwN] [ 42%] PASSED|FAILED <case>` when it ends; a run
+is stuck only if no line appears for ~3 min (the slowest case takes ~140 s). The run ends
+with a "scenarios needing attention" section: every FAILED / XFAIL / XPASS case, its reason
+and its artifacts directory.
 
-Dovecot runs in Docker (image built on first use from `servers/dovecot/Dockerfile`), or,
-where Docker is unavailable but `dovecot`/`doveadm` are installed (`apt install
-dovecot-imapd` in an agent container), as a local process with a private config
+The binary comes from `MAILSYNC_BIN`, else `../app/mailsync`, else the Linux cmake output,
+else Xcode's DerivedData; `--mailsync PATH` overrides. Release builds refuse to start unless
+argv[0] contains "mailspring"; the harness launches through a symlink so this never bites.
+Without Docker, Dovecot runs as a local process if `dovecot`/`doveadm` are installed
 (`HARNESS_DOVECOT_MODE=local|docker`). `HARNESS_SERVERS=fake,dovecot` forces the set.
 
-`run.py --server kind:profile` uses the scenario's entry for that kind:profile, so its
-options (`smtp: true`, `imap_host`, ...) and a top-level `binary:` apply. Every
-process gets its own `test/runs/session-<pid>/`, so concurrent sessions never delete each
-other's artifacts; `HARNESS_RUNS_DIR` overrides the location.
-
-Failed runs keep their artifacts in `test/runs/session-<pid>/<scenario>-<server>/`: `report.txt` (what
-happened, when), `config/mailsync-*.log` (engine log; with `--verbose` it includes every
-IMAP line sent and received, per thread), `config/edgehill.db`, `server.log` (the fake's
-transcript). `--keep` / `HARNESS_KEEP=1` keeps passing runs too.
+Artifacts go to `test/runs/session-<pid>/<scenario>-<server>/` (one pid per xdist worker;
+`HARNESS_RUNS_DIR` overrides), and are kept for failed and xfailed cases: `report.txt` (what
+happened, when), `config/mailsync-*.log` (engine log with every IMAP line, per thread),
+`config/edgehill.db`, `server.log` (server transcript). `--keep` / `HARNESS_KEEP=1` keeps
+passing runs too. `run.py --server kind:profile` uses the scenario's own entry for it.
 
 ## How a scenario works
 

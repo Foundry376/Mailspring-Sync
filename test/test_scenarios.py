@@ -35,14 +35,18 @@ def test_scenario(scenario_path, server_spec, request):
     sc = load_scenario(scenario_path)
     binary = request.config.getoption("--mailsync")
     run = ScenarioRun(sc, server_spec, binary=Path(binary) if binary else None, keep=request.config.getoption("--keep"))
+    # Read back by conftest.pytest_terminal_summary, which runs on the xdist controller.
+    request.node.user_properties.append(("artifacts", str(run.work)))
     try:
         failures = run.run()
     except ScenarioSkipped as e:
         pytest.skip(str(e))
     if failures:
+        request.node.user_properties.append(("reason", "; ".join(failures)))
         pytest.fail(f"{sc['name']} on {server_spec.id}:\n" + "\n".join(failures)
                     + f"\n\nartifacts: {run.work}\n" + "\n".join(run.report[-15:]), pytrace=False)
     for x in run.xpasses:
         print(f"XPASS {sc['name']} on {server_spec.id}: {x}")
+        request.node.user_properties.append(("xpass", x))
     if run.xfails:
         pytest.xfail("; ".join(run.xfails))
