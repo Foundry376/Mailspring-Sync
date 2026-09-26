@@ -696,10 +696,19 @@ void MailProcessor::detachMessagesFromFolder(string folderId, std::chrono::milli
  scanned in full since a message orphaned before it (except a folder that has gone
  unscanned for longer than ORPHAN_SWEEP_MAX_WAIT), so a copy that moved elsewhere has
  already been recorded and cleared its orphan record
- (MailStore::refreshMessageFromPlacements). What is still listed is removed.
+ (MailStore::refreshMessageFromPlacements). What is still listed is removed. `before` is
+ 0 while a folder still in initial sync has never been fully scanned, and earlier than
+ `passStartedAt` when a folder was not covered in full this pass.
  */
-void MailProcessor::sweepExpiredOrphans(time_t before)
+void MailProcessor::sweepExpiredOrphans(time_t before, time_t passStartedAt)
 {
+    if (before == 0) {
+        logger->info("Orphan sweep skipped: a folder still in initial sync has not been fully scanned since launch.");
+        return;
+    }
+    if (before < passStartedAt) {
+        logger->info("Orphan sweep limited to messages orphaned more than {}s before this pass: a folder was skipped, still in initial sync, or had a fetch truncated.", passStartedAt - before);
+    }
     vector<string> candidates = store->orphanMessageIdsBefore(account->id(), before);
     if (candidates.empty()) {
         return;

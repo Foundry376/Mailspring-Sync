@@ -63,7 +63,7 @@ public:
     void deleteVanishedPlacements(Folder & folder, const vector<uint32_t> & uids);
     void deleteVanishedPlacements(Folder & folder, Query & uidQuery);
     void deleteUnassignedPlacements(Folder & folder);
-    void sweepExpiredOrphans(time_t before);
+    void sweepExpiredOrphans(time_t before, time_t passStartedAt);
     void detachMessagesFromFolder(string folderId, std::chrono::milliseconds pause = std::chrono::milliseconds(0));
 
     // Catching snapshots up with rows a caller already changed.

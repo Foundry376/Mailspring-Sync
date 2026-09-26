@@ -765,12 +765,7 @@ bool SyncWorker::syncNow()
     // remove the rest that are old enough. Without the per-folder bound, a bulk move of more
     // messages than one fetch carries would have its remainder removed here and re-created,
     // without metadata, once the destination catches up.
-    if (sweepBefore == 0) {
-        logger->info("Orphan sweep skipped: a folder still in initial sync has not been fully scanned since launch.");
-    } else if (sweepBefore < passStartedAt) {
-        logger->info("Orphan sweep limited to messages orphaned more than {}s before this pass: a folder was skipped, still in initial sync, or had a fetch truncated.", passStartedAt - sweepBefore);
-    }
-    processor->sweepExpiredOrphans(sweepBefore);
+    processor->sweepExpiredOrphans(sweepBefore, passStartedAt);
     
     logger->info("Sync loop complete.");
     iterationsSinceLaunch += 1;
