@@ -1,0 +1,65 @@
+name: rules-ready-incoming
+description: >
+  The client runs mail rules on the one delta that carries rulesReady (Message::
+  _updateRulesReady). Incoming mail gets it on the delta that stores its body. Mail in Junk
+  does not, even after the user opens it and its body is fetched; it gets it when another
+  client moves it to INBOX ("Not spam"), on that delta when the body is already stored and
+  on the body delta otherwise. Mail only in Sent never gets it. Archiving a message that
+  already had it and moving it back to INBOX does not give it a second one, which would run
+  the user's rules (a Forward rule, say) twice.
+source: "client docs/tasks/mail-rules-once-per-incoming-message.md: rules apply to incoming mail only, once per message"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 3}   # Message 1-3
+  Junk: {messages: 2}    # Message 4-5
+  Sent: {messages: 2}    # Message 6-7
+  Archive: {}
+steps:
+  - wait: quiescent
+  - assert:
+      rules_ready:
+        total: 3
+        messages:
+          "Message 1": {count: 1, folders: [INBOX], body: true}
+          "Message 4": 0
+          "Message 6": 0
+  # The user opens a Junk message: its body is fetched, but Junk mail is not incoming.
+  - client.need_bodies: {messages: {mailbox: Junk, uids: [1]}}
+  - wait: {log: "Fetching body for message ID"}
+  - wait: {quiescent: true}
+  - assert: {rules_ready: {total: 3, messages: {"Message 4": 0}}}
+  # "Not spam" in webmail, once for the message with a stored body and once for the other.
+  - server.move: {mailbox: Junk, uids: [1], to: INBOX}
+  - wait: {seconds: 1}
+  - server.move: {mailbox: Junk, uids: [2], to: INBOX}
+  - wait: {counts: {INBOX: 5}}   # the foreground idles on INBOX; Junk is scanned by the background
+  - sync: pass
+  - force_scans: {}              # without CONDSTORE a deep scan finds the expunge, a pass late
+  - force_scans: {}
+  - wait: {counts: {INBOX: 5, Junk: 0}}
+  - wait: {quiescent: true}
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [1]}, folder: Archive}
+    as: archive
+  - wait: {task: archive, timeout: 60}
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: Archive, uids: [1]}, folder: INBOX}
+    as: unarchive
+  - wait: {task: unarchive, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  rules_ready:
+    total: 5
+    messages:
+      "Message 1": 1
+      "Message 4": {count: 1, folders: [INBOX], body: false}
+      "Message 5": {count: 1, folders: [INBOX], body: true}
+      "Message 6": 0
+      "Message 7": 0
+  counts: {INBOX: 5, Junk: 0, Archive: 0, Sent: 2}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

@@ -4,6 +4,8 @@ Shared by the real-server adapters; each supplies `port`, `ssl` and, where the s
 namespace differs from the scenario's mailbox names, `server_path`.
 """
 import imaplib
+import sys
+from pathlib import Path
 from typing import Iterable
 
 from .base import Server
@@ -11,6 +13,27 @@ from .base import Server
 
 class ImapClientServer(Server):
     ssl: bool = False
+    smtp = None
+
+    def attach_smtp(self, email: str = "test@example.test"):
+        """Start the harness's SMTP server (fakeimap/smtp.py) in front of this server. Mail sent
+        to `email` is APPENDed to INBOX over IMAP as the test user, which is how Fastmail and
+        a Dovecot/Postfix install deliver self-addressed mail; the engine sees only IMAP."""
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from fakeimap.smtp import FakeSmtpServer
+        self.smtp = FakeSmtpServer(credentials=(self.username, self.password), deliver_to=(self, "INBOX", email)).start()
+        return self.smtp
+
+    def detach_smtp(self):
+        if self.smtp:
+            self.smtp.stop()
+            self.smtp = None
+
+    def account_kwargs(self) -> dict:
+        kw = super().account_kwargs()
+        if self.smtp:
+            kw["smtp_host"], kw["smtp_port"] = "127.0.0.1", self.smtp.port
+        return kw
 
     def _client(self) -> imaplib.IMAP4:
         if self.ssl:

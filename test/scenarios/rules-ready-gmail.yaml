@@ -1,0 +1,53 @@
+name: rules-ready-gmail
+description: >
+  Gmail keeps one copy of every message, in All Mail, and X-GM-LABELS say where it is filed.
+  Mail in INBOX gets rulesReady once. Mail only under \Sent never does, including a message
+  the engine sends, whose All Mail copy Gmail files under \Sent. When that message is
+  later also filed under \Inbox (as Gmail does with mail sent to oneself) it gets
+  rulesReady once, on the delta that adds the label.
+source: "client docs/tasks/mail-rules-once-per-incoming-message.md (Tests: Gmail); Message::hasIncomingCopy"
+servers:
+  - {fake: gmail, smtp: true, smtp_sent_copy: "[Gmail]/Sent Mail"}
+mailboxes:
+  INBOX: {messages: 2}                 # Message 1-2: \Inbox
+  "[Gmail]/Sent Mail": {messages: 2}   # Message 3-4: \Sent only
+steps:
+  - wait: quiescent
+  - assert:
+      rules_ready: {total: 2, messages: {"Message 1": {count: 1, folders: ["[Gmail]/All Mail"]}, "Message 3": 0}}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "gmail-rr-1@example.test"
+        subject: "Rules ready on Gmail"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send
+  - wait: {task: send, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      counts: {"[Gmail]/All Mail": 5}
+      rules_ready: {total: 2, messages: {"gmail-rr-1@example.test": 0}}
+  - server.labels: {mailbox: "[Gmail]/All Mail", uids: [5], add: ["\\Inbox"]}
+  - wait: {log: "XGMLabels"}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  rules_ready:
+    total: 3
+    messages:
+      "gmail-rr-1@example.test": {count: 1, folders: ["[Gmail]/All Mail"], body: false}
+      "Message 3": 0
+  db_matches_server: {labels: true}
+  stable: {passes: 1}
+  running: true

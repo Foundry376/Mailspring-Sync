@@ -85,12 +85,14 @@ def make_server(spec: ServerSpec, log_path: Optional[str]) -> Server:
         from .servers.fake import FakeServer
         opts = {k: v for k, v in spec.options.items() if k != "imap_host"}
         return FakeServer(spec.profile, log_path=log_path, **opts)
+    # `smtp: true` on a real server is attached after it starts (ScenarioRun.setup).
+    opts = {k: v for k, v in spec.options.items() if k != "smtp"}
     if spec.kind == "dovecot":
         from .servers.dovecot import DovecotServer
-        return DovecotServer(spec.profile, **spec.options)
+        return DovecotServer(spec.profile, **opts)
     if spec.kind == "cyrus":
         from .servers.cyrus import CyrusServer
-        return CyrusServer(spec.profile, log_path=log_path, **spec.options)
+        return CyrusServer(spec.profile, log_path=log_path, **opts)
     raise ValueError(f"unknown server kind {spec.kind}")
 
 
@@ -124,6 +126,7 @@ class ScenarioRun:
         self.work = RUNS_DIR / self.name
         self.server: Optional[Server] = None
         self.ms: Optional[MailsyncProcess] = None
+        self.earlier_deltas: list = []  # deltas from engine processes a `restart` stopped
         self.msg_counter = 1
         self.labels: dict = {}          # step labels -> values (task ids, snapshots)
         self.snapshots: dict = {}
@@ -201,6 +204,8 @@ class ScenarioRun:
         self.work.mkdir(parents=True)
         self.server = make_server(self.spec, str(self.work / "server.log"))
         self.server.start()
+        if self.spec.kind != "fake" and self.spec.options.get("smtp"):
+            self.server.attach_smtp()
         self.ignore_busy = [self.server.server_path(p) for p in self.ignore_busy]
         existing = set(self.server.mailboxes())
         for name, mspec in (self.sc.get("mailboxes") or {}).items():
@@ -234,6 +239,8 @@ class ScenarioRun:
             self._note(f"mailsync stopped ({describe_exit(code)})")
         if self.server:
             self.server.stop()
+            if hasattr(self.server, "detach_smtp"):
+                self.server.detach_smtp()
         if self.work.exists():
             (self.work / "report.txt").write_text("\n".join(self.report) + "\n")
         if not self.keep and not self.failures and not self.xfails and self.work.exists():
@@ -361,6 +368,7 @@ class ScenarioRun:
 
     def _restart(self, arg: dict):
         code = self.ms.stop()
+        self.earlier_deltas += self.ms.deltas()
         self._note(f"mailsync stopped for restart (exit {code})")
         # Steps in `before:` run while the engine is down - the honest way to build up server
         # state the engine did not watch happen (e.g. thousands of flag changes that make one
@@ -495,8 +503,18 @@ class ScenarioRun:
             pass  # with `at` + `delay`: holds one reply without changing the server
         elif op == "reject":
             pass  # only meaningful with `at` on the fake, which answers the hooked command NO
+        elif op == "smtp_hold":
+            self._smtp().hold()
+        elif op == "smtp_release":
+            self._note(f"released {self._smtp().release()} held SMTP deliveries")
         else:
             raise ScenarioFailure(f"unknown server op {op!r}")
+
+    def _smtp(self):
+        smtp = getattr(self.server, "smtp", None)
+        if smtp is None:
+            raise ScenarioFailure("this step needs SMTP: add `smtp: true` to the server entry")
+        return smtp
 
     def _client_step(self, op: str, arg: dict):
         if op == "wake":
@@ -785,6 +803,60 @@ class ScenarioRun:
             for h, v in (want.get("headers") or {}).items():
                 if m.header(h) != v:
                     out.append(f"SMTP message {i} header {h} = {m.header(h)!r}, expected {v!r}")
+        return out
+
+    def expect_rules_ready(self, arg: dict) -> list:
+        """The one-shot `rulesReady` flag the client's mail rules run on. No message may carry
+        it on more than one delta, counting every engine process the scenario ran. `total: n`
+        is how many messages carried it. `messages: {Message-ID or subject: n | {count, folders,
+        body, metadata}}` pins one message: how many deltas carried it (0 or 1); mailboxes its
+        `folders` snapshot must list on that delta; whether that delta carried the body;
+        and plugin ids whose metadata rode on it, which a later save of the same message can
+        only have put there by being coalesced into the same delta."""
+        with self.ms.db() as c:
+            paths = {r[0]: r[1] for r in c.execute("SELECT id, path FROM Folder")}
+        flagged, subjects = {}, {}
+        for d in self.earlier_deltas + self.ms.deltas("Message"):
+            if d.model_class != "Message" or d.type != "persist":
+                continue
+            for m in d.models:
+                mid = normalize_message_id(m.get("hMsgId"))
+                subjects[m.get("subject")] = mid
+                if m.get("rulesReady"):
+                    flagged.setdefault(mid, []).append(m)
+        out = [f"{mid} carried rulesReady on {len(ms)} deltas" for mid, ms in flagged.items() if len(ms) > 1]
+        if "total" in arg and len(flagged) != arg["total"]:
+            out.append(f"expected {arg['total']} messages to carry rulesReady, saw {len(flagged)}: "
+                       + ", ".join(f"{mid} ({ms[0].get('subject')})" for mid, ms in flagged.items()))
+        for mid, want in (arg.get("messages") or {}).items():
+            want = want if isinstance(want, dict) else {"count": want}
+            key = normalize_message_id(mid) if "@" in mid else subjects.get(mid)
+            if key is None:
+                out.append(f"no message with subject {mid!r} was ever streamed")
+                continue
+            got = flagged.get(key, [])
+            if "count" in want and len(got) != want["count"]:
+                out.append(f"{mid}: expected rulesReady on {want['count']} deltas, saw {len(got)}")
+            if not got:
+                continue
+            m = got[0]
+            folders = sorted(self.server.scenario_name(paths.get(fid, fid)) for fid in (m.get("folders") or {}))
+            missing = sorted(set(want.get("folders") or []) - set(folders))
+            if missing:
+                out.append(f"{mid}: rulesReady delta listed folders {folders}, missing {missing}")
+            if "body" in want and ("body" in m) != bool(want["body"]):
+                out.append(f"{mid}: rulesReady delta {'lacked' if want['body'] else 'carried'} the body")
+            plugins = {e.get("pluginId") for e in m.get("metadata") or []}
+            for plugin in want.get("metadata") or []:
+                if plugin not in plugins:
+                    out.append(f"{mid}: rulesReady delta has no {plugin} metadata (plugins: {sorted(plugins)})")
+        if out:
+            for d in self.earlier_deltas + self.ms.deltas("Message"):
+                for m in d.models if d.model_class == "Message" else []:
+                    if m.get("rulesReady") or "body" in m or m.get("metadata"):
+                        self._note(f"Message delta at {d.t:.2f}s: {m.get('subject')!r} folders={sorted(m.get('folders') or {})} "
+                                   f"rulesReady={bool(m.get('rulesReady'))} body={'body' in m} "
+                                   f"metadata={[e.get('pluginId') for e in m.get('metadata') or []]} v={m.get('v')}")
         return out
 
     def expect_connection_error(self, arg: dict) -> list:

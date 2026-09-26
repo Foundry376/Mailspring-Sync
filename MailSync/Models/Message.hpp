@@ -54,6 +54,7 @@ static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, 0, j
 class Message : public MailModel {
 
     string _bodyForDispatch;
+    bool _rulesReadyForDispatch;
     MessageSnapshot _lastSnapshot;
 
 public:
@@ -120,6 +121,8 @@ public:
     
     void setBodyForDispatch(string s);
 
+    bool hasIncomingCopy(MailStore * store);
+
     bool isSentByUser(MailStore * store);
     bool isInInbox(MailStore * store);
     bool _isIn(MailStore * store, string roleAlsoLabelName);
@@ -161,6 +164,8 @@ public:
 
 private:
     bool _placementsChanged;
+
+    void _updateRulesReady(MailStore * store);
 };
 
 #endif /* Message_hpp */

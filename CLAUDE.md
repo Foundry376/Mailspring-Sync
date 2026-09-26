@@ -81,7 +81,9 @@ transaction.commit(); // All deltas emitted together
 // Destructor auto-rollbacks if commit() not called
 ```
 
-**Delta Coalescing:** Multiple saves of the same object within a flush window are merged—only the final state is emitted, with keys merged to preserve conditionally-included fields (e.g., `message.body`).
+**Delta Coalescing:** Multiple saves of the same object within a flush window are merged—only the final state is emitted, with keys merged to preserve conditionally-included fields (e.g., `message.body`, `message.rulesReady`).
+
+**Mail rules:** the client runs rules on the one Message delta per incoming message that carries `rulesReady` (`Message::_updateRulesReady`): the first save on which the message has a stored body and a copy outside Sent/Drafts/Spam/Trash. `rrp` in `_data` marks it pending from ingestion; rows without it never fire.
 
 **Output Format:**
 ```json
