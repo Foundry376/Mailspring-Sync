@@ -14,7 +14,9 @@ steps:
   - server.expunge: {mailbox: INBOX, uids: [10]}
   - wait: {seconds: 1.5}
   - server.expunge: {mailbox: INBOX, uids: [11]}
-  - wait: {log: "recv \\* VANISHED 11", timeout: 30}   # Dovecot delivers ~0.5s later; do not race it
+  # Wait on the outcome, not the log: Cyrus may deliver the \Deleted FETCH first and send
+  # VANISHED 11 during the follow-up FETCH as a continuation line the harness does not parse.
+  - wait: {counts: {INBOX: 198}, timeout: 30}
   - wait: {quiescent: true}
   - sync: pass
 expect:

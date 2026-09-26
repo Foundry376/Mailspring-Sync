@@ -84,6 +84,7 @@ Steps:
 |---|---|
 | `wait: quiescent` / `wait: {quiescent: true, timeout: s}` | until the engine has nothing to do (see below) |
 | `wait: {seconds: n}`, `wait: {log: regex}`, `wait: {task: label}` | |
+| `wait: {counts: {mailbox: n}, timeout: s}` | until the local placement counts match, as `expect: counts`; the outcome, where a log line can arrive as an unparsed continuation |
 | `sync: pass` | `wake-workers` on stdin, then wait for that pass to finish |
 | `server.expunge / flags / move / copy / duplicate / append / create_mailbox / delete_mailbox / set_uidvalidity / set_uidnext / drop_connections / pause` | what another client does to the mailbox (`pause` changes nothing: with `at` and `delay` it holds one reply, as in `undo-before-remote-phase`); `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
 | `at: {hook, session: foreground|background, command: regex, mailbox, delay: s}` | the same, narrowed to one connection (`foreground` = the one that has idled), one command line (`"^UID FETCH 1:\\*"`) and one selected mailbox; `delay` holds that connection's reply so another connection acts on the change first (`mid-pass-foreground-tombstone`) |

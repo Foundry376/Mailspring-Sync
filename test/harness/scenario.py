@@ -328,6 +328,9 @@ class ScenarioRun:
                                    ignore_busy=self.ignore_busy)
         if "log" in arg:
             self.ms.wait_for_log(arg["log"], timeout=float(arg.get("timeout", 60)))
+        if "counts" in arg:
+            self.ms.wait_for(lambda: not self.expect_counts(arg["counts"]), float(arg.get("timeout", 60)),
+                             f"placement counts {arg['counts']}")
         if "task" in arg:
             task_id = self.labels[arg["task"]]
             self._wait_task(task_id, float(arg.get("timeout", 60)))
