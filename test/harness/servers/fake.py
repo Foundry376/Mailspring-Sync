@@ -53,6 +53,9 @@ class FakeServer(Server):
     def create_mailbox(self, name, special_use=None):
         self.store.create(name, [special_use] if special_use else [])
 
+    def delete_mailbox(self, name):
+        self.store.delete(name)
+
     def append(self, mailbox, raw, flags=("\\Seen",)):
         return self.store.append(mailbox, raw, flags).uid
 

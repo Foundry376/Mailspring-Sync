@@ -79,23 +79,13 @@ void Folder::beforeSave(MailStore * store) {
     }
 }
 
-/*
- Removing a folder (or a Label, which inherits this) deletes every placement in it as one
- statement. The messages that held them are not loaded here - this runs inside the caller's
- transaction and a folder can hold every message of the account - so their ids are kept
- for the caller to rewrite in its own short transactions afterwards
- (MailProcessor::refreshMessages).
- */
+// The folder's placements are not deleted here: the caller detaches them first, in bounded
+// transactions, since a folder can hold every message of the account (see
+// SyncWorker::syncFoldersAndLabels).
 void Folder::afterRemove(MailStore * store) {
     MailModel::afterRemove(store);
 
     SQLite::Statement count(store->db(), "DELETE FROM ThreadCounts WHERE categoryId = ?");
     count.bind(1, id());
     count.exec();
-
-    _messageIdsAffectedByRemove = store->deletePlacementsForFolder(id());
-}
-
-const vector<string> & Folder::messageIdsAffectedByRemove() {
-    return _messageIdsAffectedByRemove;
 }

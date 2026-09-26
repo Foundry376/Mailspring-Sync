@@ -44,12 +44,6 @@ public:
 
     void beforeSave(MailStore * store);
     void afterRemove(MailStore * store);
-
-    // Ids of the messages whose placements afterRemove deleted, for the caller to refresh.
-    const vector<string> & messageIdsAffectedByRemove();
-
-private:
-    vector<string> _messageIdsAffectedByRemove;
 };
 
 #endif /* Folder_hpp */

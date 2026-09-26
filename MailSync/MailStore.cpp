@@ -1127,7 +1127,8 @@ void MailStore::deletePlacementsForFolder(string folderId, const vector<string> 
 }
 
 // A move still in flight towards the deleted folder is abandoned: the copy stays where
-// the server has it.
+// the server has it. Called in the transaction that removes the folder; the caller refreshes
+// the returned messages once it commits.
 vector<string> MailStore::deletePlacementsForFolder(string folderId) {
     assertCorrectThread();
     auto & abandon = _placementStatement("abandonMovesToFolder",

@@ -1,0 +1,46 @@
+name: folder-deleted-with-copies-elsewhere
+description: >
+  A folder disappears from the server: another client deletes Projects, and the user deletes
+  Receipts from Mailspring (DestroyCategoryTask, which DELETEs it and leaves the local
+  removal to the next folder sync). Each holds messages found nowhere else and copies of
+  INBOX messages. When the folder goes, the messages only it held must be removed, the
+  copies' messages must keep their INBOX placement with the folder dropped from their
+  snapshot, and no placement, orphan record or ThreadCounts row may be left pointing at the
+  removed folder.
+source: "SyncWorker::syncFoldersAndLabels (detachMessagesFromFolder, then deletePlacementsForFolder in the removing transaction); PR #144 review"
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 6}
+  Projects: {messages: 3}
+  Receipts: {messages: 2}
+setup:
+  - server.duplicate: {mailbox: INBOX, uids: "1:2", to: Projects}
+  - server.duplicate: {mailbox: INBOX, uids: "3", to: Receipts}
+steps:
+  - wait: quiescent
+  - assert:
+      db_matches_server: {}
+      counts: {INBOX: 6, Projects: 5, Receipts: 3, total: 11}
+  - server.delete_mailbox: {name: Projects}
+  - sync: pass
+  - wait: {quiescent: true}
+  - assert:
+      db_matches_server: {}
+      counts: {INBOX: 6, Projects: 0, Receipts: 3, total: 8}
+      shown: {INBOX: 6, Projects: 0, Receipts: 3}
+  - client.task: {__cls: DestroyCategoryTask, path: Receipts}
+    as: destroy
+  - wait: {task: destroy, timeout: 60}
+  - sync: pass
+  - wait: {quiescent: true}
+expect:
+  server_counts: {INBOX: 6, Projects: 0, Receipts: 0}
+  counts: {INBOX: 6, Projects: 0, Receipts: 0, total: 6}
+  shown: {INBOX: 6, Projects: 0, Receipts: 0}
+  db_matches_server: {}
+  deltas: {Message: {unpersist: 5}}
+  stable: {passes: 1}
+  running: true

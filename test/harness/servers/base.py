@@ -60,6 +60,9 @@ class Server(ABC):
     def create_mailbox(self, name: str, special_use: Optional[str] = None): ...
 
     @abstractmethod
+    def delete_mailbox(self, name: str): ...
+
+    @abstractmethod
     def append(self, mailbox: str, raw: bytes, flags: Iterable[str] = ("\\Seen",)) -> int: ...
 
     def populate(self, mailbox: str, raws: Iterable[bytes], flags: Iterable[str] = ("\\Seen",)) -> list:

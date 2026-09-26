@@ -480,6 +480,8 @@ class ScenarioRun:
             return s.populate(arg["mailbox"], raws, arg.get("flags", ["\\Seen"]))
         elif op == "create_mailbox":
             s.create_mailbox(arg["name"], arg.get("special_use"))
+        elif op == "delete_mailbox":
+            s.delete_mailbox(arg["name"])
         elif op == "set_uidvalidity":
             s.set_uidvalidity(arg["mailbox"], int(arg["value"]))
         elif op == "set_uidnext":
@@ -503,6 +505,8 @@ class ScenarioRun:
                 task["messageIds"] = self._resolve_messages(task.pop("messages"))
             if "threads" in task:   # {mailbox, uids} -> the distinct threadIds of those messages
                 task["threadIds"] = self._resolve_threads(task.pop("threads"))
+            if task.get("__cls") == "DestroyCategoryTask":   # the engine DELETEs this path
+                task["path"] = self._folder_json(task["path"])["path"]
             if isinstance(task.get("folder"), str):
                 task["folder"] = self._folder_json(task["folder"])
             if "sourceFolders" in task:   # the perspective's folders, as paths -> sourceFolderIds

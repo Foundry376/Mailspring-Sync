@@ -42,6 +42,15 @@ class ImapClientServer(Server):
         finally:
             c.logout()
 
+    def delete_mailbox(self, name):
+        c = self._client()
+        try:
+            typ, data = c.delete(self._qm(name))
+            if typ != "OK":
+                raise RuntimeError(f"DELETE {name}: {data}")
+        finally:
+            c.logout()
+
     def append(self, mailbox, raw, flags=("\\Seen",)):
         return self.populate(mailbox, [raw], flags)[0]
 

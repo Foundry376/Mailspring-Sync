@@ -1050,9 +1050,8 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         }
 
         // Detach the copies in folders the server no longer has before their rows go, in
-        // bounded transactions. Folder::afterRemove deletes them inside the transaction
-        // below and the messages were caught up only after it committed, so a quit in
-        // between left them with no placements and a stale snapshot.
+        // bounded transactions, so a quit before the removal below leaves every message's
+        // snapshot matching its rows.
         for (auto const & item : unusedLocalFolders) {
             processor->detachMessagesFromFolder(item.first);
         }
@@ -1089,22 +1088,26 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 store->save(fresh.get());
             }
         }
-        // remove() only needs the id and tableName for DELETE — safe to use stale objects
+        // A copy the foreground worker recorded in a removed folder after the detach above
+        // is deleted with the folder (deletePlacementsForFolder records the orphans) and its
+        // message caught up once this commits.
+        vector<string> placedSinceDetach {};
+        auto removeCategory = [&](Folder * category) {
+            // remove() only needs the id and tableName for DELETE — safe to use stale objects
+            store->remove(category);
+            for (auto & id : store->deletePlacementsForFolder(category->id())) {
+                placedSinceDetach.push_back(id);
+            }
+        };
         for (auto const & item : unusedLocalFolders) {
-            store->remove(item.second.get());
+            removeCategory(item.second.get());
         }
         for (auto const & item : unusedLocalLabels) {
-            store->remove(item.second.get());
+            removeCategory(item.second.get());
         }
         transaction.commit();
 
-        // Anything the detach above missed - a copy another worker recorded while it ran.
-        for (auto const & item : unusedLocalFolders) {
-            processor->refreshMessages(item.second->messageIdsAffectedByRemove(), UnplacedMessages::Remove, "syncFoldersAndLabels");
-        }
-        for (auto const & item : unusedLocalLabels) {
-            processor->refreshMessages(item.second->messageIdsAffectedByRemove(), UnplacedMessages::Remove, "syncFoldersAndLabels");
-        }
+        processor->refreshMessages(placedSinceDetach, UnplacedMessages::Remove, "syncFoldersAndLabels");
     }
 
     return foldersToSync;

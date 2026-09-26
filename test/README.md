@@ -85,7 +85,7 @@ Steps:
 | `wait: quiescent` / `wait: {quiescent: true, timeout: s}` | until the engine has nothing to do (see below) |
 | `wait: {seconds: n}`, `wait: {log: regex}`, `wait: {task: label}` | |
 | `sync: pass` | `wake-workers` on stdin, then wait for that pass to finish |
-| `server.expunge / flags / move / copy / duplicate / append / create_mailbox / set_uidvalidity / set_uidnext / drop_connections / pause` | what another client does to the mailbox (`pause` changes nothing: with `at` and `delay` it holds one reply, as in `undo-before-remote-phase`); `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
+| `server.expunge / flags / move / copy / duplicate / append / create_mailbox / delete_mailbox / set_uidvalidity / set_uidnext / drop_connections / pause` | what another client does to the mailbox (`pause` changes nothing: with `at` and `delay` it holds one reply, as in `undo-before-remote-phase`); `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
 | `at: {hook, session: foreground|background, command: regex, mailbox, delay: s}` | the same, narrowed to one connection (`foreground` = the one that has idled), one command line (`"^UID FETCH 1:\\*"`) and one selected mailbox; `delay` holds that connection's reply so another connection acts on the change first (`mid-pass-foreground-tombstone`) |
 | `server.reject: {at: {hook: before_command, command: regex}, code, text}` | the hooked command is answered `NO [code] text` instead of being run (fake only; commands without literals), as in `move-rejected-by-server` |
 | `at: {..., every: true}` | keep the hook armed instead of firing once, e.g. a folder whose STATUS fails on every pass (`orphan-sweep-with-unreadable-folder`) |
@@ -276,6 +276,7 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | gmail-labels | All Mail + X-GM-LABELS views, webmail archive/label/star, trash task | fake |
 | remote-move-destination-scanned-first | placements: move seen "present in B" before "gone from A"; never deleted/re-created | fake ×2, dovecot |
 | trash-message-with-two-placements | placements: trash from Inbox takes the Sent copy too; a plain archive does not | fake ×2, dovecot |
+| folder-deleted-with-copies-elsewhere | a folder deleted by another client or DestroyCategoryTask: its only-copies removed, copies elsewhere kept | fake, dovecot, cyrus |
 | flag-change-on-second-placement | placements: per-placement flags on the Sent copy of a self-addressed message | fake ×2, dovecot |
 | gmail-send-and-labels | Gmail: no Sent APPEND on send, one All Mail placement; ChangeLabelsTask keeps one placement | fake |
 | migration-from-pre-placements-db | V10 migration of an 0df7864 database + a DB caught mid-sweep | fake, dovecot |
