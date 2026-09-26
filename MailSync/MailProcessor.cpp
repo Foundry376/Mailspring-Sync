@@ -504,6 +504,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
         message->setSnippet(text->substringToIndex(400)->UTF8Characters());
         message->setPlaintext(bodyIsPlaintext);
         message->setBodyForDispatch(bodyRepresentation);
+        message->markBodyStored();
         message->setFiles(files);
 
         // extract additional headers from the full message that weren't available

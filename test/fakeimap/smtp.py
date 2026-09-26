@@ -139,12 +139,15 @@ class _TCP(socketserver.ThreadingTCPServer):
 
 class FakeSmtpServer:
     def __init__(self, host="127.0.0.1", port=0, credentials=("test", "pass"), hostname="mail.example.test",
-                 require_auth=True, reject_non_fqdn_helo=False, deliver_to=None, sent_copy=None):
+                 require_auth=True, reject_non_fqdn_helo=False, deliver_to=None, sent_copy=None,
+                 deliver_delay: float = 0):
         """deliver_to: optional (Store, mailbox, address) - messages sent to `address` are appended
         to that mailbox, as a real server delivers self-addressed mail back to the sender.
         sent_copy: optional (Store, mailbox) - every submitted message is also appended there,
         as Gmail's submission service files sent mail under the \\Sent label itself (the
-        engine's send path looks for that copy before APPENDing its own)."""
+        engine's send path looks for that copy before APPENDing its own).
+        deliver_delay: seconds between accepting a self-addressed message and delivering it,
+        for a hand-driven client (tools/cyrus_server.py); scenarios use hold()/release()."""
         self.host, self.port = host, port
         self.credentials = credentials
         self.hostname = hostname
@@ -152,7 +155,9 @@ class FakeSmtpServer:
         self.reject_non_fqdn_helo = reject_non_fqdn_helo
         self.deliver_to = deliver_to
         self.sent_copy = sent_copy
+        self.deliver_delay = deliver_delay
         self.messages: list = []
+        self.held: Optional[list] = None   # self-addressed deliveries waiting for release()
         self.lock = threading.Lock()
         self.transcript: list = []
         self._server = None
@@ -167,8 +172,33 @@ class FakeSmtpServer:
         if not self.deliver_to:
             return
         store, mailbox, address = self.deliver_to
-        if any(r.lower() == address.lower() for r in msg.recipients):
+        if not any(r.lower() == address.lower() for r in msg.recipients):
+            return
+        with self.lock:
+            if self.held is not None:
+                self.held.append(msg)
+                return
+        if self.deliver_delay:
+            threading.Timer(self.deliver_delay, store.append, (mailbox, msg.raw, [])).start()
+            return
+        store.append(mailbox, msg.raw, [])
+
+    def hold(self):
+        """Queue self-addressed deliveries until release(), as a slow MTA delivers the INBOX
+        copy after the client has already saved the Sent copy. The Gmail-style sent copy is
+        still filed at once: it belongs to submission, not delivery."""
+        with self.lock:
+            if self.held is None:
+                self.held = []
+
+    def release(self) -> int:
+        """Deliver everything held, in order, and stop holding."""
+        with self.lock:
+            held, self.held = self.held or [], None
+        store, mailbox, _ = self.deliver_to
+        for msg in held:
             store.append(mailbox, msg.raw, [])
+        return len(held)
 
     def start(self):
         self._server = _TCP((self.host, self.port), _Handler)

@@ -1,0 +1,55 @@
+name: rules-ready-inbox-copy-first
+description: >
+  The other order for a self-addressed send: the INBOX copy is recorded before the send path
+  stores the body. The MTA delivers while the send path's FETCH of its Sent copy is held,
+  and the background pass woken meanwhile records the INBOX copy; its own body FETCH for it
+  is held longer, so the send path stores the body first and rulesReady rides on that
+  delta. The send path then saves the message again at once to attach the draft's metadata.
+  That save is coalesced into the same delta (DeltaStreamItem::upsertModelJSON), which
+  must keep the flag, and the background's later body save must not emit a second one.
+source: "client docs/tasks/mail-rules-once-per-incoming-message.md (Tests: Inbox copy recorded first; delta coalescing)"
+servers:
+  - {fake: dovecot, smtp: true}
+  - {fake: plain, smtp: true}
+mailboxes:
+  INBOX: {}
+steps:
+  - wait: quiescent
+  - server.smtp_hold: {}
+  - server.pause:
+      at: {hook: before_command, session: background, command: "BODY\\.PEEK\\[\\]$", mailbox: INBOX, delay: 14}
+  - server.smtp_release:
+      at: {hook: before_command, session: foreground, command: "^UID FETCH", mailbox: Sent, delay: 8}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "rr-self-2@example.test"
+        subject: "Rules ready: inbox copy first"
+        body: "<p>Remember the eggs</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Harness Test", email: "test@example.test"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        metadata: [{pluginId: "harness-plugin", v: 1, value: {note: "rides the rulesReady delta"}}]
+      perRecipientBodies: null
+    as: self
+  - wait: {log: "Syncing sent message"}
+  - client.wake: {}
+  - wait: {counts: {INBOX: 1}, timeout: 7}
+  - wait: {task: self, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  rules_ready:
+    total: 1
+    messages:
+      "rr-self-2@example.test": {count: 1, folders: [INBOX, Sent], fetched: true, metadata: [harness-plugin]}
+  counts: {INBOX: 1, Sent: 1}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

@@ -3,7 +3,7 @@
 A standalone Cyrus IMAP server with a persistent test account, for pointing the Mailspring
 client at by hand (test/README.md, "Live Cyrus server").
 
-    python3 test/tools/cyrus_server.py start [--imap-port 1143] [--smtp-port 1025]
+    python3 test/tools/cyrus_server.py start [--imap-port 1143] [--smtp-port 1025] [--deliver-delay 8]
     python3 test/tools/cyrus_server.py status
     python3 test/tools/cyrus_server.py stop        # keeps the mailbox; `start` resumes it
     python3 test/tools/cyrus_server.py rm          # deletes the container and its mail
@@ -14,7 +14,9 @@ SPECIAL-USE, and seeds 20 messages, 3 of them self-addressed with a copy in both
 Sent. It also starts the harness's SMTP sink as a detached process: Mailspring's account
 setup verifies SMTP, and mail sent to the account's own address is delivered to the Cyrus
 INBOX over IMAP, as Fastmail delivers self-addressed mail. The container persists across
-`stop`/`start`; the SMTP sink is restarted by `start`.
+`stop`/`start`; the SMTP sink is restarted by `start`. `--deliver-delay N` holds each
+self-addressed delivery for N seconds, so the Sent copy is recorded well before the INBOX
+copy arrives, as with a slow MTA.
 """
 import argparse
 import os
@@ -64,11 +66,12 @@ def _seed(s: CyrusServer):
     s.populate("Sent", selfies, ["\\Seen"])
 
 
-def _start_smtp(imap_port: int, smtp_port: int):
+def _start_smtp(imap_port: int, smtp_port: int, deliver_delay: float = 0):
     _stop_smtp()
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     log = open(STATE_DIR / "smtp.log", "ab")
-    p = subprocess.Popen([sys.executable, __file__, "smtp", "--imap-port", str(imap_port), "--smtp-port", str(smtp_port)],
+    p = subprocess.Popen([sys.executable, __file__, "smtp", "--imap-port", str(imap_port), "--smtp-port", str(smtp_port),
+                          "--deliver-delay", str(deliver_delay)],
                          stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     SMTP_PID.write_text(str(p.pid))
 
@@ -102,7 +105,7 @@ def cmd_start(a):
             subprocess.run(["docker", "start", NAME], check=True, capture_output=True)
         _attached(a.imap_port)._wait_ready()
         print(f"{NAME} is running")
-    _start_smtp(a.imap_port, a.smtp_port)
+    _start_smtp(a.imap_port, a.smtp_port, a.deliver_delay)
     cmd_status(a)
 
 
@@ -135,8 +138,9 @@ def cmd_rm(a):
 def cmd_smtp(a):
     from fakeimap.smtp import FakeSmtpServer
     s = _attached(a.imap_port)
-    smtp = FakeSmtpServer(port=a.smtp_port, deliver_to=(s, "INBOX", EMAIL)).start()
-    print(f"SMTP sink on 127.0.0.1:{smtp.port}, delivering mail for {EMAIL} to Cyrus INBOX", flush=True)
+    smtp = FakeSmtpServer(port=a.smtp_port, deliver_to=(s, "INBOX", EMAIL), deliver_delay=a.deliver_delay).start()
+    delay = f" after {a.deliver_delay:g}s" if a.deliver_delay else ""
+    print(f"SMTP sink on 127.0.0.1:{smtp.port}, delivering mail for {EMAIL} to Cyrus INBOX{delay}", flush=True)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     while True:
         time.sleep(3600)
@@ -147,6 +151,7 @@ def main():
     ap.add_argument("command", choices=["start", "status", "stop", "rm", "smtp"])
     ap.add_argument("--imap-port", type=int, default=1143)
     ap.add_argument("--smtp-port", type=int, default=1025)
+    ap.add_argument("--deliver-delay", type=float, default=0, help="seconds to hold each self-addressed delivery")
     a = ap.parse_args()
     {"start": cmd_start, "status": cmd_status, "stop": cmd_stop, "rm": cmd_rm, "smtp": cmd_smtp}[a.command](a)
 

@@ -94,6 +94,7 @@ Steps:
 | `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids (`{mailbox, uids}`, or `{header_message_ids: [...]}` for rows without a server placement such as a local draft), `threads: {mailbox, uids}` to their `threadIds`, `folder`/`labelsTo*` to Folder JSON, `sourceFolders: [paths]` to `sourceFolderIds` |
 | `client.undo_task: {of: label}` | queue the undo of a completed task from its stored data, as `UndoRedoStore` does: for a `ChangeFolderTask` the engine-written `undoPlacements` become `restorePlacements` and the original destination its `sourceFolderIds` |
 | `client.need_bodies`, `client.wake` | the other stdin commands |
+| `server.smtp_hold` / `server.smtp_release` | queue self-addressed SMTP deliveries, then deliver them, so the INBOX copy of a sent message arrives after the Sent copy; `smtp_release` takes `at:` like any server step (`rules-ready-inbox-copy-first`) |
 | `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
 | `restart: {binary: path, before: [steps]}` | stop and relaunch on the same database, optionally with another build; `before:` runs steps while the engine is stopped (server state it did not watch happen) |
 | `snapshot: name`, `assert: {...}` | mid-scenario checkpoints |
@@ -116,7 +117,11 @@ the server), `counts`, `shown` (messages per folder as the client sees them: the
 unchanged mailbox must not move a single placement - the flapping detector), `folder_status`,
 `log_present` / `log_absent`, `log_count: {regex: n}` or `{regex: {min, max}}` (how many
 log lines match, to bound a loop the engine should take a known number of times),
-`deltas: {Message: {unpersist: 0}}`, `connection_error: {reported: true, cleared: true}`
+`deltas: {Message: {unpersist: 0}}`, `rules_ready: {total, messages: {Message-ID or subject:
+{count, folders, fetched, metadata}}}` (the one-shot flag mail rules run on: no message carries
+it on two deltas, across restarts, and each such delta carries the body; `folders` the
+mailboxes that delta must list, `fetched` whether it is the delta that fetched the body),
+`connection_error: {reported: true, cleared: true}`
 (the ProcessState stream behind the client's offline state), `unchanged_since: snapshot`, `running`, `exit`. Any
 expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,
 and reported as XPASS once it starts passing.
@@ -295,6 +300,12 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | move-rejected-by-server | MOVE answered NO [OVERQUOTA]: the copy shows in INBOX again and the syncedAt lock is released | fake ×2 |
 | orphan-sweep-with-unreadable-folder | a folder whose STATUS always fails delays the orphan sweep by ORPHAN_SWEEP_MAX_WAIT instead of disabling it | fake |
 | orphan-sweep-waits-for-initial-walk | an initial walk that moves down every pass holds the orphan sweep past ORPHAN_SWEEP_MAX_WAIT | fake |
+| rules-ready-incoming | rulesReady once per incoming message, on its body delta; Junk never, until moved to INBOX; Sent never; archive and back does not repeat it | fake ×2, dovecot, cyrus |
+| rules-ready-self-addressed-send | nothing for mail sent to others; self-addressed mail gets it when the INBOX copy arrives, after a held delivery | fake ×2, dovecot, cyrus (+smtp) |
+| rules-ready-inbox-copy-first | INBOX copy recorded before the send path stores the body; the flag survives a coalesced metadata save | fake ×2 (+smtp) |
+| rules-ready-across-restart | engine restarted between the Sent copy and the INBOX copy: still exactly one | fake, dovecot, cyrus (+smtp) |
+| rules-ready-pre-upgrade-messages | messages ingested by the pre-rulesReady build never get it | fake, dovecot, cyrus (starts on `ab/mailsync-a83cc9a`) |
+| rules-ready-gmail | Gmail: \\Inbox mail once, \\Sent-only never, a sent message once when filed under \\Inbox | fake |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up
@@ -365,7 +376,8 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   `X-GM-LABELS`, which real Gmail may not do (also NEEDS-RECORDING).
 - **SMTP.** `fakeimap/smtp.py` (AUTH PLAIN/LOGIN, optional Postfix-style HELO rejection,
   delivery of self-addressed mail back into INBOX) is enabled per server spec with
-  `{fake: dovecot, smtp: true}`; `--mode test` and the EHLO fallback (#135) have no scenario yet.
+  `{fake: dovecot, smtp: true}`, and on Dovecot and Cyrus the same way, where it delivers by
+  APPENDing to INBOX over IMAP; `--mode test` and the EHLO fallback (#135) have no scenario yet.
   `{fake: gmail, smtp: true, smtp_sent_copy: "[Gmail]/Sent Mail"}` also files every submitted
   message under the named mailbox, as Gmail's submission service saves sent mail under `\Sent`
   by itself - the copy the engine's send path looks for before it APPENDs its own

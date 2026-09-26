@@ -85,7 +85,8 @@ void DeltaStreamItem::upsertModelJSON(const json & item) {
     if (idIndexes.count(id)) {
         // If we already have a delta for object X, merge the keys of `item` into X, replacing
         // existing keys. This ensures that if a previous delta included something extra (for
-        // ex. message.body is conditionally emitted), we don't overwrite and remove it.
+        // ex. message.body and message.rulesReady are conditionally emitted), we don't
+        // overwrite and remove it.
         auto existing = modelJSONs[idIndexes[id]];
         for (const auto &e : item.items()) {
             existing[e.key()] = e.value();

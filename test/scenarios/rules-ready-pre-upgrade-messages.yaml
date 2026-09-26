@@ -1,0 +1,39 @@
+name: rules-ready-pre-upgrade-messages
+description: >
+  Messages the engine ingested before rulesReady existed never get it, whatever happens to
+  them afterwards: a Junk message moved to INBOX, and a message only in Sent that gains an
+  INBOX copy, both while the engine was being upgraded. A message that arrives after the
+  upgrade does get it, which shows the new build is the one running. The database is
+  written by the pre-change build, as on a user's machine.
+source: "client docs/tasks/mail-rules-once-per-incoming-message.md (Tests: messages present before upgrade never emit)"
+binary: ab/mailsync-a83cc9a
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 2}                              # Message 1-2
+  Junk: {messages: 1}                               # Message 3
+  Sent: {messages: {count: 1, self_addressed: true}}  # Message 4
+steps:
+  - wait: quiescent
+  - restart:
+      before:
+        - server.move: {mailbox: Junk, uids: [1], to: INBOX}
+        - server.copy: {mailbox: Sent, uids: [1], to: INBOX}
+  - server.append: {mailbox: INBOX, messages: 1, flags: []}   # Message 5
+  - wait: {counts: {INBOX: 5}}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  rules_ready:
+    total: 1
+    messages:
+      "Message 1": 0
+      "Message 3": 0
+      "Message 4": 0
+      "Message 5": {count: 1, folders: [INBOX], fetched: true}
+  counts: {INBOX: 5, Junk: 0, Sent: 1}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true
