@@ -444,11 +444,12 @@ bool SyncWorker::syncNow()
         bool deepScanIncomplete = false;
         bool covered = true;
 
-        // NetEase omits UIDNEXT from STATUS, so new mail cannot be detected from it. The
+        // Coremail (NetEase) omits UIDNEXT from STATUS, and hMailServer and home.pl report
+        // UIDNEXT 0 (Geary imap-status-data.vala), so new mail cannot be detected from it. The
         // message / unseen / recent counts are the only signal, and a change in any of them
         // deep-scans this folder.
         bool countsChanged = false;
-        if (account->isNetEase() && remoteStatus.uidNext() == 0) {
+        if (remoteStatus.uidNext() == 0) {
             auto changed = [&localStatus](const char * key, uint32_t value) {
                 return !localStatus.count(key) || !localStatus[key].is_number() ||
                        localStatus[key].get<uint32_t>() != value;

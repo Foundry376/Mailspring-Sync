@@ -320,3 +320,17 @@ inbox_only = _register(Personality(
     postauth_capabilities=plain.postauth_capabilities.replace(" SPECIAL-USE", ""),
     mailboxes=[("INBOX", [])],
 ))
+
+hmailserver = _register(Personality(
+    name="hmailserver",
+    description="hMailServer: no CONDSTORE/QRESYNC, UIDPLUS, MOVE or SPECIAL-USE, and STATUS reports "
+                "UIDNEXT 0, so new mail cannot be seen from UIDNEXT. NEEDS-RECORDING for the "
+                "capability string and greeting.",
+    source="Geary src/engine/imap/response/imap-status-data.vala (~104: 'hMailServer and ... home.pl "
+           "... sends UIDNEXT 0'). The capability string is a reconstruction",
+    preauth_capabilities="IMAP4 IMAP4rev1 CHILDREN IDLE QUOTA SORT ACL NAMESPACE RIGHTS=texk",
+    postauth_capabilities="IMAP4 IMAP4rev1 CHILDREN IDLE QUOTA SORT ACL NAMESPACE RIGHTS=texk",
+    greeting="hMailServer",
+    list_special_use=False,
+    quirks={"status-uidnext-zero": "STATUS answers UIDNEXT 0 (Geary imap-status-data.vala)"},
+))
