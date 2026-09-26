@@ -619,6 +619,17 @@ SQLite::Statement & MailStore::_placementStatement(const string & key, const str
     return stmt;
 }
 
+// Runs a cached single-statement write, binding `binds` to ?1..?n. Returns rows changed.
+template <typename... Binds>
+int MailStore::_execPlacement(const string & key, const string & sql, const Binds &... binds) {
+    auto & stmt = _placementStatement(key, sql);
+    int index = 0;
+    (stmt.bind(++index, binds), ...);
+    int changed = stmt.exec();
+    stmt.reset();
+    return changed;
+}
+
 // Drains a statement that yields a messageId column and returns the distinct ids in
 // first-seen order. Used for UPDATE/DELETE ... RETURNING messageId.
 vector<string> MailStore::_collectMessageIds(SQLite::Statement & stmt) {
@@ -835,12 +846,9 @@ string MailStore::upsertPlacement(Message & msg, Folder & folder, uint32_t uid, 
 // All Mail reports it. Rows at UID 0 are local drafts and are left alone.
 void MailStore::removePlacementsOutsideFolder(Message & msg, string folderId) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("removeOutsideFolder",
-        "DELETE FROM MessageFolder WHERE messageId = ? AND folderId != ? AND remoteUID > 0");
-    stmt.bind(1, msg.id());
-    stmt.bind(2, folderId);
-    stmt.exec();
-    stmt.reset();
+    _execPlacement("removeOutsideFolder",
+        "DELETE FROM MessageFolder WHERE messageId = ? AND folderId != ? AND remoteUID > 0",
+        msg.id(), folderId);
     msg.setPlacementsChanged(true);
 }
 
@@ -849,34 +857,20 @@ void MailStore::removePlacementsOutsideFolder(Message & msg, string folderId) {
 // on the other flag keep their own value.
 void MailStore::setPlacementUnread(Message & msg, bool unread) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("setUnreadAll",
-        "UPDATE MessageFolder SET unread = ? WHERE messageId = ?");
-    stmt.bind(1, unread);
-    stmt.bind(2, msg.id());
-    stmt.exec();
-    stmt.reset();
+    _execPlacement("setUnreadAll", "UPDATE MessageFolder SET unread = ? WHERE messageId = ?", unread, msg.id());
     msg.setPlacementsChanged(true);
 }
 
 void MailStore::setPlacementStarred(Message & msg, bool starred) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("setStarredAll",
-        "UPDATE MessageFolder SET starred = ? WHERE messageId = ?");
-    stmt.bind(1, starred);
-    stmt.bind(2, msg.id());
-    stmt.exec();
-    stmt.reset();
+    _execPlacement("setStarredAll", "UPDATE MessageFolder SET starred = ? WHERE messageId = ?", starred, msg.id());
     msg.setPlacementsChanged(true);
 }
 
 void MailStore::setPlacementLabels(Message & msg, const vector<string> & labels) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("setLabels",
-        "UPDATE MessageFolder SET remoteXGMLabels = ? WHERE messageId = ?");
-    stmt.bind(1, json(labels).dump());
-    stmt.bind(2, msg.id());
-    stmt.exec();
-    stmt.reset();
+    _execPlacement("setLabels", "UPDATE MessageFolder SET remoteXGMLabels = ? WHERE messageId = ?",
+        json(labels).dump(), msg.id());
     msg.setPlacementsChanged(true);
 }
 
@@ -886,14 +880,9 @@ void MailStore::setPlacementLabels(Message & msg, const vector<string> & labels)
 // folders when an undo spreads them back over their sources.
 void MailStore::beginPlacementMove(Message & msg, string fromFolderId, uint32_t uid, string toFolderId) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("beginMove",
-        "UPDATE MessageFolder SET pendingFolderId = ? WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
-    stmt.bind(1, toFolderId);
-    stmt.bind(2, msg.id());
-    stmt.bind(3, fromFolderId);
-    stmt.bind(4, (long long)uid);
-    stmt.exec();
-    stmt.reset();
+    _execPlacement("beginMove",
+        "UPDATE MessageFolder SET pendingFolderId = ? WHERE messageId = ? AND folderId = ? AND remoteUID = ?",
+        toFolderId, msg.id(), fromFolderId, (long long)uid);
     msg.setPlacementsChanged(true);
 }
 
@@ -975,27 +964,18 @@ string MailStore::commitPlacementMove(Message & msg, string fromFolderId, uint32
 // towards another folder belongs to a later task and is left for that task.
 void MailStore::abandonPlacementMove(Message & msg, string folderId, uint32_t uid, string toFolderId) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("abandonMove",
-        "UPDATE MessageFolder SET pendingFolderId = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ? AND pendingFolderId = ?");
-    stmt.bind(1, msg.id());
-    stmt.bind(2, folderId);
-    stmt.bind(3, (long long)uid);
-    stmt.bind(4, toFolderId);
-    if (stmt.exec() > 0) {
+    int changed = _execPlacement("abandonMove",
+        "UPDATE MessageFolder SET pendingFolderId = NULL WHERE messageId = ? AND folderId = ? AND remoteUID = ? AND pendingFolderId = ?",
+        msg.id(), folderId, (long long)uid, toFolderId);
+    if (changed > 0) {
         msg.setPlacementsChanged(true);
     }
-    stmt.reset();
 }
 
 void MailStore::removePlacement(Message & msg, string folderId, uint32_t uid) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("removeOne",
-        "DELETE FROM MessageFolder WHERE messageId = ? AND folderId = ? AND remoteUID = ?");
-    stmt.bind(1, msg.id());
-    stmt.bind(2, folderId);
-    stmt.bind(3, (long long)uid);
-    stmt.exec();
-    stmt.reset();
+    _execPlacement("removeOne", "DELETE FROM MessageFolder WHERE messageId = ? AND folderId = ? AND remoteUID = ?",
+        msg.id(), folderId, (long long)uid);
     msg.setPlacementsChanged(true);
 }
 
@@ -1069,12 +1049,9 @@ vector<string> MailStore::deleteVanishedPlacements(Folder & folder, Query & uidQ
 // The `remoteUID > 0` term is what lets the partial MessageFolderUIDIndex serve this.
 void MailStore::resetPlacementUIDs(Folder & folder) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("resetUIDs",
-        "UPDATE MessageFolder SET remoteUID = 0 WHERE accountId = ? AND folderId = ? AND remoteUID > 0");
-    stmt.bind(1, folder.accountId());
-    stmt.bind(2, folder.id());
-    stmt.exec();
-    stmt.reset();
+    _execPlacement("resetUIDs",
+        "UPDATE MessageFolder SET remoteUID = 0 WHERE accountId = ? AND folderId = ? AND remoteUID > 0",
+        folder.accountId(), folder.id());
 }
 
 // After a UIDVALIDITY rebuild has visited every UID in the folder, a row still at UID 0 is
@@ -1120,14 +1097,8 @@ vector<string> MailStore::orphanMessageIdsBefore(string accountId, time_t before
 // Called from Message::afterRemove, so the orphan record goes with the message.
 void MailStore::deletePlacementsForMessage(string messageId) {
     assertCorrectThread();
-    auto & stmt = _placementStatement("deleteForMessage", "DELETE FROM MessageFolder WHERE messageId = ?");
-    stmt.bind(1, messageId);
-    stmt.exec();
-    stmt.reset();
-    auto & orphan = _placementStatement("deleteOrphanForMessage", "DELETE FROM MessageOrphan WHERE messageId = ?");
-    orphan.bind(1, messageId);
-    orphan.exec();
-    orphan.reset();
+    _execPlacement("deleteForMessage", "DELETE FROM MessageFolder WHERE messageId = ?", messageId);
+    _execPlacement("deleteOrphanForMessage", "DELETE FROM MessageOrphan WHERE messageId = ?", messageId);
 }
 
 // The ids the folder's deletion will affect, including messages only pointed at it by a

@@ -284,6 +284,8 @@ private:
 
     void _migrateToV10(bool freshDatabase, const string & verb);
     SQLite::Statement & _placementStatement(const string & key, const string & sql);
+    template <typename... Binds>
+    int _execPlacement(const string & key, const string & sql, const Binds &... binds);
     vector<string> _collectMessageIds(SQLite::Statement & stmt);
     void _recordOrphansAmong(const vector<string> & messageIds);
 };
