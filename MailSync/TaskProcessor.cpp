@@ -2386,8 +2386,6 @@ void TaskProcessor::performRemoteExpungeAllInFolder(Task * task) {
 
 void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
     AutoreleasePool pool;
-    IMAPProgress cb;
-    ErrorCode err = ErrorNone;
     const auto id = task->data()["messageId"].get<string>();
     const auto filepath = task->data()["filepath"].get<string>();
     
@@ -2396,39 +2394,26 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
         throw SyncException("not-found", "Message not found for RFC2822 fetch", false);
     }
 
-    // Any live copy will do; one outside Spam or Trash is less likely to be purged
-    // by the server between our scan and this fetch.
-    shared_ptr<Folder> folder = nullptr;
-    uint32_t uid = 0;
-    for (auto & p : store->placementsForMessage(msg->id())) {
-        if (p.remoteUID == 0) {
-            continue;
-        }
-        auto candidate = store->folderById(msg->accountId(), p.folderId);
-        if (candidate == nullptr) {
-            continue;
-        }
-        bool preferred = candidate->role() != "spam" && candidate->role() != "trash";
-        if (folder == nullptr || preferred) {
-            folder = candidate;
-            uid = p.remoteUID;
-            if (preferred) {
-                break;
+    Data * data = nullptr;
+    for (auto & copy : store->fetchableCopiesOfMessage(*msg)) {
+        IMAPProgress cb;
+        ErrorCode err = ErrorNone;
+        data = session->fetchMessageByUID(AS_MCSTR(copy.folder->path()), copy.uid, &cb, &err);
+        if (err != ErrorNone) {
+            logger->error("Unable to fetch rfc2822 for message ({} UID {}). Error {}", copy.folder->path(), copy.uid, ErrorCodeToTypeMap[err]);
+            if (err == ErrorFetch) {
+                data = nullptr;
+                continue; // this copy may have been expunged since our last scan
             }
+            throw SyncException(err, "performRemoteGetMessageRFC2822");
         }
-    }
-    if (folder == nullptr) {
-        throw SyncException(ErrorFetch, "performRemoteGetMessageRFC2822 - no copy on the server");
-    }
-
-    Data * data = session->fetchMessageByUID(AS_MCSTR(folder->path()), uid, &cb, &err);
-    if (err != ErrorNone) {
-        logger->error("Unable to fetch rfc2822 for message ({} UID {}). Error {}", folder->path(), uid, ErrorCodeToTypeMap[err]);
-        throw SyncException(err, "performRemoteGetMessageRFC2822");
+        if (data != nullptr) {
+            break;
+        }
+        logger->error("fetchMessageByUID returned null data for message ({} UID {})", copy.folder->path(), copy.uid);
     }
     if (data == nullptr) {
-        logger->error("fetchMessageByUID returned null data for message ({} UID {})", folder->path(), uid);
-        throw SyncException(ErrorFetch, "performRemoteGetMessageRFC2822 - null data");
+        throw SyncException(ErrorFetch, "performRemoteGetMessageRFC2822 - no copy on the server");
     }
 #ifdef _MSC_VER
     wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;

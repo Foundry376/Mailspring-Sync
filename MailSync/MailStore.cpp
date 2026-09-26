@@ -650,6 +650,40 @@ vector<Placement> MailStore::placementsForMessage(string messageId) {
 }
 
 /*
+ Every copy has the same RFC 2822 data, so the order only matters for cost and reliability:
+ the preferred folder (the one the caller has selected) first, then ordinary folders, then
+ Spam and Trash, whose copies the server may purge at any time. Callers try the next copy
+ when one FETCH fails with ErrorFetch, since a copy can be expunged after our last scan.
+ */
+vector<FetchableCopy> MailStore::fetchableCopiesOfMessage(Message & msg, Folder * preferredFolder) {
+    vector<pair<int, FetchableCopy>> ranked;
+    for (auto & p : placementsForMessage(msg.id())) {
+        if (p.remoteUID == 0) {
+            continue;
+        }
+        auto folder = folderById(msg.accountId(), p.folderId);
+        if (folder == nullptr) {
+            continue;
+        }
+        int rank = 1;
+        if (preferredFolder != nullptr && folder->id() == preferredFolder->id()) {
+            rank = 0;
+        } else if (folder->role() == "spam" || folder->role() == "trash") {
+            rank = 2;
+        }
+        ranked.push_back({rank, {folder, p.remoteUID}});
+    }
+    std::stable_sort(ranked.begin(), ranked.end(), [](const pair<int, FetchableCopy> & a, const pair<int, FetchableCopy> & b) {
+        return a.first < b.first;
+    });
+    vector<FetchableCopy> copies;
+    for (auto & r : ranked) {
+        copies.push_back(r.second);
+    }
+    return copies;
+}
+
+/*
  Rebuilds the message's "folders" snapshot and derived flags from its rows and clears
  Message::placementsChanged(). Message::beforeSave calls it when a helper marked the
  message; call it directly only to inspect the result before deciding whether to save.

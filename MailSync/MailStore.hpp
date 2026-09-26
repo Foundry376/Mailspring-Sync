@@ -56,6 +56,13 @@ struct MessageAttributes {
 MessageAttributes MessageAttributesForMessage(mailcore::IMAPMessage * msg);
 bool MessageAttributesMatch(MessageAttributes a, MessageAttributes b);
 
+// A copy of a message the server can be asked to FETCH: a placement with a UID in a folder
+// that still exists.
+struct FetchableCopy {
+    shared_ptr<Folder> folder;
+    uint32_t uid;
+};
+
 
 class MailStore {
     SQLite::Database _db;
@@ -125,6 +132,7 @@ public:
     // exact once the transaction commits: a message is listed iff it has no MessageFolder row.
 
     vector<Placement> placementsForMessage(string messageId);
+    vector<FetchableCopy> fetchableCopiesOfMessage(Message & msg, Folder * preferredFolder = nullptr);
 
     // Returns the id of a different message that held (folder, uid) and lost it, or "".
     string upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs);

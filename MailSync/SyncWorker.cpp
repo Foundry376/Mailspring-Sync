@@ -1623,42 +1623,16 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
 }
 
 /*
- Fetches the body from one of the message's copies. Every copy has the same RFC 2822 data,
- so the choice only matters for cost and reliability: the folder the caller is working in
- is already selected, and a Spam or Trash copy may be purged by the server at any time.
- A copy the server refuses to FETCH (typically expunged since our last scan) is skipped in
- favour of the next one; any other error is thrown to the caller.
+ Fetches the body from the first copy the server will return, in the order
+ MailStore::fetchableCopiesOfMessage ranks them. A copy the server refuses to FETCH
+ (typically expunged since our last scan) is skipped in favour of the next one; any other
+ error is thrown to the caller.
  */
 void SyncWorker::syncMessageBody(Message * message, Folder * preferredFolder) {
     // allocated mailcore objects freed when `pool` is removed from the stack
     AutoreleasePool pool;
 
-    struct Candidate {
-        int rank;
-        shared_ptr<Folder> folder;
-        uint32_t uid;
-    };
-    vector<Candidate> candidates;
-    for (auto & p : store->placementsForMessage(message->id())) {
-        if (p.remoteUID == 0) {
-            continue;
-        }
-        auto folder = store->folderById(message->accountId(), p.folderId);
-        if (folder == nullptr) {
-            continue;
-        }
-        int rank = 1;
-        if (preferredFolder != nullptr && folder->id() == preferredFolder->id()) {
-            rank = 0;
-        } else if (folder->role() == "spam" || folder->role() == "trash") {
-            rank = 2;
-        }
-        candidates.push_back({rank, folder, p.remoteUID});
-    }
-    std::stable_sort(candidates.begin(), candidates.end(), [](const Candidate & a, const Candidate & b) {
-        return a.rank < b.rank;
-    });
-
+    auto candidates = store->fetchableCopiesOfMessage(*message, preferredFolder);
     if (candidates.empty()) {
         logger->info("No copy of message \"{}\" ({}) is on the server to fetch a body from.", message->subject(), message->id());
         return;
