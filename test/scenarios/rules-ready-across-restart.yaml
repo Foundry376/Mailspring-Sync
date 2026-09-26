@@ -1,0 +1,49 @@
+name: rules-ready-across-restart
+description: >
+  The engine is restarted between recording a self-addressed message's Sent copy (with its
+  body) and its INBOX copy arriving. The pending marker and the stored body are both on
+  disk, so the new process emits rulesReady once, when it records the INBOX copy.
+source: "client docs/tasks/mail-rules-once-per-incoming-message.md (Tests: engine restart between the Sent copy and the Inbox copy)"
+servers:
+  - {fake: dovecot, smtp: true}
+  - {dovecot: qresync, smtp: true}
+  - {cyrus: fastmail, smtp: true}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - server.smtp_hold: {}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "rr-restart-1@example.test"
+        subject: "Rules ready: across a restart"
+        body: "<p>Remember the bread</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Harness Test", email: "test@example.test"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: self
+  - wait: {task: self, timeout: 60}
+  - wait: {quiescent: true}
+  - restart:
+      before:
+        - server.smtp_release: {}
+  - wait: {counts: {INBOX: 3}}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  rules_ready:
+    total: 3
+    messages:
+      "rr-restart-1@example.test": {count: 1, folders: [INBOX, Sent]}
+  counts: {INBOX: 3, Sent: 1}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

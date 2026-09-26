@@ -110,6 +110,7 @@ records outcomes for one binary and diffs two recordings (see
 | orphan-sweep-with-unreadable-folder | STATUS NO on every pass delays the orphan sweep, not disables it | fake | pass (fails on 67469d4) |
 | qresync-vanished-above-highest-uid | CHANGEDSINCE set bounded at UIDNEXT-1 so Cyrus reports expunges above the top surviving UID (cyrus-imapd #6071) | fake, dovecot, cyrus | pass (fails on e5db7ed: fake, cyrus) |
 | messagelimit-partial-fetch | RFC 9738 partial FETCH: walk continues below it, deep scan deletes nothing under it | fake | pass (fails on e5db7ed) |
+| rules-ready-* (6 scenarios) | rulesReady once per incoming message: incoming, self-addressed send, INBOX copy first, restart, pre-upgrade rows, Gmail | fake, dovecot, cyrus | pass (all fail on a83cc9a) |
 
 Gaps worth filling next: iCloud / Outlook / NetEase behaviour needs recordings
 (`tools/record_personality.py`) before their quirks can be asserted; `--mode test` and the

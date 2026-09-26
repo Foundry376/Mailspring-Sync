@@ -49,11 +49,21 @@ struct MessageSnapshot {
 
 static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, 0, json::array(), json::object()};
 
+// Progress toward the one delta that carries `rulesReady` (Message::_updateRulesReady),
+// stored as _data["rr"]. Rows ingested before it existed have none and never fire.
+enum RulesReadyState {
+    RulesReadyAwaitingBody = 0,
+    RulesReadyHasBody = 1,
+    RulesReadyEmitted = 2,
+};
+
 // Message
 
 class Message : public MailModel {
 
     string _bodyForDispatch;
+    bool _bodyFetched;
+    bool _rulesReadyForDispatch;
     MessageSnapshot _lastSnapshot;
 
 public:
@@ -119,6 +129,9 @@ public:
     void setSyncUnsavedChanges(int t);
     
     void setBodyForDispatch(string s);
+    void markBodyStored();
+
+    bool hasIncomingCopy(MailStore * store);
 
     bool isSentByUser(MailStore * store);
     bool isInInbox(MailStore * store);
@@ -161,6 +174,8 @@ public:
 
 private:
     bool _placementsChanged;
+
+    void _updateRulesReady(MailStore * store);
 };
 
 #endif /* Message_hpp */

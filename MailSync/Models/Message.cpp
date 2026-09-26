@@ -42,6 +42,7 @@ shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Messag
     stubJSON["subject"] = "Deleting...";
     stubJSON["folders"] = json::object();
     stubJSON["labels"] = json::array();
+    stubJSON.erase("rr");
     
     // very important to set v=0 so the Message gets both "added" and "deleted"
     // from the thread. Otherwise we could potentially cause double deletion
@@ -63,9 +64,14 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
 {
     _skipThreadUpdatesAfterSave = false;
     _placementsChanged = false;
+    _bodyFetched = false;
+    _rulesReadyForDispatch = false;
     _lastSnapshot = MessageEmptySnapshot;
     _data["_sa"] = syncDataTimestamp;
     _data["_suc"] = 0;
+    // Only ingestion sets it, so rows written before it existed and client-authored drafts
+    // never become rules-ready.
+    _data["rr"] = RulesReadyAwaitingBody;
     
     _data["files"] = json::array();
     _data["date"] = msg->header()->date() == -1 ? msg->header()->receivedDate() : msg->header()->date();
@@ -133,6 +139,8 @@ Message::Message(SQLite::Statement & query) :
 {
     _skipThreadUpdatesAfterSave = false;
     _placementsChanged = false;
+    _bodyFetched = false;
+    _rulesReadyForDispatch = false;
     _lastSnapshot = getSnapshot();
 }
 
@@ -141,6 +149,8 @@ Message::Message(json json) :
 {
     _skipThreadUpdatesAfterSave = false;
     _placementsChanged = false;
+    _bodyFetched = false;
+    _rulesReadyForDispatch = false;
 
     // Client-authored draft JSON carries no "folders"; the engine assigns placements.
     if (!_data.count("folders") || !_data["folders"].is_object()) {
@@ -343,6 +353,48 @@ void Message::setDraft(bool d) {
 
 void Message::setBodyForDispatch(string s) {
     _bodyForDispatch = s;
+    _bodyFetched = true;
+}
+
+// MailProcessor::retrievedMessageBody is the only writer of received bodies. Bodies purged
+// from the cache later (SyncWorker::cleanMessageCache) still count.
+void Message::markBodyStored() {
+    if (_data.count("rr") && _data["rr"].get<int>() == RulesReadyAwaitingBody) {
+        _data["rr"] = RulesReadyHasBody;
+    }
+}
+
+/*
+ Whether some copy makes this mail the user received rather than mail they sent, which is
+ what mail rules apply to. Sent and Drafts copies are the user's own. Spam and Trash copies
+ don't count either: their bodies are fetched only when the message is opened
+ (SyncWorker::shouldCacheBodiesInFolder), and rules should not depend on that. A message
+ that leaves Spam for Inbox counts from then on.
+
+ Gmail keeps one copy, in All Mail, and X-GM-LABELS say where it is filed. A message the
+ user sent carries \Sent (the send path copies the thread's user labels onto it too), so it
+ counts only once Gmail also files it under \Inbox, as it does self-addressed mail.
+ */
+bool Message::hasIncomingCopy(MailStore * store) {
+    for (auto & folderId : folderIds()) {
+        string role = folderRole(store, folderId);
+        if (role == "sent" || role == "drafts" || role == "spam" || role == "trash") {
+            continue;
+        }
+        if (role != "all") {
+            return true;
+        }
+        bool inInbox = false, outgoing = false;
+        for (auto & l : labels()) {
+            string name = l.get<string>();
+            inInbox = inInbox || name == "\\Inbox";
+            outgoing = outgoing || name == "\\Sent" || name == "\\Draft";
+        }
+        if (inInbox || !outgoing) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool Message::isSentByUser(MailStore * store) {
@@ -467,6 +519,39 @@ void Message::beforeSave(MailStore * store) {
     if (_placementsChanged) {
         store->refreshMessageFromPlacements(*this);
     }
+    _updateRulesReady(store);
+}
+
+/*
+ Mail rules run once per incoming message, on the delta that carries `rulesReady`. A message
+ becomes rules-ready on the first save where it has a stored body and an incoming copy
+ (hasIncomingCopy), whichever of the two arrived second: usually the body, but for
+ self-addressed mail the Sent copy and its body are stored at send time and the INBOX copy
+ arrives later. Mail the user only sent never becomes rules-ready.
+
+ The state lives in _data and needs no query. That holds because every save of a message
+ reloads it inside the saving transaction, so a stale copy can never move "rr" backwards.
+
+ The delta always carries the body, for "Body contains" rules. When the incoming copy
+ arrived second, it is read back once here.
+ */
+void Message::_updateRulesReady(MailStore * store) {
+    _rulesReadyForDispatch = false;
+    if (!_data.count("rr") || _data["rr"].get<int>() != RulesReadyHasBody) {
+        return;
+    }
+    if (!hasIncomingCopy(store)) {
+        return;
+    }
+    _data["rr"] = RulesReadyEmitted;
+    _rulesReadyForDispatch = true;
+    if (_bodyForDispatch.empty()) {
+        SQLite::Statement query(store->db(), "SELECT value FROM MessageBody WHERE id = ? AND value IS NOT NULL");
+        query.bind(1, id());
+        if (query.executeStep()) {
+            _bodyForDispatch = query.getColumn(0).getString();
+        }
+    }
 }
 
 void Message::afterSave(MailStore * store) {
@@ -519,7 +604,14 @@ json Message::toJSONDispatch() {
     json j = toJSON();
     if (_bodyForDispatch.length() > 0) {
         j["body"] = _bodyForDispatch;
-        j["fullSyncComplete"] = true;
+        // Deprecated: mail rules run on rulesReady. Kept for third-party plugins, and only
+        // sent when the body was just fetched, not when it was read back for rulesReady.
+        if (_bodyFetched) {
+            j["fullSyncComplete"] = true;
+        }
+    }
+    if (_rulesReadyForDispatch) {
+        j["rulesReady"] = true;
     }
     // We need to store this attribute because deltas can be flattened / concatenated together
     // in the buffer before they're sent to the client, so it's possible for the client to only
