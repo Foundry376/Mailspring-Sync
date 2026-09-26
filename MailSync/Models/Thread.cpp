@@ -165,17 +165,6 @@ void Thread::resetCountedAttributes() {
     // now call applyMessageAttributeChanges(empty, msg) for all messages
 }
 
-static bool anyFolderOutsideSpamOrTrash(MailStore * store, string accountId, json & folderBits) {
-    for (auto it = folderBits.begin(); it != folderBits.end(); ++it) {
-        auto folder = store->folderById(accountId, it.key());
-        string role = folder == nullptr ? "" : folder->role();
-        if (role != "spam" && role != "trash") {
-            return true;
-        }
-    }
-    return false;
-}
-
 /*
  Updates the thread's counters and folder / label sets from a before + after view of one
  message. `old` is the message's state when it was loaded (or the empty snapshot for a
@@ -199,7 +188,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
     // Note: Since labels are within `All Mail`, a message only contributes
     // to a label's unread count if it is also in `All Mail`.
     adjustFolderRefs(store, old.folders, -1);
-    bool oldInAllMail = anyFolderOutsideSpamOrTrash(store, accountId(), old.folders);
+    bool oldInAllMail = Message::isInAllMail(store, accountId(), old.folders);
     adjustLabelRefs(allLabels, old.labels, -1, old.unread && oldInAllMail);
     
     if (next) {

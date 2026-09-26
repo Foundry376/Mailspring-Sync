@@ -37,6 +37,8 @@ class Message;
 // updated by diff. `folders` is the { folderId: flagBits } map from the message JSON, so
 // capturing it costs no query.
 
+// `unread`/`starred` are the message-level flags behind the thread's counters and per-label
+// `_u`; they survive an orphan's empty `folders`, whose bits drive only the per-folder `_u`.
 struct MessageSnapshot {
     bool unread;
     bool starred;
@@ -79,6 +81,7 @@ public:
     vector<string> folderIds();
     string folderRole(MailStore * store, string folderId);
 
+    static bool isInAllMail(MailStore * store, const string & accountId, const json & folderBits);
     bool inAllMail(MailStore * store);
 
     bool isUnread();

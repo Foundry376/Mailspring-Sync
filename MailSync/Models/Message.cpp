@@ -219,14 +219,19 @@ string Message::folderRole(MailStore * store, string folderId) {
 
 // A message is "in all mail" when at least one of its copies is somewhere other than
 // spam or trash. A message with no copies (in transit between folders) is not.
-bool Message::inAllMail(MailStore * store) {
-    for (auto & folderId : folderIds()) {
-        string role = folderRole(store, folderId);
+bool Message::isInAllMail(MailStore * store, const string & accountId, const json & folderBits) {
+    for (auto it = folderBits.begin(); it != folderBits.end(); ++it) {
+        auto folder = store->folderById(accountId, it.key());
+        string role = folder == nullptr ? "" : folder->role();
         if (role != "spam" && role != "trash") {
             return true;
         }
     }
     return false;
+}
+
+bool Message::inAllMail(MailStore * store) {
+    return isInAllMail(store, accountId(), folders());
 }
 
 bool Message::isUnread() {
