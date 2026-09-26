@@ -215,6 +215,32 @@ static vector<uint32_t> _resolveNewUIDs(IMAPSession * session, HashMap * uidmap,
     return result;
 }
 
+// Removes the source copies of a COPY-based move. A plain EXPUNGE would also purge every
+// message another client only marked \Deleted (Outlook desktop's "mark for deletion" mode),
+// so with UIDPLUS it expunges exactly these UIDs (RFC 4315 2.1), as Thunderbird does; the
+// plain EXPUNGE is the fallback when UID EXPUNGE is unavailable or fails.
+static void _expungeMovedCopies(IMAPSession * session, String * path, IndexSet * uids) {
+    ErrorCode err = ErrorCode::ErrorNone;
+    session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
+    if (err != ErrorCode::ErrorNone) {
+        spdlog::get("logger")->warn("-X Could not flag moved copies \\Deleted in {}, leaving them (error: {})", path->UTF8Characters(), ErrorCodeToTypeMap[err]);
+        return;
+    }
+    if (session->storedCapabilities()->containsIndex(IMAPCapabilityUIDPlus)) {
+        session->expungeUIDs(path, uids, &err);
+        if (err == ErrorCode::ErrorNone) {
+            return;
+        }
+        spdlog::get("logger")->warn("-X UID EXPUNGE failed in {} (error: {})", path->UTF8Characters(), ErrorCodeToTypeMap[err]);
+        err = ErrorCode::ErrorNone;
+    }
+    spdlog::get("logger")->info("-- Expunging all \\Deleted messages in {}", path->UTF8Characters());
+    session->expunge(path, &err);
+    if (err != ErrorCode::ErrorNone) {
+        throw SyncException(err, "moveMessages(copy cleanup)");
+    }
+}
+
 // Moves the items' copies out of `path` into `dest` with UID MOVE, or COPY + \Deleted +
 // EXPUNGE when the server lacks MOVE, and records each copy's new UID on the item. A copy
 // whose new UID cannot be determined is logged and left as it was: its row keeps the
@@ -236,11 +262,7 @@ static void _moveMessagesResilient(IMAPSession * session, String * path, Folder 
         if (err != ErrorCode::ErrorNone) {
             throw SyncException(err, "moveMessages(copy)");
         }
-        session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
-        session->expunge(path, &err); // this will empty their whole trash...
-        if (err != ErrorCode::ErrorNone) {
-            throw SyncException(err, "moveMessages(copy cleanup)");
-        }
+        _expungeMovedCopies(session, path, uids);
         mustApplyAttributes = true;
     }
 

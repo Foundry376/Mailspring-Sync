@@ -4450,6 +4450,9 @@ void IMAPSession::capabilitySetWithSessionState(IndexSet * capabilities)
     if (mailimap_has_extension(mImap, (char *)"MOVE")) {
         capabilities->addIndex(IMAPCapabilityMove);
     }
+    if (mailimap_has_uidplus(mImap)) {
+        capabilities->addIndex(IMAPCapabilityUIDPlus);
+    }
     if (mailimap_has_extension(mImap, (char *)"XYMHIGHESTMODSEQ")) {
         capabilities->addIndex(IMAPCapabilityXYMHighestModseq);
     }

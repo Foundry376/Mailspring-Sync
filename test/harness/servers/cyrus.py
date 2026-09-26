@@ -11,6 +11,7 @@ Profiles:
                separator. No major provider is known to use it; it covers the engine's
                namespace-prefix handling.
   plain        fastmail + suppress_capabilities CONDSTORE QRESYNC: the deep-scan branch.
+  no-move      fastmail + suppress_capabilities MOVE: COPY + \\Deleted + EXPUNGE.
 
 Namespace. Under default-ns the server spells a scenario's `Archive` as `INBOX.Archive`
 (and `a/b` as `INBOX.a.b`). The adapter maps scenario names to server paths on every
@@ -55,6 +56,7 @@ PROFILES = {
     "fastmail": dict(conf="", altnamespace=True),
     "default-ns": dict(conf="altnamespace: no\nunixhierarchysep: no", altnamespace=False),
     "plain": dict(conf="suppress_capabilities: CONDSTORE QRESYNC", altnamespace=True),
+    "no-move": dict(conf="suppress_capabilities: MOVE", altnamespace=True),
 }
 
 
