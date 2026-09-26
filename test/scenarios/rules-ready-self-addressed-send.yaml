@@ -5,7 +5,8 @@ description: >
   copy long after the send path has recorded the Sent copy and stored the body: here
   delivery is held until the send task has finished and a full pass has run. Nothing is
   emitted at send time, when the only copy is in Sent (on Cyrus the rule's Move found no
-  copy to move: [PLT7-R-move-1]).
+  copy to move: [PLT7-R-move-1]). The flagged delta carries the body, read back from the
+  database for "Body contains" rules, without a second fullSyncComplete.
 source: "client docs/tasks/mail-rules-once-per-incoming-message.md, bug B2 of the 2026-09-26 client verification pass (Cyrus)"
 servers:
   - {fake: dovecot, smtp: true}
@@ -68,7 +69,7 @@ expect:
     total: 3
     messages:
       "rr-out-1@example.test": 0
-      "rr-self-1@example.test": {count: 1, folders: [INBOX, Sent], body: false}
+      "rr-self-1@example.test": {count: 1, folders: [INBOX, Sent], fetched: false}
   counts: {INBOX: 3, Sent: 2}
   db_matches_server: {}
   stable: {passes: 1}

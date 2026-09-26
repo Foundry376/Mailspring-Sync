@@ -24,7 +24,7 @@ steps:
       rules_ready:
         total: 3
         messages:
-          "Message 1": {count: 1, folders: [INBOX], body: true}
+          "Message 1": {count: 1, folders: [INBOX], fetched: true}
           "Message 4": 0
           "Message 6": 0
   # The user opens a Junk message: its body is fetched, but Junk mail is not incoming.
@@ -55,8 +55,8 @@ expect:
     total: 5
     messages:
       "Message 1": 1
-      "Message 4": {count: 1, folders: [INBOX], body: false}
-      "Message 5": {count: 1, folders: [INBOX], body: true}
+      "Message 4": {count: 1, folders: [INBOX], fetched: false}
+      "Message 5": {count: 1, folders: [INBOX], fetched: true}
       "Message 6": 0
       "Message 7": 0
   counts: {INBOX: 5, Junk: 0, Archive: 0, Sent: 2}

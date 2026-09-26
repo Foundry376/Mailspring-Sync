@@ -42,7 +42,7 @@ shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Messag
     stubJSON["subject"] = "Deleting...";
     stubJSON["folders"] = json::object();
     stubJSON["labels"] = json::array();
-    stubJSON.erase("rrp");
+    stubJSON.erase("rr");
     
     // very important to set v=0 so the Message gets both "added" and "deleted"
     // from the thread. Otherwise we could potentially cause double deletion
@@ -64,13 +64,14 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
 {
     _skipThreadUpdatesAfterSave = false;
     _placementsChanged = false;
+    _bodyFetched = false;
     _rulesReadyForDispatch = false;
     _lastSnapshot = MessageEmptySnapshot;
     _data["_sa"] = syncDataTimestamp;
     _data["_suc"] = 0;
-    // Rules-ready pending (see _updateRulesReady). Only ingestion sets it, so rows written
-    // before it existed and client-authored drafts never become rules-ready.
-    _data["rrp"] = true;
+    // Only ingestion sets it, so rows written before it existed and client-authored drafts
+    // never become rules-ready.
+    _data["rr"] = RulesReadyAwaitingBody;
     
     _data["files"] = json::array();
     _data["date"] = msg->header()->date() == -1 ? msg->header()->receivedDate() : msg->header()->date();
@@ -138,6 +139,7 @@ Message::Message(SQLite::Statement & query) :
 {
     _skipThreadUpdatesAfterSave = false;
     _placementsChanged = false;
+    _bodyFetched = false;
     _rulesReadyForDispatch = false;
     _lastSnapshot = getSnapshot();
 }
@@ -147,6 +149,7 @@ Message::Message(json json) :
 {
     _skipThreadUpdatesAfterSave = false;
     _placementsChanged = false;
+    _bodyFetched = false;
     _rulesReadyForDispatch = false;
 
     // Client-authored draft JSON carries no "folders"; the engine assigns placements.
@@ -350,6 +353,15 @@ void Message::setDraft(bool d) {
 
 void Message::setBodyForDispatch(string s) {
     _bodyForDispatch = s;
+    _bodyFetched = true;
+}
+
+// MailProcessor::retrievedMessageBody is the only writer of received bodies. Bodies purged
+// from the cache later (SyncWorker::cleanMessageCache) still count.
+void Message::markBodyStored() {
+    if (_data.count("rr") && _data["rr"].get<int>() == RulesReadyAwaitingBody) {
+        _data["rr"] = RulesReadyHasBody;
+    }
 }
 
 /*
@@ -517,33 +529,28 @@ void Message::beforeSave(MailStore * store) {
  self-addressed mail the Sent copy and its body are stored at send time and the INBOX copy
  arrives later. Mail the user only sent never becomes rules-ready.
 
- "rrp" marks a message that has not been rules-ready yet and is cleared on the save that
- emits the flag. It is read from the row, not this object, so that a copy loaded before
- another save cleared it cannot bring it back, and so that a body stored by a save this
- object never saw counts.
+ The state lives in _data and needs no query. That holds because every save of a message
+ reloads it inside the saving transaction, so a stale copy can never move "rr" backwards.
+
+ The delta always carries the body, for "Body contains" rules. When the incoming copy
+ arrived second, it is read back once here.
  */
 void Message::_updateRulesReady(MailStore * store) {
     _rulesReadyForDispatch = false;
-    if (!_data.count("rrp")) {
+    if (!_data.count("rr") || _data["rr"].get<int>() != RulesReadyHasBody) {
         return;
     }
-    SQLite::Statement query(store->db(),
-        "SELECT json_extract(Message.data, '$.rrp'), EXISTS (SELECT 1 FROM MessageBody "
-        "WHERE MessageBody.id = Message.id AND MessageBody.value IS NOT NULL) FROM Message WHERE Message.id = ?");
-    query.bind(1, id());
-    bool pending = true;
-    bool hasBody = false;
-    if (query.executeStep()) {
-        pending = !query.getColumn(0).isNull();
-        hasBody = query.getColumn(1).getInt() != 0;
-    }
-    if (!pending) {
-        _data.erase("rrp");
+    if (!hasIncomingCopy(store)) {
         return;
     }
-    if (hasBody && hasIncomingCopy(store)) {
-        _data.erase("rrp");
-        _rulesReadyForDispatch = true;
+    _data["rr"] = RulesReadyEmitted;
+    _rulesReadyForDispatch = true;
+    if (_bodyForDispatch.empty()) {
+        SQLite::Statement query(store->db(), "SELECT value FROM MessageBody WHERE id = ? AND value IS NOT NULL");
+        query.bind(1, id());
+        if (query.executeStep()) {
+            _bodyForDispatch = query.getColumn(0).getString();
+        }
     }
 }
 
@@ -597,8 +604,11 @@ json Message::toJSONDispatch() {
     json j = toJSON();
     if (_bodyForDispatch.length() > 0) {
         j["body"] = _bodyForDispatch;
-        // Deprecated: mail rules run on rulesReady. Kept for third-party plugins.
-        j["fullSyncComplete"] = true;
+        // Deprecated: mail rules run on rulesReady. Kept for third-party plugins, and only
+        // sent when the body was just fetched, not when it was read back for rulesReady.
+        if (_bodyFetched) {
+            j["fullSyncComplete"] = true;
+        }
     }
     if (_rulesReadyForDispatch) {
         j["rulesReady"] = true;

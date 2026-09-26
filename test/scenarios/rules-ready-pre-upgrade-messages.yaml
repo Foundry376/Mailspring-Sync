@@ -32,7 +32,7 @@ expect:
       "Message 1": 0
       "Message 3": 0
       "Message 4": 0
-      "Message 5": {count: 1, folders: [INBOX], body: true}
+      "Message 5": {count: 1, folders: [INBOX], fetched: true}
   counts: {INBOX: 5, Junk: 0, Sent: 1}
   db_matches_server: {}
   stable: {passes: 1}

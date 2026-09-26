@@ -118,8 +118,9 @@ unchanged mailbox must not move a single placement - the flapping detector), `fo
 `log_present` / `log_absent`, `log_count: {regex: n}` or `{regex: {min, max}}` (how many
 log lines match, to bound a loop the engine should take a known number of times),
 `deltas: {Message: {unpersist: 0}}`, `rules_ready: {total, messages: {Message-ID or subject:
-{count, folders, body, metadata}}}` (the one-shot flag mail rules run on: no message carries
-it on two deltas, across restarts; `folders` the mailboxes that delta must list),
+{count, folders, fetched, metadata}}}` (the one-shot flag mail rules run on: no message carries
+it on two deltas, across restarts, and each such delta carries the body; `folders` the
+mailboxes that delta must list, `fetched` whether it is the delta that fetched the body),
 `connection_error: {reported: true, cleared: true}`
 (the ProcessState stream behind the client's offline state), `unchanged_since: snapshot`, `running`, `exit`. Any
 expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,

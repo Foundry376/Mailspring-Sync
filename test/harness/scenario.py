@@ -807,12 +807,14 @@ class ScenarioRun:
 
     def expect_rules_ready(self, arg: dict) -> list:
         """The one-shot `rulesReady` flag the client's mail rules run on. No message may carry
-        it on more than one delta, counting every engine process the scenario ran. `total: n`
-        is how many messages carried it. `messages: {Message-ID or subject: n | {count, folders,
-        body, metadata}}` pins one message: how many deltas carried it (0 or 1); mailboxes its
-        `folders` snapshot must list on that delta; whether that delta carried the body;
-        and plugin ids whose metadata rode on it, which a later save of the same message can
-        only have put there by being coalesced into the same delta."""
+        it on more than one delta, counting every engine process the scenario ran, and every
+        such delta must carry the body. `total: n` is how many messages carried it.
+        `messages: {Message-ID or subject: n | {count, folders, fetched, metadata}}` pins one
+        message: how many deltas carried it (0 or 1); mailboxes its `folders` snapshot must
+        list on that delta; whether that delta is the one that fetched the body
+        (fullSyncComplete) rather than one that read it back; and plugin ids whose metadata
+        rode on it, which a later save of the same message can only have put there by being
+        coalesced into the same delta."""
         with self.ms.db() as c:
             paths = {r[0]: r[1] for r in c.execute("SELECT id, path FROM Folder")}
         flagged, subjects = {}, {}
@@ -825,6 +827,7 @@ class ScenarioRun:
                 if m.get("rulesReady"):
                     flagged.setdefault(mid, []).append(m)
         out = [f"{mid} carried rulesReady on {len(ms)} deltas" for mid, ms in flagged.items() if len(ms) > 1]
+        out += [f"{mid}: rulesReady delta has no body" for mid, ms in flagged.items() if not ms[0].get("body")]
         if "total" in arg and len(flagged) != arg["total"]:
             out.append(f"expected {arg['total']} messages to carry rulesReady, saw {len(flagged)}: "
                        + ", ".join(f"{mid} ({ms[0].get('subject')})" for mid, ms in flagged.items()))
@@ -844,8 +847,8 @@ class ScenarioRun:
             missing = sorted(set(want.get("folders") or []) - set(folders))
             if missing:
                 out.append(f"{mid}: rulesReady delta listed folders {folders}, missing {missing}")
-            if "body" in want and ("body" in m) != bool(want["body"]):
-                out.append(f"{mid}: rulesReady delta {'lacked' if want['body'] else 'carried'} the body")
+            if "fetched" in want and bool(m.get("fullSyncComplete")) != bool(want["fetched"]):
+                out.append(f"{mid}: rulesReady delta {'lacked' if want['fetched'] else 'carried'} fullSyncComplete")
             plugins = {e.get("pluginId") for e in m.get("metadata") or []}
             for plugin in want.get("metadata") or []:
                 if plugin not in plugins:
@@ -856,6 +859,7 @@ class ScenarioRun:
                     if m.get("rulesReady") or "body" in m or m.get("metadata"):
                         self._note(f"Message delta at {d.t:.2f}s: {m.get('subject')!r} folders={sorted(m.get('folders') or {})} "
                                    f"rulesReady={bool(m.get('rulesReady'))} body={'body' in m} "
+                                   f"fullSyncComplete={bool(m.get('fullSyncComplete'))} "
                                    f"metadata={[e.get('pluginId') for e in m.get('metadata') or []]} v={m.get('v')}")
         return out
 

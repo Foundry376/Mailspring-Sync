@@ -46,7 +46,7 @@ expect:
   rules_ready:
     total: 3
     messages:
-      "gmail-rr-1@example.test": {count: 1, folders: ["[Gmail]/All Mail"], body: false}
+      "gmail-rr-1@example.test": {count: 1, folders: ["[Gmail]/All Mail"], fetched: false}
       "Message 3": 0
   db_matches_server: {labels: true}
   stable: {passes: 1}

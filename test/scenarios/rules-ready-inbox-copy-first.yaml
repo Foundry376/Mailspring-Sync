@@ -48,7 +48,7 @@ expect:
   rules_ready:
     total: 1
     messages:
-      "rr-self-2@example.test": {count: 1, folders: [INBOX, Sent], body: true, metadata: [harness-plugin]}
+      "rr-self-2@example.test": {count: 1, folders: [INBOX, Sent], fetched: true, metadata: [harness-plugin]}
   counts: {INBOX: 1, Sent: 1}
   db_matches_server: {}
   stable: {passes: 1}
