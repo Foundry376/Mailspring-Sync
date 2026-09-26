@@ -1,0 +1,23 @@
+name: new-mail-during-idle
+description: >
+  Three messages arrive while the foreground connection idles on INBOX, and two more land in
+  a folder nobody idles on. All five must be ingested with bodies for the inbox ones.
+source: SyncWorker::idleCycleIteration new-mail path
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 30}
+  Archive: {messages: 3}
+steps:
+  - wait: quiescent
+  - server.append: {mailbox: INBOX, messages: 3, flags: []}
+  - server.append: {mailbox: Archive, messages: 2}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 33, Archive: 5}
+  running: true

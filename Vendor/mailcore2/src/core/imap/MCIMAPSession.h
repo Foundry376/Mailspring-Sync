@@ -188,6 +188,10 @@ namespace mailcore {
         virtual void disconnect();
         
         virtual void noop(ErrorCode * pError);
+
+        /** The folder this connection has SELECTed, or NULL when none is (the folder is
+            released on disconnect and on a failed select). Spelled as it was passed to select(). */
+        virtual String * currentFolder();
         
         virtual HashMap * fetchNamespace(ErrorCode * pError);
         
@@ -260,6 +264,11 @@ namespace mailcore {
         virtual void resetAutomaticConfigurationDone();
         virtual void applyCapabilities(IndexSet * capabilities);
         virtual IndexSet * storedCapabilities();
+        // RFC 9738: N from a MESSAGELIMIT=N capability, or 0 when it is not advertised.
+        virtual uint32_t messageLimit();
+        // RFC 9738 §3: the last command's reply carried [MESSAGELIMIT ...], so the server
+        // processed only the highest-UID messages of the set.
+        virtual bool lastResponseHitMessageLimit();
         virtual void lockConnectionLogger();
         virtual void unlockConnectionLogger();
         virtual ConnectionLogger * connectionLoggerNoLock();

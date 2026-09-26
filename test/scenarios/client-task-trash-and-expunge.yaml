@@ -1,0 +1,31 @@
+name: client-task-trash-and-expunge
+description: >
+  Moving to Trash and then emptying it must delete the messages on the server and locally,
+  and the folder counts must agree afterwards.
+source: TaskProcessor ChangeFolderTask / ExpungeAllInFolderTask
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 20}
+  Trash: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: "1:4"}, folder: Trash}
+    as: trash
+  - wait: {task: trash, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      server_counts: {INBOX: 16, Trash: 6}
+      db_matches_server: {}
+  - client.task: {__cls: ExpungeAllInFolderTask, folder: Trash}
+    as: empty
+  - wait: {task: empty, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  server_counts: {INBOX: 16, Trash: 0}
+  db_matches_server: {}
+  running: true

@@ -17,6 +17,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <optional>
+#include <thread>
 
 #if defined(_MSC_VER)
 #include <direct.h>
@@ -84,19 +87,70 @@ MailProcessor::MailProcessor(shared_ptr<Account> account, MailStore * store) :
 
 }
 
+// Detected from the X-GM-EXT-1 capability rather than the account's provider, which is
+// "imap" for a Gmail account added with generic IMAP settings.
+void MailProcessor::setIsGmail(bool isGmail) {
+    _isGmail = isGmail;
+}
+
+namespace {
+
+// The copy of `messageId` at (folder, UID), if one is recorded.
+optional<Placement> placementAt(MailStore * store, const string & messageId, const string & folderId, uint32_t uid) {
+    for (auto & p : store->placementsForMessage(messageId)) {
+        if (p.folderId == folderId && p.remoteUID == uid) {
+            return p;
+        }
+    }
+    return nullopt;
+}
+
+MessageAttributes attributesOfPlacement(const Placement & p) {
+    MessageAttributes attrs{p.remoteUID, p.unread, p.starred, p.draft, {}};
+    for (auto & l : p.labels) {
+        attrs.labels.push_back(l.get<string>());
+    }
+    return attrs;
+}
+
+bool placementIsCurrent(const optional<Placement> & p, const MessageAttributes & reported) {
+    return p && MessageAttributesMatch(attributesOfPlacement(*p), reported);
+}
+
+} // namespace
+
+/*
+ Ingests one copy of a message reported by a folder scan. Message ids are a hash of the
+ headers, so a message already known from another folder or UID is found by id and the
+ copy recorded as a placement on it. The lookup and placement comparison come first so an
+ unchanged copy - most of every scan - does not open a transaction; updateMessage makes the
+ decision again inside one. The insert can still hit a constraint error (SQLite 19) when
+ the other worker ingested the same message a moment ago, or the two race on one
+ (folder, UID) of the MessageFolder unique index.
+ */
 shared_ptr<Message> MailProcessor::insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp) {
+    string id = MailUtils::idForMessage(folder.accountId(), folder.path(), mMsg);
+    auto localMessage = store->find<Message>(Query().equal("id", id));
+    if (localMessage != nullptr) {
+        auto existing = placementAt(store, id, folder.id(), mMsg->uid());
+        if (placementIsCurrent(existing, MessageAttributesForMessage(mMsg))) {
+            return localMessage;
+        }
+        localMessage = updateMessage(id, mMsg, folder, syncDataTimestamp);
+        if (localMessage != nullptr) {
+            return localMessage;
+        }
+    }
     try {
         return insertMessage(mMsg, folder, syncDataTimestamp);
     } catch (const SQLite::Exception & ex) {
         if (ex.getErrorCode() != 19) { // constraint failed
             throw;
         }
-        Query q = Query().equal("id", MailUtils::idForMessage(folder.accountId(), folder.path(), mMsg));
-        auto localMessage = store->find<Message>(q);
+        localMessage = updateMessage(id, mMsg, folder, syncDataTimestamp);
         if (localMessage.get() == nullptr) {
             throw;
         }
-        updateMessage(localMessage.get(), mMsg, folder, syncDataTimestamp);
         return localMessage;
     }
 }
@@ -149,12 +203,17 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         
         msg->setThreadId(thread->id());
 
+        // Written before the Message row and rebuilt now rather than on save, because the
+        // thread diff below runs before the save; an id collision on the insert rolls the
+        // row back with the transaction.
+        string displaced = store->upsertPlacement(*msg, folder, mMsg->uid(), MessageAttributesForMessage(mMsg));
+        store->refreshMessageFromPlacements(*msg);
+
         // Apply the new message's attributes to the thread (folder/label refcounts,
         // unread/starred counters, timestamps) BEFORE saving the thread. This avoids
         // Message::afterSave re-loading and re-saving the thread a second time.
-        auto allLabels = store->allLabelsCache(msg->accountId());
         MessageSnapshot empty = MessageEmptySnapshot;
-        thread->applyMessageAttributeChanges(empty, msg.get(), allLabels);
+        thread->applyMessageAttributeChanges(empty, msg.get(), store);
         msg->captureSnapshot();
         msg->_skipThreadUpdatesAfterSave = true;
 
@@ -167,6 +226,8 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         // Make the thread accessible by all of the message references
         upsertThreadReferences(thread->id(), thread->accountId(), msg->headerMessageId(), references);
 
+        saveDisplacedMessage(displaced);
+
         transaction.commit();
     }
 
@@ -175,126 +236,99 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
     return msg;
 }
 
-void MailProcessor::updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
+/*
+ Records the copy at (folder, uid) on a message that already exists and returns the message
+ as saved, or nullptr if it no longer exists. The message and its placements are read after
+ BEGIN IMMEDIATE: both workers can process the same server change at once, and a copy loaded
+ before the other worker committed would apply that change's thread delta a second time and
+ write its stale JSON over the other worker's. Only the placement at (folder, uid) is compared
+ against what the server reported.
+
+ The `syncedAt` guard is message-level: while a task the user queued is in flight, its local
+ phase has already written the copies' new flags or marked them for a move, and a scan of
+ those copies must not revert that. It only protects copies already recorded. A copy the
+ message has nowhere yet is recorded with the server's flags even under the lock: another
+ client may have moved the message's only copy, and skipping the new one would leave the
+ message an orphan for the sweep. The lock is left in place for the task to release.
+ */
+shared_ptr<Message> MailProcessor::updateMessage(const string & messageId, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp)
 {
-    if (local->syncedAt() > syncDataTimestamp) {
-        logger->warn("Ignoring changes to {}, local data is newer {} < {}", local->subject(), syncDataTimestamp, local->syncedAt());
-        return;
-    }
-    
     auto updated = MessageAttributesForMessage(remote);
-    auto jlabels = json(updated.labels);
 
-    // Priority folder check: prevent lower-priority folders from claiming messages
-    // that already belong to higher-priority folders. Message IDs are derived from
-    // headers, so two physical copies of one message collapse onto one row, and with
-    // "latest folder wins" the copies take turns claiming it on every sync pass: the
-    // message flickers between folders and its unread state flips with it.
-    //
-    // On standard IMAP servers messages MOVE between folders (DELETE from source +
-    // APPEND to destination), and "latest folder wins" is what makes a move show up
-    // as soon as the destination is scanned, before the source has been rescanned
-    // and unlinked the old UID. So the check is applied only where duplicates are
-    // expected rather than moves:
-    //
-    // - iCloud and NetEase expose the same message in multiple folders at once.
-    // - A real Sent folder, on every provider. A message addressed to yourself (or to
-    //   a list you are on) is delivered to Inbox by SMTP and saved to Sent by the
-    //   client, so it legitimately lives in both. Observed on Office 365 and Yahoo:
-    //   every INBOX <-> Sent Items flap was a self-addressed message. Metadata is
-    //   attached by ID, not folder, so the row keeping its ID is what matters; a
-    //   genuine move out of Sent still lands once Sent unlinks the old UID.
-    //   Gmail is excluded by the Label check: there "sent" is a label, the send
-    //   path inserts the message under it, and All Mail must then take ownership.
-    string currentFolderId = local->remoteFolderId();
-    json currentRemoteFolder = local->remoteFolder();
-    string currentRole = "";
-    if (currentRemoteFolder.contains("role") && currentRemoteFolder["role"].is_string()) {
-        currentRole = currentRemoteFolder["role"].get<string>();
+    // Every return commits: a rollback would also drop the store's cached statements.
+    MailStoreTransaction transaction{store, "updateMessage"};
+
+    auto local = store->find<Message>(Query().equal("id", messageId));
+    if (local == nullptr) {
+        transaction.commit();
+        return nullptr;
     }
-    bool bothAreFolders = folder.tableName() == Folder::TABLE_NAME &&
-                          currentRemoteFolder.value("__cls", "") == Folder::TABLE_NAME;
-    bool involvesSentFolder = bothAreFolders && (folder.role() == "sent" || currentRole == "sent");
-    bool useFolderPriority = account->isICloud() || account->isNetEase() || involvesSentFolder;
+    auto p = placementAt(store, messageId, folder.id(), updated.uid);
+    if (placementIsCurrent(p, updated)) {
+        transaction.commit();
+        return local;
+    }
+    bool locked = local->syncedAt() > syncDataTimestamp;
+    if (p && locked) {
+        logger->warn("Ignoring changes to {}, local data is newer {} < {}", local->subject(), syncDataTimestamp, local->syncedAt());
+        transaction.commit();
+        return local;
+    }
+    if (p) {
+        auto existing = attributesOfPlacement(*p);
+        logger->info("- Updating message {} in {}", local->id(), folder.path());
+        if (updated.unread != existing.unread) {
+            logger->info("-- Unread ({} to {})", existing.unread, updated.unread);
+        }
+        if (updated.starred != existing.starred) {
+            logger->info("-- Starred ({} to {})", existing.starred, updated.starred);
+        }
+        if (updated.draft != existing.draft) {
+            logger->info("-- Draft ({} to {})", existing.draft, updated.draft);
+        }
+        if (updated.labels != existing.labels) {
+            logger->info("-- XGMLabels ({} to {})", json(existing.labels).dump(), json(updated.labels).dump());
+        }
+    } else {
+        logger->info("- Message {} has a copy in {} (UID {})", local->id(), folder.path(), updated.uid);
+    }
 
-    if (useFolderPriority && folder.id() != currentFolderId && !currentFolderId.empty()) {
-        bool isUnlinked = local->remoteUID() > UINT32_MAX - 5;
+    json before = local->toJSON();
+    string displaced = store->upsertPlacement(*local, folder, updated.uid, updated);
 
-        if (isUnlinked) {
-            // Message was unlinked (deleted from current folder) - allow reclaim
-            logger->info("- Message {} was unlinked, allowing reclaim by folder {}",
-                        local->id(), folder.path());
-        } else {
-            int newPriority = MailUtils::priorityForFolderRole(folder.role());
-            int currentPriority = MailUtils::priorityForFolderRole(currentRole);
-
-            if (newPriority < currentPriority) {
-                // New folder has higher priority (lower number) - allow upgrade
-                logger->info("- Message {} upgrading from {} ({}) to {} ({})",
-                            local->id(), currentFolderId, currentRole, folder.id(), folder.role());
-            } else {
-                // Current folder has equal or higher priority - block folder change
-                logger->info("- Message {} staying in {} (priority {}), ignoring folder {} (priority {})",
-                            local->id(), currentFolderId, currentPriority, folder.id(), newPriority);
-                return;
-            }
+    if (_isGmail) {
+        string role = folder.role();
+        if (role == "all" || role == "spam" || role == "trash") {
+            store->removePlacementsOutsideFolder(*local, folder.id());
         }
     }
 
-    bool noChanges = true;
-    if (updated.unread != local->isUnread()) {
-        if (noChanges) logger->info("- Updating message {}", local->id());
-        logger->info("-- Unread ({} to {})", local->isUnread(), updated.unread);
-        noChanges = false;
-    }
-    if (updated.starred != local->isStarred()) {
-        if (noChanges) logger->info("- Updating message {}", local->id());
-        logger->info("-- Starred ({} to {})", local->isStarred(), updated.starred);
-        noChanges = false;
-    }
-    if (updated.draft != local->isDraft()) {
-        if (noChanges) logger->info("- Updating message {}", local->id());
-        logger->info("-- Starred ({} to {})", local->isDraft(), updated.draft);
-        noChanges = false;
-    }
-    if (updated.uid != local->remoteUID()) {
-        if (noChanges) logger->info("- Updating message {}", local->id());
-        logger->info("-- UID ({} to {})", local->remoteUID(), updated.uid);
-        noChanges = false;
-    }
-    if (folder.id() != local->remoteFolderId()) {
-        if (noChanges) logger->info("- Updating message {}", local->id());
-        logger->info("-- FolderID ({} to {})", local->remoteFolderId(), folder.id());
-        noChanges = false;
-    }
-    if (jlabels != local->remoteXGMLabels()) {
-        if (noChanges) logger->info("- Updating message {}", local->id());
-        logger->info("-- XGMLabels ({} to {})", local->remoteXGMLabels().dump(), jlabels.dump());
-        noChanges = false;
+    // Only a change the client can see is worth a persist delta and a thread update; a
+    // second copy's flags or a UIDVALIDITY relink may have changed the row alone.
+    store->refreshMessageFromPlacements(*local);
+    if (local->toJSON() != before) {
+        logger->info("-- Folders now {}", local->folders().dump());
+        if (!locked) {
+            local->setSyncedAt(syncDataTimestamp);
+        }
+        store->save(local.get());
     }
 
-    if (noChanges) {
+    saveDisplacedMessage(displaced);
+
+    transaction.commit();
+    return local;
+}
+
+// A (folder, UID) row taken over from another message leaves that message's snapshot
+// listing a copy it no longer has. Losing its last row makes it an orphan like any other
+// vanished copy, swept at the end of the pass unless another folder turns it up.
+void MailProcessor::saveDisplacedMessage(const string & messageId) {
+    if (messageId.empty()) {
         return;
     }
-
-    {
-        MailStoreTransaction transaction{store, "updateMessage"};
-    
-        local->setUnread(updated.unread);
-        local->setStarred(updated.starred);
-        local->setDraft(updated.draft);
-        local->setRemoteUID(updated.uid);
-        local->setRemoteFolder(&folder);
-        local->setSyncedAt(syncDataTimestamp);
-        local->setClientFolder(&folder);
-        local->setRemoteXGMLabels(jlabels);
-        
-        // Save the message - this will automatically find and update the counters
-        // on the thread we just created. Kind of a shame to find it twice but oh well.
-        store->save(local);
-
-        transaction.commit();
-    }
+    logger->warn("- Message {} lost a placement to another message at the same UID", messageId);
+    refreshMessagesInOpenTransaction({messageId}, UnplacedMessages::KeepAsOrphan);
 }
 
 namespace {
@@ -429,6 +463,17 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
     // enter transaction
     {
         MailStoreTransaction transaction{store, "retrievedMessageBody"};
+
+        // The caller's object predates the body fetch - up to 30 fetches, on the other
+        // worker's schedule - and the message's placements or flags may have changed since.
+        // Saving it would write that stale folders snapshot and unread state over the row,
+        // and no scan repairs the snapshot: scans compare MessageFolder against the server.
+        auto fresh = store->find<Message>(Query().equal("id", message->id()));
+        if (fresh == nullptr) {
+            logger->info("Message {} was removed while its body was fetched, discarding the body.", message->id());
+            return;
+        }
+        message = fresh.get();
         
         // write body to the MessageBodies table
         SQLite::Statement insert(store->db(), "REPLACE INTO MessageBody (id, value, fetchedAt) VALUES (?, ?, datetime('now'))");
@@ -516,87 +561,164 @@ bool MailProcessor::retrievedFileData(File * file, Data * data) {
 #endif
 }
 
-void MailProcessor::unlinkMessagesMatchingQuery(Query & query, int phase)
+void MailProcessor::deleteVanishedPlacements(Folder & folder, const vector<uint32_t> & uids)
 {
-    // Note: This method may be called with a Query() returning the entire folder
-    // in case of UIDInvalidity. Loading + saving is super inefficient in this rare case,
-    // but the field is currently both in the JSON and in a separate column. In the future
-    // we may want to make the column the sole source of truth, but it looks like a
-    // complicated change because _data is used for cloning models, etc and inflation
-    // is very abstracted.
-    
-    logger->info("Unlinking messages {} no longer present in remote range.", query.getSQL());
-    
+    logger->info("Deleting {} UIDs no longer present in {}.", uids.size(), folder.path());
+    vector<string> affected;
     {
-        MailStoreTransaction transaction{store, "unlinkMessagesMatchingQuery"};
-
-        auto deletedMsgs = store->findAll<Message>(query);
-        bool logSubjects = deletedMsgs.size() < 20;
-
-        logger->info("-- {} matches.", deletedMsgs.size());
-
-        for (const auto msg : deletedMsgs) {
-            if (msg->remoteUID() > UINT32_MAX - 5) {
-                // we unlinked this message in a previous cycle and it will be deleted momentarily.
-                continue;
-            }
-
-            // don't spam the logs when a zillion messages are being deleted
-            if (logSubjects) {
-                logger->info("-- Unlinking \"{}\" ({})", msg->subject(), msg->id());
-            }
-            // Only remoteUID is changing, which doesn't affect thread counters
-            // (not in MessageSnapshot). Skip the expensive afterSave thread update.
-            msg->_skipThreadUpdatesAfterSave = true;
-            msg->setRemoteUID(UINT32_MAX - phase);
-            store->save(msg.get());
-        }
-
-        // we know we don't need to emit this change because the client can't see the remoteUID,
-        // the only change that we make here.
-        store->unsafeEraseTransactionDeltas();
+        MailStoreTransaction transaction{store, "deleteVanishedPlacements"};
+        affected = store->deleteVanishedPlacements(folder, uids);
         transaction.commit();
+    }
+    refreshMessages(affected, UnplacedMessages::KeepAsOrphan, "deleteVanishedPlacements");
+}
+
+void MailProcessor::deleteVanishedPlacements(Folder & folder, Query & uidQuery)
+{
+    logger->info("Deleting UIDs matching {} no longer present in {}.", uidQuery.getSQL(), folder.path());
+    vector<string> affected;
+    {
+        MailStoreTransaction transaction{store, "deleteVanishedPlacements"};
+        affected = store->deleteVanishedPlacements(folder, uidQuery);
+        transaction.commit();
+    }
+    refreshMessages(affected, UnplacedMessages::KeepAsOrphan, "deleteVanishedPlacements");
+}
+
+void MailProcessor::deleteUnassignedPlacements(Folder & folder)
+{
+    vector<string> affected;
+    {
+        MailStoreTransaction transaction{store, "deleteUnassignedPlacements"};
+        affected = store->deleteUnassignedPlacements(folder);
+        transaction.commit();
+    }
+    if (affected.size() > 0) {
+        logger->info("Deleted {} copies in {} the UIDVALIDITY rebuild did not find.", affected.size(), folder.path());
+    }
+    refreshMessages(affected, UnplacedMessages::KeepAsOrphan, "deleteUnassignedPlacements");
+}
+
+/*
+ Catches each message's snapshot up with its rows, in transactions of 100 so a mass change
+ does not hold the database for the whole batch. `inTransaction`, when given, runs first in
+ each chunk's transaction and returns the ids to refresh: it is where a caller deletes the
+ rows or re-checks a condition under the lock, so the change and the snapshots commit
+ together. `pause` gives the client time to keep up with a mass deletion.
+ */
+void MailProcessor::refreshMessages(const vector<string> & messageIds, UnplacedMessages unplaced, const string & transactionName,
+                                    const RefreshChunkStep & inTransaction, std::chrono::milliseconds pause)
+{
+    if (messageIds.empty()) {
+        return;
+    }
+    bool logSubjects = messageIds.size() < 20;
+    vector<string> ids = messageIds;
+    for (auto chunk : MailUtils::chunksOfVector(ids, 100)) {
+        int removed = 0;
+        size_t refreshed = 0;
+        {
+            MailStoreTransaction transaction{store, transactionName};
+            vector<string> refresh = inTransaction ? inTransaction(chunk) : chunk;
+            refreshed = refresh.size();
+            removed = refreshMessagesInOpenTransaction(refresh, unplaced, logSubjects);
+            transaction.commit();
+        }
+        if (unplaced == UnplacedMessages::Remove) {
+            logger->info("-- Deleted {} local messages, {} kept copies elsewhere", removed, refreshed - removed);
+        }
+        if (pause.count() > 0) {
+            std::this_thread::sleep_for(pause);
+        }
     }
 }
 
-void MailProcessor::deleteMessagesStillUnlinkedFromPhase(int phase)
+/*
+ The caller owns the transaction so a row change and the messages it affects commit
+ together. A message with no rows is either kept as an orphan (its snapshot empties and
+ refreshMessageFromPlacements records it) or, with UnplacedMessages::Remove, goes through
+ store->remove so Message::afterRemove balances the thread and deletes the body, metadata
+ and orphan record; the check runs inside the transaction so a copy the other worker
+ records meanwhile keeps its message. A message whose snapshot did not change is not saved,
+ so the client gets no persist for a version bump alone. Returns how many were removed.
+ */
+int MailProcessor::refreshMessagesInOpenTransaction(const vector<string> & messageIds, UnplacedMessages unplaced, bool logSubjects)
 {
-    bool more = true;
-    int chunkSize = 100;
-    int iterations = 0;
-    
-    // If the user deletes (and we unlink) a zillion messages, we:
-    //
-    // - Delete 100 per transaction to avoid creating a very long-running transaction
-    //
-    // - Bail after 10 iterations. There's really no harm in deleting messages slowly
-    //   since we've unlinked them and they're not visible in the client. We might
-    //   even discover we want them again after all in a large new folder we're pulling
-    //   down in chunks.
-
-    while (more && iterations < 10) {
-        MailStoreTransaction transaction{store, "deleteMessagesStillUnlinked"};
-        iterations ++;
-
-        auto q = Query().equal("accountId", account->id()).equal("remoteUID", UINT32_MAX - phase).limit(chunkSize);
-        auto messages = store->findAll<Message>(q);
-        if (messages.size() < chunkSize){
-            more = false;
-        }
-        
-        if (messages.size()) {
-            logger->info("-- Removing {} unlinked messages", messages.size());
-        }
-        for (auto const & msg : messages) {
-            if (iterations == 1 && !more) { // only log subjects if <100 total
-                logger->info("-- Removing \"{}\" ({})", msg->subject(), msg->id());
+    int removed = 0;
+    if (messageIds.empty()) {
+        return removed;
+    }
+    vector<string> ids = messageIds;
+    auto messages = store->findAll<Message>(Query().equal("id", ids));
+    for (auto & msg : messages) {
+        json before = msg->toJSON();
+        store->refreshMessageFromPlacements(*msg);
+        if (unplaced == UnplacedMessages::Remove && msg->folders().empty()) {
+            if (logSubjects) {
+                logger->info("-- Removing \"{}\" ({}), no remaining copies", msg->subject(), msg->id());
             }
             store->remove(msg.get());
+            removed++;
+            continue;
         }
-        
-        // send the deltas
-        transaction.commit();
+        if (msg->toJSON() == before) {
+            continue;
+        }
+        if (logSubjects) {
+            logger->info("-- \"{}\" ({}) now in {}", msg->subject(), msg->id(), msg->folders().dump());
+        }
+        store->save(msg.get());
     }
+    return removed;
+}
+
+/*
+ Detaches every copy in a folder that is gone from the server (deleted, or emptied by
+ ExpungeAllInFolder) and catches the messages up chunk by chunk: a message whose only copy
+ was there is removed right away, one with copies elsewhere just loses this folder.
+
+ Deleting all of the folder's rows first and rewriting the messages afterwards would leave
+ a window - minutes wide when a large Trash is emptied with a pause between chunks - in
+ which a quit or a crash strands messages with copies elsewhere whose snapshot still lists
+ the folder: nothing would revisit them.
+ */
+void MailProcessor::detachMessagesFromFolder(string folderId, std::chrono::milliseconds pause)
+{
+    refreshMessages(store->messageIdsWithPlacementsInFolder(folderId), UnplacedMessages::Remove, "detachMessagesFromFolder",
+                    [&](const vector<string> & chunk) {
+                        store->deletePlacementsForFolder(folderId, chunk);
+                        return chunk;
+                    }, pause);
+}
+
+/*
+ End-of-pass sweep. SyncWorker::syncNow picks `before` so that every folder has been
+ scanned in full since a message orphaned before it (except a folder that has gone
+ unscanned for longer than ORPHAN_SWEEP_MAX_WAIT), so a copy that moved elsewhere has
+ already been recorded and cleared its orphan record
+ (MailStore::refreshMessageFromPlacements). What is still listed is removed. `before` is
+ 0 while a folder still in initial sync has never been fully scanned, and earlier than
+ `passStartedAt` when a folder was not covered in full this pass.
+ */
+void MailProcessor::sweepExpiredOrphans(time_t before, time_t passStartedAt)
+{
+    if (before == 0) {
+        logger->info("Orphan sweep skipped: a folder still in initial sync has not been fully scanned since launch.");
+        return;
+    }
+    if (before < passStartedAt) {
+        logger->info("Orphan sweep limited to messages orphaned more than {}s before this pass: a folder was skipped, still in initial sync, or had a fetch truncated.", passStartedAt - before);
+    }
+    vector<string> candidates = store->orphanMessageIdsBefore(account->id(), before);
+    if (candidates.empty()) {
+        return;
+    }
+    logger->info("Sync loop removing {} messages left with no copies.", candidates.size());
+    // The foreground worker can revive and re-orphan a candidate while earlier chunks run,
+    // restarting its grace period, so its record is re-read under the lock.
+    refreshMessages(candidates, UnplacedMessages::Remove, "sweepExpiredOrphans", [&](const vector<string> & chunk) {
+        return store->orphanMessageIdsBefore(account->id(), before, chunk);
+    });
 }
 
 void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull) {
@@ -700,7 +822,7 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
 void MailProcessor::upsertContacts(Message * message) {
     // As of Mailspring 1.7, we no longer keep around Contacts that you've never
     // sent email to. We actually never really did anything with these.
-    if (!message->isSentByUser()) {
+    if (!message->isSentByUser(store)) {
         return;
     }
     

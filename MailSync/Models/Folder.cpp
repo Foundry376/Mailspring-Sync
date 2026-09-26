@@ -10,6 +10,7 @@
 //
 
 #include "Folder.hpp"
+#include "Message.hpp"
 #include "MailUtils.hpp"
 #include "MailStore.hpp"
 
@@ -78,6 +79,9 @@ void Folder::beforeSave(MailStore * store) {
     }
 }
 
+// The folder's placements are not deleted here: the caller detaches them first, in bounded
+// transactions, since a folder can hold every message of the account (see
+// SyncWorker::syncFoldersAndLabels).
 void Folder::afterRemove(MailStore * store) {
     MailModel::afterRemove(store);
 

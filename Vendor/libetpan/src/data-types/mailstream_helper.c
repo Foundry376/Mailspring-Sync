@@ -102,8 +102,13 @@ char * mailstream_read_line_append(mailstream * stream, MMAPString * line)
       if (r == -1)
         return NULL;
 
+      /* Mailspring: EOF before the line terminator means the peer closed the connection
+         (no BYE: a NAT or proxy dropping the flow, Cyrus on SIGTERM). Report it as a
+         stream error: handed the empty or truncated line, the IMAP parser fails with
+         MAILIMAP_ERROR_PARSE, which mailcore reports as a malformed response rather
+         than a lost connection. */
       if (r == 0)
-        break;
+        return NULL;
     }
   }
   while (1);

@@ -1,0 +1,35 @@
+name: connection-dropped-during-command
+description: >
+  The background worker's connection closes without a BYE while its folder LIST is in
+  flight, as when a laptop wakes onto stale sockets or a NAT drops the flow. The engine must
+  report it as a connection error (the client's offline state), not a parse error, and its
+  next attempt after the retry sleep must reconnect and finish the pass.
+source: >
+  Live test 2026-09-24 (Exchange, Fastmail, Gmail, Yahoo): on a DarkWake every account's
+  `LIST "" "*"` failed with ErrorParse and zero response bytes, so the client never showed
+  its connection-error state. libetpan's mailstream_read_line_append returned an empty line
+  at EOF and the IMAP parser rejected it.
+servers:
+  # The fake closes the connection at the LIST itself; the others drop every connection
+  # while the background worker sleeps, so its next command after the wake meets a closed
+  # socket (Cyrus: EOF without BYE, as Fastmail; Dovecot sends BYE first).
+  - {fake: dovecot}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 20}
+  Archive: {messages: 5}
+steps:
+  - wait: quiescent
+  - server.drop_connections: {at: {hook: before_command, session: background, command: "LIST"}}
+  - client.wake: {}
+  - wait: {log: "^--sleeping"}
+  - server.append: {mailbox: Archive, messages: 2}
+  # No wake: quiescence needs the background worker's `Sync loop complete.`, which only the
+  # retry after the 120 s sleep can log.
+  - wait: {quiescent: true, timeout: 200}
+expect:
+  running: true
+  connection_error: {reported: true, cleared: true}
+  db_matches_server: {}
+  counts: {INBOX: 20, Archive: 7}

@@ -1,0 +1,72 @@
+name: undo-move-restores-placements
+description: >
+  Two self-addressed messages have placements in INBOX and Sent. From the Inbox perspective
+  the user archives the first: the ChangeFolderTask carries sourceFolderIds = [INBOX], so
+  only the INBOX copy moves to Archive and the Sent copy stays. The engine records the
+  folder each moved copy was shown in as undoPlacements during its local phase; the undo
+  task (same message ids, restorePlacements = that map, sourceFolderIds = [Archive]) must
+  move the copy back: server and database show INBOX + Sent again and Archive empty. The
+  user then trashes the second message, which takes both copies, and undoes that. Its
+  INBOX copy is unread and its Sent copy read, so the copies are told apart by their flags:
+  the unread one must go back to INBOX and the read one to Sent, on the server. Nothing may
+  flap.
+source: "Office 365, copies restored swapped after an undo of a trash (2026-09); docs/message-placements-plan.md 3.1 (sourceFolderIds) and 3.3 (engine writes undoPlacements; client copies it to restorePlacements); TaskProcessor.cpp _restoreMovesForMessage; client change-folder-task.ts createUndoTasks"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+  - {dovecot: plain}
+  - {cyrus: fastmail}
+  - {cyrus: plain}
+mailboxes:
+  INBOX: {messages: 8}
+  Sent: {messages: 2}
+  Archive: {messages: 3}
+  Trash: {messages: 1}
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 2, self_addressed: true}}
+  - server.duplicate: {mailbox: INBOX, uids: "9:10", to: Sent}
+  - server.flags: {mailbox: INBOX, uids: [10], remove: ["\\Seen"]}
+steps:
+  - wait: quiescent
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [9]}, folder: Archive, sourceFolders: [INBOX]}
+    as: archive
+  - wait: {task: archive, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      server_counts: {INBOX: 9, Sent: 4, Archive: 4}
+      counts: {INBOX: 9, Sent: 4, Archive: 4}
+      db_matches_server: {}
+  - client.undo_task: {of: archive}
+    as: undo_archive
+  - wait: {task: undo_archive, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      server_counts: {INBOX: 10, Sent: 4, Archive: 3}
+      counts: {INBOX: 10, Sent: 4, Archive: 3}
+      db_matches_server: {}
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [10]}, folder: Trash, sourceFolders: [INBOX]}
+    as: trash
+  - wait: {task: trash, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      server_counts: {INBOX: 9, Sent: 3, Trash: 3}
+      counts: {INBOX: 9, Sent: 3, Trash: 3}
+      db_matches_server: {}
+  - client.undo_task: {of: trash}
+    as: undo_trash
+  - wait: {task: undo_trash, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  server_has:
+    INBOX: [{message_id: "<harness-16-7a8ab980@example.test>", flags: []}]
+    Sent: [{message_id: "<harness-16-7a8ab980@example.test>", flags: ["\\Seen"]}]
+  server_counts: {INBOX: 10, Sent: 4, Archive: 3, Trash: 1}
+  counts: {INBOX: 10, Sent: 4, Archive: 3, Trash: 1}
+  db_matches_server: {}
+  stable: {passes: 2}
+  running: true

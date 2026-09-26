@@ -1,0 +1,36 @@
+name: modseq-truncation
+description: >
+  On a CONDSTORE/QRESYNC server, another client changes flags on 4200 of a 5000-message
+  INBOX one message at a time while the engine is idle, so HIGHESTMODSEQ advances by more
+  than MODSEQ_TRUNCATION_THRESHOLD (4000) since the engine's stored modseq. The engine must
+  not ask for the entire CHANGEDSINCE result (which could block the foreground worker);
+  instead it bounds the request to the newest MODSEQ_TRUNCATION_UID_COUNT (12000) UIDs and
+  relies on the deep gap scan for the rest. Here every UID is within that window, so the
+  bounded request plus the forced gap scan must still bring every flag into agreement with
+  the server, and nothing may flap. age_days keeps bodies from being prefetched.
+source: "SyncWorker.cpp:1209 (remoteModseq - modseq > MODSEQ_TRUNCATION_THRESHOLD; 'request limited to N:M'); MODSEQ_TRUNCATION_THRESHOLD 4000 / MODSEQ_TRUNCATION_UID_COUNT 12000"
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: {count: 5000, age_days: 60}}
+steps:
+  - wait: {quiescent: true, timeout: 300}
+  # Change 4200 flags one message at a time while the engine is stopped, so it comes back to
+  # a HIGHESTMODSEQ that has jumped by >4000 in one step (the "app was closed for a while"
+  # case) rather than following each change live over IDLE.
+  - restart:
+      timeout: 300
+      before:
+        - server.flags: {mailbox: INBOX, uids: "1:4200", add: ["\\Flagged"], per_message: true}
+  - wait: {log: "request limited to", timeout: 120}
+  - wait: {quiescent: true, timeout: 200}
+  - force_scans: {timeout: 300}
+expect:
+  log_present: ["request limited to \\d+:\\d+, remaining changes will be detected via deep scan"]
+  db_matches_server: {flags: true}
+  counts: {INBOX: 5000}
+  folder_status: {INBOX: {busy: false, syncedMinUID: 1}}
+  stable: {passes: 1}
+  running: true

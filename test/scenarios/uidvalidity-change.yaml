@@ -1,0 +1,26 @@
+name: uidvalidity-change
+description: >
+  The server rebuilds a mailbox and hands out a new UIDVALIDITY. Every local message in that
+  folder must be re-mapped to its new UID (fake) or kept at its old UID under the new
+  validity (Dovecot, where doveadm changes the value without renumbering) without loss.
+source: SyncWorker.cpp UIDVALIDITY handling; PR #140 (truncated rebuild re-loop)
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 80}
+  Archive: {messages: 10}
+steps:
+  - wait: quiescent
+  - server.set_uidvalidity: {mailbox: INBOX, value: 987654}
+  - sync: pass
+  - sync: pass
+expect:
+  # Dovecot disconnects the idling session when the mailbox's UIDVALIDITY changes; the
+  # engine used to segfault in mailcore takeVanishedMessages there (fixed in 6c1395e).
+  running: true
+  db_matches_server: {}
+  counts: {INBOX: 80, Archive: 10}
+  stable: {passes: 1}

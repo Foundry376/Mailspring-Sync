@@ -17,6 +17,7 @@
 #include <atomic>
 #include <iostream>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 #include <MailCore/MailCore.h>
@@ -36,14 +37,22 @@ class SyncWorker {
     MailProcessor * processor;
     shared_ptr<spdlog::logger> logger;
 
-    int unlinkPhase;
     std::atomic<bool> idleShouldReloop{false};
+    bool idleExitedWithError = false;
     int iterationsSinceLaunch = 0;
 
     // Per-folder count of messages the last truncated full-folder scan still needed, used to tell
     // a draining backlog (count falls each pass) from one that can never drain (count stays put).
     // Not persisted: it only has to survive between iterations of the same process.
     std::map<std::string, size_t> lastTruncatedScanNeeded {};
+
+    // Per-folder start of the last pass whose scan covered the folder's whole range, which
+    // bounds how old an orphan must be before the sweep may remove it (see syncNow). Not
+    // persisted: after a relaunch a folder counts as never covered, which only makes the
+    // sweep wait longer. Writing it to localStatus would persist every folder on every pass.
+    std::map<std::string, time_t> folderCoveredAt {};
+    std::set<std::string> foldersPastOrphanWait {};
+
     vector<string> idleFetchBodyIDs;
     std::mutex idleMtx;
     std::condition_variable idleCv;
@@ -80,6 +89,11 @@ private:
     void removeDuplicateFolders(Array * remoteFolders);
 
     bool initialSyncFolderIncremental(Folder & folder, IMAPFolderStatus & remoteStatus);
+
+    // Writes every localStatus key that "this folder is fully synced and idle" implies, for a
+    // folder the worker deliberately never scans. Not for the end of a real pass, where `busy`
+    // reflects work left behind.
+    void markFolderStatusSynced(json & localStatus, IMAPFolderStatus & remoteStatus);
         
     // Result of syncing a UID range. `truncated` is set when the range contained more
     // messages needing full headers than we were willing to request at once; in that case
@@ -98,7 +112,16 @@ private:
     // once a scan completes cleanly, so it must be called for every full-folder scan result.
     bool shouldRetryTruncatedScan(Folder & folder, UIDRangeSyncResult const & scan);
 
-    UIDRangeSyncResult syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<shared_ptr<Message>> * syncedMessages = nullptr);
+    // A message ingested from a range scan, with the UID it was seen at in that folder so
+    // callers can order body fetches newest-first without asking the message for a UID.
+    struct SyncedMessage {
+        shared_ptr<Message> message;
+        uint32_t uid;
+    };
+
+    UIDRangeSyncResult syncFolderUIDRange(Folder & folder, Range range, bool heavyInitialRequest, vector<SyncedMessage> * syncedMessages = nullptr);
+
+    void noopSelectedFolder();
 
     void syncFolderChangesViaCondstore(Folder & folder, IMAPFolderStatus & remoteStatus, bool mustSyncAll);
 
@@ -106,14 +129,14 @@ private:
 
     void cleanMessageCache(Folder & folder);
 
-    void unlinkVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source);
+    void deleteVanishedUIDs(Folder & folder, IndexSet * vanished, const char * source);
     
     long long countBodiesDownloaded(Folder & folder);
     long long countBodiesNeeded(Folder & folder);
     time_t maxAgeForBodySync(Folder & folder);
     bool shouldCacheBodiesInFolder(Folder & folder);
     bool syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
-    void syncMessageBody(Message * message);
+    void syncMessageBody(Message * message, Folder * preferredFolder);
 };
 
 

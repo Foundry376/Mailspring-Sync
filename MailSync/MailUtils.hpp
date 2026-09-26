@@ -54,7 +54,8 @@ public:
 
     static vector<uint32_t> uidsOfArray(Array * array);
     
-    static vector<Query> queriesForUIDRangesInIndexSet(string remoteFolderId, IndexSet * set);
+    // Builds queries over MessageFolder (folderId, remoteUID) covering every UID in the set.
+    static vector<Query> queriesForUIDRangesInIndexSet(string folderId, IndexSet * set);
 
     static string pathForFile(string root, File * file, bool create);
 
@@ -64,7 +65,6 @@ public:
     static string roleForFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
-    static int priorityForFolderRole(const string & role);
 
     static void setBaseIDVersion(time_t identityCreationDate);
 
@@ -109,17 +109,19 @@ public:
     static void sleepWorkerUntilWakeOrSec(int sec);
     static void wakeAllWorkers();
 
+    // Consumes `v`. Slices by index: erasing consumed elements from the front is
+    // quadratic on the account-sized id lists that folder removal and expunge-all produce.
     template<typename T>
     static vector<vector<T>> chunksOfVector(vector<T> & v, size_t chunkSize) {
         vector<vector<T>> results{};
-        
-        while (v.size() > 0) {
-            auto from = v.begin();
-            auto to = v.size() > chunkSize ? from + chunkSize : v.end();
-            
+        results.reserve((v.size() + chunkSize - 1) / chunkSize);
+
+        for (size_t offset = 0; offset < v.size(); offset += chunkSize) {
+            auto from = v.begin() + offset;
+            auto to = (v.size() - offset > chunkSize) ? from + chunkSize : v.end();
             results.push_back(vector<T>{std::make_move_iterator(from), std::make_move_iterator(to)});
-            v.erase(from, to);
         }
+        v.clear();
         return results;
     }
 };

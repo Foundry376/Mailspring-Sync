@@ -1,0 +1,33 @@
+name: remote-move-destination-scanned-first
+description: >
+  Another client moves messages into a folder the engine scans BEFORE the folder they came
+  from, so the engine learns "present in B" before "gone from A" - the reverse of
+  remote-move-to-archive. The background worker visits folders in role order (inbox, sent,
+  drafts, all, archive, trash, spam, then unroled folders), so a move Projects -> Archive is
+  seen as an Archive arrival first and a Projects VANISHED later in the same pass; a move
+  Archive -> INBOX is seen by the foreground IDLE connection as an INBOX arrival long before
+  the background pass finds the Archive copy gone. Either way the message must gain the new
+  placement and lose the old one without ever being deleted and re-created.
+source: "docs/message-placements-plan.md 2.5 (orphans and the end-of-pass sweep: either folder may be scanned first); SyncWorker.cpp roleOrder sort in syncNow; handoff-refactor-regression.md 5.1"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 20}
+  Archive: {messages: 10}
+  Projects: {messages: 30}
+steps:
+  - wait: quiescent
+  - server.move: {mailbox: Projects, uids: "1:5", to: Archive}
+  - wait: {seconds: 1}
+  - server.move: {mailbox: Archive, uids: "1:3", to: INBOX}
+  - wait: {quiescent: true}
+  - force_scans: {}
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 23, Archive: 12, Projects: 25}
+  deltas: {Message: {unpersist: 0}}
+  stable: {passes: 1}
+  running: true

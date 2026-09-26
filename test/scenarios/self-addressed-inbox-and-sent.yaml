@@ -1,0 +1,25 @@
+name: self-addressed-inbox-and-sent
+description: >
+  Mail the user sent to themself - SMTP delivered it to INBOX and the client saved a copy to
+  Sent, so the same bytes legitimately live in both folders. Today's single-folder model can
+  only place the message once (expected to fail until message placements land); what must
+  already hold is that the two copies do not flap between folders on every pass.
+source: "docs/message-placements-plan.md (Office 365: 495 folder flips in 25 min; Yahoo likewise); 0df7864"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+  - {cyrus: default-ns}
+mailboxes:
+  INBOX: {messages: 20}
+  Sent: {messages: 5}
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 6, self_addressed: true}}
+  - server.duplicate: {mailbox: INBOX, uids: "21:26", to: Sent}
+steps:
+  - wait: quiescent
+expect:
+  stable: {passes: 3}
+  db_matches_server: {}
+  running: true

@@ -13,6 +13,8 @@
 #define MailProcessor_hpp
 
 #include <stdio.h>
+#include <chrono>
+#include <functional>
 
 #include <MailCore/MailCore.h>
 #include <SQLiteCpp/SQLiteCpp.h>
@@ -31,22 +33,47 @@
 using namespace mailcore;
 using namespace std;
 
+// What refreshing a message's snapshot does with a message left with no rows.
+enum class UnplacedMessages {
+    KeepAsOrphan, // recorded in MessageOrphan for the end-of-pass sweep
+    Remove,       // its copies are gone for good; store->remove cleans up after it
+};
+
+// Runs first inside each chunk's transaction and returns the ids to refresh.
+typedef std::function<vector<string>(const vector<string> & chunk)> RefreshChunkStep;
+
 class MailProcessor {
     MailStore * store;
     shared_ptr<Account> account;
     shared_ptr<spdlog::logger> logger;
+    bool _isGmail = false;
 
 public:
     MailProcessor(shared_ptr<Account> account, MailStore * store);
+
+    // Set by the owning worker once its session has logged in and knows the capabilities.
+    void setIsGmail(bool isGmail);
     shared_ptr<Message> insertFallbackToUpdateMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
     shared_ptr<Message> insertMessage(IMAPMessage * mMsg, Folder & folder, time_t syncDataTimestamp);
-    void updateMessage(Message * local, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp);
+    shared_ptr<Message> updateMessage(const string & messageId, IMAPMessage * remote, Folder & folder, time_t syncDataTimestamp);
     void retrievedMessageBody(Message * message, MessageParser * parser);
     bool retrievedFileData(File * file, Data * data);
-    void unlinkMessagesMatchingQuery(Query & query, int phase);
-    void deleteMessagesStillUnlinkedFromPhase(int phase);
-    
+
+    // Placement bookkeeping for copies the server no longer reports.
+    void deleteVanishedPlacements(Folder & folder, const vector<uint32_t> & uids);
+    void deleteVanishedPlacements(Folder & folder, Query & uidQuery);
+    void deleteUnassignedPlacements(Folder & folder);
+    void sweepExpiredOrphans(time_t before, time_t passStartedAt);
+    void detachMessagesFromFolder(string folderId, std::chrono::milliseconds pause = std::chrono::milliseconds(0));
+
+    // Catching snapshots up with rows a caller already changed.
+    void refreshMessages(const vector<string> & messageIds, UnplacedMessages unplaced, const string & transactionName,
+                         const RefreshChunkStep & inTransaction = nullptr,
+                         std::chrono::milliseconds pause = std::chrono::milliseconds(0));
+    int refreshMessagesInOpenTransaction(const vector<string> & messageIds, UnplacedMessages unplaced, bool logSubjects = true);
+
 private:
+    void saveDisplacedMessage(const string & messageId);
     void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
     void upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references);
     void upsertContacts(Message * message);

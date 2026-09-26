@@ -709,6 +709,11 @@ void IMAPSession::unsetup()
     // before it is, so anything still undrained here is not safe to keep.
     mVanishedMessages->removeAllObjects();
 
+    // Nothing is selected on the next connection until select() runs. Left set, this makes
+    // collectVanishedFromLastResponse() read the reconnect's LOGIN/NAMESPACE response as if
+    // it belonged to a selected mailbox.
+    MC_SAFE_RELEASE(mCurrentFolder);
+
     mState = STATE_DISCONNECTED;
 }
 
@@ -1461,12 +1466,20 @@ void IMAPSession::noop(ErrorCode * pError)
     if (mImap->imap_stream != NULL) {
         r = mailimap_noop(mImap);
         if (r == MAILIMAP_ERROR_STREAM) {
+            // Note: like every other command here, so the next call reconnects instead of
+            // reusing a connection the server has closed (Dovecot's BYE on UIDVALIDITY change).
+            mShouldDisconnect = true;
             * pError = ErrorConnection;
         }
         if (r == MAILIMAP_ERROR_NOOP) {
             * pError = ErrorNoop;
         }
     }
+}
+
+String * IMAPSession::currentFolder()
+{
+    return mCurrentFolder;
 }
 
 #pragma mark mailbox flags conversion
@@ -2117,10 +2130,17 @@ void IMAPSession::moveMessages(String * folder, IndexSet * uidSet, String * dest
 }
 
 void IMAPSession::findUIDsOfRecentHeaderMessageID(String * folder, String * headerMessageID, IndexSet * uids) {
-    IndexSet * set = new IndexSet();
+    IndexSet * set = IndexSet::indexSet();
     ErrorCode err;
 
-    selectIfNeeded(folder, &err);
+    // Always re-SELECT: mFolderMsgCount is captured by select() alone and an untagged EXISTS
+    // does not refresh it, so on a folder this session already had selected the range below
+    // would stop short of a copy the SMTP gateway filed after that SELECT - on every retry.
+    loginIfNeeded(&err);
+    if (err != ErrorNone) {
+        return;
+    }
+    select(folder, &err);
     if (err != ErrorNone) {
         return;
     }
@@ -4436,6 +4456,32 @@ void IMAPSession::capabilitySetWithSessionState(IndexSet * capabilities)
     applyCapabilities(capabilities);
 }
 
+uint32_t IMAPSession::messageLimit()
+{
+    if (mImap == NULL || mImap->imap_connection_info == NULL ||
+        mImap->imap_connection_info->imap_capability == NULL) {
+        return 0;
+    }
+    clist * caps = mImap->imap_connection_info->imap_capability->cap_list;
+    for (clistiter * cur = clist_begin(caps); cur != NULL; cur = clist_next(cur)) {
+        struct mailimap_capability * cap = (struct mailimap_capability *) clist_content(cur);
+        if (cap->cap_type == MAILIMAP_CAPABILITY_NAME && cap->cap_data.cap_name != NULL &&
+            strncasecmp(cap->cap_data.cap_name, "MESSAGELIMIT=", 13) == 0) {
+            return (uint32_t) strtoul(cap->cap_data.cap_name + 13, NULL, 10);
+        }
+    }
+    return 0;
+}
+
+bool IMAPSession::lastResponseHitMessageLimit()
+{
+    // libetpan keeps the last unrecognised response code of each response in rsp_atom, and
+    // replaces imap_response_info for every response, so this reflects only the last command.
+    return mImap != NULL && mImap->imap_response_info != NULL &&
+        mImap->imap_response_info->rsp_atom != NULL &&
+        strcasecmp(mImap->imap_response_info->rsp_atom, "MESSAGELIMIT") == 0;
+}
+
 IndexSet * IMAPSession::storedCapabilities() {
     if (mImap == NULL ||
         mImap->imap_connection_info == NULL ||
@@ -4532,7 +4578,11 @@ void IMAPSession::collectVanishedFromLastResponse()
     if (!mQResyncEnabled || mImap == NULL || mCurrentFolder == NULL) {
         return;
     }
-    if (mImap->imap_response_info == NULL) {
+    // libetpan's extension commands (NAMESPACE, ID, SORT, ACL, ANNOTATEMORE) free the list
+    // and leave it NULL rather than empty after consuming their own response
+    // (libetpan/src/low-level/imap/namespace.c:105-108), and clist_begin() is a macro
+    // that dereferences its argument (libetpan/src/data-types/clist.h:106).
+    if (mImap->imap_response_info == NULL || mImap->imap_response_info->rsp_extension_list == NULL) {
         return;
     }
 

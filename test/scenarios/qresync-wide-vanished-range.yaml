@@ -1,0 +1,22 @@
+name: qresync-wide-vanished-range
+description: >
+  A 101-wide contiguous expunge (UIDs 20-120) reported as a single VANISHED range. Wide
+  ranges take the bounded-range query branch; the lower bound must hold and UID 120 must
+  not be left behind as a ghost.
+source: Mailspring-Sync PR #141 (Query clause-per-column bug; off-by-one on the range end)
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 200}
+steps:
+  - wait: quiescent
+  - server.expunge: {mailbox: INBOX, uids: "20:120"}
+  - wait: {log: "recv \\* VANISHED", timeout: 30}   # Dovecot delivers ~0.5s later; do not race it
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 99}
+  running: true

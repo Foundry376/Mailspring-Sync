@@ -1,0 +1,24 @@
+name: proton-all-mail-duplicates
+description: >
+  ProtonMail Bridge exposes every message twice: in its folder and in an \All "All Mail"
+  mailbox. The \All mailbox must be skipped so messages stay in INBOX and Sent instead of
+  bouncing into All Mail and back on alternate passes.
+source: Mailspring-Sync PR #137 (15 folder reassignments in 7 min before; 0 after)
+servers:
+  - {fake: proton-bridge}
+  - {dovecot: proton-like}
+mailboxes:
+  INBOX: {messages: 25}
+  Sent: {messages: 6}
+setup:
+  - server.duplicate: {mailbox: INBOX, uids: "1:25", to: "All Mail"}
+  - server.duplicate: {mailbox: Sent, uids: "1:6", to: "All Mail"}
+steps:
+  - wait: quiescent
+expect:
+  db_matches_server: {mailboxes: [INBOX, Sent]}
+  counts: {INBOX: 25, Sent: 6, "All Mail": 0}
+  stable: {passes: 3}
+  log_present: ["skipped duplicate"]
+  folder_status: {"All Mail": {busy: false}}
+  running: true

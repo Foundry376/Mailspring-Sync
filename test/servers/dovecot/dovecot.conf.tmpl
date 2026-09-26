@@ -1,0 +1,53 @@
+# Dovecot 2.3 configuration for the mailsync integration harness. Rendered by
+# harness/servers/dovecot.py; the braces are filled per run.
+protocols = imap
+listen = *
+base_dir = {base_dir}/run
+state_dir = {base_dir}/state
+log_path = {base_dir}/dovecot.log
+info_log_path = {base_dir}/dovecot.log
+ssl = {ssl}
+{ssl_lines}
+disable_plaintext_auth = no
+auth_mechanisms = plain login
+mail_location = {mail_location}
+mail_plugins =
+mail_fsync = never
+# maildir learns about appends/expunges made by other processes by polling; the default
+# 30s would make every IDLE scenario wait that long. (Flag changes arrive via inotify
+# regardless.) Measured on 2.3.21: EXISTS/VANISHED at ~45s with the default, ~2s with this.
+mailbox_idle_check_interval = 2 secs
+first_valid_uid = {uid}
+last_valid_uid = {uid}
+mail_uid = {uid}
+mail_gid = {gid}
+
+passdb {{
+  driver = static
+  args = password={password}
+}}
+userdb {{
+  driver = static
+  args = uid={uid} gid={gid} home={mail_dir}
+}}
+
+service imap-login {{
+  inet_listener imap {{
+    port = {port}
+  }}
+  inet_listener imaps {{
+    port = 0
+  }}
+}}
+
+protocol imap {{
+  mail_max_userip_connections = 100
+  imap_idle_notify_interval = 2 mins
+{capability_line}
+}}
+
+namespace inbox {{
+  inbox = yes
+  separator = /
+{mailbox_blocks}
+}}

@@ -1,0 +1,32 @@
+name: orphan-sweep-waits-for-initial-walk
+description: >
+  A self-addressed message has a copy in INBOX and one at the bottom of Big, a 3001-message
+  folder whose initial walk takes several passes (1024 full headers per pass, and the fake
+  holds each of Big's UID FETCH replies for 6s). Another client expunges the INBOX copy as
+  the walk begins, leaving the message an orphan whose only other copy the walk has not
+  reached. The walk outlasts ORPHAN_SWEEP_MAX_WAIT (8s here), but it moves down on every
+  pass, so the sweep keeps waiting for it: the message is never unpersisted, and the walk
+  re-links it to Big with the same id. The held replies and the mid-walk expunge are hooks,
+  so this is fake-only.
+source: "SyncWorker::syncNow recordCoverage walkProgressed / ORPHAN_SWEEP_MAX_WAIT; SyncWorker::syncFolderUIDRange heavyNeededUIDs truncation"
+servers:
+  - {fake: dovecot}
+env:
+  ORPHAN_SWEEP_MAX_WAIT: 8
+mailboxes:
+  INBOX: {messages: 5}
+  Big: {duplicate_of: {mailbox: INBOX, uids: [3]}}
+setup:
+  - server.append: {mailbox: Big, messages: {count: 3000, age_days: 400}}
+  - server.expunge: {mailbox: INBOX, uids: [3], at: {hook: before_command, command: "^UID FETCH", mailbox: Big}}
+  - server.pause: {at: {hook: before_command, command: "^UID FETCH", mailbox: Big, every: true, delay: 6}}
+steps:
+  - wait: {quiescent: true, timeout: 300}
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 4, Big: 3001, total: 3005}
+  deltas: {Message: {unpersist: 0}}
+  log_present: ["Orphan sweep skipped"]
+  log_absent: ["swept without waiting for Big"]
+  folder_status: {Big: {syncedMinUID: 1, busy: false}}
+  running: true

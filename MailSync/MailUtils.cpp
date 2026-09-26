@@ -405,32 +405,6 @@ string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPr
     return "";
 }
 
-int MailUtils::priorityForFolderRole(const string & role) {
-    // Mailspring's data model assumes each message exists in exactly one folder.
-    // However, some providers (notably iCloud) allow the same message to exist in
-    // multiple folders simultaneously. When this happens, we use folder priority
-    // to decide which folder "owns" the message, preventing it from flickering
-    // between folders on each sync cycle. Higher priority folders (lower numbers)
-    // always win, so messages "bubble up" to the most visible location (INBOX).
-    // This order matches the roleOrder array in SyncWorker.cpp:301.
-    static const map<string, int> priorities = {
-        {"inbox", 0},
-        {"sent", 1},
-        {"drafts", 2},
-        {"all", 3},
-        {"archive", 4},
-        {"trash", 5},
-        {"spam", 6}
-    };
-
-    auto it = priorities.find(role);
-    if (it != priorities.end()) {
-        return it->second;
-    }
-    // Custom folders (no role or unknown role) have lowest priority
-    return 100;
-}
-
 string MailUtils::pathForFile(string root, File * file, bool create) {
     string id = file->id();
     transform(id.begin(), id.end(), id.begin(), ::tolower);
@@ -481,7 +455,7 @@ shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_p
     return shared_ptr<Label>{};
 }
 
-vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, IndexSet * set) {
+vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string folderId, IndexSet * set) {
     vector<Query> results {};
     vector<uint32_t> uids {};
     
@@ -504,12 +478,12 @@ vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, In
 
         if (right == UINT64_MAX) {
             // this range has a * upper bound, we need to represent it as a "uid > X" query.
-            results.push_back(Query().equal("remoteFolderId", remoteFolderId).gte("remoteUID", left));
+            results.push_back(Query().equal("folderId", folderId).gte("remoteUID", left));
         } else if (right - left > 50) {
             // this range has many items, just express it as a bounded range query. Both ends
             // are inclusive because IndexSet ranges are. It has to be one BETWEEN clause -
             // Query keys clauses by column, so chaining gte() and lte() drops the lower bound.
-            results.push_back(Query().equal("remoteFolderId", remoteFolderId).betweenInclusive("remoteUID", left, right));
+            results.push_back(Query().equal("folderId", folderId).betweenInclusive("remoteUID", left, right));
         } else {
             // this range has a few items, throw them in a pile and we'll make a few queries for these specific UIDs
             for (uint64_t x = left; x <= right; x ++) {
@@ -520,7 +494,7 @@ vector<Query> MailUtils::queriesForUIDRangesInIndexSet(string remoteFolderId, In
 
     if (uids.size() > 0) {
         for (vector<uint32_t> chunk : MailUtils::chunksOfVector(uids, 200)) {
-            results.push_back(Query().equal("remoteFolderId", remoteFolderId).equal("remoteUID", chunk));
+            results.push_back(Query().equal("folderId", folderId).equal("remoteUID", chunk));
         }
     }
 

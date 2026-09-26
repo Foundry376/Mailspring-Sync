@@ -1,0 +1,27 @@
+name: star-rejected-on-condstore
+description: >
+  The user stars a message and the server rejects the UID STORE. The task fails and its
+  release leaves the copy starred locally while the server copy is not. On a CONDSTORE
+  server the copy's modseq never changed, so CHANGEDSINCE never reports it again; the
+  failure has to schedule the folder's attributes-only gap scan, which finds the flag
+  mismatch on the next pass instead of after the daily interval.
+source: "TaskProcessor::performRemoteChangeOnMessages (a failed flag task resets lastDeep for the folders it addressed); SyncWorker::syncNow CONDSTORE gap scan; RFC 7162 3.1.4 (CHANGEDSINCE reports only messages whose modseq changed)"
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: 8}
+  Archive: {messages: 2}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, session: foreground, command: "^UID STORE"}, code: SERVERBUG, text: "Internal error occurred. Refer to server log for more information."}
+  - client.task: {__cls: ChangeStarredTask, messages: {mailbox: INBOX, uids: [3]}, starred: true}
+    as: star
+  - wait: {task: star, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  db_matches_server: {flags: true}
+  counts: {INBOX: 8, Archive: 2}
+  log_present: ["-X Changing copies in INBOX failed"]
+  stable: {passes: 1}
+  running: true

@@ -68,7 +68,7 @@ public:
     string categoriesSearchString();
 
     void resetCountedAttributes();
-    void applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> allLabels);
+    void applyMessageAttributeChanges(MessageSnapshot & old, Message * next, MailStore * store);
     void upsertReferences(SQLite::Database & db, string headerMessageId, mailcore::Array * references);
 
     string tableName();
@@ -78,6 +78,8 @@ public:
     void afterRemove(MailStore * store);
 
 private:
+    void adjustFolderRefs(MailStore * store, json & folderBits, int delta);
+    void adjustLabelRefs(vector<shared_ptr<Label>> & allLabels, json & labelNames, int delta, bool unreadInAllMail);
     map<string, bool> captureCategoryIDs();
     void captureInitialState();
     void addMissingParticipants(std::map<std::string, bool> & existing, json & incoming);

@@ -31,17 +31,23 @@ class MailStore;
 class Message;
 
 // Snapshot concept
+//
+// The state of a message that contributes to its thread's counters, captured when the
+// message is loaded and compared against the message after a save so the thread can be
+// updated by diff. `folders` is the { folderId: flagBits } map from the message JSON, so
+// capturing it costs no query.
 
+// `unread`/`starred` are the message-level flags behind the thread's counters and per-label
+// `_u`; they survive an orphan's empty `folders`, whose bits drive only the per-folder `_u`.
 struct MessageSnapshot {
     bool unread;
     bool starred;
-    bool inAllMail;
     size_t fileCount;
-    json remoteXGMLabels;
-    string clientFolderId;
+    json labels;
+    json folders;
 };
 
-static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, false, 0, nullptr, ""};
+static MessageSnapshot MessageEmptySnapshot = MessageSnapshot{false, false, 0, json::array(), json::object()};
 
 // Message
 
@@ -69,7 +75,14 @@ public:
     bool isDeletionPlaceholder();
     bool isHiddenReminder();
 
-    bool inAllMail();
+    // Placement snapshot: { "<folderId>": bits }, live copies only (see Placement.hpp).
+    // Rebuilt from the rows on save (see placementsChanged); read by the client and Thread.
+    json & folders();
+    vector<string> folderIds();
+    string folderRole(MailStore * store, string folderId);
+
+    static bool isInAllMail(MailStore * store, const string & accountId, const json & folderBits);
+    bool inAllMail(MailStore * store);
 
     bool isUnread();
     void setUnread(bool u);
@@ -107,24 +120,13 @@ public:
     
     void setBodyForDispatch(string s);
 
-    bool isSentByUser();
-    bool isInInbox();
-    bool _isIn(string roleAlsoLabelName);
+    bool isSentByUser(MailStore * store);
+    bool isInInbox(MailStore * store);
+    bool _isIn(MailStore * store, string roleAlsoLabelName);
 
-    json & remoteXGMLabels();
-    void setRemoteXGMLabels(json & labels);
-
-    uint32_t remoteUID();
-    void setRemoteUID(uint32_t v);
-    
-    json clientFolder();
-    string clientFolderId();
-    void setClientFolder(Folder * folder);
-    
-    json remoteFolder();
-    string remoteFolderId();
-    void setRemoteFolder(json folder);
-    void setRemoteFolder(Folder * folder);
+    // X-GM-LABELS of the message's live copies (Gmail has one). Rebuilt alongside
+    // "folders"; the client reads it as `labels`.
+    json & labels();
 
     // immutable attributes
 
@@ -143,12 +145,22 @@ public:
     vector<string> columnsForQuery();
     void bindToQuery(SQLite::Statement * query);
 
+    void beforeSave(MailStore * store);
     void afterSave(MailStore * store);
     void afterRemove(MailStore * store);
 
     json toJSONDispatch();
 
     bool _skipThreadUpdatesAfterSave;
+
+    // Set by the MailStore placement helpers when they change this message's rows. The
+    // save rebuilds the snapshot from the rows (MailStore::refreshMessageFromPlacements),
+    // which clears it. In memory only.
+    bool placementsChanged();
+    void setPlacementsChanged(bool changed);
+
+private:
+    bool _placementsChanged;
 };
 
 #endif /* Message_hpp */

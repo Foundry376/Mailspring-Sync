@@ -1,0 +1,45 @@
+name: trash-message-with-two-placements
+description: >
+  Mail the user sent to themself lives in INBOX and in Sent (SMTP delivery plus the client's
+  saved copy). The user trashes it from the Inbox. A move to Trash or Spam takes every
+  placement of the message, so the Sent copy must go too: the server must show the message
+  gone from INBOX and from Sent, with both copies now in Trash (one copy per placement), the
+  database must agree, and nothing may flap on later passes. A plain archive (ChangeFolderTask to Archive) of another
+  self-addressed message must, by contrast, leave the Sent copy alone.
+source: "docs/message-placements-plan.md 3.1 (destination role in {trash, spam} -> every placement; otherwise every copy outside Sent and Drafts); TaskProcessor.cpp _movesForMessage"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 10}
+  Sent: {messages: 3}
+  Trash: {messages: 2}
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 4, self_addressed: true}}
+  - server.duplicate: {mailbox: INBOX, uids: "11:14", to: Sent}
+steps:
+  - wait: quiescent
+  - assert:
+      db_matches_server: {}
+      counts: {INBOX: 14, Sent: 7}
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [11, 12]}, folder: Trash}
+    as: trash
+  - wait: {task: trash, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      server_counts: {INBOX: 12, Sent: 5, Trash: 6}
+      db_matches_server: {}
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [13]}, folder: Archive}
+    as: archive
+  - wait: {task: archive, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  server_counts: {INBOX: 11, Sent: 5, Trash: 6, Archive: 1}
+  counts: {INBOX: 11, Sent: 5, Trash: 6, Archive: 1}
+  db_matches_server: {}
+  stable: {passes: 2}
+  running: true

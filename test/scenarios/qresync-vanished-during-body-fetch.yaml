@@ -1,0 +1,22 @@
+name: qresync-vanished-during-body-fetch
+description: >
+  While the foreground connection downloads a message body, another client expunges a
+  different message and the server rides "* VANISHED 150" along on the FETCH response. The
+  notification arrives on a non-IDLE command; it must still be applied before the next
+  CHANGEDSINCE advances HIGHESTMODSEQ past it.
+source: Mailspring-Sync PR #141 (VANISHED was only harvested after IDLE)
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 200, age_days: 40}}    # old enough that bodies are not prefetched
+steps:
+  - wait: quiescent
+  - server.expunge: {mailbox: INBOX, uids: [150], at: before_fetch_body}
+  - client.need_bodies: {messages: {mailbox: INBOX, uids: [10]}}
+  - wait: {log: "Fetching body for message", timeout: 30}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 199}
+  running: true

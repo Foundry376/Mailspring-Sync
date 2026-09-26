@@ -1,0 +1,37 @@
+name: flag-change-on-second-placement
+description: >
+  A self-addressed message has placements in INBOX and Sent. Another client stars one Sent
+  copy and marks another Sent copy unread; a third change hits the INBOX copy only. Flags
+  are per placement, so after a pass the Sent placements must carry the new flags while the
+  INBOX placements of the same messages keep theirs (and vice versa), exactly as the server
+  reports them, and nothing may flap afterwards. Sent is not idled on, so the change is
+  found by the background pass (CHANGEDSINCE, or the attribute scan on plain servers).
+source: "docs/message-placements-plan.md 2.3 (flags live on the placement); SyncWorker::syncFolderChangesViaCondstore; MailProcessor::updateMessage per-placement attributes"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 10}
+  Sent: {messages: 3}
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 4, self_addressed: true}}
+  - server.duplicate: {mailbox: INBOX, uids: "11:14", to: Sent}
+steps:
+  - wait: quiescent
+  - assert:
+      db_matches_server: {}
+      counts: {INBOX: 14, Sent: 7}
+  - server.flags: {mailbox: Sent, uids: [4], add: ["\\Flagged"]}
+  - wait: {seconds: 1}
+  - server.flags: {mailbox: Sent, uids: [5], remove: ["\\Seen"]}
+  - wait: {seconds: 1}
+  - server.flags: {mailbox: INBOX, uids: [13], add: ["\\Flagged"], remove: ["\\Seen"]}
+  - wait: {quiescent: true}
+  - force_scans: {}
+expect:
+  db_matches_server: {flags: true}
+  counts: {INBOX: 14, Sent: 7}
+  stable: {passes: 2}
+  running: true

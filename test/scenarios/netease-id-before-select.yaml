@@ -1,0 +1,19 @@
+name: netease-id-before-select
+description: >
+  NetEase refuses SELECT with "Unsafe Login" until the client identifies itself with ID,
+  and its STATUS omits UIDNEXT. The engine keys this on the hostname, so this scenario needs
+  imap.163.com to resolve to 127.0.0.1 (it is skipped otherwise).
+source: Mailspring-Sync PR #121; community.getmailspring.com/t/562
+servers:
+  - {fake: netease, imap_host: imap.163.com}
+mailboxes:
+  INBOX: {messages: 12}
+steps:
+  - wait: quiescent
+  - server.append: {mailbox: INBOX, messages: 2}
+  - sync: pass
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 14}
+  log_absent: ["Unsafe Login"]
+  running: true

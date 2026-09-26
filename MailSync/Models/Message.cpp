@@ -13,29 +13,35 @@
 #include "MailStore.hpp"
 #include "MailUtils.hpp"
 #include "Folder.hpp"
-#include "MailStore.hpp"
 #include "File.hpp"
 #include "Thread.hpp"
+#include "Placement.hpp"
 
 using namespace std;
 
 string Message::TABLE_NAME = "Message";
 
-/*
- The concept behind the "deletion placeholder" is that we need something 
- in the database with the remoteFolder and remoteUID of the message until
- we finish syncing the deletion to the server. Otherwise the sync worker 
- could put it back. (If you try to delete a lot of drafts and the deletion
- queue is long, the delay can be long enough for them to reappear.) Bad!
+static int flagBitsFor(bool unread, bool starred, bool draft) {
+    return (unread ? PLACEMENT_FLAG_UNREAD : 0)
+         | (starred ? PLACEMENT_FLAG_STARRED : 0)
+         | (draft ? PLACEMENT_FLAG_DRAFT : 0);
+}
 
- In this approach we "free" up the headerMessageId and id, and create an
- invisible message for a few seconds.
+/*
+ A deleted draft is replaced by an invisible placeholder message that takes over the
+ draft's (Drafts, UID) placement until the deletion reaches the server. Without it the
+ Drafts scan would see a UID it does not know and put the draft back. (If you delete a
+ lot of drafts and the deletion queue is long, the delay is long enough for that.)
+ The placeholder has a fresh id and headerMessageId so the draft's own can be reused
+ immediately. The caller moves the placements over; the placeholder starts with none.
 */
 shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Message> draft) {
     json stubJSON = draft->toJSON(); // note: copy
     stubJSON["id"] = "deleted-" + MailUtils::idRandomlyGenerated();
     stubJSON["hMsgId"] = "deleted-" + stubJSON["id"].get<string>();
     stubJSON["subject"] = "Deleting...";
+    stubJSON["folders"] = json::object();
+    stubJSON["labels"] = json::array();
     
     // very important to set v=0 so the Message gets both "added" and "deleted"
     // from the thread. Otherwise we could potentially cause double deletion
@@ -43,11 +49,9 @@ shared_ptr<Message> Message::messageWithDeletionPlaceholderFor(shared_ptr<Messag
     stubJSON["v"] = 0;
     
     auto stub = make_shared<Message>(stubJSON);
-    auto nolabels = json::array();
     stub->setDraft(false);
     stub->setUnread(false);
     stub->setStarred(false);
-    stub->setRemoteXGMLabels(nolabels);
     stub->setSyncUnsavedChanges(1);
     stub->setSyncedAt(time(0) + 1 * 60 * 60);
 
@@ -58,14 +62,10 @@ Message::Message(mailcore::IMAPMessage * msg, Folder & folder, time_t syncDataTi
 MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folder.accountId(), 0)
 {
     _skipThreadUpdatesAfterSave = false;
+    _placementsChanged = false;
     _lastSnapshot = MessageEmptySnapshot;
     _data["_sa"] = syncDataTimestamp;
     _data["_suc"] = 0;
-    
-    setClientFolder(&folder);
-    setRemoteFolder(&folder);
-
-    _data["remoteUID"] = msg->uid();
     
     _data["files"] = json::array();
     _data["date"] = msg->header()->date() == -1 ? msg->header()->receivedDate() : msg->header()->date();
@@ -88,6 +88,8 @@ MailModel(MailUtils::idForMessage(folder.accountId(), folder.path(), msg), folde
     if (folder.role() == "drafts") {
         _data["draft"] = true;
     }
+    _data["folders"] = json::object();
+    _data["folders"][folder.id()] = flagBitsFor(attrs.unread, attrs.starred, _data["draft"].get<bool>());
 
     _data["extraHeaders"] = json::object();
     auto extra = msg->header()->allExtraHeadersNames();
@@ -130,6 +132,7 @@ Message::Message(SQLite::Statement & query) :
     MailModel(query)
 {
     _skipThreadUpdatesAfterSave = false;
+    _placementsChanged = false;
     _lastSnapshot = getSnapshot();
 }
 
@@ -137,6 +140,16 @@ Message::Message(json json) :
     MailModel(json)
 {
     _skipThreadUpdatesAfterSave = false;
+    _placementsChanged = false;
+
+    // Client-authored draft JSON carries no "folders"; the engine assigns placements.
+    if (!_data.count("folders") || !_data["folders"].is_object()) {
+        _data["folders"] = json::object();
+    }
+    if (!_data.count("labels") || !_data["labels"].is_array()) {
+        _data["labels"] = json::array();
+    }
+
     if (version() == 0) {
         _lastSnapshot = MessageEmptySnapshot;
     } else {
@@ -148,10 +161,9 @@ MessageSnapshot Message::getSnapshot() {
     MessageSnapshot s;
     s.unread = isUnread();
     s.starred = isStarred();
-    s.inAllMail = inAllMail();
     s.fileCount = fileCountForThreadList();
-    s.remoteXGMLabels = remoteXGMLabels();
-    s.clientFolderId = clientFolderId();
+    s.labels = labels();
+    s.folders = folders();
     return s;
 }
 
@@ -185,14 +197,49 @@ bool Message::isHiddenReminder() {
 
 // mutable attributes
 
-bool Message::inAllMail() {
-    auto role = clientFolder()["role"].get<string>();
-    return role != "spam" && role != "trash";
+json & Message::folders() {
+    if (!_data["folders"].is_object()) {
+        _data["folders"] = json::object();
+    }
+    return _data["folders"];
+}
+
+vector<string> Message::folderIds() {
+    vector<string> ids;
+    for (auto it = folders().begin(); it != folders().end(); ++it) {
+        ids.push_back(it.key());
+    }
+    return ids;
+}
+
+string Message::folderRole(MailStore * store, string folderId) {
+    auto folder = store->folderById(accountId(), folderId);
+    return folder == nullptr ? "" : folder->role();
+}
+
+// A message is "in all mail" when at least one of its copies is somewhere other than
+// spam or trash. A message with no copies (in transit between folders) is not.
+bool Message::isInAllMail(MailStore * store, const string & accountId, const json & folderBits) {
+    for (auto it = folderBits.begin(); it != folderBits.end(); ++it) {
+        auto folder = store->folderById(accountId, it.key());
+        string role = folder == nullptr ? "" : folder->role();
+        if (role != "spam" && role != "trash") {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Message::inAllMail(MailStore * store) {
+    return isInAllMail(store, accountId(), folders());
 }
 
 bool Message::isUnread() {
     return _data["unread"].get<bool>();
 }
+
+// The flag setters write only the derived message-level value. Per-copy bits live on
+// the placements and reach "folders" through the MailStore helpers.
 
 void Message::setUnread(bool u) {
     _data["unread"] = u;
@@ -206,12 +253,8 @@ void Message::setStarred(bool s) {
     _data["starred"] = s;
 }
 
-json & Message::remoteXGMLabels() {
+json & Message::labels() {
     return _data["labels"];
-}
-
-void Message::setRemoteXGMLabels(json & labels) {
-    _data["labels"] = labels;
 }
 
 string Message::threadId() {
@@ -302,22 +345,27 @@ void Message::setBodyForDispatch(string s) {
     _bodyForDispatch = s;
 }
 
-bool Message::isSentByUser() {
-    return this->_isIn("sent");
+bool Message::isSentByUser(MailStore * store) {
+    return this->_isIn(store, "sent");
 }
 
-bool Message::isInInbox() {
-    return this->_isIn("inbox");
+bool Message::isInInbox(MailStore * store) {
+    return this->_isIn(store, "inbox");
 }
 
-bool Message::_isIn(string roleAlsoLabelName) {
-    string folderRole = remoteFolder()["role"].get<string>();
-    if (folderRole == roleAlsoLabelName) {
-        return true;
-    }
-    if (folderRole == "all") {
+// True when any copy is in a folder with the given role, or (Gmail) in All Mail
+// carrying a label whose name contains it.
+bool Message::_isIn(MailStore * store, string roleAlsoLabelName) {
+    for (auto & folderId : folderIds()) {
+        string role = folderRole(store, folderId);
+        if (role == roleAlsoLabelName) {
+            return true;
+        }
+        if (role != "all") {
+            continue;
+        }
         string needle = roleAlsoLabelName;
-        for (auto & l : remoteXGMLabels()) {
+        for (auto & l : labels()) {
             string ln = l.get<string>();
             auto it = std::search(ln.begin(), ln.end(), needle.begin(), needle.end(), [](char ch1, char ch2) {
                 return std::toupper(ch1) == std::toupper(ch2);
@@ -328,49 +376,6 @@ bool Message::_isIn(string roleAlsoLabelName) {
         }
     }
     return false;
-}
-
-
-uint32_t Message::remoteUID() {
-    return _data["remoteUID"].get<uint32_t>();
-}
-
-void Message::setRemoteUID(uint32_t v) {
-    _data["remoteUID"] = v;
-}
-
-json Message::clientFolder() {
-    return _data["folder"];
-}
-
-string Message::clientFolderId() {
-    return _data["folder"]["id"].get<string>();
-}
-
-void Message::setClientFolder(Folder * folder) {
-    _data["folder"] = folder->toJSON();
-    if (_data["folder"].count("localStatus")) {
-        _data["folder"].erase("localStatus");
-    }
-}
-
-json Message::remoteFolder() {
-    return _data["remoteFolder"];
-}
-
-string Message::remoteFolderId() {
-    return _data["remoteFolder"]["id"].get<string>();
-}
-
-void Message::setRemoteFolder(json folder) {
-    _data["remoteFolder"] = folder;
-}
-
-void Message::setRemoteFolder(Folder * folder) {
-    _data["remoteFolder"] = folder->toJSON();
-    if (_data["remoteFolder"].count("localStatus")) {
-        _data["remoteFolder"].erase("localStatus");
-    }
 }
 
 time_t Message::syncedAt() {
@@ -387,6 +392,14 @@ int Message::syncUnsavedChanges() {
 
 void Message::setSyncUnsavedChanges(int t) {
     _data["_suc"] = t;
+}
+
+bool Message::placementsChanged() {
+    return _placementsChanged;
+}
+
+void Message::setPlacementsChanged(bool changed) {
+    _placementsChanged = changed;
 }
 
 // immutable attributes
@@ -432,7 +445,7 @@ string Message::tableName() {
 }
 
 vector<string> Message::columnsForQuery() {
-    return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "unread", "starred", "remoteUID", "remoteXGMLabels", "remoteFolderId", "threadId"};
+    return vector<string>{"id", "data", "accountId", "version", "headerMessageId", "subject", "gMsgId", "date", "draft", "unread", "starred", "threadId"};
 }
 
 void Message::bindToQuery(SQLite::Statement * query) {
@@ -443,11 +456,17 @@ void Message::bindToQuery(SQLite::Statement * query) {
     query->bind(":draft", isDraft());
     query->bind(":headerMessageId", headerMessageId());
     query->bind(":subject", subject());
-    query->bind(":remoteUID", remoteUID());
-    query->bind(":remoteXGMLabels", remoteXGMLabels().dump());
-    query->bind(":remoteFolderId", remoteFolderId());
     query->bind(":threadId", threadId());
     query->bind(":gMsgId", gMsgId());
+}
+
+// Runs before bindToQuery serializes the JSON and before afterSave diffs the thread
+// against _lastSnapshot, so both see the rebuilt snapshot.
+void Message::beforeSave(MailStore * store) {
+    MailModel::beforeSave(store);
+    if (_placementsChanged) {
+        store->refreshMessageFromPlacements(*this);
+    }
 }
 
 void Message::afterSave(MailStore * store) {
@@ -466,32 +485,28 @@ void Message::afterSave(MailStore * store) {
         return;
     }
 
-    auto allLabels = store->allLabelsCache(accountId());
-    thread->applyMessageAttributeChanges(_lastSnapshot, this, allLabels);
+    thread->applyMessageAttributeChanges(_lastSnapshot, this, store);
     store->save(thread.get());
     _lastSnapshot = getSnapshot();
 }
 
 void Message::afterRemove(MailStore * store) {
     MailModel::afterRemove(store);
-    
+
+    store->deletePlacementsForMessage(id());
+
     // if we have a thread, keep the thread's folder, label, and unread counters
     // in sync by providing it with a before + after snapshot of this message.
-    
-    if (threadId() == "") {
-        return;
-    }
-    auto thread = store->find<Thread>(Query().equal("id", threadId()));
-    if (thread == nullptr) {
-        return;
-    }
-    
-    auto allLabels = store->allLabelsCache(accountId());
-    thread->applyMessageAttributeChanges(_lastSnapshot, nullptr, allLabels);
-    if (thread->folders().size() == 0) {
-        store->remove(thread.get());
-    } else {
-        store->save(thread.get());
+    if (threadId() != "") {
+        auto thread = store->find<Thread>(Query().equal("id", threadId()));
+        if (thread != nullptr) {
+            thread->applyMessageAttributeChanges(_lastSnapshot, nullptr, store);
+            if (thread->folders().size() == 0) {
+                store->remove(thread.get());
+            } else {
+                store->save(thread.get());
+            }
+        }
     }
     
     // Also delete our draft body

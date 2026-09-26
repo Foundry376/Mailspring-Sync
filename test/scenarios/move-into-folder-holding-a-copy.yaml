@@ -1,0 +1,45 @@
+name: move-into-folder-holding-a-copy
+description: >
+  A self-addressed message has copies in INBOX and Sent. From the Inbox the user drags it
+  into Sent, which already holds a copy. The INBOX copy is moved like any other, so Sent
+  ends with two copies of the message (the state Exchange's duplicate Sent copies already
+  produce) and the database agrees without flapping. Undo must move one Sent copy back to
+  INBOX - the one the move added, which has the higher UID - and leave the original Sent
+  copy where it was.
+source: "TaskProcessor.cpp _movesForMessage (a selected copy is always moved) and _restoreMovesForMessage (highest UIDs first; RFC 3501 2.3.1.1 strictly ascending UIDs); o365-duplicate-sent-copies for two copies in one folder"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 8}
+  Sent: {messages: 2}
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 1, self_addressed: true}}
+  - server.duplicate: {mailbox: INBOX, uids: "9", to: Sent}
+steps:
+  - wait: quiescent
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [9]}, folder: Sent, sourceFolders: [INBOX]}
+    as: move
+  - wait: {task: move, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      server_counts: {INBOX: 8, Sent: 4}
+      counts: {INBOX: 8, Sent: 4}
+      db_matches_server: {}
+      stable: {passes: 1}
+      server_uids: {Sent: [1, 2, 3, 4]}
+  - client.undo_task: {of: move}
+    as: undo
+  - wait: {task: undo, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  server_counts: {INBOX: 9, Sent: 3}
+  counts: {INBOX: 9, Sent: 3}
+  db_matches_server: {}
+  server_uids: {Sent: [1, 2, 3]}
+  stable: {passes: 2}
+  running: true

@@ -1,0 +1,38 @@
+name: move-rejected-by-server
+description: >
+  The user archives a message and the server answers the MOVE (COPY on a server without
+  MOVE) with NO [OVERQUOTA]. The task fails. Its local phase had marked the copy for
+  Archive and locked the message against scans; the failure must drop the marker, so the
+  message shows in INBOX again, and release the lock. A star task afterwards completes
+  normally, and a flag another client then changes on the copy is picked up, which it is
+  not while the lock is leaked.
+source: "TaskProcessor::performRemoteChangeOnMessages (a failed folder still releases the lock and abandons unmoved copies); Dovecot answers COPY/MOVE over quota with NO [OVERQUOTA] Quota exceeded (mailbox for user is full), RFC 5530 3"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+mailboxes:
+  INBOX: {messages: 8}
+  Archive: {messages: 2}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, session: foreground, command: "^UID (MOVE|COPY)"}, code: OVERQUOTA, text: "Quota exceeded (mailbox for user is full)"}
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [3]}, folder: Archive, sourceFolders: [INBOX]}
+    as: archive
+  - wait: {task: archive, timeout: 60}
+  - wait: {quiescent: true}
+  - assert: {shown: {INBOX: 8, Archive: 2}}
+  - client.task: {__cls: ChangeStarredTask, messages: {mailbox: INBOX, uids: [3]}, starred: true}
+    as: star
+  - wait: {task: star, timeout: 60}
+  - wait: {quiescent: true}
+  - server.flags: {mailbox: INBOX, uids: [3], remove: ["\\Seen"]}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  server_counts: {INBOX: 8, Archive: 2}
+  counts: {INBOX: 8, Archive: 2}
+  shown: {INBOX: 8, Archive: 2}
+  db_matches_server: {}
+  log_present: ["-X Changing copies in INBOX failed"]
+  stable: {passes: 1}
+  running: true

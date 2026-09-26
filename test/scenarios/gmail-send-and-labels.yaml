@@ -1,0 +1,58 @@
+name: gmail-send-and-labels
+description: >
+  Gmail keeps one physical copy of every message in [Gmail]/All Mail; INBOX, Sent Mail and
+  user labels are views. Sending: Gmail's SMTP submission files the sent message under \Sent
+  by itself, so the engine must find that copy and not APPEND a second one to
+  [Gmail]/Sent Mail, and the message must end up with a single All Mail placement carrying
+  the \Sent label. Labelling: a ChangeLabelsTask that adds Work and removes \Inbox (archive)
+  must change X-GM-LABELS on the All Mail copy without ever creating a second placement.
+source: "docs/message-placements-plan.md 2.8 (Gmail: one placement per message, send path fix); TaskProcessor::performRemoteSendDraft (findUIDsOfRecentHeaderMessageID before APPEND); TaskProcessor _applyLabelChangeInIMAPFolder; handoff-refactor-regression.md 5.4"
+servers:
+  - {fake: gmail, smtp: true, smtp_sent_copy: "[Gmail]/Sent Mail"}
+mailboxes:
+  INBOX: {messages: 10}
+  "[Gmail]/Sent Mail": {messages: 3}
+  Work: {messages: 2}
+steps:
+  - wait: quiescent
+  - assert:
+      db_matches_server: {labels: true}
+      counts: {"[Gmail]/All Mail": 15, total: 15}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "gmail-sent-1@example.test"
+        subject: "Hello Bob from Gmail"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send
+  - wait: {task: send, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+  - assert:
+      smtp: {count: 1, messages: [{recipients: ["bob@example.net"], headers: {Message-ID: "<gmail-sent-1@example.test>"}}]}
+      log_absent: ["sent \\d+ APPEND"]
+      log_present: ["Found a message added to the sent folder by the SMTP gateway", "Found the sent message in \\[Gmail\\]/All Mail"]
+      server_counts: {"[Gmail]/All Mail": 16}   # an APPEND to Sent Mail would be a 17th All Mail message
+      counts: {"[Gmail]/All Mail": 16, total: 16}
+      db_matches_server: {labels: true}
+  - client.task: {__cls: ChangeLabelsTask, messages: {mailbox: "[Gmail]/All Mail", uids: [1, 2, 3]}, labelsToAdd: [Work], labelsToRemove: [INBOX]}
+    as: label
+  - wait: {task: label, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  db_matches_server: {labels: true}
+  server_counts: {"[Gmail]/All Mail": 16}
+  counts: {"[Gmail]/All Mail": 16, total: 16}
+  stable: {passes: 2}
+  running: true

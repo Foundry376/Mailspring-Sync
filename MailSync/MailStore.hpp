@@ -24,6 +24,7 @@
 #include "Message.hpp"
 #include "Contact.hpp"
 #include "Query.hpp"
+#include "Placement.hpp"
 #include "DeltaStream.hpp"
 #include "MailUtils.hpp"
 
@@ -47,10 +48,20 @@ struct MessageAttributes {
     bool starred;
     bool draft;
     vector<string> labels;
+    // The row's message, set only by fetchMessagesAttributesInRange and not compared by
+    // MessageAttributesMatch: attributes read from the server carry no id.
+    string messageId;
 };
 
 MessageAttributes MessageAttributesForMessage(mailcore::IMAPMessage * msg);
 bool MessageAttributesMatch(MessageAttributes a, MessageAttributes b);
+
+// A copy of a message the server can be asked to FETCH: a placement with a UID in a folder
+// that still exists.
+struct FetchableCopy {
+    shared_ptr<Folder> folder;
+    uint32_t uid;
+};
 
 
 class MailStore {
@@ -65,9 +76,12 @@ class MailStore {
     map<string, shared_ptr<SQLite::Statement>> _saveUpdateQueries;
     map<string, shared_ptr<SQLite::Statement>> _saveInsertQueries;
     map<string, shared_ptr<SQLite::Statement>> _removeQueries;
+    map<string, shared_ptr<SQLite::Statement>> _placementQueries;
     
     vector<shared_ptr<Label>> _labelCache;
     int _labelCacheVersion;
+    map<string, shared_ptr<Folder>> _folderCache;
+    int _folderCacheVersion;
     int _streamMaxDelay;
     size_t _owningThread;
     
@@ -103,6 +117,46 @@ public:
     map<uint32_t, MessageAttributes> fetchMessagesAttributesInRange(mailcore::Range range, Folder & folder);
 
     vector<shared_ptr<Label>> allLabelsCache(string accountId);
+
+    // Folders and Labels of the account keyed by id, reloaded after any Folder or Label
+    // is saved or removed through any MailStore in this process. Message JSON carries
+    // only folder ids, so roles and paths are resolved here rather than stored per row.
+    const map<string, shared_ptr<Folder>> & allFoldersCache(string accountId);
+    shared_ptr<Folder> folderById(string accountId, string folderId);
+
+    // Placements (MessageFolder rows). The table is canonical; every helper that takes a
+    // Message marks it (Message::setPlacementsChanged) and the caller saves it, which
+    // rebuilds its "folders" snapshot and derived unread/starred/draft from the rows.
+    // Bulk helpers touch rows only and return the ids of the messages they affected so the
+    // caller can load those (and only those) to update their snapshots. MessageOrphan is
+    // exact once the transaction commits: a message is listed iff it has no MessageFolder row.
+
+    vector<Placement> placementsForMessage(string messageId);
+    vector<FetchableCopy> fetchableCopiesOfMessage(Message & msg, Folder * preferredFolder = nullptr);
+
+    // Returns the id of a different message that held (folder, uid) and lost it, or "".
+    string upsertPlacement(Message & msg, Folder & folder, uint32_t uid, const MessageAttributes & attrs);
+    void removePlacementsOutsideFolder(Message & msg, string folderId);
+    void setPlacementUnread(Message & msg, bool unread);
+    void setPlacementStarred(Message & msg, bool starred);
+    void setPlacementLabels(Message & msg, const vector<string> & labels);
+    void beginPlacementMove(Message & msg, string fromFolderId, uint32_t uid, string toFolderId);
+    // Returns the id of a different message that held (toFolderId, newUid) and lost it, or "".
+    string commitPlacementMove(Message & msg, string fromFolderId, uint32_t oldUid, string toFolderId, uint32_t newUid);
+    void abandonPlacementMove(Message & msg, string folderId, uint32_t uid, string toFolderId);
+    void removePlacement(Message & msg, string folderId, uint32_t uid);
+    void refreshMessageFromPlacements(Message & msg);
+
+    vector<string> deleteVanishedPlacements(Folder & folder, const vector<uint32_t> & uids);
+    vector<string> deleteVanishedPlacements(Folder & folder, Query & uidQuery);
+    void resetPlacementUIDs(Folder & folder);
+    vector<string> deleteUnassignedPlacements(Folder & folder);
+    vector<string> orphanMessageIdsBefore(string accountId, time_t before);
+    vector<string> orphanMessageIdsBefore(string accountId, time_t before, const vector<string> & among);
+    void deletePlacementsForMessage(string messageId);
+    vector<string> messageIdsWithPlacementsInFolder(string folderId);
+    void deletePlacementsForFolder(string folderId, const vector<string> & messageIds);
+    vector<string> deletePlacementsForFolder(string folderId);
 
     void setStreamDelay(int streamMaxDelay);
     
@@ -227,6 +281,13 @@ public:
 private:
 
     void _emit(DeltaStreamItem & delta);
+
+    void _migrateToV10(bool freshDatabase, const string & verb);
+    SQLite::Statement & _placementStatement(const string & key, const string & sql);
+    template <typename... Binds>
+    int _execPlacement(const string & key, const string & sql, const Binds &... binds);
+    vector<string> _collectMessageIds(SQLite::Statement & stmt);
+    void _recordOrphansAmong(const vector<string> & messageIds);
 };
 
 

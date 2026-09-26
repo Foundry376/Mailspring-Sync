@@ -1,0 +1,59 @@
+name: synced-draft-destroy
+description: >
+  Two drafts are destroyed. One was saved in webmail, so it lives in the server's Drafts
+  folder with a real UID and was synced down as a draft (\Draft flag). The other was saved
+  by this client (SyncbackDraftTask), which today has no remote phase - the engine keeps it
+  as a Drafts placement at UID 0 and never APPENDs it - so it exists only locally.
+  DestroyDraftTask must delete the server copy of the first (the engine moves it to Trash
+  and expunges it there, so Drafts and Trash both end up unchanged on the server), drop
+  both rows and their deletion placeholders locally (`counts.total`), and leave the
+  database agreeing with the server with nothing flapping.
+source: "TaskProcessor::performLocalDestroyDraft (placeholder takes over the server placement, pending move to Trash) / performRemoteDestroyDraft (_removeMessageCopiesResilient; stubs without a placement removed here); TaskProcessor::ensureDraftPlacement (UID 0 Drafts placement); performRemote 'right now we don't syncback drafts'"
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 5}
+  Drafts: {messages: {count: 2}, flags: ["\\Draft", "\\Seen"]}
+  Trash: {messages: 1}
+steps:
+  - wait: quiescent
+  - assert:
+      counts: {Drafts: 2, total: 8}
+      db_matches_server: {flags: true}
+  - client.task:
+      __cls: SyncbackDraftTask
+      draft:
+        hMsgId: "local-draft-1@example.test"
+        subject: "Unsent thoughts"
+        body: "<p>draft body</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: []
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+    as: save
+  - wait: {task: save, timeout: 60}
+  - assert:
+      counts: {Drafts: 2, total: 9}     # the local draft is a row at UID 0, not a placement
+      server_counts: {Drafts: 2}        # no remote phase: nothing was APPENDed
+  - client.task: {__cls: DestroyDraftTask, messages: {mailbox: Drafts, uids: [1]}}
+    as: destroy_synced
+  - wait: {task: destroy_synced, timeout: 60}
+  - client.task: {__cls: DestroyDraftTask, messages: {header_message_ids: ["local-draft-1@example.test"]}}
+    as: destroy_local
+  - wait: {task: destroy_local, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  server_counts: {Drafts: 1, Trash: 1, INBOX: 5}
+  counts: {Drafts: 1, Trash: 1, INBOX: 5, total: 7}
+  db_matches_server: {flags: true}
+  log_absent: ["\\[critical\\]", "UNIQUE constraint"]
+  stable: {passes: 2}
+  running: true

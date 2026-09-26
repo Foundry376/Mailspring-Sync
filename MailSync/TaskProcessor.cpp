@@ -30,6 +30,9 @@
 
 #include <sstream>
 #include <algorithm>
+#include <set>
+#include <deque>
+#include <exception>
 #include <iomanip>
 #include <thread>
 #include <chrono>
@@ -64,17 +67,165 @@ static void setFileModificationTime(const string & filepath, time_t timestamp) {
 #endif
 }
 
-// A helper function that can move messages between folders and update the provided
-// messages remoteUIDs, even if UIDPLUS and/or MOVE extensions are not present.
+struct PlacementMove {
+    Placement placement;
+    string destFolderId;
+};
 
-void _moveMessagesResilient(IMAPSession * session, String * path, Folder * destFolder, IndexSet * uids, vector<shared_ptr<Message>> messages) {
+static IndexSet * _uidsOf(vector<TaskPlacement *> & items) {
+    IndexSet * uids = IndexSet::indexSet();
+    for (auto item : items) {
+        uids->addIndex(item->placement.remoteUID);
+    }
+    return uids;
+}
+
+static vector<string> _labelsOf(const Placement & p) {
+    vector<string> labels;
+    for (auto & l : p.labels) {
+        labels.push_back(l.get<string>());
+    }
+    return labels;
+}
+
+static json _clientVisibleState(Message & msg) {
+    return json{
+        {"folders", msg.folders()},
+        {"labels", msg.labels()},
+        {"unread", msg.isUnread()},
+        {"starred", msg.isStarred()},
+        {"draft", msg.isDraft()},
+    };
+}
+
+/*
+ A flag task whose STORE failed leaves its copies with the user's new flags while the server
+ keeps the old ones, and on a CONDSTORE server the copy's modseq never changed, so
+ CHANGEDSINCE never reports it again. Zeroing SyncWorker's LS_LAST_DEEP makes the background
+ worker's next pass run the full-folder attributes scan, which compares flags.
+
+ saveFolderStatus writes only this key over the current row, and the background worker's
+ own saveFolderStatus writes only keys its pass changed, so the reset survives unless that
+ pass ran the full scan itself.
+ */
+static void _rescanFoldersForFlags(MailStore * store, string accountId, const map<string, vector<TaskPlacement *>> & itemsByFolder) {
+    for (auto & pair : itemsByFolder) {
+        auto folder = store->find<Folder>(Query().equal("accountId", accountId).equal("id", pair.first));
+        if (folder == nullptr) {
+            continue;
+        }
+        json initialStatus = folder->localStatus();
+        folder->localStatus()[LS_LAST_DEEP] = 0;
+        store->saveFolderStatus(folder.get(), initialStatus);
+    }
+}
+
+/*
+ The UID each item's copy received in `dest`, aligned with `items` (0 when unknown). Copies
+ are matched to UIDs by message id, which does not depend on the folder: the headers of the
+ COPYUID destination set are fetched when the server returns one, and of the newest UIDs in
+ `dest` otherwise.
+
+ COPYUID is not trusted as a pairing. RFC 4315 §3 makes it one, but Yahoo answers a
+ multi-message UID MOVE with ascending source and destination ranges while assigning a
+ permutation of the destination range (observed on a live Yahoo account, 2026-09-24).
+ A single-message COPYUID cannot be permuted and is used as is.
+ */
+static vector<uint32_t> _resolveNewUIDs(IMAPSession * session, HashMap * uidmap, Folder & dest, vector<TaskPlacement *> & items) {
+    vector<uint32_t> result(items.size(), 0);
+    ErrorCode err = ErrorCode::ErrorNone;
+    String * destPath = AS_MCSTR(dest.path());
+
+    if (items.size() == 1 && uidmap != nullptr && uidmap->count() == 1) {
+        Value * newUID = (Value *)uidmap->objectForKey(Value::valueWithUnsignedLongValue(items[0]->placement.remoteUID));
+        if (newUID) {
+            result[0] = (uint32_t)newUID->unsignedLongValue();
+            return result;
+        }
+    }
+
+    set<uint32_t> copied;
+    if (uidmap != nullptr) {
+        Array * values = uidmap->allValues();
+        for (unsigned int ii = 0; ii < values->count(); ii++) {
+            copied.insert((uint32_t)((Value *)values->objectAtIndex(ii))->unsignedLongValue());
+        }
+    }
+
+    IndexSet * candidates = IndexSet::indexSet();
+    if (!copied.empty()) {
+        for (uint32_t uid : copied) {
+            candidates->addIndex(uid);
+        }
+    } else {
+        auto status = session->folderStatus(destPath, &err);
+        if (status == nullptr) {
+            return result;
+        }
+        // Moves append at the top of the destination; twice the item count covers gaps in
+        // UID assignment without underflowing below 1.
+        uint32_t uidNext = status->uidNext();
+        uint32_t searchRange = (uint32_t)items.size() * 2;
+        uint32_t min = (uidNext > searchRange) ? (uidNext - searchRange) : 1;
+        candidates->addRange(RangeMake(min, UINT64_MAX));
+    }
+
+    IMAPMessagesRequestKind kind = MailUtils::messagesRequestKindFor(session->storedCapabilities(), true);
+    Array * fetched = session->fetchMessagesByUID(destPath, kind, candidates, nullptr, &err);
+    if (fetched == nullptr) {
+        return result;
+    }
+    // Several copies of one message (Exchange duplicates) arrive as several UIDs that
+    // hash to the same id; each moved copy takes one so no two commit to the same UID.
+    map<string, deque<uint32_t>> uidsById;
+    for (unsigned int ii = 0; ii < fetched->count(); ii++) {
+        IMAPMessage * m = (IMAPMessage *)fetched->objectAtIndex(ii);
+        uidsById[MailUtils::idForMessage(dest.accountId(), dest.path(), m)].push_back(m->uid());
+    }
+    for (auto & pair : uidsById) {
+        std::sort(pair.second.begin(), pair.second.end());
+    }
+    vector<size_t> unmatched;
+    size_t unpaired = 0;
+    for (size_t i = 0; i < items.size(); i++) {
+        auto it = uidsById.find(items[i]->message->id());
+        if (it == uidsById.end() || it->second.empty()) {
+            unmatched.push_back(i);
+            continue;
+        }
+        result[i] = it->second.front();
+        it->second.pop_front();
+        copied.erase(result[i]);
+        if (uidmap != nullptr) {
+            Value * paired = (Value *)uidmap->objectForKey(Value::valueWithUnsignedLongValue(items[i]->placement.remoteUID));
+            if (paired && (uint32_t)paired->unsignedLongValue() != result[i]) {
+                unpaired++;
+            }
+        }
+    }
+    if (unpaired > 0) {
+        spdlog::get("logger")->warn("-- COPYUID into {} paired {} of {} copies with another message's UID", dest.path(), unpaired, items.size());
+    }
+
+    // A message without a Date header has an id that includes its folder, so it never
+    // matches here; one such copy is identified by the one COPYUID it left unclaimed.
+    if (unmatched.size() == 1 && copied.size() == 1) {
+        result[unmatched[0]] = *copied.begin();
+    }
+    return result;
+}
+
+// Moves the items' copies out of `path` into `dest` with UID MOVE, or COPY + \Deleted +
+// EXPUNGE when the server lacks MOVE, and records each copy's new UID on the item. A copy
+// whose new UID cannot be determined is logged and left as it was: its row keeps the
+// optimistic marker and the destination's next scan records it.
+static void _moveMessagesResilient(IMAPSession * session, String * path, Folder & dest, vector<TaskPlacement *> & items) {
     ErrorCode err = ErrorCode::ErrorNone;
     HashMap * uidmap = nullptr;
-    String * destPath = AS_MCSTR(destFolder->path());
+    String * destPath = AS_MCSTR(dest.path());
+    IndexSet * uids = _uidsOf(items);
     bool mustApplyAttributes = false;
-    
-    // First, perform the action - either the MOVE or the COPY, STORE, EXPUNGE
-    // if IMAPCapabilityMove is not present.
+
     if (session->storedCapabilities()->containsIndex(IMAPCapabilityMove)) {
         session->moveMessages(path, uids, destPath, &uidmap, &err);
         if (err != ErrorCode::ErrorNone) {
@@ -93,66 +244,31 @@ void _moveMessagesResilient(IMAPSession * session, String * path, Folder * destF
         mustApplyAttributes = true;
     }
 
-    // Only returned if UIDPLUS extension is present and the server tells us
-    // which UIDs in the old folder map to which UIDs in the new folder.
-    if (uidmap != nullptr) {
-        for (auto msg : messages) {
-            Value * currentUID = Value::valueWithUnsignedLongValue(msg->remoteUID());
-            Value * newUID = (Value *)uidmap->objectForKey(currentUID);
-            if (!newUID) {
-                throw SyncException("generic", "move did not provide new UID.", false);
-            }
-            msg->setRemoteFolder(destFolder);
-            msg->setRemoteUID(newUID->unsignedIntValue());
+    auto newUIDs = _resolveNewUIDs(session, uidmap, dest, items);
+    for (size_t i = 0; i < items.size(); i++) {
+        if (newUIDs[i] == 0) {
+            spdlog::get("logger")->error("-- Could not find new UID for message {} moved to {}", items[i]->message->id(), dest.path());
+            continue;
         }
-    } else {
-        // UIDPLUS is not supported, we need to manually find the messages. Thankfully moves
-        // should add higher UIDs to the folder so we can grab the last few and get the messages
-        auto status = session->folderStatus(destPath, &err);
-        IMAPMessagesRequestKind kind = MailUtils::messagesRequestKindFor(session->storedCapabilities(), true);
-        
-        if (status != nullptr) {
-            // Calculate a safe lower bound to avoid underflow with unsigned arithmetic.
-            // We search from (uidNext - messages.size() * 2) to find the moved messages,
-            // using a multiplier of 2 to account for potential gaps in UID assignment.
-            uint32_t uidNext = status->uidNext();
-            uint32_t searchRange = (uint32_t)messages.size() * 2;
-            uint32_t min = (uidNext > searchRange) ? (uidNext - searchRange) : 1;
-            IndexSet * set = IndexSet::indexSetWithRange(RangeMake(min, UINT64_MAX));
-            Array * movedMessages = session->fetchMessagesByUID(destPath, kind, set, nullptr, &err);
-            for (auto msg : messages) {
-                bool found = false;
-                for (unsigned int ii = 0; ii < movedMessages->count(); ii ++) {
-                    IMAPMessage * movedMessage = (IMAPMessage*)movedMessages->objectAtIndex(ii);
-                    string movedId = MailUtils::idForMessage(msg->accountId(), destFolder->path(), movedMessage);
-                    if (msg->id() == movedId) {
-                        msg->setRemoteFolder(destFolder);
-                        msg->setRemoteUID(movedMessage->uid());
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    spdlog::get("logger")->error("-- Could not find new UID for message {}", msg->id());
-                }
-            }
-        }
+        items[i]->moved = true;
+        items[i]->movedUID = newUIDs[i];
     }
-    
+
     if (mustApplyAttributes) {
-        for (auto msg : messages) {
-            if (msg->remoteFolderId() == destFolder->id()) {
-                MessageFlag flags = MessageFlagNone;
-                if (msg->isStarred())
-                    flags = (MessageFlag)(flags | MessageFlagFlagged);
-                if (!msg->isUnread())
-                    flags = (MessageFlag)(flags | MessageFlagSeen);
-                if (msg->isDraft())
-                    flags = (MessageFlag)(flags | MessageFlagDraft);
-        
-                if (flags != MessageFlagNone) {
-                    session->storeFlagsByUID(destPath, IndexSet::indexSetWithIndex(msg->remoteUID()), IMAPStoreFlagsRequestKindSet, flags, &err);
-                }
+        for (auto item : items) {
+            if (!item->moved) {
+                continue;
+            }
+            auto & p = item->placement;
+            MessageFlag flags = MessageFlagNone;
+            if (p.starred)
+                flags = (MessageFlag)(flags | MessageFlagFlagged);
+            if (!p.unread)
+                flags = (MessageFlag)(flags | MessageFlagSeen);
+            if (p.draft)
+                flags = (MessageFlag)(flags | MessageFlagDraft);
+            if (flags != MessageFlagNone) {
+                session->storeFlagsByUID(destPath, IndexSet::indexSetWithIndex(item->movedUID), IMAPStoreFlagsRequestKindSet, flags, &err);
             }
         }
     }
@@ -227,15 +343,40 @@ void _removeMessagesResilient(IMAPSession * session, MailStore * store, string a
     }
 }
 
-
-// Small functions that we pass to the generic ChangeMessages runner
-
-void _applyUnread(Message * msg, json & data) {
-    msg->setUnread(data["unread"].get<bool>());
+// Deletes the message's server copies, grouped by folder. Used for drafts, whose
+// copies are never moved anywhere.
+static void _removeMessageCopiesResilient(IMAPSession * session, MailStore * store, string accountId, Message & msg) {
+    map<string, IndexSet *> uidsByPath;
+    for (auto & p : store->placementsForMessage(msg.id())) {
+        if (p.remoteUID == 0) {
+            continue;
+        }
+        auto folder = store->folderById(accountId, p.folderId);
+        if (folder == nullptr) {
+            continue;
+        }
+        if (!uidsByPath.count(folder->path())) {
+            uidsByPath[folder->path()] = IndexSet::indexSet();
+        }
+        uidsByPath[folder->path()]->addIndex(p.remoteUID);
+    }
+    for (auto & pair : uidsByPath) {
+        spdlog::get("logger")->info("-- Deleting {} copies of {} from {}", pair.second->count(), msg.id(), pair.first);
+        _removeMessagesResilient(session, store, accountId, AS_MCSTR(pair.first), pair.second);
+    }
 }
 
-void _applyUnreadInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
+
+// Small functions that we pass to the generic ChangeMessages runner.
+
+void _applyUnread(MailStore * store, Message * msg, const vector<Placement> & placements, json & data) {
+    store->setPlacementUnread(*msg, data["unread"].get<bool>());
+}
+
+void _applyUnreadInIMAPFolder(IMAPSession * session, MailStore * store, string accountId, Folder & source, vector<TaskPlacement *> & items, json & data) {
     ErrorCode err = ErrorCode::ErrorNone;
+    String * path = AS_MCSTR(source.path());
+    IndexSet * uids = _uidsOf(items);
     if (data["unread"].get<bool>() == false) {
         session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagSeen, &err);
     } else {
@@ -246,12 +387,14 @@ void _applyUnreadInIMAPFolder(IMAPSession * session, String * path, IndexSet * u
     }
 }
 
-void _applyStarred(Message * msg, json & data) {
-    msg->setStarred(data["starred"].get<bool>());
+void _applyStarred(MailStore * store, Message * msg, const vector<Placement> & placements, json & data) {
+    store->setPlacementStarred(*msg, data["starred"].get<bool>());
 }
 
-void _applyStarredInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
+void _applyStarredInIMAPFolder(IMAPSession * session, MailStore * store, string accountId, Folder & source, vector<TaskPlacement *> & items, json & data) {
     ErrorCode err = ErrorCode::ErrorNone;
+    String * path = AS_MCSTR(source.path());
+    IndexSet * uids = _uidsOf(items);
     if (data["starred"].get<bool>() == true) {
         session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagFlagged, &err);
     } else {
@@ -262,15 +405,190 @@ void _applyStarredInIMAPFolder(IMAPSession * session, String * path, IndexSet * 
     }
 }
 
-void _applyFolder(Message * msg, json & data) {
-    Folder folder{data["folder"]};
-    msg->setClientFolder(&folder);
+/*
+ Undo of a ChangeFolderTask. The undo task carries `restorePlacements` ({ messageId:
+ [{ folderId, bits }, ...] }, the `undoPlacements` the original recorded: the folder each
+ copy it moved was shown in and that copy's PLACEMENT_FLAG_* bits) and `sourceFolderIds` =
+ [the original destination]. As many of the message's copies in that destination as there
+ are entries go back, one to each recorded folder. Copies of a message share their bytes
+ but not their flags - a self-sent message is typically unread in Inbox and read in Sent -
+ so each entry first takes a copy whose bits still equal the recorded ones, and the rest
+ are paired in order. Within both rounds the copies the original moved are preferred:
+ those still in flight to the destination, then the highest UIDs there, since a moved copy
+ lands above every UID the folder already held (RFC 3501 2.3.1.1). A copy this undo's local
+ phase already marked for a recorded folder keeps that course, which is how the remote
+ phase finds the local phase's choice.
+ */
+static vector<PlacementMove> _restoreMovesForMessage(Message * msg, const vector<Placement> & placements, json & data) {
+    vector<PlacementMove> moves;
+    auto & restore = data["restorePlacements"];
+    if (!restore.count(msg->id()) || !restore[msg->id()].is_array() || !data.count("sourceFolderIds") || !data["sourceFolderIds"].is_array() || data["sourceFolderIds"].empty()) {
+        return moves;
+    }
+    string from = data["sourceFolderIds"][0].get<string>();
+    vector<pair<string, int>> targets;
+    for (auto & entry : restore[msg->id()]) {
+        targets.push_back({entry["folderId"].get<string>(), entry["bits"].get<int>()});
+    }
+
+    vector<Placement> candidates;
+    for (auto & p : placements) {
+        if (p.remoteUID == 0) {
+            continue;
+        }
+        auto target = targets.end();
+        if (!p.pendingFolderId.empty()) {
+            target = std::find(targets.begin(), targets.end(), make_pair(p.pendingFolderId, p.flagBits()));
+            if (target == targets.end()) {
+                target = std::find_if(targets.begin(), targets.end(), [&](const pair<string, int> & t) { return t.first == p.pendingFolderId; });
+            }
+        }
+        if (target != targets.end()) {
+            moves.push_back({p, p.pendingFolderId});
+            targets.erase(target);
+        } else if (p.reportedFolderId() == from) {
+            candidates.push_back(p);
+        }
+    }
+    std::stable_sort(candidates.begin(), candidates.end(), [&](const Placement & a, const Placement & b) {
+        bool aInFlight = a.folderId != from;
+        bool bInFlight = b.folderId != from;
+        if (aInFlight != bInFlight) {
+            return aInFlight;
+        }
+        return !aInFlight && a.remoteUID > b.remoteUID;
+    });
+
+    vector<bool> targetPaired(targets.size(), false);
+    vector<bool> candidateUsed(candidates.size(), false);
+    for (size_t t = 0; t < targets.size(); t++) {
+        for (size_t c = 0; c < candidates.size(); c++) {
+            if (!candidateUsed[c] && candidates[c].flagBits() == targets[t].second) {
+                moves.push_back({candidates[c], targets[t].first});
+                targetPaired[t] = candidateUsed[c] = true;
+                break;
+            }
+        }
+    }
+    size_t c = 0;
+    for (size_t t = 0; t < targets.size(); t++) {
+        while (c < candidates.size() && candidateUsed[c]) {
+            c++;
+        }
+        if (targetPaired[t] || c == candidates.size()) {
+            continue;
+        }
+        moves.push_back({candidates[c], targets[t].first});
+        candidateUsed[c] = true;
+    }
+    return moves;
 }
 
-void _applyFolderMoveInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
-    Folder destFolder{data["folder"]};
-    
-    _moveMessagesResilient(session, path, &destFolder, uids, messages);
+/*
+ Which copies a ChangeFolderTask moves, and where. Both phases derive this from the task
+ data and the message's current rows, so the remote phase finds the same copies after the
+ local phase (which only marks them) and after an earlier task has moved them on. A copy
+ at UID 0 is never selected: no scan can report where it went, so a marker on it would
+ show it in the destination forever.
+
+ A move to Trash or Spam takes every copy; any other move takes the copies in
+ `sourceFolderIds` when the client named the folder it was looking at, else every copy
+ outside Sent and Drafts. A copy is matched by the folder it is in or the one it is
+ optimistically shown in, a copy already marked for this destination is always included
+ so a re-run finishes it, and a copy already in the destination is only touched to pull
+ it back from a pending move elsewhere. A copy is moved even when the destination already
+ holds one: two copies in one folder are a state the placement model represents.
+ */
+static vector<PlacementMove> _movesForMessage(MailStore * store, Message * msg, const vector<Placement> & placements, json & data) {
+    if (data.count("restorePlacements") && data["restorePlacements"].is_object()) {
+        return _restoreMovesForMessage(msg, placements, data);
+    }
+
+    vector<PlacementMove> moves;
+    string dest = data["folder"]["id"].get<string>();
+    string destRole = data["folder"].count("role") && data["folder"]["role"].is_string() ? data["folder"]["role"].get<string>() : "";
+    bool everyCopy = destRole == "trash" || destRole == "spam";
+    set<string> sources;
+    if (data.count("sourceFolderIds") && data["sourceFolderIds"].is_array()) {
+        for (auto & id : data["sourceFolderIds"]) {
+            sources.insert(id.get<string>());
+        }
+    }
+
+    auto matches = [&](const string & folderId) {
+        if (everyCopy) {
+            return true;
+        }
+        if (!sources.empty()) {
+            return sources.count(folderId) > 0;
+        }
+        string role = msg->folderRole(store, folderId);
+        return role != "sent" && role != "drafts";
+    };
+
+    for (auto & p : placements) {
+        if (p.remoteUID == 0) {
+            continue;
+        }
+        bool pendingElsewhere = !p.pendingFolderId.empty() && p.pendingFolderId != dest;
+        bool selected;
+        if (p.pendingFolderId == dest) {
+            selected = true;
+        } else if (p.folderId == dest) {
+            selected = pendingElsewhere && matches(p.pendingFolderId);
+        } else {
+            selected = matches(p.folderId) || (pendingElsewhere && matches(p.pendingFolderId));
+        }
+        if (selected) {
+            moves.push_back({p, dest});
+        }
+    }
+    return moves;
+}
+
+// Marks the selected copies so the client sees them in the destination immediately, and
+// records as `undoPlacements` the folder each one was shown in and its flag bits, which is
+// where and how its undo sends a copy back (_restoreMovesForMessage).
+void _applyFolder(MailStore * store, Message * msg, const vector<Placement> & placements, json & data) {
+    json shownIn = json::array();
+    for (auto & move : _movesForMessage(store, msg, placements, data)) {
+        if (move.placement.reportedFolderId() != move.destFolderId) {
+            shownIn.push_back({{"folderId", move.placement.reportedFolderId()}, {"bits", move.placement.flagBits()}});
+        }
+        store->beginPlacementMove(*msg, move.placement.folderId, move.placement.remoteUID, move.destFolderId);
+    }
+    if (!shownIn.empty()) {
+        data["undoPlacements"][msg->id()] = shownIn;
+    }
+}
+
+static shared_ptr<Folder> _moveDestination(MailStore * store, string accountId, string folderId, json & data) {
+    auto folder = store->folderById(accountId, folderId);
+    if (folder == nullptr && data["folder"].is_object() && data["folder"]["id"].get<string>() == folderId) {
+        folder = make_shared<Folder>(data["folder"]);
+    }
+    if (folder == nullptr) {
+        throw SyncException("no-matching-folder", "The destination folder no longer exists.", false);
+    }
+    return folder;
+}
+
+// Moves the items' copies out of `source`, one MOVE per destination. A copy already in its
+// destination (an undo settling a copy it found at home) is only confirmed in place.
+void _applyFolderMoveInIMAPFolder(IMAPSession * session, MailStore * store, string accountId, Folder & source, vector<TaskPlacement *> & items, json & data) {
+    map<string, vector<TaskPlacement *>> byDest;
+    for (auto item : items) {
+        if (item->placement.folderId == item->destFolderId) {
+            item->moved = true;
+            item->movedUID = item->placement.remoteUID;
+        } else {
+            byDest[item->destFolderId].push_back(item);
+        }
+    }
+    for (auto & pair : byDest) {
+        auto dest = _moveDestination(store, accountId, pair.first, data);
+        _moveMessagesResilient(session, AS_MCSTR(source.path()), *dest, pair.second);
+    }
 }
 
 string _xgmKeyForLabel(json & label) {
@@ -285,39 +603,37 @@ string _xgmKeyForLabel(json & label) {
     return path;
 }
 
-void _applyLabels(Message * msg, json & data) {
+void _applyLabels(MailStore * store, Message * msg, const vector<Placement> & placements, json & data) {
     json & toAdd = data["labelsToAdd"];
     json & toRemove = data["labelsToRemove"];
-    json & labels = msg->remoteXGMLabels();
+    vector<string> labels;
+    for (auto & existing : msg->labels()) {
+        labels.push_back(existing.get<string>());
+    }
     
     for (auto & item : toAdd) {
         string xgmValue = _xgmKeyForLabel(item);
-        bool found = false;
-        for (auto & existing : labels) {
-            if (existing.get<string>() == xgmValue) {
-                found = true;
-                break;
-            }
-        }
-        if (found == false) {
+        if (std::find(labels.begin(), labels.end(), xgmValue) == labels.end()) {
             labels.push_back(xgmValue);
         }
     }
     for (auto & item : toRemove) {
         string xgmValue = _xgmKeyForLabel(item);
-        for (int i = (int)labels.size() - 1; i >= 0; i --) {
-            if (labels.at(i).get<string>() == xgmValue) {
-                labels.erase(i);
-            }
-        }
+        labels.erase(std::remove(labels.begin(), labels.end(), xgmValue), labels.end());
     }
-    msg->setRemoteXGMLabels(labels);
+    // MessageAttributesForMessage sorts the labels it reads from the server and
+    // MessageAttributesMatch compares the arrays positionally, so an unsorted local
+    // set would register as a change on the next scan and cost a no-op update + delta.
+    sort(labels.begin(), labels.end());
+    store->setPlacementLabels(*msg, labels);
 }
 
-void _applyLabelChangeInIMAPFolder(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data) {
+void _applyLabelChangeInIMAPFolder(IMAPSession * session, MailStore * store, string accountId, Folder & source, vector<TaskPlacement *> & items, json & data) {
     AutoreleasePool pool;
 
     ErrorCode err = ErrorCode::ErrorNone;
+    String * path = AS_MCSTR(source.path());
+    IndexSet * uids = _uidsOf(items);
     Array * toAdd = new mailcore::Array{};
     toAdd->autorelease();
     for (auto & item : data["labelsToAdd"]) {
@@ -445,6 +761,7 @@ void TaskProcessor::performLocal(Task * task) {
             performLocalChangeOnMessages(task, _applyStarred);
 
         } else if (cname == "ChangeFolderTask") {
+            task->data()["undoPlacements"] = json::object();
             performLocalChangeOnMessages(task, _applyFolder);
             
         } else if (cname == "ChangeLabelsTask") {
@@ -685,35 +1002,25 @@ void TaskProcessor::cancel(string taskId) {
 
 #pragma mark Privates
 
+/*
+ Builds the engine's Message for draft JSON the client sent. The client serializes only
+ the fields it knows about, so the local copy of the draft (when there is one) supplies
+ the rest: engine bookkeeping, metadata and the "folders" snapshot. A "folders" echoed
+ by the client may be stale and is discarded; a brand-new draft gets its Drafts placement
+ from performLocalSaveDraft.
+ */
 Message TaskProcessor::inflateClientDraftJSON(json & draftJSON, shared_ptr<Message> existing = nullptr) {
-    // set other JSON attributes the client may not have populated, but we require to be non-null
-    
-    // Note BG 2019 - I don't know why this is so defensive. I guess these objects JSON is created client-side
-    // and we don't want the C++ to need to trust that the JS and the C++ are exactly aligned?
-    
-    // Followup: This is because the client only serializes the fields it's aware of, so remoteUID, etc.
-    // ARE actually missing.
-    
+    draftJSON.erase("folders");
+
     json base;
     if (existing) {
         base = existing->_data;
     } else {
-        Query q = Query().equal("accountId", account->id()).equal("role", "drafts");
-        auto folder = store->find<Folder>(q);
-        if (folder.get() == nullptr) {
-            q = Query().equal("accountId", account->id()).equal("role", "all");
-            folder = store->find<Folder>(q);
-        }
-        if (folder == nullptr) {
-            throw SyncException("no-drafts-folder", "Mailspring can't find your Drafts folder. To create and send mail, visit Preferences > Folders and choose a Drafts folder.", false);
-        }
         base = {
-            {"remoteUID", 0},
             {"draft", true},
             {"unread", false},
             {"starred", false},
-            {"folder", folder->toJSON()},
-            {"remoteFolder", folder->toJSON()},
+            {"folders", json::object()},
             {"date", time(0)},
             {"_sa", 0},
             {"_suc", 0},
@@ -730,10 +1037,7 @@ Message TaskProcessor::inflateClientDraftJSON(json & draftJSON, shared_ptr<Messa
         };
     }
 
-    // Take the base values (either our local copy of the draft with our metadata, or a new stub) and smash in
-    // the values provided by the client. This allows us to retain the actual remoteUID, remoteFolder, etc. if
-    // the draft is synced remotely.
-    
+    // Keys the client sent win; the base fills in the rest.
     draftJSON.insert(base.begin(), base.end());
 
     // Always update the timestamp
@@ -746,6 +1050,17 @@ Message TaskProcessor::inflateClientDraftJSON(json & draftJSON, shared_ptr<Messa
     }
 
     return msg;
+}
+
+shared_ptr<Folder> TaskProcessor::draftsFolder() {
+    auto folder = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "drafts"));
+    if (folder == nullptr) {
+        folder = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "all"));
+    }
+    if (folder == nullptr) {
+        throw SyncException("no-drafts-folder", "Mailspring can't find your Drafts folder. To create and send mail, visit Preferences > Folders and choose a Drafts folder.", false);
+    }
+    return folder;
 }
 
 ChangeMailModels TaskProcessor::inflateMessages(json & data) {
@@ -769,7 +1084,7 @@ ChangeMailModels TaskProcessor::inflateMessages(json & data) {
     return models;
 }
 
-void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocalMessage)(Message *, json &)) {
+void TaskProcessor::performLocalChangeOnMessages(Task * task, LocalChangeFn modifyLocalMessage) {
     MailStoreTransaction transaction{store, "performLocalChangeOnMessages"};
     
     json & data = task->data();
@@ -783,7 +1098,8 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
         }
         
         // perform local changes
-        modifyLocalMessage(msg.get(), data);
+        auto placements = store->placementsForMessage(msg->id());
+        modifyLocalMessage(store, msg.get(), placements, data);
 
         // prevent remote changes to this message for 24 hours
         // so the changes aren't reverted by sync before we can syncback.
@@ -803,7 +1119,6 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
             threadIds.push_back(member.get<string>());
         }
         auto chunks = MailUtils::chunksOfVector(threadIds, 500);
-        auto allLabels = store->allLabelsCache(task->accountId());
 
         for (auto chunk : chunks) {
             auto threads = store->findAllMap<Thread>(Query().equal("id", chunk), "id");
@@ -813,7 +1128,7 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
             }
             for (auto msg : models.messages) {
                 if (threads.count(msg->threadId())) {
-                    threads[msg->threadId()]->applyMessageAttributeChanges(MessageEmptySnapshot, msg.get(), allLabels);
+                    threads[msg->threadId()]->applyMessageAttributeChanges(MessageEmptySnapshot, msg.get(), store);
                 }
             }
             for (auto pair : threads) {
@@ -826,60 +1141,91 @@ void TaskProcessor::performLocalChangeOnMessages(Task * task, void (*modifyLocal
     transaction.commit();
 }
 
-void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool updatesFolder, void (*applyInFolder)(IMAPSession * session, String * path, IndexSet * uids, vector<shared_ptr<Message>> messages, json & data)) {
-    // Perform the remote action on the impacted messages
-    json & data = task->data();
-    
-    // Grab the messages, group into folders, and perform the remote changes.
-    // Note that we reload the messages to update them locally because
-    // this code does I/O and is not inside a transaction! Other task
-    // performLocal calls could be happening at the same time.
-    vector<shared_ptr<Message>> messages = inflateMessages(data).messages;
-    map<string, shared_ptr<IndexSet>> uidsByFolder{};
-    map<string, vector<shared_ptr<Message>>> msgsByFolder{};
-    map<string, shared_ptr<Message>> messagesById{};
+/*
+ Runs the server side of a message task: every server copy the task addresses is grouped by
+ the folder holding it and `applyInFolder` runs once per folder. The network I/O happens
+ outside any transaction, so the messages are reloaded afterwards and the outcome applied
+ to their rows then, together with releasing the syncedAt lock. The confirm save usually
+ changes nothing the client can see (the optimistic marker already reported the
+ destination), so its deltas are dropped unless the client-visible state changed.
 
+ A failing folder ends the server work, and the error is rethrown only after the outcome is
+ applied: copies already moved are committed, copies that were not go back to the folder the
+ server has them in, and the lock is released either way, so later scans and tasks see the
+ message normally. Flags a failed flag task wrote locally are left for the folders' next
+ full scan to correct (_rescanFoldersForFlags); the task's pre-change values per copy are
+ not kept.
+ */
+void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, RemoteChangeFn applyInFolder) {
+    json & data = task->data();
+    vector<shared_ptr<Message>> messages = inflateMessages(data).messages;
+
+    deque<TaskPlacement> items;
     for (auto msg : messages) {
-        string path = msg->remoteFolder()["path"].get<string>();
-        uint32_t uid = msg->remoteUID();
-        if (!uidsByFolder.count(path)) {
-            uidsByFolder[path] = make_shared<IndexSet>();
-            msgsByFolder[path] = {};
+        auto placements = store->placementsForMessage(msg->id());
+        if (isMove) {
+            for (auto & move : _movesForMessage(store, msg.get(), placements, data)) {
+                items.push_back(TaskPlacement{msg, move.placement, move.destFolderId});
+            }
+        } else {
+            for (auto & p : placements) {
+                if (p.remoteUID > 0) {
+                    items.push_back(TaskPlacement{msg, p, ""});
+                }
+            }
         }
-        uidsByFolder[path]->addIndex(uid);
-        msgsByFolder[path].push_back(msg);
-        messagesById[msg->id()] = msg;
     }
-    
-    for (auto pair : msgsByFolder) {
-        auto & msgs = pair.second;
-        IndexSet * uids = uidsByFolder[pair.first].get();
-        
-        // perform the action. NOTE! This function is allowed to mutate the messages,
-        // for example to set their remoteUID after a move.
-        applyInFolder(session, AS_MCSTR(pair.first), uids, msgs, data);
+
+    map<string, vector<TaskPlacement *>> itemsByFolder;
+    map<string, vector<TaskPlacement *>> itemsByMessage;
+    for (auto & item : items) {
+        itemsByFolder[item.placement.folderId].push_back(&item);
+        itemsByMessage[item.message->id()].push_back(&item);
     }
-    
-    // Reload the messages inside a transaction, save any changes made to "remote" attributes
-    // by applyInFolder and decrement locks.
+    std::exception_ptr failure = nullptr;
+    for (auto & pair : itemsByFolder) {
+        auto folder = store->folderById(account->id(), pair.first);
+        if (folder == nullptr) {
+            logger->warn("-- {} copies are in a folder ({}) that no longer exists, skipping", pair.second.size(), pair.first);
+            continue;
+        }
+        try {
+            applyInFolder(session, store, account->id(), *folder, pair.second, data);
+        } catch (SQLite::Exception &) {
+            throw; // leaves the task queued (see performRemote), so nothing is released twice
+        } catch (...) {
+            logger->error("-X Changing copies in {} failed; releasing the task's messages", folder->path());
+            failure = std::current_exception();
+            break;
+        }
+    }
+
     {
         MailStoreTransaction transaction{store, "performRemoteChangeOnMessages"};
+        bool clientVisibleChange = false;
         vector<shared_ptr<Message>> safeMessages = inflateMessages(data).messages;
         
+        vector<string> displacedIds;
         for (auto safe : safeMessages) {
-            if (!messagesById.count(safe->id())) {
-                logger->info("-- Could not find msg {} to apply remote changes", safe->id());
-                continue;
+            json before = _clientVisibleState(*safe);
+            auto rows = store->placementsForMessage(safe->id());
+            for (auto item : itemsByMessage[safe->id()]) {
+                if (failure && !item->moved && !item->destFolderId.empty()) {
+                    store->abandonPlacementMove(*safe, item->placement.folderId, item->placement.remoteUID, item->destFolderId);
+                    continue;
+                }
+                string displaced = confirmPlacementChange(*safe, *item, rows);
+                if (!displaced.empty()) {
+                    displacedIds.push_back(displaced);
+                }
             }
-            auto unsafe = messagesById[safe->id()];
+            if (safe->placementsChanged()) {
+                store->refreshMessageFromPlacements(*safe);
+            }
+            if (_clientVisibleState(*safe) != before) {
+                clientVisibleChange = true;
+            }
 
-            // NOTE: We only want to apply the attributes the `applyInFolder` method modifies
-            // to avoid overwriting other changes that may have happened. For example, running
-            // performRemote on a ChangeUnreadTask shouldn't set setRemoteFolder.
-            if (updatesFolder) {
-                safe->setRemoteUID(unsafe->remoteUID());
-                safe->setRemoteFolder(unsafe->remoteFolder());
-            }
             int suc = safe->syncUnsavedChanges() - 1;
             safe->setSyncUnsavedChanges(suc);
             if (suc == 0) {
@@ -887,12 +1233,57 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool updatesFolde
             }
             store->save(safe.get());
         }
-        // We know we do not need to `emit` this change, because it's all internal fields and
-        // remote values, not things reflected in the client. This is good for perf because
-        // the client does silly things like refresh MessageItems when new versions arrive.
-        store->unsafeEraseTransactionDeltas();
+        // A message that lost a stale (folder, UID) row to a moved copy has a snapshot
+        // listing a copy it no longer has. Without another row it is an orphan, swept at
+        // the end of the pass like any other vanished copy.
+        for (auto & id : displacedIds) {
+            logger->warn("-- Message {} lost a placement to a moved copy at the same UID", id);
+            clientVisibleChange = true;
+        }
+        MailProcessor{account, store}.refreshMessagesInOpenTransaction(displacedIds, UnplacedMessages::KeepAsOrphan);
+        if (!clientVisibleChange) {
+            store->unsafeEraseTransactionDeltas();
+        }
         transaction.commit();
     }
+
+    if (failure) {
+        if (!isMove) {
+            _rescanFoldersForFlags(store, account->id(), itemsByFolder);
+        }
+        std::rethrow_exception(failure);
+    }
+}
+
+// Applies one moved copy's new location to the reloaded message. A row that no longer
+// matches its captured (folder, UID) - reset to UID 0 by a UIDVALIDITY change while the
+// task ran - is left alone with its marker; the folder's next scan records where the copy
+// is. A marker a later task's local phase put on the row (an undo issued before this move
+// reached the server) is carried over to the new row, so the client keeps seeing the copy
+// where the later task is sending it. Returns the id of another message displaced from
+// the UID the copy claimed (MailStore::commitPlacementMove), or "".
+string TaskProcessor::confirmPlacementChange(Message & msg, TaskPlacement & item, const vector<Placement> & rows) {
+    if (!item.moved) {
+        return "";
+    }
+    auto & p = item.placement;
+    const Placement * current = nullptr;
+    for (auto & r : rows) {
+        if (r.folderId == p.folderId && r.remoteUID == p.remoteUID) {
+            current = &r;
+            break;
+        }
+    }
+    if (current == nullptr) {
+        logger->warn("-- Message {} no longer has a placement at ({}, {}); leaving its move to be re-derived", msg.id(), p.folderId, p.remoteUID);
+        return "";
+    }
+    string laterPending = current->pendingFolderId;
+    string displaced = store->commitPlacementMove(msg, p.folderId, p.remoteUID, item.destFolderId, item.movedUID);
+    if (!laterPending.empty() && laterPending != item.destFolderId) {
+        store->beginPlacementMove(msg, item.destFolderId, item.movedUID, laterPending);
+    }
+    return displaced;
 }
 
 void TaskProcessor::performLocalSaveDraft(Task * task) {
@@ -917,8 +1308,10 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
             int existingVersion = existing->version();
             existing->_data = draft._data;
             existing->_data["v"] = existingVersion + 1;
+            ensureDraftPlacement(*existing);
             store->save(existing.get());
         } else {
+            ensureDraftPlacement(draft);
             store->save(&draft);
         }
 
@@ -932,34 +1325,65 @@ void TaskProcessor::performLocalSaveDraft(Task * task) {
     }
 }
 
+// A draft with no copy anywhere would be swept as an orphan at the end of the next sync
+// pass. A brand-new draft, or one whose server copy vanished while the user kept editing
+// it, is given a Drafts-folder placement at UID 0 (not on the server).
+void TaskProcessor::ensureDraftPlacement(Message & draft) {
+    if (!store->placementsForMessage(draft.id()).empty()) {
+        return;
+    }
+    auto folder = draftsFolder();
+    MessageAttributes attrs{0, draft.isUnread(), draft.isStarred(), true, {}};
+    store->upsertPlacement(draft, *folder, 0, attrs);
+}
+
+/*
+ Destroys drafts locally right away and leaves an invisible placeholder in their place
+ until the deletion reaches the server. The placeholder takes over each draft's server
+ placement, so the Drafts scan keeps recognising the UID instead of re-inserting the
+ draft, and reports it under Trash so the thread leaves the Drafts view. The draft's id
+ is freed immediately because the user can switch a draft between accounts and re-create
+ one with the same accountId + headerMessageId.
+ */
 void TaskProcessor::performLocalDestroyDraft(Task * task) {
     vector<string> messageIds = task->data()["messageIds"];
 
     logger->info("-- Hiding / detatching drafts while they're deleted...");
-    
-    // Find the trash folder
-    auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
-    if (trash == nullptr) {
-        throw SyncException("no-trash-folder", "Mailspring doesn't know which folder to use for trash. Visit Preferences > Folders to assign a trash folder.", false);
-    }
 
+    auto trash = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "trash"));
     auto stubIds = json::array();
     
-    // we need to free up the draft ID immediately because the user can
-    // switch a draft between accounts, and we may need to re-create a
-    // new draft with the same acctId + hMsgId combination.
-    
-    // Destroy drafts locally and create stubs that prevent the sync
-    // worker from replacing them while we delete them via IMAP.
     {
         MailStoreTransaction transaction{store, "performLocalDestroyDraft"};
 
         auto drafts = store->findLargeSet<Message>("id", messageIds);
         for (auto & draft : drafts) {
+            auto placements = store->placementsForMessage(draft->id());
             store->remove(draft.get());
             
             auto stub = Message::messageWithDeletionPlaceholderFor(draft);
-            stub->setClientFolder(trash.get());
+            for (auto & p : placements) {
+                if (p.remoteUID == 0) {
+                    continue;
+                }
+                auto folder = store->folderById(account->id(), p.folderId);
+                if (folder == nullptr) {
+                    continue;
+                }
+                MessageAttributes attrs{p.remoteUID, p.unread, p.starred, p.draft, _labelsOf(p)};
+                store->upsertPlacement(*stub, *folder, p.remoteUID, attrs);
+                if (trash != nullptr) {
+                    store->beginPlacementMove(*stub, p.folderId, p.remoteUID, trash->id());
+                }
+            }
+            // Rebuilt before the flags below so the save keeps them, and unconditionally so a
+            // stub for a draft that was never on the server is recorded as an orphan.
+            store->refreshMessageFromPlacements(*stub);
+            // The placement keeps the draft's flags so the Drafts scan sees no change;
+            // the placeholder itself must not appear in the draft list.
+            stub->setDraft(false);
+            stub->setUnread(false);
+            stub->setStarred(false);
             store->save(stub.get());
             stubIds.push_back(stub->id());
 
@@ -971,20 +1395,16 @@ void TaskProcessor::performLocalDestroyDraft(Task * task) {
     task->data()["stubIds"] = stubIds;
 }
 
+// Placeholders with no placement (the draft was never on the server) are removed here
+// too: the orphan sweep only runs at the end of a sync pass and a stub carries a
+// syncedAt lock, so nothing else would clean them up promptly.
 void TaskProcessor::performRemoteDestroyDraft(Task * task) {
     vector<string> stubIds = task->data()["stubIds"];
     auto stubs = store->findLargeSet<Message>("id", stubIds);
 
-
     for (auto & stub : stubs) {
-        if (stub->remoteUID() == 0) {
-            continue; // not synced to server at all
-        }
-        auto uids = IndexSet::indexSetWithIndex(stub->remoteUID());
-        String * path = AS_MCSTR(stub->remoteFolder()["path"].get<string>());
-
         logger->info("-- Deleting remote draft {}", stub->id());
-        _removeMessagesResilient(session, store, account->id(), path, uids);
+        _removeMessageCopiesResilient(session, store, account->id(), *stub);
 
         // remove the stub from our local cache - would eventually get removed
         // during sync, but we don't want to fetch it's body or anything
@@ -1676,13 +2096,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
      Sending complete! First, delete the draft from the server so the user knows it has been sent
      and we don't re-sync it to the app after we delete it below.
      */
-    if (draft.remoteUID() != 0) {
-        auto uids = IndexSet::indexSetWithIndex(draft.remoteUID());
-        String * path = AS_MCSTR(draft.remoteFolder()["path"].get<string>());
-        
-        logger->info("-- Deleting remote draft with UID {}", draft.remoteUID());
-        _removeMessagesResilient(session, store, account->id(), path, uids);
-    }
+    _removeMessageCopiesResilient(session, store, account->id(), draft);
 
      /* Next, scan the sent folder for the message(s) we just sent through the SMTP
      gateway and clean them up. Some mail servers automatically place messages in the sent
@@ -1787,26 +2201,55 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
      Note: Yes, it's a bit weird that we sync up a message to the sent folder and then
      immediately pull it's attributes, but we want to get the Thread ID on Gmail, etc.
      We don't pull down the entire message body.
+
+     On Gmail the sent "folder" is a label and the copy's real home is All Mail, the one
+     folder the sync worker SELECTs. The placement is recorded there when Gmail already
+     shows the message in All Mail; if it lags, the copy is filed under the Sent label
+     for now and the next All Mail scan replaces that transient placement (Gmail keeps
+     one placement per message - see MailStore::removePlacementsOutsideFolder).
      */
 
     MailProcessor processor{account, store};
     shared_ptr<Message> localMessage = nullptr;
     IMAPMessage * remoteMessage = nullptr;
-    
-    logger->info("-- Syncing sent message (UID {}) to the local mail store", sentFolderMessageUID);
+    shared_ptr<Folder> placementFolder = sent;
+    String * placementPath = sentPath;
+    uint32_t placementUID = sentFolderMessageUID;
+
     IMAPMessagesRequestKind kind = (IMAPMessagesRequestKind)(IMAPMessagesRequestKindHeaders | IMAPMessagesRequestKindFlags);
     if (session->storedCapabilities()->containsIndex(IMAPCapabilityGmail)) {
         kind = (IMAPMessagesRequestKind)(kind | IMAPMessagesRequestKindGmailLabels | IMAPMessagesRequestKindGmailThreadID | IMAPMessagesRequestKindGmailMessageID);
+
+        auto all = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "all"));
+        if (all != nullptr) {
+            String * allPath = AS_MCSTR(all->path());
+            IndexSet * allUIDs = IndexSet::indexSet();
+            session->select(allPath, &err);
+            if (err == ErrorNone) {
+                session->findUIDsOfRecentHeaderMessageID(allPath, AS_MCSTR(draft.headerMessageId()), allUIDs);
+            }
+            err = ErrorNone;
+            if (allUIDs->count() == 1) {
+                placementFolder = all;
+                placementPath = allPath;
+                placementUID = (uint32_t)allUIDs->allRanges()[0].location;
+                logger->info("-- Found the sent message in {} (UID {})", all->path(), placementUID);
+            } else {
+                logger->info("-- Sent message not yet visible in {} ({} matches), recording it under {} until the next scan", all->path(), allUIDs->count(), sent->path());
+            }
+        }
     }
+
+    logger->info("-- Syncing sent message ({} UID {}) to the local mail store", placementFolder->path(), placementUID);
     
     // Important: Courier (and maybe other IMAP servers) won't show us new messages we've created
     // in the folder unless we re-select the folder. (I think they're treating UIDs like sequence
     // numbers?). We must re-select the sent folder to pull down the message we created.
-    session->select(sentPath, &err);
+    session->select(placementPath, &err);
 
     time_t syncDataTimestamp = time(0);
-    IndexSet * uids = IndexSet::indexSetWithIndex(sentFolderMessageUID);
-    Array * remote = session->fetchMessagesByUID(sentPath, kind, uids, nullptr, &err);
+    IndexSet * uids = IndexSet::indexSetWithIndex(placementUID);
+    Array * remote = session->fetchMessagesByUID(placementPath, kind, uids, nullptr, &err);
 
     // Delete the draft. We do this as close as possible to when we write the message in
     // so there isn't any flicker in the client, but before error checking because we always
@@ -1824,7 +2267,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
 
     MessageParser * messageParser = MessageParser::messageParserWithData(messageDataForSent);
     remoteMessage = (IMAPMessage *)(remote->lastObject());
-    localMessage = processor.insertFallbackToUpdateMessage(remoteMessage, *sent, syncDataTimestamp);
+    localMessage = processor.insertFallbackToUpdateMessage(remoteMessage, *placementFolder, syncDataTimestamp);
     if (localMessage == nullptr) {
         logger->error("-X Error: processor.insert did not return a message.");
         return;
@@ -1832,7 +2275,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
 
     processor.retrievedMessageBody(localMessage.get(), messageParser);
     
-    logger->info("-- Synced sent message (Sent UID {} = Local ID {})", sentFolderMessageUID, localMessage->id());
+    logger->info("-- Synced sent message ({} UID {} = Local ID {})", placementFolder->path(), placementUID, localMessage->id());
     
     // retrieve the new message and queue metadata tasks on it.
     // Metadata entries whose pluginId starts with "thread:" are promoted to the
@@ -1934,27 +2377,15 @@ void TaskProcessor::performRemoteExpungeAllInFolder(Task * task) {
     }
     logger->info("-- Expunged {}", path);
     
-    // delete all the local messages in the folder. We do this in performRemote
-    // because we don't want to block in performLocal for this long. We also pause
-    // as we go to allow the app to recover from the mass deletions.
-    auto all = store->findAll<Message>(Query().equal("accountId", task->accountId()).equal("remoteFolderId", id));
-    for (auto block : MailUtils::chunksOfVector(all, 100)) {
-        {
-            MailStoreTransaction t {store};
-            for (auto msg : block) {
-                store->remove(msg.get());
-            }
-            t.commit();
-        }
-        logger->info("-- Deleted {} local messages", block.size());
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    }
+    // Drop the folder's placements and rewrite the affected messages. This runs in
+    // performRemote because it takes too long for performLocal, in chunks with a pause so
+    // the app can keep up with the mass deletion.
+    MailProcessor processor{account, store};
+    processor.detachMessagesFromFolder(id, std::chrono::milliseconds(300));
 }
 
 void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
     AutoreleasePool pool;
-    IMAPProgress cb;
-    ErrorCode err = ErrorNone;
     const auto id = task->data()["messageId"].get<string>();
     const auto filepath = task->data()["filepath"].get<string>();
     
@@ -1963,14 +2394,26 @@ void TaskProcessor::performRemoteGetMessageRFC2822(Task * task) {
         throw SyncException("not-found", "Message not found for RFC2822 fetch", false);
     }
 
-    Data * data = session->fetchMessageByUID(AS_MCSTR(msg->remoteFolder()["path"].get<string>()), msg->remoteUID(), &cb, &err);
-    if (err != ErrorNone) {
-        logger->error("Unable to fetch rfc2822 for message (UID {}). Error {}", msg->remoteUID(), ErrorCodeToTypeMap[err]);
-        throw SyncException(err, "performRemoteGetMessageRFC2822");
+    Data * data = nullptr;
+    for (auto & copy : store->fetchableCopiesOfMessage(*msg)) {
+        IMAPProgress cb;
+        ErrorCode err = ErrorNone;
+        data = session->fetchMessageByUID(AS_MCSTR(copy.folder->path()), copy.uid, &cb, &err);
+        if (err != ErrorNone) {
+            logger->error("Unable to fetch rfc2822 for message ({} UID {}). Error {}", copy.folder->path(), copy.uid, ErrorCodeToTypeMap[err]);
+            if (err == ErrorFetch) {
+                data = nullptr;
+                continue; // this copy may have been expunged since our last scan
+            }
+            throw SyncException(err, "performRemoteGetMessageRFC2822");
+        }
+        if (data != nullptr) {
+            break;
+        }
+        logger->error("fetchMessageByUID returned null data for message ({} UID {})", copy.folder->path(), copy.uid);
     }
     if (data == nullptr) {
-        logger->error("fetchMessageByUID returned null data for message (UID {})", msg->remoteUID());
-        throw SyncException(ErrorFetch, "performRemoteGetMessageRFC2822 - null data");
+        throw SyncException(ErrorFetch, "performRemoteGetMessageRFC2822 - no copy on the server");
     }
 #ifdef _MSC_VER
     wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
@@ -2058,8 +2501,19 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
     const auto outputDir = task->data()["outputDir"].get<string>();
 
     // Get total count without loading all message objects into memory
-    auto countQuery = Query().equal("accountId", task->accountId()).equal("remoteFolderId", folderId);
-    int total = store->count<Message>(countQuery);
+    int total = 0;
+    {
+        // The same join as the page query below, so a placement whose Message row is
+        // missing is not counted as an export that never happens.
+        SQLite::Statement count(store->db(),
+            "SELECT COUNT(*) FROM MessageFolder INNER JOIN Message ON Message.id = MessageFolder.messageId "
+            "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0");
+        count.bind(1, task->accountId());
+        count.bind(2, folderId);
+        if (count.executeStep()) {
+            total = count.getColumn(0).getInt();
+        }
+    }
 
     // Initialize or resume progress
     json progress;
@@ -2092,26 +2546,46 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
     int failed = progress["failed"].get<int>();
     const int chunkSize = 50;
 
-    // Paginate through messages ordered by remoteUID ascending, using a cursor
-    // to avoid skipping/duplicating messages if the folder changes during export.
-    // This uses the MessageUIDScanIndex (accountId, remoteFolderId, remoteUID).
+    // Paginate through the folder's placements ordered by remoteUID ascending, using a
+    // cursor to avoid skipping/duplicating messages if the folder changes during export.
+    // This walks MessageFolderUIDIndex (accountId, folderId, remoteUID) and joins the
+    // Message row only for the subject and date the filename needs.
+    struct Export {
+        uint32_t uid;
+        string id;
+        string subject;
+        time_t date;
+    };
     while (true) {
         AutoreleasePool pool;
 
-        auto chunkQuery = Query()
-            .equal("accountId", task->accountId())
-            .equal("remoteFolderId", folderId)
-            .gt("remoteUID", (double)cursorUID)
-            .orderBy("remoteUID", "ASC")
-            .limit(chunkSize);
-        auto messages = store->findAll<Message>(chunkQuery);
+        vector<Export> messages;
+        {
+            SQLite::Statement page(store->db(),
+                "SELECT MessageFolder.remoteUID, Message.id, Message.subject, Message.date FROM MessageFolder "
+                "INNER JOIN Message ON Message.id = MessageFolder.messageId "
+                "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > ? "
+                "ORDER BY MessageFolder.remoteUID ASC LIMIT ?");
+            page.bind(1, task->accountId());
+            page.bind(2, folderId);
+            page.bind(3, (long long)cursorUID);
+            page.bind(4, chunkSize);
+            while (page.executeStep()) {
+                messages.push_back({
+                    (uint32_t)page.getColumn(0).getInt64(),
+                    page.getColumn(1).getString(),
+                    page.getColumn(2).isNull() ? "" : page.getColumn(2).getString(),
+                    (time_t)page.getColumn(3).getDouble(),
+                });
+            }
+        }
 
         if (messages.empty()) {
             break;
         }
 
         for (auto & msg : messages) {
-            std::string filename = sanitizeEmlFilename(msg->subject(), msg->date(), globalIndex);
+            std::string filename = sanitizeEmlFilename(msg.subject, msg.date, globalIndex);
             std::string filepath = outputDir + FS_PATH_SEP + filename;
 
             IMAPProgress cb;
@@ -2119,7 +2593,7 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
 
             try {
                 Data * data = session->fetchMessageByUID(
-                    AS_MCSTR(folderPath), msg->remoteUID(), &cb, &err);
+                    AS_MCSTR(folderPath), msg.uid, &cb, &err);
 
                 if (err != ErrorNone) {
                     throw SyncException(err, "GetManyRFC2822 fetch");
@@ -2134,20 +2608,20 @@ void TaskProcessor::performRemoteGetManyRFC2822(Task * task) {
 #else
                 data->writeToFile(AS_MCSTR(filepath));
 #endif
-                setFileModificationTime(filepath, msg->date());
+                setFileModificationTime(filepath, msg.date);
                 exported++;
             } catch (SyncException & ex) {
                 logger->error("GetManyRFC2822: failed to export message {} (UID {}): {}",
-                    msg->id(), msg->remoteUID(), ex.toJSON().dump());
+                    msg.id, msg.uid, ex.toJSON().dump());
                 failed++;
                 json errEntry;
-                errEntry["messageId"] = msg->id();
-                errEntry["subject"] = msg->subject();
+                errEntry["messageId"] = msg.id;
+                errEntry["subject"] = msg.subject;
                 errEntry["error"] = ex.toJSON()["error"];
                 progress["errors"].push_back(errEntry);
             }
 
-            cursorUID = msg->remoteUID();
+            cursorUID = msg.uid;
             globalIndex++;
         }
 

@@ -1,0 +1,22 @@
+name: two-folders-identical-messages
+description: >
+  Two folders holding byte-identical messages collapse onto the same local rows, so the
+  losing folder's messages look un-synced on every pass. The engine must settle (busy false,
+  lastDeep recorded) instead of re-scanning forever.
+source: Mailspring-Sync PR #140 (count oscillated 2350 -> 1174 -> 2350 indefinitely)
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: {count: 300, age_days: 30}}
+setup:
+  - server.duplicate: {mailbox: INBOX, uids: "1:300", to: Archive}
+steps:
+  - wait: {quiescent: true, timeout: 300}
+  - force_scans: {}
+expect:
+  folder_status: {INBOX: {busy: false}, Archive: {busy: false}}
+  stable: {passes: 2}
+  db_matches_server: {}
+  running: true

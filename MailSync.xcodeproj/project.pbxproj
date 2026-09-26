@@ -19,6 +19,7 @@
 		4346BCE51EF91305009477FE /* Query.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4346BCE31EF91305009477FE /* Query.cpp */; };
 		4348E5D21F55E7AB004CFB15 /* XOAuth2TokenManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5D11F55E7AB004CFB15 /* XOAuth2TokenManager.cpp */; };
 		4348E5DC1F560FAC004CFB15 /* MailStoreTransaction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */; };
+		43A1C0B02E9E10010000A001 /* Placement.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A1C0B12E9E10010000A002 /* Placement.cpp */; };
 		43617D841F3D4DDA00DB566D /* libMailCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43617D731F3D4D4300DB566D /* libMailCore.a */; };
 		436489341EF2E905007816EC /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489331EF2E905007816EC /* main.cpp */; };
 		436489581EF2E94B007816EC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489571EF2E94B007816EC /* Security.framework */; };
@@ -181,6 +182,8 @@
 		4348E5DA1F55E7BA004CFB15 /* XOAuth2TokenManager.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = XOAuth2TokenManager.hpp; sourceTree = "<group>"; };
 		4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MailStoreTransaction.cpp; sourceTree = "<group>"; };
 		4348E5DD1F560FDF004CFB15 /* MailStoreTransaction.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MailStoreTransaction.hpp; sourceTree = "<group>"; };
+		43A1C0B12E9E10010000A002 /* Placement.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Placement.cpp; sourceTree = "<group>"; };
+		43A1C0B22E9E10010000A003 /* Placement.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Placement.hpp; sourceTree = "<group>"; };
 		4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = SPDLogExtensions.hpp; sourceTree = "<group>"; };
 		4349AAD62E77874500512188 /* CODE_SIGN_STYLE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = CODE_SIGN_STYLE.txt; sourceTree = "<group>"; };
 		43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = mailcore2.xcodeproj; path = "Vendor/mailcore2/build-mac/mailcore2.xcodeproj"; sourceTree = "<group>"; };
@@ -413,6 +416,8 @@
 				436489961EF32A81007816EC /* MailStore.cpp */,
 				4348E5DD1F560FDF004CFB15 /* MailStoreTransaction.hpp */,
 				4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */,
+				43A1C0B22E9E10010000A003 /* Placement.hpp */,
+				43A1C0B12E9E10010000A002 /* Placement.cpp */,
 				43CA94151EF9E610006685D0 /* MailProcessor.hpp */,
 				43CA94141EF9E610006685D0 /* MailProcessor.cpp */,
 				436489941EF32866007816EC /* MailUtils.hpp */,
@@ -692,6 +697,7 @@
 				436489891EF2F905007816EC /* Column.cpp in Sources */,
 				43B48E8B1F37C7FF002D202E /* NetworkRequestUtils.cpp in Sources */,
 				4348E5DC1F560FAC004CFB15 /* MailStoreTransaction.cpp in Sources */,
+				43A1C0B02E9E10010000A001 /* Placement.cpp in Sources */,
 				43CA9A121F1174FD001A24A0 /* ThreadUtils.cpp in Sources */,
 				4368DCBF1F43851A00F22FFD /* simpio.cpp in Sources */,
 				43EAFEDC1F001F110046589B /* Contact.cpp in Sources */,

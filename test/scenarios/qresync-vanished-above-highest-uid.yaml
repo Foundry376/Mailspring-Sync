@@ -1,0 +1,33 @@
+name: qresync-vanished-above-highest-uid
+description: >
+  Another client deletes the newest message in Archive and moves the next two newest to
+  Trash, so every UID it removes is above the highest UID left in the folder. Cyrus limits
+  VANISHED (EARLIER) to the request's UID set with `*` resolved to that highest remaining
+  UID, so a CHANGEDSINCE fetch over `1:*` never reports them and the copies stay in Archive
+  locally until the daily gap scan. The engine must bound the set at UIDNEXT-1 from STATUS
+  and drop the three copies on the next background pass. Archive is not idled on, and Junk
+  holds mail so the background connection is left on Junk rather than Archive after the
+  initial sync and gets no unsolicited EXPUNGE for Archive.
+source: "cyrus-imapd #6071; RFC 7162 §3.2.6 and §3.2.5.1; reproduced on a local Cyrus 3.6, 2026-09-24"
+servers:
+  - {fake: cyrus-vanished}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+mailboxes:
+  INBOX: {messages: 5}
+  Archive: {messages: 10}
+  Trash: {messages: 2}
+  Junk: {messages: 2}
+steps:
+  - wait: quiescent
+  - server.expunge: {mailbox: Archive, uids: [10]}
+  - server.move: {mailbox: Archive, uids: "8:9", to: Trash}
+  - sync: pass
+  - assert:
+      db_matches_server: {}
+      counts: {Archive: 7, Trash: 4}
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 5, Archive: 7, Trash: 4, Junk: 2}
+  stable: {passes: 1}
+  running: true

@@ -1,0 +1,3 @@
+pytest>=8
+pyyaml>=6
+pytest-xdist>=3

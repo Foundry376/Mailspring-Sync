@@ -12,6 +12,7 @@
 #include "Thread.hpp"
 #include "MailUtils.hpp"
 #include "MailStore.hpp"
+#include "Placement.hpp"
 
 #define DEFAULT_SUBJECT "unassigned"
 
@@ -164,60 +165,31 @@ void Thread::resetCountedAttributes() {
     // now call applyMessageAttributeChanges(empty, msg) for all messages
 }
 
-void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next, vector<shared_ptr<Label>> allLabels) {
+/*
+ Updates the thread's counters and folder / label sets from a before + after view of one
+ message. `old` is the message's state when it was loaded (or the empty snapshot for a
+ new message); `next` is its current state, or null when it is being removed.
+
+ Folder refcounts are per distinct folder: a message with two copies in one folder still
+ contributes one reference. The per-folder unread count (`_u`, which feeds ThreadCategory
+ and the ThreadCounts badge) uses that copy's own unread bit, so an unread Inbox copy
+ counts for Inbox while the read Sent copy of the same message does not count for Sent.
+ */
+void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next, MailStore * store) {
+    auto allLabels = store->allLabelsCache(accountId());
+
     // decrement basic attributes
     setUnread(unread() - old.unread);
     setStarred(starred() - old.starred);
     setAttachmentCount(attachmentCount() - (int)old.fileCount);
-    
-    // decrement folder refcounts. Iterate through the thread's folders
-    // and build a new set containing every folder that still has a
-    // refcount > 0 after we subtract one from the message's folder.
-    json nextFolders = json::array();
-    for (auto & f : folders()) {
-        if (f["id"].get<string>() != old.clientFolderId) {
-            nextFolders.push_back(f);
-            continue;
-        }
-        int r = f["_refs"].get<int>();
-        
-        // Would be >0, but in the "decrementing to zero" case, we don't want
-        // the folder in the result set at all.
-        if (r > 1) {
-            f["_refs"] = r - 1;
-            f["_u"] = f["_u"].get<int>() - old.unread;
-            nextFolders.push_back(f);
-        }
-    }
-    _data["folders"] = nextFolders;
-    
-    // decrement label refcounts
+
+    // decrement folder + label refcounts.
     //
     // Note: Since labels are within `All Mail`, a message only contributes
     // to a label's unread count if it is also in `All Mail`.
-    for (auto& mlname : old.remoteXGMLabels) {
-        shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
-        if (ml == nullptr) {
-            continue;
-        }
-        json nextLabels = json::array();
-        for (auto & l : labels()) {
-            if (l["id"].get<string>() != ml->id()) {
-                nextLabels.push_back(l);
-                continue;
-            }
-            int r = l["_refs"].get<int>();
-
-            // Would be >0, but in the "decrementing to zero" case, we don't want
-            // the label in the result set at all.
-            if (r > 1) {
-                l["_refs"] = r - 1;
-                l["_u"] = l["_u"].get<int>() - old.unread && old.inAllMail; // see Note
-                nextLabels.push_back(l);
-            }
-        }
-        _data["labels"] = nextLabels;
-    }
+    adjustFolderRefs(store, old.folders, -1);
+    bool oldInAllMail = Message::isInAllMail(store, accountId(), old.folders);
+    adjustLabelRefs(allLabels, old.labels, -1, old.unread && oldInAllMail);
     
     if (next) {
         // increment basic attributes
@@ -233,7 +205,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
             if (next->date() < firstMessageTimestamp()) {
                 _data["fmt"] = next->date();
             }
-            if (next->isSentByUser() && !next->isHiddenReminder()) {
+            if (next->isSentByUser(store) && !next->isHiddenReminder()) {
                 if (next->date() > lastMessageSentTimestamp()) {
                     _data["lmst"] = next->date();
                 }
@@ -241,7 +213,7 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
 
             // Note: Emails you send yourself impact the `lmrt`, so saying
             // "not sent by me" is not sufficient. TODO: better logic?
-            if (next->isInInbox() || !next->isSentByUser()) {
+            if (next->isInInbox(store) || !next->isSentByUser(store)) {
                 if (_data.count("lmrt_is_fallback") || next->date() > lastMessageReceivedTimestamp()) {
                     _data.erase("lmrt_is_fallback");
                     _data["lmrt"] = next->date();
@@ -258,47 +230,9 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
             }
         }
 
-        // update our folder set + increment refcounts
-        string clientFolderId = next->clientFolderId();
-        bool found = false;
-        for (auto& f : folders()) {
-            if (f["id"].get<string>() == clientFolderId) {
-                f["_refs"] = f["_refs"].get<int>() + 1;
-                f["_u"] = f["_u"].get<int>() + next->isUnread();
-                found = true;
-            }
-        }
-        if (!found) {
-            json f = next->clientFolder();
-            f["_refs"] = 1;
-            f["_u"] = next->isUnread() ? 1 : 0;
-            folders().push_back(f);
-        }
-        
-        // update our label set + increment refcounts
-        for (auto& mlname : next->remoteXGMLabels()) {
-            shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
-            if (ml == nullptr) {
-                continue;
-            }
-
-            bool found = false;
-            for (auto& l : labels()) {
-                if (l["id"].get<string>() == ml->id()) {
-                    l["_refs"] = l["_refs"].get<int>() + 1;
-                    l["_u"] = l["_u"].get<int>() + next->isUnread() && next->inAllMail(); // See Note
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                json l = ml->toJSON();
-                l["_refs"] = 1;
-                l["_u"] = (next->isUnread() && next->inAllMail()) ? 1 : 0; // See Note
-                labels().push_back(l);
-            }
-        }
-        
+        // increment folder + label refcounts
+        adjustFolderRefs(store, next->folders(), +1);
+        adjustLabelRefs(allLabels, next->labels(), +1, next->isUnread() && next->inAllMail(store));
         
         // merge in participants
         std::map<std::string, bool>emails;
@@ -321,6 +255,83 @@ void Thread::applyMessageAttributeChanges(MessageSnapshot & old, Message * next,
         }
     }
     _data["inAllMail"] = folders().size() > spamOrTrash;
+}
+
+// Applies delta (+1 / -1) to the refcount of every folder in a { folderId: bits } map,
+// adding the folder's JSON (from the store cache) on first reference and dropping the
+// entry when its refcount reaches zero. `_u` moves by the copy's own unread bit.
+void Thread::adjustFolderRefs(MailStore * store, json & folderBits, int delta) {
+    for (auto it = folderBits.begin(); it != folderBits.end(); ++it) {
+        string folderId = it.key();
+        int bits = it.value().is_number() ? it.value().get<int>() : 0;
+        int unreadBit = (bits & PLACEMENT_FLAG_UNREAD) ? 1 : 0;
+
+        bool found = false;
+        json nextFolders = json::array();
+        for (auto & f : folders()) {
+            if (f["id"].get<string>() != folderId) {
+                nextFolders.push_back(f);
+                continue;
+            }
+            found = true;
+            int r = f["_refs"].get<int>() + delta;
+            if (r > 0) {
+                f["_refs"] = r;
+                f["_u"] = f["_u"].get<int>() + delta * unreadBit;
+                nextFolders.push_back(f);
+            }
+        }
+        if (!found && delta > 0) {
+            auto folder = store->folderById(accountId(), folderId);
+            json f;
+            if (folder != nullptr) {
+                f = folder->toJSON();
+                f.erase("localStatus");
+            } else {
+                // The folder row is gone but a placement still names it; keep the shape
+                // categoriesSearchString and the inAllMail loop expect.
+                f = {{"id", folderId}, {"aid", accountId()}, {"path", ""}, {"role", ""}, {"__cls", Folder::TABLE_NAME}};
+            }
+            f["_refs"] = 1;
+            f["_u"] = unreadBit;
+            nextFolders.push_back(f);
+        }
+        _data["folders"] = nextFolders;
+    }
+}
+
+void Thread::adjustLabelRefs(vector<shared_ptr<Label>> & allLabels, json & labelNames, int delta, bool unreadInAllMail) {
+    int unreadBit = unreadInAllMail ? 1 : 0;
+
+    for (auto & mlname : labelNames) {
+        shared_ptr<Label> ml = MailUtils::labelForXGMLabelName(mlname, allLabels);
+        if (ml == nullptr) {
+            continue;
+        }
+
+        bool found = false;
+        json nextLabels = json::array();
+        for (auto & l : labels()) {
+            if (l["id"].get<string>() != ml->id()) {
+                nextLabels.push_back(l);
+                continue;
+            }
+            found = true;
+            int r = l["_refs"].get<int>() + delta;
+            if (r > 0) {
+                l["_refs"] = r;
+                l["_u"] = l["_u"].get<int>() + delta * unreadBit;
+                nextLabels.push_back(l);
+            }
+        }
+        if (!found && delta > 0) {
+            json l = ml->toJSON();
+            l["_refs"] = 1;
+            l["_u"] = unreadBit;
+            nextLabels.push_back(l);
+        }
+        _data["labels"] = nextLabels;
+    }
 }
 
 string Thread::tableName() {
