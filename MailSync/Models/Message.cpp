@@ -527,7 +527,9 @@ void Message::beforeSave(MailStore * store) {
  becomes rules-ready on the first save where it has a stored body and an incoming copy
  (hasIncomingCopy), whichever of the two arrived second: usually the body, but for
  self-addressed mail the Sent copy and its body are stored at send time and the INBOX copy
- arrives later. Mail the user only sent never becomes rules-ready.
+ arrives later. Mail whose only copies are in Sent or Drafts never becomes rules-ready. Mail
+ the account sent to others can once the user files it elsewhere; the client drops that by
+ its headers (MailRulesStore), where the account's aliases are known.
 
  The state lives in _data and needs no query. That holds because every save of a message
  reloads it inside the saving transaction, so a stale copy can never move "rr" backwards.
