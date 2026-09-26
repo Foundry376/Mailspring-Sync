@@ -773,6 +773,11 @@ class ScenarioRun:
                     out.append(f"{path}.localStatus.{k} = {ls.get(k)!r}, expected {v!r}")
         return out
 
+    def expect_folder_roles(self, arg: dict) -> list:
+        folders = self._named(self.ms.db_folders())
+        return [f"folder {path} has role {folders.get(path, {}).get('role')!r}, expected {role!r}"
+                for path, role in arg.items() if folders.get(path, {}).get("role") != role]
+
     def expect_server_counts(self, arg: dict) -> list:
         truth = self.server.truth()
         return [f"server has {len(truth.get(mb, {}))} in {mb}, expected {n}" for mb, n in arg.items()

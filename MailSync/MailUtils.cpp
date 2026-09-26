@@ -352,6 +352,9 @@ string MailUtils::roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder) 
     if (flags & IMAPFolderFlagTrash) {
         return "trash";
     }
+    if (flags & IMAPFolderFlagArchive) {
+        return "archive";
+    }
     return "";
 }
 
@@ -369,7 +372,7 @@ string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPr
         path = path.substr(1);
     }
 
-    // Lowercase the path
+    string unprefixedPath = path;
     transform(path.begin(), path.end(), path.begin(), ::tolower);
     transform(containerFolderPath.begin(), containerFolderPath.end(), containerFolderPath.begin(), ::tolower);
 
@@ -396,10 +399,18 @@ string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPr
       }
     }
 
-    // Match against a lookup table of common names
-    // [Gmail]/Spam => [gmail]/spam => spam
-    if (COMMON_FOLDER_NAMES.find(path) != COMMON_FOLDER_NAMES.end()) {
-        return COMMON_FOLDER_NAMES[path];
+    // COMMON_FOLDER_NAMES is keyed by lowercase UTF-8, but LIST returns non-ASCII names in
+    // modified UTF-7 (RFC 3501 5.1.3), e.g. "Ko&AWE-" for "Koš".
+    String * name = AS_MCSTR(unprefixedPath);
+    if (unprefixedPath.find('&') != string::npos) {
+        String * decoded = name->mUTF7DecodedString();
+        if (decoded != nullptr) {
+            name = decoded;
+        }
+    }
+    auto common = COMMON_FOLDER_NAMES.find(name->lowercaseString()->UTF8Characters());
+    if (common != COMMON_FOLDER_NAMES.end()) {
+        return common->second;
     }
 
     return "";

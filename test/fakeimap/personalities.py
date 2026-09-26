@@ -307,3 +307,16 @@ yahoo_messagelimit = _register(Personality(
                                  "highest-UID N and says so in the tagged OK (RFC 9738 §3)",
     },
 ))
+
+inbox_only = _register(Personality(
+    name="inbox-only",
+    description="The plain personality with no mailbox but INBOX configured and no SPECIAL-USE "
+                "capability: every other folder is one a client created, and carries a SPECIAL-USE "
+                "attribute only if that client set one at CREATE. The engine must find roles by name, "
+                "and names outside ASCII arrive in modified UTF-7.",
+    source="Dovecot conf.d/15-mailboxes.conf assigns special_use by exact English name only; RFC 6154 "
+           "§3 (CREATE-SPECIAL-USE); RFC 3501 §5.1.3 (modified UTF-7 mailbox names)",
+    preauth_capabilities=DOVECOT_PREAUTH,
+    postauth_capabilities=plain.postauth_capabilities.replace(" SPECIAL-USE", ""),
+    mailboxes=[("INBOX", [])],
+))
