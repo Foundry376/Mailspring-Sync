@@ -1204,10 +1204,10 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
     if (session.lastResponseHitMessageLimit() && remote->count() > 0) {
         scannedMinUID = UINT32_MAX;
         for (unsigned int ii = 0; ii < remote->count(); ii++) {
-            scannedMinUID = std::min(scannedMinUID, ((IMAPMessage *)remote->objectAtIndex(ii))->uid());
+            scannedMinUID = min(scannedMinUID, ((IMAPMessage *)remote->objectAtIndex(ii))->uid());
         }
         result.truncated = true;
-        result.syncedMinUID = std::max(result.syncedMinUID, scannedMinUID);
+        result.syncedMinUID = max(result.syncedMinUID, scannedMinUID);
         logger->warn("- {}: server applied MESSAGELIMIT, only UIDs {} and up were scanned", remotePath, scannedMinUID);
     }
 
