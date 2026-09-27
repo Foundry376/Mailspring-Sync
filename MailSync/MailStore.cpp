@@ -162,7 +162,7 @@ void MailStore::migrate() {
         _migrateToV10(version == 0, verb);
     }
     if (version < 11) {
-        _migrateToV11();
+        _migrateToV11(version == 10);
     }
 
     // Update the version flag. Note that we don't want to go from v3 back to v2
@@ -273,6 +273,8 @@ void MailStore::_migrateToV10(bool freshDatabase, const string & verb) {
  ThreadCategory, which the client's folder and Unread views list, is derived from them.
  - A label `_u` stored as a JSON boolean: 1bad091 wrote `(_u - unread) && inAllMail`, an
    operator precedence slip. The current arithmetic only writes integers.
+ - A label `_u` above the thread's unread count: that boolean after a V10 engine's arithmetic
+   turned it back into a (wrong) integer.
  - A folder whose `_refs` differs from the number of the thread's messages listing it: the
    thread shows in a folder none of its messages is in (seen with Inbox, cause unknown).
  - An unread counter below zero.
@@ -280,10 +282,11 @@ void MailStore::_migrateToV10(bool freshDatabase, const string & verb) {
  run resumes where it stopped. Deltas are dropped: nothing consumes a migrate process's
  stream, and the client reads the rows when it next queries them.
  */
-void MailStore::_migrateToV11() {
+void MailStore::_migrateToV11(bool announce) {
     vector<string> threadIds;
     SQLite::Statement find(_db, "SELECT id FROM Thread WHERE unread < 0 "
-        "OR EXISTS (SELECT 1 FROM json_each(Thread.data, '$.labels') AS l WHERE json_type(l.value, '$._u') IN ('true', 'false')) "
+        "OR EXISTS (SELECT 1 FROM json_each(Thread.data, '$.labels') AS l "
+            "WHERE json_type(l.value, '$._u') IN ('true', 'false') OR json_extract(l.value, '$._u') > Thread.unread) "
         "OR EXISTS (SELECT 1 FROM json_each(Thread.data, '$.folders') AS f WHERE json_extract(f.value, '$._refs') != "
             "(SELECT COUNT(*) FROM Message AS m, json_each(m.data, '$.folders') AS mf "
             "WHERE m.threadId = Thread.id AND mf.key = json_extract(f.value, '$.id'))) "
@@ -292,6 +295,12 @@ void MailStore::_migrateToV11() {
         threadIds.push_back(find.getColumn(0).getString());
     }
     size_t recounted = threadIds.size();
+
+    if (announce && recounted) {
+        // The client watches for this line and shows its progress window; V10 printed it otherwise.
+        cout << "\nRunning Migration";
+        cout.flush();
+    }
 
     for (auto & chunk : MailUtils::chunksOfVector(threadIds, 500)) {
         MailStoreTransaction transaction{this, "_migrateToV11"};

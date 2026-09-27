@@ -17,6 +17,7 @@ runs against it, and what must be true afterwards. See test/README.md for the vo
 """
 import json
 import os
+import re
 import shutil
 import socket
 import sqlite3
@@ -676,6 +677,12 @@ class ScenarioRun:
                 self._note(f"invariants: engine not quiescent after 60s ({getattr(self.ms, 'wait_reason', '')}); checking anyway")
         with self.ms.db() as c:
             return invariants.check(c, skip=arg.get("skip") or [])
+
+    def expect_migrate_output(self, pattern) -> list:
+        """The last `--mode migrate` stdout, whitespace collapsed, matches `pattern`. The
+        client opens its progress window on "Running Migration"."""
+        out = self.ms.migrate_output or ""
+        return [] if re.search(pattern, out) else [f"migrate said {out!r}, expected /{pattern}/"]
 
     def expect_counts(self, arg: dict) -> list:
         with self.ms.db() as c:

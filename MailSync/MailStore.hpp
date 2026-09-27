@@ -285,7 +285,7 @@ private:
     void _emit(DeltaStreamItem & delta);
 
     void _migrateToV10(bool freshDatabase, const string & verb);
-    void _migrateToV11();
+    void _migrateToV11(bool announce);
     SQLite::Statement & _placementStatement(const string & key, const string & sql);
     template <typename... Binds>
     int _execPlacement(const string & key, const string & sql, const Binds &... binds);
