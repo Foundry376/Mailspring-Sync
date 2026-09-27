@@ -488,6 +488,17 @@ class GmailStore(Store):
             elif v.label in after:
                 self._emit(StoreEvent("flags", v.name, [v.view_uid(m)], modseq, origin))
 
+    def _gm_thread_id(self, m: Message) -> int:
+        """A reply joins the X-GM-THRID of a message it references, as Gmail threads them in
+        the web UI; the engine groups Gmail threads by that id alone."""
+        refs = set((m.header("References") or "").split()) | set((m.header("In-Reply-To") or "").split())
+        for name in GMAIL_PHYSICAL if refs else ():
+            mb = self.mailboxes.get(name)
+            for other in (mb.gm_index.values() if mb is not None else ()):
+                if other is not m and other.message_id in refs:
+                    return other.gm_thrid
+        return m.gm_thrid
+
     def append(self, mailbox, raw, flags=(), internaldate=None, origin=None, labels=()):
         mb = self.get(mailbox)
         if isinstance(mb, LabelView):
@@ -498,6 +509,7 @@ class GmailStore(Store):
                 labels.add("\\Draft")
             with self.lock:
                 m = super().append(mb.backing.name, raw, flags, internaldate, origin, labels)
+                m.gm_thrid = self._gm_thread_id(m)
                 mb.backing.gm_index[m.gm_msgid] = m
                 for v in self._views_of(mb.backing):
                     if v.label in m.labels:
@@ -505,6 +517,7 @@ class GmailStore(Store):
                 return m
         with self.lock:
             m = super().append(mailbox, raw, flags, internaldate, origin, labels)
+            m.gm_thrid = self._gm_thread_id(m)
             self.get(mailbox).gm_index[m.gm_msgid] = m
             if self.get(mailbox).name == "[Gmail]/All Mail":
                 for v in self._views_of(self.get(mailbox)):

@@ -48,11 +48,14 @@ class _Snapshot:
             for r in conn.execute(f"SELECT id, path, role FROM {table}"):
                 self.roles[r["id"]] = r["role"] or ""
                 self.paths[r["id"]] = r["path"] or ""
-        # Same query and order as MailStore::allLabelsCache (findAll<Label>, no ORDER BY).
-        self.labels = [dict(r) for r in conn.execute("SELECT id, path, role FROM Label")]
+        # Per account, in MailStore::allLabelsCache's order (findAll<Label> by accountId, no
+        # ORDER BY): a real database holds several accounts, each with its own `\Inbox` label.
+        self.labels = defaultdict(list)
+        for r in conn.execute("SELECT id, accountId, path, role FROM Label"):
+            self.labels[r["accountId"]].append(dict(r))
 
         self.messages = {}
-        for r in conn.execute("SELECT id, subject, threadId, unread, starred, draft, data FROM Message"):
+        for r in conn.execute("SELECT id, accountId, subject, threadId, unread, starred, draft, data FROM Message"):
             m = dict(r)
             m["data"] = json.loads(m["data"])
             self.messages[m["id"]] = m
@@ -87,15 +90,17 @@ class _Snapshot:
         """Message::inAllMail: some copy outside spam and trash; unknown folders count."""
         return any(self.roles.get(fid, "") not in ("spam", "trash") for fid in folder_ids)
 
-    def label_for_xgm_name(self, name: str):
-        """MailUtils::labelForXGMLabelName: exact path, then `\\Name` against the path
-        without `[Gmail]/` or the role (singular or plural), case-insensitively."""
-        for label in self.labels:
+    def label_for_xgm_name(self, account_id: str, name: str):
+        """MailUtils::labelForXGMLabelName over the account's labels: exact path, then
+        `\\Name` against the path without `[Gmail]/` or the role (singular or plural),
+        case-insensitively."""
+        labels = self.labels.get(account_id, ())
+        for label in labels:
             if label["path"] == name:
                 return label
         if name.startswith("\\"):
             needle = name[1:].lower()
-            for label in self.labels:
+            for label in labels:
                 path = (label["path"] or "").lower()
                 if path.startswith("[gmail]/"):
                     path = path[len("[gmail]/"):]
@@ -183,7 +188,7 @@ def check_thread_refcounts(s: _Snapshot) -> list:
                 folders[fid][1] += 1 if int(bits) & UNREAD else 0
             label_unread = 1 if d.get("unread") and s.in_all_mail(snapshot) else 0
             for name in d.get("labels") or []:
-                label = s.label_for_xgm_name(name)
+                label = s.label_for_xgm_name(m["accountId"], name)
                 if label is not None:
                     labels[label["id"]][0] += 1
                     labels[label["id"]][1] += label_unread

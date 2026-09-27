@@ -80,8 +80,10 @@ class MailStore {
     
     vector<shared_ptr<Label>> _labelCache;
     int _labelCacheVersion;
+    string _labelCacheAccountId;
     map<string, shared_ptr<Folder>> _folderCache;
     int _folderCacheVersion;
+    string _folderCacheAccountId;
     int _streamMaxDelay;
     size_t _owningThread;
     
@@ -283,6 +285,7 @@ private:
     void _emit(DeltaStreamItem & delta);
 
     void _migrateToV10(bool freshDatabase, const string & verb);
+    void _migrateToV11();
     SQLite::Statement & _placementStatement(const string & key, const string & sql);
     template <typename... Binds>
     int _execPlacement(const string & key, const string & sql, const Binds &... binds);
