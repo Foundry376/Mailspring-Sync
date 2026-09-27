@@ -151,8 +151,8 @@ gateway_duplicate_list = _register(Personality(
 netease = _register(Personality(
     name="netease",
     description="NetEase (163.com / 126.com / yeah.net): SELECT is refused with 'Unsafe Login' until "
-                "the client sends ID; STATUS omits UIDNEXT. Engine gates on the hostname, so point "
-                "imap_host at imap.163.com (see harness.servers.fake host aliasing).",
+                "the client sends ID; STATUS omits UIDNEXT. The engine recognises the Coremail "
+                "greeting, so no host alias is needed.",
     source="Mailspring-Sync PR #121; community.getmailspring.com/t/562. Response text as widely "
            "reported by users: 'NO SELECT Unsafe Login. Please contact kefu@188.com for help'. "
            "NEEDS-RECORDING for the capability string.",

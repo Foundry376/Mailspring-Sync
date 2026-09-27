@@ -488,6 +488,9 @@ class MailsyncProcess:
         fg = self.log("foreground")
         if not fg:
             return False
+        # Without IDLE (NetEase) the foreground parks here instead, which is its idle state.
+        if fg[-1].imap_dir is None and fg[-1].msg.startswith("Connection does not support idling"):
+            return True
         if self.verbose:
             sent = [l for l in fg if l.imap_dir == "sent"]
             return bool(sent) and re.match(r"^\d+ IDLE$", sent[-1].imap_line or "") is not None

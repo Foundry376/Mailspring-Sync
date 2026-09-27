@@ -412,6 +412,7 @@ void IMAPSession::init()
     mFolderMsgCount = 0;
     mFirstUnseenUid = 0;
     mYahooServer = false;
+    mCoremailServer = false;
     mRamblerRuServer = false;
     mHermesServer = false;
     mQipServer = false;
@@ -853,8 +854,9 @@ void IMAPSession::connectWithCurrentCompatibilityLevel(ErrorCode * pError)
     if (mImap->imap_response != NULL) {
         MC_SAFE_REPLACE_RETAIN(String, mWelcomeString, String::stringWithUTF8Characters(mImap->imap_response));
         mYahooServer = (mWelcomeString->locationOfString(MCSTR("yahoo.com")) != -1);
+        mCoremailServer = (mWelcomeString->locationOfString(MCSTR("Coremail System IMap Server Ready")) != -1);
 #ifdef LIBETPAN_HAS_MAILIMAP_163_WORKAROUND
-        if (mWelcomeString->locationOfString(MCSTR("Coremail System IMap Server Ready")) != -1)
+        if (mCoremailServer)
             mailimap_set_163_workaround_enabled(mImap, 1);
 #endif
         if (mWelcomeString->locationOfString(MCSTR("Courier-IMAP")) != -1) {
@@ -1140,12 +1142,13 @@ void IMAPSession::login(ErrorCode * pError)
     enableFeatures();
 
     if (isAutomaticConfigurationEnabled()) {
-        // Some providers (notably NetEase 163/126/yeah.net) accept LOGIN but
-        // reject SELECT with "Unsafe Login" until the client sends RFC 2971 ID.
-        // Only perform the exchange when the caller supplied identity fields;
-        // the default identity is empty, preserving compatibility with servers
-        // whose malformed ID responses cannot be parsed by MailCore.
-        if (isIdentityEnabled() && clientIdentity()->allInfoKeys()->count() > 0) {
+        // Coremail servers (NetEase 163/126/yeah.net and custom-domain hosts)
+        // accept LOGIN but reject SELECT with "Unsafe Login" until the client
+        // sends RFC 2971 ID (offlineimap #696, nextcloud/mail #10679). The
+        // exchange is limited to them, and to callers that supplied identity
+        // fields, because a failed ID aborts the login and other servers'
+        // malformed ID responses have not been audited against MailCore's parser.
+        if (mCoremailServer && isIdentityEnabled() && clientIdentity()->allInfoKeys()->count() > 0) {
             IMAPIdentity * serverIdentity = identity(clientIdentity(), pError);
             if (* pError != ErrorNone) {
                 MCLog("fetch identity failed");

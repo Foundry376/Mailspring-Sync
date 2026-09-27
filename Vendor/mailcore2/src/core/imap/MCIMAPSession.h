@@ -315,6 +315,7 @@ namespace mailcore {
         unsigned int mFolderMsgCount;
         uint32_t mFirstUnseenUid;
         bool mYahooServer;
+        bool mCoremailServer;
         bool mRamblerRuServer;
         bool mHermesServer;
         bool mQipServer;
