@@ -851,6 +851,11 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
 
     ErrorCode err = ErrorCode::ErrorNone;
     Array * remoteFolders = session.fetchAllFolders(&err);
+    if (err == ErrorCode::ErrorNonExistantFolder) {
+        // mailcore reports any NO to LIST "" "*" this way, but no folder is named. O365 answers
+        // "NO Server Unavailable. 15" then BYE during transient outages (observed 2026-09-24).
+        throw SyncException(ErrorCode::ErrorConnection, "syncFoldersAndLabels - fetchAllFolders refused");
+    }
     if (err) {
         throw SyncException(err, "syncFoldersAndLabels - fetchAllFolders");
     }
