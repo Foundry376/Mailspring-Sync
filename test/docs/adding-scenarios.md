@@ -82,7 +82,7 @@ records outcomes for one binary and diffs two recordings (see
 | o365-duplicate-sent-copies | identical copies at adjacent UIDs | fake, dovecot | XPASS since placements; xfail marker to remove |
 | proton-all-mail-duplicates | #137 `\All` skip | fake, dovecot | xfail: busy never clears |
 | gateway-duplicate-list-entries | #139 duplicate LIST lines | fake | pass |
-| netease-id-before-select | #121 ID before SELECT; STATUS without UIDNEXT | fake | skipped unless `/etc/hosts` maps imap.163.com |
+| netease-id-before-select | #121 ID before SELECT; STATUS without UIDNEXT | fake | pass (Coremail detected by greeting) |
 | uidvalidity-change | UIDVALIDITY remap | fake ×2, dovecot | fake pass; dovecot xfail: segfault |
 | two-folders-identical-messages | #140 non-converging gap scan must settle | fake, dovecot | XPASS since placements; xfail marker to remove |
 | client-task-move | ChangeFolder / Starred / Unread tasks | fake ×2, dovecot | pass |
@@ -206,7 +206,7 @@ Engine interface
   backdates them in the DB (the stopgap until the engine reads intervals from the environment).
 - On Gmail, the engine detects Gmail by the `X-GM-EXT-1` capability, not by `provider`, so
   use `provider: imap` (the default) - `provider: gmail` would try OAuth against Google.
-- Hostname-gated branches (iCloud `imap.mail.me.com`, NetEase `imap.163.com`, Outlook) need
+- Hostname-gated branches (iCloud `imap.mail.me.com`, Outlook) need
   the name to resolve to 127.0.0.1; declare `imap_host` on the server entry and the scenario
   skips with instructions when it does not.
 
