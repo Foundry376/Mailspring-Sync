@@ -1,0 +1,41 @@
+name: sent-copy-multisend-late
+description: >
+  As sent-copy-multisend, but Exchange files the per-recipient copies after the engine has
+  stopped waiting, as it did ~3 min late for one copy live. The engine appends its own copy;
+  a later pass must delete the tracked copies when they appear and keep the appended one.
+source: "Mailspring dev O365 account, 2026-09-27: 76 live sends; Exchange made its Sent Items copy visible 0.5-3.5 s after the SMTP 250, twice 6-8 s, once ~3 min; a tracked send to N recipients is N SMTP submissions and Exchange files one copy each"
+servers:
+  - {fake: outlook, smtp: true, smtp_sent_copy: "Sent Items", smtp_sent_copy_delay: 20}
+mailboxes:
+  INBOX: {messages: 3}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "sent-1@example.test"
+        subject: "Tracked send"
+        body: "<p>Hi</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "bob", email: "bob@example.net"}, {name: "carol", email: "carol@example.net"}, {name: "dave", email: "dave@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: {self: "<p>Hi</p>", "bob@example.net": "<p>Hi<img src=\"https://t.example/bob@example.net\"></p>", "carol@example.net": "<p>Hi<img src=\"https://t.example/carol@example.net\"></p>", "dave@example.net": "<p>Hi<img src=\"https://t.example/dave@example.net\"></p>"}
+    as: send1
+  - wait: {task: send1, timeout: 90}
+  - wait: {seconds: 22}
+  - sync: pass
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  smtp: {count: 3}
+  server_counts: {Sent Items: 1}
+  counts: {Sent Items: 1}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true
