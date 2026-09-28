@@ -218,7 +218,9 @@ static vector<uint32_t> _resolveNewUIDs(IMAPSession * session, HashMap * uidmap,
 // Removes the source copies of a COPY-based move. A plain EXPUNGE would also purge every
 // message another client only marked \Deleted (Outlook desktop's "mark for deletion" mode),
 // so with UIDPLUS it expunges exactly these UIDs (RFC 4315 2.1), as Thunderbird does; the
-// plain EXPUNGE is the fallback when UID EXPUNGE is unavailable or fails.
+// plain EXPUNGE is the fallback when UIDPLUS is absent or the server refuses UID EXPUNGE.
+// After a dropped connection the UID EXPUNGE may already have run, so the copies are left
+// flagged \Deleted rather than risking a plain EXPUNGE on the reconnected session.
 static void _expungeMovedCopies(IMAPSession * session, String * path, IndexSet * uids) {
     ErrorCode err = ErrorCode::ErrorNone;
     session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
@@ -232,6 +234,9 @@ static void _expungeMovedCopies(IMAPSession * session, String * path, IndexSet *
             return;
         }
         spdlog::get("logger")->warn("-X UID EXPUNGE failed in {} (error: {})", path->UTF8Characters(), ErrorCodeToTypeMap[err]);
+        if (err != ErrorCode::ErrorExpunge) {
+            return;
+        }
         err = ErrorCode::ErrorNone;
     }
     spdlog::get("logger")->info("-- Expunging all \\Deleted messages in {}", path->UTF8Characters());

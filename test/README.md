@@ -314,6 +314,7 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | rules-ready-pre-upgrade-messages | messages ingested by the pre-rulesReady build never get it | fake, dovecot, cyrus (starts on `ab/mailsync-a83cc9a`) |
 | rules-ready-gmail | Gmail: \\Inbox mail once, \\Sent-only never, a sent message once when filed under \\Inbox | fake |
 | move-without-move-keeps-other-deleted | no-MOVE fallback expunges only the moved UID; another client's `\\Deleted` message survives | fake, dovecot, cyrus |
+| move-without-move-connection-drop | connection lost after the server ran UID EXPUNGE: no plain EXPUNGE on reconnect | fake |
 | folder-roles-by-localized-name | roles by name without SPECIAL-USE: modified UTF-7 names, Borradores, `\\Archive` | fake |
 | status-uidnext-zero-new-mail | STATUS UIDNEXT 0 (hMailServer): new mail found from the message count on the next pass | fake |
 | list-refused-transiently | O365 `NO Server Unavailable` to LIST: offline and retried, not a crash | fake |

@@ -1,0 +1,28 @@
+name: move-without-move-connection-drop
+description: >
+  As move-without-move-keeps-other-deleted, but the connection drops after the server has
+  run the engine's UID EXPUNGE of the moved copy, before the reply arrives. The engine
+  cannot tell whether it ran, so it must not reconnect and send a plain EXPUNGE, which
+  would purge the message another client only marked \Deleted.
+source: "Indent review of Mailspring-Sync #151; RFC 3501 6.4.3 (EXPUNGE removes every \\Deleted message)"
+servers:
+  - {fake: dovecot-without-move}
+mailboxes:
+  INBOX: {messages: 10}
+  Archive: {messages: 1}
+steps:
+  - wait: quiescent
+  - server.flags: {mailbox: INBOX, uids: [2], add: ["\\Deleted"]}
+  - wait: {seconds: 1}
+  - sync: pass
+  - server.drop_connections: {at: {hook: before_command, session: foreground, command: "^UID EXPUNGE"}}
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [5]}, folder: Archive}
+    as: move
+  - wait: {task: move, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  log_absent: ["Expunging all"]
+  server_counts: {INBOX: 9, Archive: 2}
+  db_matches_server: {}
+  running: true
