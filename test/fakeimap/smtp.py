@@ -147,7 +147,8 @@ class FakeSmtpServer:
         as Gmail's submission service files sent mail under the \\Sent label itself (the
         engine's send path looks for that copy before APPENDing its own).
         sent_copy_delay: seconds between accepting a message and filing that copy; Exchange
-        Online files it 0.5-6.5 s after the 250 (live O365 sends, 2026-09-26).
+        Online made it visible 0.5-3.5 s after the 250, twice 6-8 s, once ~3 min (live O365
+        sends, 2026-09-27).
         deliver_delay: seconds between accepting a self-addressed message and delivering it,
         for a hand-driven client (tools/cyrus_server.py); scenarios use hold()/release()."""
         self.host, self.port = host, port

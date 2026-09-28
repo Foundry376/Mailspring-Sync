@@ -276,15 +276,17 @@ static void _moveMessagesResilient(IMAPSession * session, String * path, Folder 
 
 // A helper function to permanently remove messages by UID from a given folder path. When a trash folder
 // and CapabilityMove are present, it moves there and expunges. Otherwises it expunges in place.
+// Returns whether the messages have left `path`.
 
-void _removeMessagesResilient(IMAPSession * session, MailStore * store, string accountId, String * path, IndexSet * uids) {
+bool _removeMessagesResilient(IMAPSession * session, MailStore * store, string accountId, String * path, IndexSet * uids) {
     ErrorCode err = ErrorCode::ErrorNone;
+    bool movedToTrash = false;
 
     // First, add the "DELETED" flag to the given messages
     session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
     if (err != ErrorNone) {
         spdlog::get("logger")->info("X- removeMessages could not add deleted flag (error: {})", ErrorCodeToTypeMap[err]);
-        return;
+        return false;
     }
     
     // If possible, move the messages to the identified trash folder.
@@ -303,6 +305,7 @@ void _removeMessagesResilient(IMAPSession * session, MailStore * store, string a
         } else {
             // If we were successful moving to the trash, we will now expunge from here, and the UIDs
             // we had before are no longer valid so we'll need to expunge the entire folder.
+            movedToTrash = true;
             uids->removeAllIndexes();
             path = trashPath;
             
@@ -341,6 +344,7 @@ void _removeMessagesResilient(IMAPSession * session, MailStore * store, string a
     if (err != ErrorNone) {
         spdlog::get("logger")->info("X- removeMessages Expunge failed (error: {})", ErrorCodeToTypeMap[err]);
     }
+    return movedToTrash || err == ErrorNone;
 }
 
 // Deletes the message's server copies, grouped by folder. Used for drafts, whose
@@ -1904,7 +1908,8 @@ void TaskProcessor::performRemoteDestroyCategory(Task * task) {
 }
 
 // Deletes copies from Sent on the server and drops their placements, so they leave the
-// client now rather than on the folder's next deep scan.
+// client now rather than on the folder's next deep scan. A copy the server kept keeps its
+// placement: on a CONDSTORE server nothing would report it again until the 24h gap scan.
 static void _removeSentCopies(IMAPSession * session, MailStore * store, shared_ptr<Account> account, Folder & sent, IndexSet * uids) {
     vector<uint32_t> removed;
     for (unsigned int ii = 0; ii < uids->rangesCount(); ii++) {
@@ -1912,8 +1917,9 @@ static void _removeSentCopies(IMAPSession * session, MailStore * store, shared_p
             removed.push_back((uint32_t)uid);
         }
     }
-    _removeMessagesResilient(session, store, account->id(), AS_MCSTR(sent.path()), uids);
-    MailProcessor{account, store}.deleteVanishedPlacements(sent, removed);
+    if (_removeMessagesResilient(session, store, account->id(), AS_MCSTR(sent.path()), uids)) {
+        MailProcessor{account, store}.deleteVanishedPlacements(sent, removed);
+    }
 }
 
 /*
@@ -1928,9 +1934,15 @@ void TaskProcessor::removeLateSentCopies(Folder & sent) {
     AutoreleasePool pool;
     vector<string> messageIds;
     {
-        SQLite::Statement query(store->db(), "SELECT messageId FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID > 0 GROUP BY messageId HAVING COUNT(*) > 1");
+        // Runs every pass, and Sent may hold thousands of older duplicates: only messages
+        // appended within the window are loaded.
+        SQLite::Statement query(store->db(),
+            "SELECT d.messageId FROM (SELECT messageId FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID > 0 "
+            "GROUP BY messageId HAVING COUNT(*) > 1) d JOIN Message m ON m.id = d.messageId "
+            "WHERE json_extract(m.data, '$._asc.x') >= ?");
         query.bind(1, account->id());
         query.bind(2, sent.id());
+        query.bind(3, (long long)time(0));
         while (query.executeStep()) {
             messageIds.push_back(query.getColumn("messageId").getString());
         }

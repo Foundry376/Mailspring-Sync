@@ -1,0 +1,43 @@
+name: sent-copy-cleanup-store-refused
+description: >
+  A server that files its own Sent copy late, on a CONDSTORE server. The engine appends its
+  copy, and the pass that finds the late one has its STORE \Deleted refused. The late copy
+  must keep its placement, because on a CONDSTORE server nothing reports an unchanged
+  message again until the 24 h gap scan, so the next pass can try again and remove it.
+source: "Indent review of Mailspring-Sync #150; TaskProcessor _removeSentCopies"
+servers:
+  - {fake: dovecot, smtp: true, smtp_sent_copy: Sent, smtp_sent_copy_delay: 8}
+mailboxes:
+  INBOX: {messages: 3}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, session: background, command: "^UID STORE .*Deleted"}, text: "Temporary failure"}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "sent-1@example.test"
+        subject: "First send"
+        body: "<p>Hi</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "bob", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 90}
+  - wait: {seconds: 8}
+  - sync: pass
+  - assert: {server_counts: {Sent: 2}, counts: {Sent: 2}}
+  - sync: pass
+expect:
+  log_count: {"Removing 1 late server copies": 2}
+  server_counts: {Sent: 1}
+  counts: {Sent: 1}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

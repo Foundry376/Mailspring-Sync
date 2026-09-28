@@ -311,6 +311,7 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | rules-ready-gmail | Gmail: \\Inbox mail once, \\Sent-only never, a sent message once when filed under \\Inbox | fake |
 | sent-copy-saved-late | Exchange files its Sent copy 6.5 s after SMTP: the late copy is removed and the next send waits for it | fake (+smtp) |
 | sent-copy-multisend | tracked send: one server copy per recipient, all deleted, one untracked copy kept | fake (+smtp) |
+| sent-copy-cleanup-store-refused | a late copy whose delete is refused keeps its placement and is removed on the next pass (CONDSTORE) | fake (+smtp) |
 | sent-copy-multisend-late | as above with the per-recipient copies filed after the engine stopped waiting | fake (+smtp) |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
