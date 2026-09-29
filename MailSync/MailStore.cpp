@@ -273,10 +273,12 @@ void MailStore::_migrateToV10(bool freshDatabase, const string & verb) {
  ThreadCategory, which the client's folder and Unread views list, is derived from them.
  - A label `_u` stored as a JSON boolean: 1bad091 wrote `(_u - unread) && inAllMail`, an
    operator precedence slip. The current arithmetic only writes integers.
- - A label `_u` above the thread's unread count: that boolean after a V10 engine's arithmetic
-   turned it back into a (wrong) integer.
- - A folder whose `_refs` differs from the number of the thread's messages listing it: the
-   thread shows in a folder none of its messages is in (seen with Inbox, cause unknown).
+ - A label `_u` above the thread's unread count or below zero: that boolean after a V10
+   engine's arithmetic turned it back into a (wrong) integer.
+ - A folder whose `_refs` or `_u` differs from the number of the thread's messages listing
+   it, or listing it unread: the thread shows in a folder none of its messages is in (seen
+   with Inbox), or in Unread with nothing unread. Likely both workers applying one change
+   twice, which `updateMessage` allowed until it loaded the message inside its transaction.
  - An unread counter below zero.
  Each chunk commits on its own and a recounted thread no longer matches, so an interrupted
  run resumes where it stopped. Deltas are dropped: nothing consumes a migrate process's
@@ -286,9 +288,11 @@ void MailStore::_migrateToV11(bool announce) {
     vector<string> threadIds;
     SQLite::Statement find(_db, "SELECT id FROM Thread WHERE unread < 0 "
         "OR EXISTS (SELECT 1 FROM json_each(Thread.data, '$.labels') AS l "
-            "WHERE json_type(l.value, '$._u') IN ('true', 'false') OR json_extract(l.value, '$._u') > Thread.unread) "
-        "OR EXISTS (SELECT 1 FROM json_each(Thread.data, '$.folders') AS f WHERE json_extract(f.value, '$._refs') != "
-            "(SELECT COUNT(*) FROM Message AS m, json_each(m.data, '$.folders') AS mf "
+            "WHERE json_type(l.value, '$._u') IN ('true', 'false') OR json_extract(l.value, '$._u') > Thread.unread "
+            "OR json_extract(l.value, '$._u') < 0) "
+        "OR EXISTS (SELECT 1 FROM json_each(Thread.data, '$.folders') AS f "
+            "WHERE (json_extract(f.value, '$._refs'), json_extract(f.value, '$._u')) != "
+            "(SELECT COUNT(*), IFNULL(SUM(mf.value & 1), 0) FROM Message AS m, json_each(m.data, '$.folders') AS mf "
             "WHERE m.threadId = Thread.id AND mf.key = json_extract(f.value, '$.id'))) "
         "ORDER BY accountId");
     while (find.executeStep()) {
