@@ -96,12 +96,14 @@ Steps:
 | `client.need_bodies`, `client.wake` | the other stdin commands |
 | `server.smtp_hold` / `server.smtp_release` | queue self-addressed SMTP deliveries, then deliver them, so the INBOX copy of a sent message arrives after the Sent copy; `smtp_release` takes `at:` like any server step (`rules-ready-inbox-copy-first`) |
 | `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
+| `db.sql: [statements]` | write the stopped engine's database (only under `restart: {before: [...]}`), to reproduce a stored state whose producing path is unknown; every derived layer must be written consistently |
 | `restart: {binary: path, before: [steps]}` | stop and relaunch on the same database, optionally with another build; `before:` runs steps while the engine is stopped (server state it did not watch happen) |
 | `snapshot: name`, `assert: {...}` | mid-scenario checkpoints |
 
 A scenario may also start on another build with a top-level `binary: ab/mailsync-0df7864`
 (relative to `test/`) and `restart` onto the build under test - how a database written by an
-older engine is handed to the current one (`migration-from-pre-placements-db`). `--mailsync`
+older engine is handed to the current one (`migration-from-pre-placements-db`;
+`ab/mailsync-eb246b6`, the last V10 build, for `migration-v11-from-v10-db`). `--mailsync`
 still sets the build under test that a `restart` with no `binary:` lands on. The harness runs
 `--mode migrate` on every launch, as the client does, so a restart onto a newer build
 upgrades the schema.
@@ -122,7 +124,8 @@ log lines match, to bound a loop the engine should take a known number of times)
 it on two deltas, across restarts, and each such delta carries the body; `folders` the
 mailboxes that delta must list, `fetched` whether it is the delta that fetched the body),
 `connection_error: {reported: true, cleared: true}`
-(the ProcessState stream behind the client's offline state), `unchanged_since: snapshot`, `running`, `exit`. Any
+(the ProcessState stream behind the client's offline state), `migrate_output: regex` (the
+last `--mode migrate` stdout), `unchanged_since: snapshot`, `running`, `exit`. Any
 expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,
 and reported as XPASS once it starts passing.
 

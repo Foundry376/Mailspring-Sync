@@ -111,6 +111,9 @@ records outcomes for one binary and diffs two recordings (see
 | qresync-vanished-above-highest-uid | CHANGEDSINCE set bounded at UIDNEXT-1 so Cyrus reports expunges above the top surviving UID (cyrus-imapd #6071) | fake, dovecot, cyrus | pass (fails on e5db7ed: fake, cyrus) |
 | messagelimit-partial-fetch | RFC 9738 partial FETCH: walk continues below it, deep scan deletes nothing under it | fake | pass (fails on e5db7ed) |
 | rules-ready-* (6 scenarios) | rulesReady once per incoming message: incoming, self-addressed send, INBOX copy first, restart, pre-upgrade rows, Gmail | fake, dovecot, cyrus | pass (all fail on a83cc9a) |
+| migration-repairs-gmail-label-unread | V11 recounts threads whose label `_u` 0df7864 left as a boolean (1bad091 precedence) | fake (gmail) | pass (fails on eb246b6) |
+| migration-repairs-ghost-folder-refs | V11 recounts a thread listing INBOX with no message there (state written with `db.sql`) | fake | pass (fails on eb246b6) |
+| migration-v11-from-v10-db | 0df7864 -> eb246b6 -> V11 alone: prints "Running Migration", recounts a boolean `_u` and one V10 arithmetic turned into a wrong integer | fake (gmail) | pass (fails on eb246b6) |
 
 Gaps worth filling next: iCloud / Outlook / NetEase behaviour needs recordings
 (`tools/record_personality.py`) before their quirks can be asserted; `--mode test` and the

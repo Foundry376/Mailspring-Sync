@@ -17,6 +17,7 @@ runs against it, and what must be true afterwards. See test/README.md for the vo
 """
 import json
 import os
+import re
 import shutil
 import socket
 import sqlite3
@@ -307,6 +308,8 @@ class ScenarioRun:
             result = self._restart(arg or {})
         elif verb == "force_scans":
             result = self._force_scans(arg or {})
+        elif verb == "db.sql":
+            result = self._db_sql(arg)
         elif verb == "assert":
             self.check_expectations(arg)
         elif verb.startswith("server."):
@@ -399,6 +402,22 @@ class ScenarioRun:
         self._note(f"backdated {keys} on every folder")
         if arg.get("sync", True):
             self.ms.sync_pass(timeout=float(arg.get("timeout", 180)), ignore_busy=self.ignore_busy)
+
+    def _db_sql(self, statements) -> int:
+        """Writes the engine's database while it is stopped (`restart: {before: [...]}`): how a
+        scenario reproduces a stored state that users' databases carry when the engine path
+        that produced it is unknown. Every derived layer must be written consistently, or the
+        invariants report the scenario's own edit."""
+        if self.ms.running:
+            raise ScenarioFailure("db.sql writes a stopped engine's database; use it under restart: {before: [...]}")
+        conn = sqlite3.connect(str(self.ms.db_path), timeout=30)
+        try:
+            changed = sum(conn.execute(sql).rowcount for sql in ([statements] if isinstance(statements, str) else statements))
+            conn.commit()
+        finally:
+            conn.close()
+        self._note(f"db.sql changed {changed} rows")
+        return changed
 
     def _resolve_messages(self, sel: dict) -> list:
         """{mailbox, uids} -> engine message ids, via the placements view; or
@@ -658,6 +677,12 @@ class ScenarioRun:
                 self._note(f"invariants: engine not quiescent after 60s ({getattr(self.ms, 'wait_reason', '')}); checking anyway")
         with self.ms.db() as c:
             return invariants.check(c, skip=arg.get("skip") or [])
+
+    def expect_migrate_output(self, pattern) -> list:
+        """The last `--mode migrate` stdout, whitespace collapsed, matches `pattern`. The
+        client opens its progress window on "Running Migration"."""
+        out = self.ms.migrate_output or ""
+        return [] if re.search(pattern, out) else [f"migrate said {out!r}, expected /{pattern}/"]
 
     def expect_counts(self, arg: dict) -> list:
         with self.ms.db() as c:

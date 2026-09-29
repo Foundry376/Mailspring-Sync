@@ -1,0 +1,29 @@
+name: migration-repairs-gmail-label-unread
+description: >
+  Engines before a83cc9a updated a thread's per-label unread count with
+  `_u - old.unread && old.inAllMail` and `_u + next->isUnread() && next->inAllMail()`, which
+  C++ reads as `(_u - unread) && inAllMail`: every change after a label's first message
+  collapsed the count to a boolean. Reading both messages of a two-message thread leaves
+  Inbox `_u = true` with nothing unread (the client's Unread view lists the thread without an
+  unread marker); reading one message of a three-message thread leaves `_u = false` with two
+  unread (the thread drops out of Unread). The database is written by 0df7864; on the build
+  under test the migration must recompute those threads so the thread refcount,
+  ThreadCategory and ThreadCounts invariants hold.
+source: "Mailspring-Sync 1bad091 (Thread::applyMessageAttributeChanges label _u precedence); client UnreadQuerySubscription filters on ThreadCategory.unread"
+servers:
+  - {fake: gmail}
+binary: ab/mailsync-0df7864
+mailboxes:
+  INBOX: {messages: 2}
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 1, thread: 1}, flags: []}   # UIDs 3-4
+  - server.append: {mailbox: INBOX, messages: {count: 1, thread: 2}, flags: []}   # UIDs 5-7
+steps:
+  - wait: quiescent
+  - server.flags: {mailbox: INBOX, uids: "3:5", add: ["\\Seen"]}
+  - wait: {quiescent: true}
+  - sync: pass
+  - restart: {timeout: 120}
+expect:
+  db_matches_server: {labels: true}
+  running: true

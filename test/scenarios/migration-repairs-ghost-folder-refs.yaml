@@ -1,0 +1,35 @@
+name: migration-repairs-ghost-folder-refs
+description: >
+  Databases written by engines before a83cc9a carry threads whose folder refcounts no longer
+  match their messages: a one-message thread in Archive that still lists INBOX with `_refs`
+  between 1 and 10 and `_u = 0`, its ThreadCategory row and ThreadCounts total agreeing, so
+  the client shows it in Inbox forever. The engine path that left them is unknown, so the
+  state is written directly into a database built by 0df7864 while it is stopped; on the
+  build under test the migration must recount the thread from its messages, which drops
+  INBOX from its folders, its ThreadCategory rows and the Inbox total.
+source: "Five such threads in one user's database (folder role inbox, [_refs, _u] = [1..10, 0] with no message in it); MailStore::_migrateToV11"
+servers:
+  - {fake: dovecot}
+binary: ab/mailsync-0df7864
+mailboxes:
+  INBOX: {messages: 2}
+  Archive: {messages: 1}      # Message 3
+steps:
+  - wait: quiescent
+  - restart:
+      timeout: 120
+      before:
+        - db.sql:
+            - >-
+              UPDATE Thread SET data = json_insert(data, '$.folders[#]',
+                json_set(json_remove((SELECT data FROM Folder WHERE role = 'inbox'), '$.localStatus'), '$._refs', 2, '$._u', 0))
+              WHERE subject = 'Message 3'
+            - >-
+              INSERT INTO ThreadCategory (id, value, inAllMail, unread, lastMessageReceivedTimestamp, lastMessageSentTimestamp)
+              SELECT T.id, F.id, T.inAllMail, 0, T.lastMessageReceivedTimestamp, T.lastMessageSentTimestamp
+              FROM Thread T, Folder F WHERE T.subject = 'Message 3' AND F.role = 'inbox'
+            - UPDATE ThreadCounts SET total = total + 1 WHERE categoryId = (SELECT id FROM Folder WHERE role = 'inbox')
+expect:
+  counts: {INBOX: 2, Archive: 1}
+  db_matches_server: {}
+  running: true

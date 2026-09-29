@@ -1,0 +1,35 @@
+name: migration-v11-from-v10-db
+description: >
+  The path of a user already on V10: 0df7864 leaves two read two-message threads with a
+  stuck Inbox `_u = true`, eb246b6 migrates to V10 without touching threads, and a new
+  unread reply to the second thread arrives while it runs, so its arithmetic turns that
+  `_u` into the integer 2 for one unread message. On the build under test V11 is the only
+  migration left: it must announce itself so the client shows its progress window, and
+  recount both threads - the first by its boolean `_u`, the second because a label's
+  unread count exceeds the thread's.
+source: "MailStore::_migrateToV11; client mailsync-process.ts migrate() opens its window on 'running migration'"
+servers:
+  - {fake: gmail}
+binary: ab/mailsync-0df7864
+mailboxes:
+  INBOX: {messages: 2}
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 1, thread: 1}, flags: []}   # Message 3: UIDs 3-4
+  - server.append: {mailbox: INBOX, messages: {count: 1, thread: 1}, flags: []}   # Message 4: UIDs 5-6
+steps:
+  - wait: quiescent
+  - server.flags: {mailbox: INBOX, uids: "3:6", add: ["\\Seen"]}
+  - wait: {quiescent: true}
+  - sync: pass
+  - restart: {binary: ab/mailsync-eb246b6, timeout: 120}
+  - server.append:
+      mailbox: INBOX
+      flags: []
+      messages: {count: 1, subject: "Re: Message 4", in_reply_to: "<harness-4-79f05e78@example.test>", references: ["<harness-4-79f05e78@example.test>"]}
+  - wait: {quiescent: true}
+  - sync: pass
+  - restart: {timeout: 120}
+expect:
+  migrate_output: "Running Migration.*Migration V11: 2 threads recounted"
+  db_matches_server: {labels: true}
+  running: true

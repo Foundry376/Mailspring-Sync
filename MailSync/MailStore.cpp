@@ -108,7 +108,7 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA main.synchronous = NORMAL").exec();
 }
 
-static int CURRENT_VERSION = 10;
+static int CURRENT_VERSION = 11;
 static string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 30 * 24 * 60 * 60; // 30 days
 
@@ -160,6 +160,9 @@ void MailStore::migrate() {
     }
     if (version < 10) {
         _migrateToV10(version == 0, verb);
+    }
+    if (version < 11) {
+        _migrateToV11(version == 10);
     }
 
     // Update the version flag. Note that we don't want to go from v3 back to v2
@@ -261,6 +264,64 @@ void MailStore::_migrateToV10(bool freshDatabase, const string & verb) {
         orphans.executeStep();
         cout << "\nMigration V10: " << placements.getColumn(0).getInt64() << " placements created, "
              << orphans.getColumn(0).getInt64() << " messages without a copy";
+        cout.flush();
+    }
+}
+
+/*
+ Recounts from their messages the threads whose counters engines before a83cc9a left wrong.
+ ThreadCategory, which the client's folder and Unread views list, is derived from them.
+ - A label `_u` stored as a JSON boolean: 1bad091 wrote `(_u - unread) && inAllMail`, an
+   operator precedence slip. The current arithmetic only writes integers.
+ - A label `_u` above the thread's unread count: that boolean after a V10 engine's arithmetic
+   turned it back into a (wrong) integer.
+ - A folder whose `_refs` differs from the number of the thread's messages listing it: the
+   thread shows in a folder none of its messages is in (seen with Inbox, cause unknown).
+ - An unread counter below zero.
+ Each chunk commits on its own and a recounted thread no longer matches, so an interrupted
+ run resumes where it stopped. Deltas are dropped: nothing consumes a migrate process's
+ stream, and the client reads the rows when it next queries them.
+ */
+void MailStore::_migrateToV11(bool announce) {
+    vector<string> threadIds;
+    SQLite::Statement find(_db, "SELECT id FROM Thread WHERE unread < 0 "
+        "OR EXISTS (SELECT 1 FROM json_each(Thread.data, '$.labels') AS l "
+            "WHERE json_type(l.value, '$._u') IN ('true', 'false') OR json_extract(l.value, '$._u') > Thread.unread) "
+        "OR EXISTS (SELECT 1 FROM json_each(Thread.data, '$.folders') AS f WHERE json_extract(f.value, '$._refs') != "
+            "(SELECT COUNT(*) FROM Message AS m, json_each(m.data, '$.folders') AS mf "
+            "WHERE m.threadId = Thread.id AND mf.key = json_extract(f.value, '$.id'))) "
+        "ORDER BY accountId");
+    while (find.executeStep()) {
+        threadIds.push_back(find.getColumn(0).getString());
+    }
+    size_t recounted = threadIds.size();
+
+    if (announce && recounted) {
+        // The client watches for this line and shows its progress window; V10 printed it otherwise.
+        cout << "\nRunning Migration";
+        cout.flush();
+    }
+
+    for (auto & chunk : MailUtils::chunksOfVector(threadIds, 500)) {
+        MailStoreTransaction transaction{this, "_migrateToV11"};
+        auto threads = findAllMap<Thread>(Query().equal("id", chunk), "id");
+        for (auto & pair : threads) {
+            pair.second->resetCountedAttributes();
+        }
+        for (auto & msg : findAll<Message>(Query().equal("threadId", chunk))) {
+            if (threads.count(msg->threadId())) {
+                threads[msg->threadId()]->applyMessageAttributeChanges(MessageEmptySnapshot, msg.get(), this);
+            }
+        }
+        for (auto & pair : threads) {
+            save(pair.second.get());
+        }
+        unsafeEraseTransactionDeltas();
+        transaction.commit();
+    }
+
+    if (recounted) {
+        cout << "\nMigration V11: " << recounted << " threads recounted";
         cout.flush();
     }
 }
@@ -395,19 +456,20 @@ void MailStore::saveKeyValue(string key, string value) {
     query.exec();
 }
 
+// A sync process serves one account, but `--mode migrate` walks every account in the
+// database, so the caches are refilled when the account changes as well as the version.
 vector<shared_ptr<Label>> MailStore::allLabelsCache(string accountId) {
-    // todo bg: this assumes a single accountId will ever be used
-    if (_labelCacheVersion != globalLabelsVersion) {
+    if (_labelCacheVersion != globalLabelsVersion || _labelCacheAccountId != accountId) {
         _labelCache = findAll<Label>(Query().equal("accountId", accountId));
         _labelCacheVersion = globalLabelsVersion;
+        _labelCacheAccountId = accountId;
     }
     return _labelCache;
 }
 
+// Labels are included because Gmail's send path files a message under the Sent label.
 const map<string, shared_ptr<Folder>> & MailStore::allFoldersCache(string accountId) {
-    // Like allLabelsCache, assumes one accountId per process. Labels are included
-    // because Gmail's send path files a message under the Sent label.
-    if (_folderCacheVersion != globalFoldersVersion) {
+    if (_folderCacheVersion != globalFoldersVersion || _folderCacheAccountId != accountId) {
         map<string, shared_ptr<Folder>> next;
         for (auto & folder : findAll<Folder>(Query().equal("accountId", accountId))) {
             next[folder->id()] = folder;
@@ -417,6 +479,7 @@ const map<string, shared_ptr<Folder>> & MailStore::allFoldersCache(string accoun
         }
         _folderCache = next;
         _folderCacheVersion = globalFoldersVersion;
+        _folderCacheAccountId = accountId;
     }
     return _folderCache;
 }
