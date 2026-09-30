@@ -633,14 +633,14 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     }
     
     // Fetch the current user principal URL from the CardDav root
-    auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>");
+    auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>", "0");
     string cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
     if (cardPrincipal.find("://") == string::npos) {
         cardPrincipal = replacePath(cardRoot, cardPrincipal);
     }
     
-    // Fetch the address book home set URL from the user principal URL
-    auto abSetDoc = performXMLRequest(cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>");
+    // Fetch the address book home set URL from the user principal URL. Depth 0, as for calendars.
+    auto abSetDoc = performXMLRequest(cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>", "0");
     auto abSetURL = abSetDoc->nodeContentAtXPath("//carddav:addressbook-home-set/D:href/text()");
     if (abSetURL.find("://") == string::npos) {
         abSetURL = replacePath(cardRoot, abSetURL);
@@ -709,7 +709,8 @@ string DAVWorker::resolveCalendarHomeURL() {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         "<A:propfind xmlns:A=\"DAV:\"><A:prop>"
         "<A:current-user-principal/><A:principal-URL/><A:resourcetype/>"
-        "</A:prop></A:propfind>");
+        "</A:prop></A:propfind>",
+        "0");
     string calPrincipalURL = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
     if (calPrincipalURL.empty()) {
         logger->info("CalDAV: server returned no current-user-principal, skipping calendar discovery");
@@ -719,11 +720,13 @@ string DAVWorker::resolveCalendarHomeURL() {
         calPrincipalURL = replacePath(calRoot, calPrincipalURL);
     }
 
-    // PROPFIND principal → calendar-home-set (RFC 4791 §6.2.1)
+    // PROPFIND principal → calendar-home-set (RFC 4791 §6.2.1). Depth 0: at Depth 1 Nextcloud also
+    // answers for the principal's calendar-proxy-read/-write children, and the last home set wins.
     auto homeSetDoc = performXMLRequest(calPrincipalURL, "PROPFIND",
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         "<d:propfind xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
-        "<d:prop><c:calendar-home-set/></d:prop></d:propfind>");
+        "<d:prop><c:calendar-home-set/></d:prop></d:propfind>",
+        "0");
     string homeSetURL = homeSetDoc->nodeContentAtXPath("//caldav:calendar-home-set/D:href/text()");
     if (homeSetURL.empty()) {
         logger->info("CalDAV: server returned no calendar-home-set, skipping calendar discovery");
