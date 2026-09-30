@@ -313,6 +313,10 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | rules-ready-across-restart | engine restarted between the Sent copy and the INBOX copy: still exactly one | fake, dovecot, cyrus (+smtp) |
 | rules-ready-pre-upgrade-messages | messages ingested by the pre-rulesReady build never get it | fake, dovecot, cyrus (starts on `ab/mailsync-a83cc9a`) |
 | rules-ready-gmail | Gmail: \\Inbox mail once, \\Sent-only never, a sent message once when filed under \\Inbox | fake |
+| sent-copy-saved-late | Exchange files its Sent copy 6.5 s after SMTP: the late copy is removed and the next send waits for it | fake (+smtp) |
+| sent-copy-multisend | tracked send: one server copy per recipient, all deleted, one untracked copy kept | fake (+smtp) |
+| sent-copy-cleanup-store-refused | a late copy whose delete is refused keeps its placement and is removed on the next pass (CONDSTORE) | fake (+smtp) |
+| sent-copy-multisend-late | as above with the per-recipient copies filed after the engine stopped waiting | fake (+smtp) |
 | move-without-move-keeps-other-deleted | no-MOVE fallback expunges only the moved UID; another client's `\\Deleted` message survives | fake, dovecot, cyrus |
 | move-without-move-connection-drop | connection lost after the server ran UID EXPUNGE: no plain EXPUNGE on reconnect | fake |
 | folder-roles-by-localized-name | roles by name without SPECIAL-USE: modified UTF-7 names, Borradores, `\\Archive` | fake |
@@ -393,7 +397,8 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   `{fake: gmail, smtp: true, smtp_sent_copy: "[Gmail]/Sent Mail"}` also files every submitted
   message under the named mailbox, as Gmail's submission service saves sent mail under `\Sent`
   by itself - the copy the engine's send path looks for before it APPENDs its own
-  (`gmail-send-and-labels`).
+  (`gmail-send-and-labels`). `smtp_sent_copy_delay: s` files it that long after the 250, as
+  Exchange Online does (`sent-copy-*`).
 - **Recording real providers.** `tools/record_personality.py HOST PORT USER --name NAME`
   captures greeting, capabilities, NAMESPACE, ID, LIST, STATUS/SELECT and FETCH shapes from a
   real account (no message content) into `fakeimap/recordings/`; use it to replace every

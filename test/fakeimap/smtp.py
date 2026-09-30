@@ -140,12 +140,15 @@ class _TCP(socketserver.ThreadingTCPServer):
 class FakeSmtpServer:
     def __init__(self, host="127.0.0.1", port=0, credentials=("test", "pass"), hostname="mail.example.test",
                  require_auth=True, reject_non_fqdn_helo=False, deliver_to=None, sent_copy=None,
-                 deliver_delay: float = 0):
+                 deliver_delay: float = 0, sent_copy_delay: float = 0):
         """deliver_to: optional (Store, mailbox, address) - messages sent to `address` are appended
         to that mailbox, as a real server delivers self-addressed mail back to the sender.
         sent_copy: optional (Store, mailbox) - every submitted message is also appended there,
         as Gmail's submission service files sent mail under the \\Sent label itself (the
         engine's send path looks for that copy before APPENDing its own).
+        sent_copy_delay: seconds between accepting a message and filing that copy; Exchange
+        Online made it visible 0.5-3.5 s after the 250, twice 6-8 s, once ~3 min (live O365
+        sends, 2026-09-27).
         deliver_delay: seconds between accepting a self-addressed message and delivering it,
         for a hand-driven client (tools/cyrus_server.py); scenarios use hold()/release()."""
         self.host, self.port = host, port
@@ -155,6 +158,7 @@ class FakeSmtpServer:
         self.reject_non_fqdn_helo = reject_non_fqdn_helo
         self.deliver_to = deliver_to
         self.sent_copy = sent_copy
+        self.sent_copy_delay = sent_copy_delay
         self.deliver_delay = deliver_delay
         self.messages: list = []
         self.held: Optional[list] = None   # self-addressed deliveries waiting for release()
@@ -168,7 +172,10 @@ class FakeSmtpServer:
     def deliver(self, msg: SmtpMessage):
         if self.sent_copy:
             store, mailbox = self.sent_copy
-            store.append(mailbox, msg.raw, ["\\Seen"])
+            if self.sent_copy_delay:
+                threading.Timer(self.sent_copy_delay, store.append, (mailbox, msg.raw, ["\\Seen"])).start()
+            else:
+                store.append(mailbox, msg.raw, ["\\Seen"])
         if not self.deliver_to:
             return
         store, mailbox, address = self.deliver_to

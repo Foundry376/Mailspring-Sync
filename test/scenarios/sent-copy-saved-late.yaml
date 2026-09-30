@@ -1,0 +1,65 @@
+name: sent-copy-saved-late
+description: >
+  Exchange files its own Sent Items copy of mail submitted over SMTP, here 6.5 s after the
+  250. On the account's first send the engine has not seen a server copy yet, gives up
+  after ~4 s and APPENDs its own; when the server's copy then appears, the next pass must
+  remove it and keep the appended one, and remember that this server saves sent mail. The
+  second send must then wait long enough to find the server's copy and not APPEND.
+source: "Mailspring dev O365 account, 2026-09-27: 76 live sends; Exchange made its Sent Items copy visible 0.5-3.5 s after the SMTP 250, twice 6-8 s, once ~3 min; a tracked send to N recipients is N SMTP submissions and Exchange files one copy each"
+servers:
+  - {fake: outlook, smtp: true, smtp_sent_copy: "Sent Items", smtp_sent_copy_delay: 6.5}
+mailboxes:
+  INBOX: {messages: 3}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "sent-1@example.test"
+        subject: "First send"
+        body: "<p>Hi</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "bob", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 90}
+  - wait: {seconds: 8}
+  - sync: pass
+  - assert: {server_counts: {Sent Items: 1}, counts: {Sent Items: 1}}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "sent-2@example.test"
+        subject: "Second send"
+        body: "<p>Hi</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "bob", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send2
+  - wait: {task: send2, timeout: 90}
+  - wait: {seconds: 8}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  smtp: {count: 2}
+  server_counts: {Sent Items: 2}
+  counts: {Sent Items: 2}
+  log_count: {"Placing a new message": 1, "Removing 1 late server copies": 1}
+  folder_status: {Sent Items: {serverSavesSent: true}}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

@@ -62,6 +62,7 @@ public:
 
     void cleanupTasksAfterLaunch();
     void cleanupOldTasksAtRuntime();
+    void removeLateSentCopies(Folder & sent);
     
     void performLocal(Task * task);
     void performRemote(Task * task);

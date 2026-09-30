@@ -58,5 +58,6 @@ expect:
   server_counts: {Sent: 2, INBOX: 6}
   counts: {Sent: 2}
   stable: {passes: 2}
+  log_absent: ["Sleeping 3"]   # a server that never files a Sent copy keeps the short wait
   db_matches_server: {}   # the sent copy keeps its draft-derived id, so both copies are distinct rows
   running: true

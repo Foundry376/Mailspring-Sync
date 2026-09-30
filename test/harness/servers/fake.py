@@ -15,7 +15,7 @@ class FakeServer(Server):
 
     def __init__(self, personality: str = "dovecot", log_path: Optional[str] = None, smtp: bool = False,
                  email: str = "test@example.test", reject_non_fqdn_helo: bool = False,
-                 smtp_sent_copy: Optional[str] = None, **kw):
+                 smtp_sent_copy: Optional[str] = None, smtp_sent_copy_delay: float = 0, **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
@@ -26,7 +26,8 @@ class FakeServer(Server):
         # (Gmail's submission service saves sent mail under \Sent by itself).
         self.smtp = FakeSmtpServer(credentials=(self.username, self.password), reject_non_fqdn_helo=reject_non_fqdn_helo,
                                    deliver_to=(self.store, "INBOX", email),
-                                   sent_copy=(self.store, smtp_sent_copy) if smtp_sent_copy else None) if smtp else None
+                                   sent_copy=(self.store, smtp_sent_copy) if smtp_sent_copy else None,
+                                   sent_copy_delay=smtp_sent_copy_delay) if smtp else None
 
     def start(self):
         self.imap.start()

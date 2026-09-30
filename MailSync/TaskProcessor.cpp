@@ -303,15 +303,17 @@ static void _moveMessagesResilient(IMAPSession * session, String * path, Folder 
 
 // A helper function to permanently remove messages by UID from a given folder path. When a trash folder
 // and CapabilityMove are present, it moves there and expunges. Otherwises it expunges in place.
+// Returns whether the messages have left `path`.
 
-void _removeMessagesResilient(IMAPSession * session, MailStore * store, string accountId, String * path, IndexSet * uids) {
+bool _removeMessagesResilient(IMAPSession * session, MailStore * store, string accountId, String * path, IndexSet * uids) {
     ErrorCode err = ErrorCode::ErrorNone;
+    bool movedToTrash = false;
 
     // First, add the "DELETED" flag to the given messages
     session->storeFlagsByUID(path, uids, IMAPStoreFlagsRequestKindAdd, MessageFlagDeleted, &err);
     if (err != ErrorNone) {
         spdlog::get("logger")->info("X- removeMessages could not add deleted flag (error: {})", ErrorCodeToTypeMap[err]);
-        return;
+        return false;
     }
     
     // If possible, move the messages to the identified trash folder.
@@ -330,6 +332,7 @@ void _removeMessagesResilient(IMAPSession * session, MailStore * store, string a
         } else {
             // If we were successful moving to the trash, we will now expunge from here, and the UIDs
             // we had before are no longer valid so we'll need to expunge the entire folder.
+            movedToTrash = true;
             uids->removeAllIndexes();
             path = trashPath;
             
@@ -368,6 +371,7 @@ void _removeMessagesResilient(IMAPSession * session, MailStore * store, string a
     if (err != ErrorNone) {
         spdlog::get("logger")->info("X- removeMessages Expunge failed (error: {})", ErrorCodeToTypeMap[err]);
     }
+    return movedToTrash || err == ErrorNone;
 }
 
 // Deletes the message's server copies, grouped by folder. Used for drafts, whose
@@ -2001,6 +2005,83 @@ void TaskProcessor::performRemoteDestroyCategory(Task * task) {
     logger->info("Deletion of folder/label '{}' succeeded.", path);
 }
 
+// Deletes copies from Sent on the server and drops their placements, so they leave the
+// client now rather than on the folder's next deep scan. A copy the server kept keeps its
+// placement: on a CONDSTORE server nothing would report it again until the 24h gap scan.
+static void _removeSentCopies(IMAPSession * session, MailStore * store, shared_ptr<Account> account, Folder & sent, IndexSet * uids) {
+    vector<uint32_t> removed;
+    for (unsigned int ii = 0; ii < uids->rangesCount(); ii++) {
+        for (uint64_t uid = RangeLeftBound(uids->allRanges()[ii]); uid <= RangeRightBound(uids->allRanges()[ii]); uid++) {
+            removed.push_back((uint32_t)uid);
+        }
+    }
+    if (_removeMessagesResilient(session, store, account->id(), AS_MCSTR(sent.path()), uids)) {
+        MailProcessor{account, store}.deleteVanishedPlacements(sent, removed);
+    }
+}
+
+/*
+ A sent message we appended to Sent because the server's own copy had not appeared yet may
+ get that copy minutes later: Exchange Online made one visible over IMAP ~3 min after the
+ send (2026-09-27), and each recipient of a multisend adds one carrying that recipient's
+ tracking pixel. Both arrive as more placements of the same message. Within
+ SENT_COPY_CLEANUP_WINDOW of the send, while the copy we appended is still there, every
+ other copy of the message in Sent is removed from the server and the store.
+ */
+void TaskProcessor::removeLateSentCopies(Folder & sent) {
+    AutoreleasePool pool;
+    vector<string> messageIds;
+    {
+        // Runs every pass: start from the messages dated within the window (their Date is
+        // the send time) so the account's date index keeps this off the rest of Sent.
+        SQLite::Statement query(store->db(),
+            "SELECT mf.messageId FROM Message m JOIN MessageFolder mf ON mf.messageId = m.id "
+            "WHERE m.accountId = ? AND m.date >= ? AND mf.folderId = ? AND mf.remoteUID > 0 "
+            "GROUP BY mf.messageId HAVING COUNT(*) > 1");
+        query.bind(1, account->id());
+        query.bind(2, (long long)(time(0) - SENT_COPY_CLEANUP_WINDOW));
+        query.bind(3, sent.id());
+        while (query.executeStep()) {
+            messageIds.push_back(query.getColumn("messageId").getString());
+        }
+    }
+
+    for (auto & messageId : messageIds) {
+        auto msg = store->find<Message>(Query().equal("id", messageId));
+        if (msg == nullptr || !msg->_data.count("_asc")) {
+            continue;
+        }
+        json & asc = msg->_data["_asc"];
+        if (asc["f"].get<string>() != sent.id() || asc["x"].get<time_t>() < time(0)) {
+            continue;
+        }
+        uint32_t keepUID = asc["u"].get<uint32_t>();
+        IndexSet * late = IndexSet::indexSet();
+        bool keptPresent = false;
+        for (auto & p : store->placementsForMessage(messageId)) {
+            if (p.folderId != sent.id() || p.remoteUID == 0) {
+                continue;
+            }
+            if (p.remoteUID == keepUID) {
+                keptPresent = true;
+            } else {
+                late->addIndex(p.remoteUID);
+            }
+        }
+        if (!keptPresent || late->count() == 0) {
+            continue;
+        }
+
+        if (!sent.localStatus().count(LS_SERVER_SAVES_SENT)) {
+            json initialLocalStatus = sent.localStatus();
+            sent.localStatus()[LS_SERVER_SAVES_SENT] = true;
+            store->saveFolderStatus(&sent, initialLocalStatus);
+        }
+        logger->info("- Removing {} late server copies of sent message {} from {}, keeping UID {}", late->count(), messageId, sent.path(), keepUID);
+        _removeSentCopies(session, store, account, sent, late);
+    }
+}
+
 void TaskProcessor::performRemoteSendDraft(Task * task) {
     AutoreleasePool pool;
     ErrorCode err = ErrorNone;
@@ -2201,27 +2282,40 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
      folder, others don't.
      */
     uint32_t sentFolderMessageUID = 0;
+    bool appendedToSent = false;
     {
-        // grab the last few items in the sent folder... we know we don't need more than 10
-        // because multisend is capped.
-        int tries = 0;
-        int delay[] = {0, 1, 1, 2, 2};
+        // Exchange Online files its copy 0.5-3.5 s after the SMTP 250, sometimes 6-8 s, and
+        // was seen to take ~3 min (76 sends, 2026-09-27); Gmail, Yahoo and Zoho file one too,
+        // iCloud and Fastmail by default do not. A Sent folder where a copy has turned up
+        // before is given longer, so providers that never file one don't slow every send.
+        // A multisend is one SMTP submission per recipient, and the server files one copy each.
+        bool serverSaves = sent->localStatus().count(LS_SERVER_SAVES_SENT) > 0;
+        vector<int> delays = serverSaves ? vector<int>{0, 1, 1, 2, 2, 3, 3} : vector<int>{0, 1, 1, 2};
+        size_t expected = multisend ? perRecipientBodies.size() - 1 : 1;
         IndexSet * uids = IndexSet::indexSet();
-        
-        while (tries < 4 && uids->count() == 0) {
-            if (delay[tries]) {
-                logger->info("-- No messages found. Sleeping {} to wait for sent folder to settle...", delay[tries]);
-				std::this_thread::sleep_for(std::chrono::seconds(delay[tries]));
+        for (int delay : delays) {
+            if (delay) {
+                logger->info("-- Found {} of {} copies. Sleeping {} to wait for sent folder to settle...", uids->count(), expected, delay);
+                std::this_thread::sleep_for(std::chrono::seconds(delay));
             }
-            tries ++;
+            uids->removeAllIndexes();
             session->findUIDsOfRecentHeaderMessageID(sentPath, AS_MCSTR(draft.headerMessageId()), uids);
+            if (uids->count() >= expected) {
+                break;
+            }
         }
-    
+
+        if (uids->count() > 0 && !serverSaves) {
+            json initialLocalStatus = sent->localStatus();
+            sent->localStatus()[LS_SERVER_SAVES_SENT] = true;
+            store->saveFolderStatus(sent.get(), initialLocalStatus);
+        }
+
         if (multisend && (uids->count() > 0)) {
             // If we sent separate messages to each recipient, we end up with a bunch of sent
             // messages. Delete all of them since they contain the targeted bodies with link/open tracking.
             logger->info("-- Deleting {} messages added to {} by the SMTP gateway.", uids->count(), sentPath->UTF8Characters());
-            _removeMessagesResilient(session, store, account->id(), sentPath, uids);
+            _removeSentCopies(session, store, account, *sent, uids);
             
             // In Gmail, moving the messages from Sent -> Trash and expunging them just places them in All Mail
             // for some reason. Deleting them AGAIN from All Mail works properly, so we do that here.
@@ -2235,13 +2329,12 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                 }
             }
 
-        } else if (!multisend && (uids->count() == 1)) {
-            // If we find a single message in the sent folder, we'll move forward with that one.
+        } else if (!multisend && (uids->count() > 0)) {
             sentFolderMessageUID = (uint32_t)uids->allRanges()[0].location;
-            logger->info("-- Found a message added to the sent folder by the SMTP gateway (UID {})", sentFolderMessageUID);
+            logger->info("-- Found a message added to the sent folder by the SMTP gateway (UID {}, {} copies)", sentFolderMessageUID, uids->count());
             
         } else {
-            logger->info("-- No messages matching the message-id were found in the Sent folder.", uids->count());
+            logger->info("-- No messages matching the message-id were found in the Sent folder.");
         }
         
         if (err != ErrorNone) {
@@ -2258,6 +2351,8 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         if (err != ErrorNone) {
             logger->error("-X IMAP Error: {}. Could not place a message into the Sent folder. This means no metadata will be attached!", ErrorCodeToTypeMap[err]);
             err = ErrorNone;
+        } else {
+            appendedToSent = true;
         }
 
         // If the user is on Gmail and the thread had labels, apply those same
@@ -2372,6 +2467,19 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     }
 
     processor.retrievedMessageBody(localMessage.get(), messageParser);
+
+    // A copy the server files after we gave up waiting for it is removed by a later scan of
+    // Sent (removeLateSentCopies), which keeps the one we appended. `_asc` is that copy.
+    if (appendedToSent && placementFolder->id() == sent->id()) {
+        MailStoreTransaction transaction{store, "performRemoteSendDraft"};
+        auto fresh = store->find<Message>(Query().equal("id", localMessage->id()));
+        if (fresh != nullptr) {
+            fresh->_data["_asc"] = {{"f", sent->id()}, {"u", placementUID}, {"x", time(0) + SENT_COPY_CLEANUP_WINDOW}};
+            store->save(fresh.get());
+            store->unsafeEraseTransactionDeltas();
+            transaction.commit();
+        }
+    }
     
     logger->info("-- Synced sent message ({} UID {} = Local ID {})", placementFolder->path(), placementUID, localMessage->id());
     

@@ -762,6 +762,12 @@ bool SyncWorker::syncNow()
         recordCoverage(*folder, covered, syncedMinUID < walkStartUID);
     }
     
+    for (auto & folder : folders) {
+        if (folder->role() == "sent") {
+            TaskProcessor { account, store, &session }.removeLateSentCopies(*folder);
+        }
+    }
+
     // If a copy of an orphan reappeared in a scanned folder, the upsert cleared its record;
     // remove the rest that are old enough. Without the per-folder bound, a bulk move of more
     // messages than one fetch carries would have its remainder removed here and re-created,

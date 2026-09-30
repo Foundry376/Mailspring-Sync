@@ -48,6 +48,10 @@ static string MAILSPRING_FOLDER_PREFIX_V2 = "Mailspring";
 #define LS_MESSAGE_COUNT            "messageCount"
 #define LS_UNSEEN_COUNT             "unseenCount"
 #define LS_RECENT_COUNT             "recentCount"
+#define LS_SERVER_SAVES_SENT        "serverSavesSent" // Sent only: the SMTP server has filed a copy
+
+// How long after a send a later copy in Sent is taken to be the server's late copy of it.
+#define SENT_COPY_CLEANUP_WINDOW    (30 * 60)
 
 static vector<string> ACCOUNT_RESET_QUERIES = {
     "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Folder` WHERE `accountId` = ?)",
