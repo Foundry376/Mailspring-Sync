@@ -1,0 +1,31 @@
+name: move-without-move-keeps-other-deleted
+description: >
+  On a server without MOVE the engine moves a copy with COPY, STORE +\Deleted and an
+  expunge. Another client has only marked an unrelated INBOX message \Deleted (Outlook
+  desktop's "mark for deletion" IMAP mode leaves it that way until the user purges). The
+  user archives a different message. The engine must expunge only the UID it moved (UID
+  EXPUNGE, RFC 4315 2.1), so the other client's message is still on the server afterwards.
+source: "docs/tasks/01-quirks-quick-fixes.md 1a; Thunderbird nsImapProtocol.cpp (UID EXPUNGE after a COPY-based move when UIDPLUS); RFC 3501 6.4.3 (EXPUNGE removes every \\Deleted message)"
+servers:
+  - {fake: dovecot-without-move}
+  - {dovecot: no-move}
+  - {cyrus: no-move}
+mailboxes:
+  INBOX: {messages: 10}
+  Archive: {messages: 1}
+steps:
+  - wait: quiescent
+  - server.flags: {mailbox: INBOX, uids: [2], add: ["\\Deleted"]}
+  - wait: {seconds: 1}
+  - sync: pass
+  - client.task: {__cls: ChangeFolderTask, messages: {mailbox: INBOX, uids: [5]}, folder: Archive}
+    as: move
+  - wait: {task: move, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  log_absent: ["Expunging all"]
+  server_counts: {INBOX: 9, Archive: 2}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

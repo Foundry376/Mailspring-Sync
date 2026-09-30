@@ -8,6 +8,7 @@ Profiles select the advertised capabilities and folder layout:
   plain         imap_capability override without CONDSTORE/QRESYNC: the deep-scan branch
   proton-like   plain + an \\All "All Mail" mailbox, as PR #137 tested against
   tls           qresync over implicit TLS with a self-signed certificate
+  no-move       plain without MOVE: COPY + \\Deleted + EXPUNGE
 
 Population and mutation go over IMAP (imaplib), i.e. exactly what another client would do;
 UID-space manipulation uses doveadm.
@@ -62,6 +63,7 @@ SPECIAL_USE = {
 PROFILES = {
     "qresync": dict(capability=None, mailboxes=SPECIAL_USE, ssl=False, format="maildir"),
     "plain": dict(capability=PLAIN_CAPS, mailboxes=SPECIAL_USE, ssl=False, format="maildir"),
+    "no-move": dict(capability=PLAIN_CAPS.replace(" MOVE", ""), mailboxes=SPECIAL_USE, ssl=False, format="maildir"),
     "proton-like": dict(capability=PLAIN_CAPS, mailboxes={**SPECIAL_USE, "All Mail": "\\All"}, ssl=False, format="maildir"),
     "tls": dict(capability=None, mailboxes=SPECIAL_USE, ssl=True, format="maildir"),
     "sdbox": dict(capability=None, mailboxes=SPECIAL_USE, ssl=False, format="sdbox"),

@@ -1,0 +1,22 @@
+name: status-uidnext-zero-new-mail
+description: >
+  hMailServer and home.pl answer STATUS with UIDNEXT 0, and Coremail omits UIDNEXT, so a
+  rising UIDNEXT cannot announce new mail. New mail delivered to a folder nobody idles on
+  must still arrive on the next pass, found by the change in the message count, not wait for
+  the 10-minute deep scan. The engine must key this on the STATUS reply, not on the host name.
+source: "docs/tasks/01-quirks-quick-fixes.md 1c; Geary imap-status-data.vala; Mailspring-Sync PR #121"
+servers:
+  - {fake: hmailserver}
+mailboxes:
+  INBOX: {messages: 5}
+  Archive: {messages: 5}
+steps:
+  - wait: quiescent
+  - sync: pass    # the first pass after launch deep-scans every folder; the delivery must come after it
+  - server.append: {mailbox: Archive, messages: 2}
+  - wait: {seconds: 1}
+  - sync: pass
+expect:
+  counts: {INBOX: 5, Archive: 7}
+  db_matches_server: {}
+  running: true

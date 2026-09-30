@@ -584,7 +584,7 @@ class Session(socketserver.StreamRequestHandler):
             if "RECENT" in wanted:
                 vals += ["RECENT", str(len(mb.recent))]
             if "UIDNEXT" in wanted and not self.p.has("status-omits-uidnext"):
-                vals += ["UIDNEXT", str(mb.uidnext)]
+                vals += ["UIDNEXT", "0" if self.p.has("status-uidnext-zero") else str(mb.uidnext)]
             if "UIDVALIDITY" in wanted:
                 vals += ["UIDVALIDITY", str(mb.uidvalidity)]
             if "UNSEEN" in wanted:
