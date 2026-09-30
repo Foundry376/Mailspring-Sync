@@ -1142,13 +1142,7 @@ void IMAPSession::login(ErrorCode * pError)
     enableFeatures();
 
     if (isAutomaticConfigurationEnabled()) {
-        // Coremail servers (NetEase 163/126/yeah.net and custom-domain hosts)
-        // accept LOGIN but reject SELECT with "Unsafe Login" until the client
-        // sends RFC 2971 ID (offlineimap #696, nextcloud/mail #10679). The
-        // exchange is limited to them, and to callers that supplied identity
-        // fields, because a failed ID aborts the login and other servers'
-        // malformed ID responses have not been audited against MailCore's parser.
-        if (mCoremailServer && isIdentityEnabled() && clientIdentity()->allInfoKeys()->count() > 0) {
+        if (shouldSendClientIdentity()) {
             IMAPIdentity * serverIdentity = identity(clientIdentity(), pError);
             if (* pError != ErrorNone) {
                 MCLog("fetch identity failed");
@@ -4813,6 +4807,18 @@ bool IMAPSession::enableFeature(String * feature)
     mailimap_capability_data_free(result);
     
     return true;
+}
+
+// isIdentityEnabled() says the server supports RFC 2971 ID; this decides whether we send
+// ours. Coremail servers (NetEase 163/126/yeah.net and custom-domain hosts) accept LOGIN but
+// reject SELECT with "Unsafe Login" until the client sends ID (offlineimap #696,
+// nextcloud/mail #10679). The exchange is limited to them, and to callers that supplied
+// identity fields, because a failed ID aborts the login and other servers' ID responses
+// have not been audited against MailCore's parser. ID is optional (RFC 2971 §3), so the
+// servers that don't get one see what they always have.
+bool IMAPSession::shouldSendClientIdentity()
+{
+    return mCoremailServer && isIdentityEnabled() && clientIdentity()->allInfoKeys()->count() > 0;
 }
 
 void IMAPSession::enableFeatures()

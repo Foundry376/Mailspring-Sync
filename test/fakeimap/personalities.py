@@ -148,11 +148,12 @@ gateway_duplicate_list = _register(Personality(
     },
 ))
 
-netease = _register(Personality(
-    name="netease",
-    description="NetEase (163.com / 126.com / yeah.net): SELECT is refused with 'Unsafe Login' until "
-                "the client sends ID; STATUS omits UIDNEXT. The engine recognises the Coremail "
-                "greeting, so no host alias is needed.",
+netease_coremail = _register(Personality(
+    name="netease-coremail",
+    description="NetEase (163.com / 126.com / yeah.net), the best-known Coremail deployment: SELECT is "
+                "refused with 'Unsafe Login' until the client sends ID; STATUS omits UIDNEXT. The "
+                "handling from PR #121 (aixia715) now keys on the Coremail greeting and on the "
+                "STATUS reply, so it covers every Coremail host and needs no host alias.",
     source="Mailspring-Sync PR #121; community.getmailspring.com/t/562. Response text as widely "
            "reported by users: 'NO SELECT Unsafe Login. Please contact kefu@188.com for help'. "
            "NEEDS-RECORDING for the capability string.",

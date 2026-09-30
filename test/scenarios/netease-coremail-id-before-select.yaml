@@ -1,12 +1,13 @@
-name: netease-id-before-select
+name: netease-coremail-id-before-select
 description: >
   NetEase and other Coremail hosts refuse SELECT with "Unsafe Login" until the client
   identifies itself with ID, and their STATUS omits UIDNEXT. The engine recognises Coremail
   by its greeting and the missing UIDNEXT by the STATUS reply, so this runs on 127.0.0.1:
-  a custom-domain Coremail host must work the same as imap.163.com.
+  a custom-domain Coremail host must work the same as imap.163.com. This is the NetEase
+  handling from PR #121 (aixia715), generalised to Coremail.
 source: Mailspring-Sync PR #121; community.getmailspring.com/t/562; offlineimap #696; nextcloud/mail #10679
 servers:
-  - {fake: netease}
+  - {fake: netease-coremail}
 mailboxes:
   INBOX: {messages: 12}
 steps:

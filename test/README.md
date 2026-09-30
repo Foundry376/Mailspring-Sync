@@ -215,7 +215,7 @@ Things learned from Dovecot while building the conformance suite, all now modell
 ## Server kinds
 
 - `fake:<personality>` - `dovecot` (baseline), `plain` (no CONDSTORE/QRESYNC: the deep-scan
-  branch), `proton-bridge`, `gateway-duplicate-list`, `netease`, `courier`, `outlook`,
+  branch), `proton-bridge`, `gateway-duplicate-list`, `netease-coremail`, `courier`, `outlook`,
   `icloud`, `gmail`, `yahoo` (permuted COPYUID), `cyrus-vanished` (Dovecot plus Cyrus's
   VANISHED clipped at `*`, cyrus-imapd #6071), `yahoo-messagelimit` (enforces
   MESSAGELIMIT=50 on UID FETCH, RFC 9738), `inbox-only` (no SPECIAL-USE, only INBOX
@@ -278,7 +278,7 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | o365-duplicate-sent-copies | placements: identical copies at adjacent UIDs | fake, dovecot |
 | proton-all-mail-duplicates | #137 `\All` skip | fake, dovecot |
 | gateway-duplicate-list-entries | #139 duplicate LIST lines | fake |
-| netease-id-before-select | #121 ID before SELECT (Coremail greeting), STATUS without UIDNEXT | fake |
+| netease-coremail-id-before-select | #121 ID before SELECT (Coremail greeting), STATUS without UIDNEXT | fake |
 | uidvalidity-change | UIDVALIDITY remap | fake, dovecot |
 | two-folders-identical-messages | #140 non-converging gap scan must settle | fake, dovecot |
 | client-task-move | ChangeFolder/Starred/Unread tasks | fake, dovecot |
