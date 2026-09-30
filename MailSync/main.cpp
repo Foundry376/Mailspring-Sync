@@ -232,16 +232,35 @@ void runCalContactsSyncWorker() {
     std::this_thread::sleep_for(std::chrono::seconds(15 + davWorker->account->startDelay()));
 
     // BG Note: This process does not use MailUtils::sleepWorkerUntilWakeOrSec(), which means
-    // cal + contact sync runs every 15 minutes regardless of how often you slam on the Sync Mail
-    // icon. I am trying to narrow down why we are hitting the Google Calendar + People API limits
-    // so quickly (in almost exactly 8 hours after the 2AM reset each day).
+    // cal + contact sync runs on a fixed cadence regardless of how often you slam on the Sync
+    // Mail icon. I am trying to narrow down why we are hitting the Google Calendar + People API
+    // limits so quickly (in almost exactly 8 hours after the 2AM reset each day).
 
-    while(true) {
+    // An unchanged calendar costs one PROPFIND (runCalendars() compares ctags first); every Gmail
+    // contact pass spends People API quota. Servers without ctag re-list every calendar per pass.
+    const auto calendarInterval = std::chrono::minutes(15);
+    const auto contactInterval = std::chrono::minutes(75);
+
+    // Due by elapsed time, since a pass can end in one of the long sleeps below. A failed
+    // contact pass counts as run, so a failing server is retried on the contact cadence.
+    bool contactsEverSynced = false;
+    auto lastContactSync = std::chrono::steady_clock::now();
+
+    for (unsigned long pass = 1; ; pass++) {
+        const auto now = std::chrono::steady_clock::now();
+        const bool syncContacts = !contactsEverSynced || now - lastContactSync >= contactInterval;
+        spdlog::get("logger")->info("Calendar sync pass {}{}", pass, syncContacts ? ", with contacts" : "");
         try {
-            if (contactsWorker) {
-                contactsWorker->run();
+            if (syncContacts) {
+                contactsEverSynced = true;
+                lastContactSync = now;
+                if (contactsWorker) {
+                    contactsWorker->run();
+                }
+                davWorker->run();
+            } else {
+                davWorker->runCalendars();
             }
-            davWorker->run();
         } catch (SyncException & ex) {
             exceptions::logCurrentExceptionWithStackTrace();
 
@@ -273,7 +292,7 @@ void runCalContactsSyncWorker() {
             return;
             // abort();
         }
-        std::this_thread::sleep_for(std::chrono::minutes(45));
+        std::this_thread::sleep_for(calendarInterval);
     }
 }
 
