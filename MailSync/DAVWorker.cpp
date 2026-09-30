@@ -247,14 +247,34 @@ static string normalizeHref(const string & href) {
 
 // Generate the CalDAV resource href for a new event that has no stored href yet.
 //
-// Returns the CalDAV resource href for an event. Exceptions are embedded inline in
-// the master's VCALENDAR (RFC 4791 §4.1), so all events use "{uid}.ics".
+// Exceptions are embedded inline in the master's VCALENDAR (RFC 4791 section 4.1), so all
+// events use "{uid}.ics".
+//
+// The UID reaches us from an ICS the user did not write - an invitation attached to any
+// message can be stored on a calendar - and it lands in a request path and in the body of a
+// calendar-multiget. A UID carrying dot segments or a slash would address a different
+// resource once libcurl normalises the path, so anything outside the unreserved set earns a
+// generated name instead. The UID inside the ICS is untouched; only the resource name here
+// is constrained, which RFC 4791 section 5.3.2 leaves to the client.
 static string hrefForNewEvent(const string & calendarPath, shared_ptr<Event> event) {
     string uid = event->icsUID();
-    if (uid.empty()) {
-        uid = MailUtils::idRandomlyGenerated();
+    bool safe = !uid.empty() && uid.size() <= 200;
+    for (char c : uid) {
+        // Spelled out rather than isalnum(), whose answer depends on the C locale.
+        bool unreserved = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                          (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '@';
+        if (!unreserved) {
+            safe = false;
+            break;
+        }
     }
-    return calendarPath + uid + ".ics";
+    // The character check still admits "..", a traversal segment.
+    if (safe && uid.find("..") != string::npos) {
+        safe = false;
+    }
+    // Stable per event: writeAndResyncEvent and deleteEvent both rebuild an unstored href here, and
+    // two names for one UID are a no-uid-conflict (RFC 4791 section 5.3.2). The row id is base58.
+    return calendarPath + (safe ? uid : event->id()) + ".ics";
 }
 
 // Escape text destined for an XML text node, so an href taken from a server response cannot
@@ -2370,11 +2390,8 @@ void DAVWorker::deleteEvent(shared_ptr<Event> event) {
 
     string href = event->href();
 
-    // 2. If no href stored, reconstruct it using the icsUID.
+    // 2. If no href stored, reconstruct the one writeAndResyncEvent would have used.
     if (href == "") {
-        if (event->icsUID().empty()) {
-            throw SyncException("no-href", "Cannot delete event without href or icsUID", false);
-        }
         href = hrefForNewEvent(calendar->path(), event);
     }
 
