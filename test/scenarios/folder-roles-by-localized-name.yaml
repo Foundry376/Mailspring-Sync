@@ -1,0 +1,21 @@
+name: folder-roles-by-localized-name
+description: >
+  On a server without SPECIAL-USE the engine assigns folder roles by name
+  (COMMON_FOLDER_NAMES). Spanish "Borradores" is Drafts; Czech "Koš" is Trash and arrives on
+  the wire in modified UTF-7 as "Ko&AWE-"; Polish "Wysłane" is Sent. A folder another client
+  created with the RFC 6154 \Archive attribute is the archive whatever its name.
+source: "docs/tasks/01-quirks-quick-fixes.md 1b; RFC 3501 5.1.3 (modified UTF-7 names); RFC 6154 2 (\\Archive)"
+servers:
+  - {fake: inbox-only}
+mailboxes:
+  INBOX: {messages: 3}
+  Borradores: {messages: 1}
+  Ko&AWE-: {messages: 1}
+  Wys&AUI-ane: {messages: 1}
+  Archiwum: {messages: 1, special_use: "\\Archive"}
+steps:
+  - wait: quiescent
+expect:
+  folder_roles: {INBOX: inbox, Borradores: drafts, Ko&AWE-: trash, Wys&AUI-ane: sent, Archiwum: archive}
+  db_matches_server: {}
+  running: true

@@ -148,11 +148,12 @@ gateway_duplicate_list = _register(Personality(
     },
 ))
 
-netease = _register(Personality(
-    name="netease",
-    description="NetEase (163.com / 126.com / yeah.net): SELECT is refused with 'Unsafe Login' until "
-                "the client sends ID; STATUS omits UIDNEXT. Engine gates on the hostname, so point "
-                "imap_host at imap.163.com (see harness.servers.fake host aliasing).",
+netease_coremail = _register(Personality(
+    name="netease-coremail",
+    description="NetEase (163.com / 126.com / yeah.net), the best-known Coremail deployment: SELECT is "
+                "refused with 'Unsafe Login' until the client sends ID; STATUS omits UIDNEXT. The "
+                "handling from PR #121 (aixia715) now keys on the Coremail greeting and on the "
+                "STATUS reply, so it covers every Coremail host and needs no host alias.",
     source="Mailspring-Sync PR #121; community.getmailspring.com/t/562. Response text as widely "
            "reported by users: 'NO SELECT Unsafe Login. Please contact kefu@188.com for help'. "
            "NEEDS-RECORDING for the capability string.",
@@ -306,4 +307,31 @@ yahoo_messagelimit = _register(Personality(
         "messagelimit-enforced": "UID FETCH over more than MESSAGELIMIT messages processes only the "
                                  "highest-UID N and says so in the tagged OK (RFC 9738 §3)",
     },
+))
+
+inbox_only = _register(Personality(
+    name="inbox-only",
+    description="The plain personality with no mailbox but INBOX configured and no SPECIAL-USE "
+                "capability: every other folder is one a client created, and carries a SPECIAL-USE "
+                "attribute only if that client set one at CREATE. The engine must find roles by name, "
+                "and names outside ASCII arrive in modified UTF-7.",
+    source="Dovecot conf.d/15-mailboxes.conf assigns special_use by exact English name only; RFC 6154 "
+           "§3 (CREATE-SPECIAL-USE); RFC 3501 §5.1.3 (modified UTF-7 mailbox names)",
+    preauth_capabilities=DOVECOT_PREAUTH,
+    postauth_capabilities=plain.postauth_capabilities.replace(" SPECIAL-USE", ""),
+    mailboxes=[("INBOX", [])],
+))
+
+hmailserver = _register(Personality(
+    name="hmailserver",
+    description="hMailServer: no CONDSTORE/QRESYNC, UIDPLUS, MOVE or SPECIAL-USE, and STATUS reports "
+                "UIDNEXT 0, so new mail cannot be seen from UIDNEXT. NEEDS-RECORDING for the "
+                "capability string and greeting.",
+    source="Geary src/engine/imap/response/imap-status-data.vala (~104: 'hMailServer and ... home.pl "
+           "... sends UIDNEXT 0'). The capability string is a reconstruction",
+    preauth_capabilities="IMAP4 IMAP4rev1 CHILDREN IDLE QUOTA SORT ACL NAMESPACE RIGHTS=texk",
+    postauth_capabilities="IMAP4 IMAP4rev1 CHILDREN IDLE QUOTA SORT ACL NAMESPACE RIGHTS=texk",
+    greeting="hMailServer",
+    list_special_use=False,
+    quirks={"status-uidnext-zero": "STATUS answers UIDNEXT 0 (Geary imap-status-data.vala)"},
 ))

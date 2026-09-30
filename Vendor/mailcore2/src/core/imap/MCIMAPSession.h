@@ -315,6 +315,7 @@ namespace mailcore {
         unsigned int mFolderMsgCount;
         uint32_t mFirstUnseenUid;
         bool mYahooServer;
+        bool mCoremailServer;
         bool mRamblerRuServer;
         bool mHermesServer;
         bool mQipServer;
@@ -358,6 +359,7 @@ namespace mailcore {
         void capabilitySetWithSessionState(IndexSet * capabilities);
         bool enableFeature(String * feature);
         void enableFeatures();
+        bool shouldSendClientIdentity();
         Data * fetchMessage(String * folder, bool identifier_is_uid, uint32_t identifier,
                             IMAPProgressCallback * progressCallback, ErrorCode * pError);
         void storeFlagsAndCustomFlags(String * folder, bool identifier_is_uid, IndexSet * identifiers,

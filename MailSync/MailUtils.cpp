@@ -352,6 +352,9 @@ string MailUtils::roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder) 
     if (flags & IMAPFolderFlagTrash) {
         return "trash";
     }
+    if (flags & IMAPFolderFlagArchive) {
+        return "archive";
+    }
     return "";
 }
 
@@ -369,7 +372,7 @@ string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPr
         path = path.substr(1);
     }
 
-    // Lowercase the path
+    string unprefixedPath = path;
     transform(path.begin(), path.end(), path.begin(), ::tolower);
     transform(containerFolderPath.begin(), containerFolderPath.end(), containerFolderPath.begin(), ::tolower);
 
@@ -396,10 +399,18 @@ string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPr
       }
     }
 
-    // Match against a lookup table of common names
-    // [Gmail]/Spam => [gmail]/spam => spam
-    if (COMMON_FOLDER_NAMES.find(path) != COMMON_FOLDER_NAMES.end()) {
-        return COMMON_FOLDER_NAMES[path];
+    // COMMON_FOLDER_NAMES is keyed by lowercase UTF-8, but LIST returns non-ASCII names in
+    // modified UTF-7 (RFC 3501 5.1.3), e.g. "Ko&AWE-" for "Koš".
+    String * name = AS_MCSTR(unprefixedPath);
+    if (unprefixedPath.find('&') != string::npos) {
+        String * decoded = name->mUTF7DecodedString();
+        if (decoded != nullptr) {
+            name = decoded;
+        }
+    }
+    auto common = COMMON_FOLDER_NAMES.find(name->lowercaseString()->UTF8Characters());
+    if (common != COMMON_FOLDER_NAMES.end()) {
+        return common->second;
     }
 
     return "";
@@ -806,20 +817,14 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
     session.setHostname(AS_MCSTR(account->IMAPHost()));
     session.setPort(account->IMAPPort());
 
-    // NetEase's IMAP servers advertise RFC 2971 ID support and require clients
-    // to identify themselves after authentication. Without this, LOGIN, LIST,
-    // and STATUS succeed but SELECT is rejected with "Unsafe Login".
-    //
-    // MailCore's automatic ID exchange is enabled only when the client identity
-    // is non-empty, so providers with known-bad ID responses remain unaffected.
-    if (account->isNetEase()) {
-        IMAPIdentity clientIdentity;
-        clientIdentity.setName(MCSTR("Mailspring"));
-        clientIdentity.setVersion(MCSTR("1.0"));
-        clientIdentity.setVendor(MCSTR("Foundry 376"));
-        clientIdentity.setInfoForKey(MCSTR("support-email"), MCSTR("support@getmailspring.com"));
-        session.setClientIdentity(&clientIdentity);
-    }
+    // Coremail servers reject SELECT with "Unsafe Login" until the client sends RFC 2971
+    // ID. MailCore sends this identity only to servers whose greeting is Coremail's.
+    IMAPIdentity clientIdentity;
+    clientIdentity.setName(MCSTR("Mailspring"));
+    clientIdentity.setVersion(MCSTR("1.0"));
+    clientIdentity.setVendor(MCSTR("Foundry 376"));
+    clientIdentity.setInfoForKey(MCSTR("support-email"), MCSTR("support@getmailspring.com"));
+    session.setClientIdentity(&clientIdentity);
 
     if (account->IMAPSecurity() == "SSL / TLS") {
         session.setConnectionType(ConnectionType::ConnectionTypeTLS);

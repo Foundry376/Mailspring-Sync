@@ -247,14 +247,34 @@ static string normalizeHref(const string & href) {
 
 // Generate the CalDAV resource href for a new event that has no stored href yet.
 //
-// Returns the CalDAV resource href for an event. Exceptions are embedded inline in
-// the master's VCALENDAR (RFC 4791 §4.1), so all events use "{uid}.ics".
+// Exceptions are embedded inline in the master's VCALENDAR (RFC 4791 section 4.1), so all
+// events use "{uid}.ics".
+//
+// The UID reaches us from an ICS the user did not write - an invitation attached to any
+// message can be stored on a calendar - and it lands in a request path and in the body of a
+// calendar-multiget. A UID carrying dot segments or a slash would address a different
+// resource once libcurl normalises the path, so anything outside the unreserved set earns a
+// generated name instead. The UID inside the ICS is untouched; only the resource name here
+// is constrained, which RFC 4791 section 5.3.2 leaves to the client.
 static string hrefForNewEvent(const string & calendarPath, shared_ptr<Event> event) {
     string uid = event->icsUID();
-    if (uid.empty()) {
-        uid = MailUtils::idRandomlyGenerated();
+    bool safe = !uid.empty() && uid.size() <= 200;
+    for (char c : uid) {
+        // Spelled out rather than isalnum(), whose answer depends on the C locale.
+        bool unreserved = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                          (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '@';
+        if (!unreserved) {
+            safe = false;
+            break;
+        }
     }
-    return calendarPath + uid + ".ics";
+    // The character check still admits "..", a traversal segment.
+    if (safe && uid.find("..") != string::npos) {
+        safe = false;
+    }
+    // Stable per event: writeAndResyncEvent and deleteEvent both rebuild an unstored href here, and
+    // two names for one UID are a no-uid-conflict (RFC 4791 section 5.3.2). The row id is base58.
+    return calendarPath + (safe ? uid : event->id()) + ".ics";
 }
 
 // Escape text destined for an XML text node, so an href taken from a server response cannot
@@ -633,14 +653,14 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     }
     
     // Fetch the current user principal URL from the CardDav root
-    auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>");
+    auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>", "0");
     string cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
     if (cardPrincipal.find("://") == string::npos) {
         cardPrincipal = replacePath(cardRoot, cardPrincipal);
     }
     
-    // Fetch the address book home set URL from the user principal URL
-    auto abSetDoc = performXMLRequest(cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>");
+    // Fetch the address book home set URL from the user principal URL. Depth 0, as for calendars.
+    auto abSetDoc = performXMLRequest(cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>", "0");
     auto abSetURL = abSetDoc->nodeContentAtXPath("//carddav:addressbook-home-set/D:href/text()");
     if (abSetURL.find("://") == string::npos) {
         abSetURL = replacePath(cardRoot, abSetURL);
@@ -709,7 +729,8 @@ string DAVWorker::resolveCalendarHomeURL() {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         "<A:propfind xmlns:A=\"DAV:\"><A:prop>"
         "<A:current-user-principal/><A:principal-URL/><A:resourcetype/>"
-        "</A:prop></A:propfind>");
+        "</A:prop></A:propfind>",
+        "0");
     string calPrincipalURL = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
     if (calPrincipalURL.empty()) {
         logger->info("CalDAV: server returned no current-user-principal, skipping calendar discovery");
@@ -719,11 +740,13 @@ string DAVWorker::resolveCalendarHomeURL() {
         calPrincipalURL = replacePath(calRoot, calPrincipalURL);
     }
 
-    // PROPFIND principal → calendar-home-set (RFC 4791 §6.2.1)
+    // PROPFIND principal → calendar-home-set (RFC 4791 §6.2.1). Depth 0: at Depth 1 Nextcloud also
+    // answers for the principal's calendar-proxy-read/-write children, and the last home set wins.
     auto homeSetDoc = performXMLRequest(calPrincipalURL, "PROPFIND",
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         "<d:propfind xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
-        "<d:prop><c:calendar-home-set/></d:prop></d:propfind>");
+        "<d:prop><c:calendar-home-set/></d:prop></d:propfind>",
+        "0");
     string homeSetURL = homeSetDoc->nodeContentAtXPath("//caldav:calendar-home-set/D:href/text()");
     if (homeSetURL.empty()) {
         logger->info("CalDAV: server returned no calendar-home-set, skipping calendar discovery");
@@ -1371,6 +1394,42 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
     group->syncMembers(store, members);
 }
 
+/*
+ Whether the server says this calendar's events may be changed.
+
+ DAV:current-user-privilege-set is optional (RFC 3744 section 5.4). A server that omits it is
+ not declaring the calendar read-only, so an absent set counts as writable and the server is
+ left to reject the write if it disagrees; refusing locally would make every calendar on such
+ a server permanently uneditable. DAV:write is an aggregate, and servers may advertise the
+ privileges it contains rather than DAV:write itself, so DAV:write-content, DAV:bind and
+ DAV:all each independently mean writable. The client holds one boolean per calendar, so a
+ calendar granting write-content without bind (RFC 3744 sections 3.9 and 3.10: existing
+ events editable, new ones not) is reported writable and the server refuses the create.
+
+ The lookup is scoped to the propstat carrying a 200 status. A multistatus also carries a
+ propstat for the properties the server does not have, with those elements present but empty
+ (RFC 4918 section 9.1), and an unscoped match finds that one - reporting every calendar
+ read-only on exactly the servers that omit the property.
+
+ @param advertised Set to whether the server supplied the property at all.
+*/
+static bool calendarIsWritable(shared_ptr<DavXML> doc, xmlNodePtr responseNode, bool & advertised) {
+    const string found =
+        "./D:propstat[contains(./D:status, '200')]/D:prop/D:current-user-privilege-set";
+
+    advertised = false;
+    doc->evaluateXPath(found, ([&](xmlNodePtr) { advertised = true; }), responseNode);
+    if (!advertised) {
+        return true;
+    }
+
+    bool writable = false;
+    doc->evaluateXPath(found + "//D:write|" + found + "//D:write-content|" + found +
+                           "//D:bind|" + found + "//D:all",
+                       ([&](xmlNodePtr) { writable = true; }), responseNode);
+    return writable;
+}
+
 void DAVWorker::runCalendars() {
     // Gmail uses calHost/calPrincipal set in constructor.
     // All other accounts use dynamic discovery (cached after first run).
@@ -1444,6 +1503,31 @@ void DAVWorker::runCalendars() {
     }
 
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
+    // `local` is indexed with operator[] below, which adds an entry for every calendar this pass
+    // creates, so the set of calendars held before the pass is taken now.
+    set<string> heldBefore {};
+    for (auto & pair : local) {
+        heldBefore.insert(pair.first);
+    }
+
+    // Every response counts as listed, not only those passing the VEVENT filter: a 207 is
+    // per-resource (RFC 4918 section 9.1), so an error propstat is not an unlisted calendar.
+    // The home collection answers for itself too, and never counts.
+    const string homePath = normalizeHref(
+        calendarHomeURL.find("://") == string::npos ? "https://" + calendarHomeURL : calendarHomeURL);
+    set<string> listedIds {};
+    calendarSetDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+        auto path = calendarSetDoc->nodeContentAtXPath("./D:href/text()", node);
+        // Answered for, but positively not a calendar: Nextcloud lists a deleted calendar in the
+        // home for 30 days with a resourcetype of <nc:deleted-calendar/> instead.
+        bool notACalendar = false;
+        calendarSetDoc->evaluateXPath(
+            "./D:propstat[contains(D:status, ' 200 ')]/D:prop/D:resourcetype[not(caldav:calendar)]",
+            ([&](xmlNodePtr) { notACalendar = true; }), node);
+        if (!path.empty() && normalizeHref(path) != homePath && !notACalendar) {
+            listedIds.insert(MailUtils::idForCalendar(account->id(), path));
+        }
+    }));
 
     // Filter calendars by supported-calendar-component-set to only sync those with VEVENT.
     // This is the RFC 4791 compliant way to discover event calendars, as opposed to
@@ -1451,7 +1535,11 @@ void DAVWorker::runCalendars() {
     // we ensure our subsequent calendar-query requests with <comp-filter name="VEVENT">
     // will succeed. See comment in runForCalendar() for details on server compatibility
     // issues when comp-filter is omitted.
-    calendarSetDoc->evaluateXPath("//D:response[./D:propstat/D:prop/caldav:supported-calendar-component-set/caldav:comp[@name='VEVENT']]", ([&](xmlNodePtr node) {
+    // A calendar collection's resourcetype includes C:calendar (RFC 4791 section 4.2). Nextcloud
+    // keeps a deleted calendar in the home for 30 days as <nc:deleted-calendar/>, still
+    // advertising VEVENT, so the component set alone would bring it back as a live calendar.
+    calendarSetDoc->evaluateXPath("//D:response[./D:propstat/D:prop/D:resourcetype/caldav:calendar]"
+                                  "[./D:propstat/D:prop/caldav:supported-calendar-component-set/caldav:comp[@name='VEVENT']]", ([&](xmlNodePtr node) {
         // Make a few xpath queries relative to the "D:response" calendar node (using "./")
         // to retrieve the attributes we're interested in.
         auto name = calendarSetDoc->nodeContentAtXPath(".//D:displayname/text()", node);
@@ -1464,14 +1552,11 @@ void DAVWorker::runCalendars() {
         auto description = calendarSetDoc->nodeContentAtXPath(".//caldav:calendar-description/text()", node);
         auto orderStr = calendarSetDoc->nodeContentAtXPath(".//ical:calendar-order/text()", node);
 
-        // Check for write privilege to determine read-only status
-        // Use XPath to look for write elements within current-user-privilege-set
-        // RFC 3744 defines <D:write/> nested within <D:privilege> elements
-        bool hasWritePrivilege = false;
-        calendarSetDoc->evaluateXPath(".//D:current-user-privilege-set//D:write", ([&](xmlNodePtr) {
-            hasWritePrivilege = true;
-        }), node);
-        bool readOnly = !hasWritePrivilege;
+        // Whether a calendar is writable decides whether its UI is interactive, and it comes
+        // from a property servers may omit, so the two log lines below record what the server
+        // said, on discovery and on change, for when the UI is inert.
+        bool advertisedPrivileges = false;
+        bool readOnly = !calendarIsWritable(calendarSetDoc, node, advertisedPrivileges);
 
         shared_ptr<Calendar> calendar = local[id];
         bool needsSync = true;
@@ -1500,6 +1585,7 @@ void DAVWorker::runCalendars() {
             if (calendar->readOnly() != readOnly) {
                 calendar->setReadOnly(readOnly);
                 metadataChanged = true;
+                logger->info("Calendar '{}' is now {}", name, readOnly ? "read-only" : "writable");
             }
             if (!orderStr.empty()) {
                 try {
@@ -1525,6 +1611,10 @@ void DAVWorker::runCalendars() {
             }
             calendar->setDescription(description);
             calendar->setReadOnly(readOnly);
+            const char * writability = readOnly ? "read-only"
+                                     : advertisedPrivileges ? "writable"
+                                     : "writable, server advertises no privilege set";
+            logger->info("Discovered calendar '{}' ({})", name, writability);
             if (!orderStr.empty()) {
                 try {
                     calendar->setOrder(std::stoi(orderStr));
@@ -1560,6 +1650,45 @@ void DAVWorker::runCalendars() {
             }
         }
     }));
+
+    /*
+     Drop calendars the server no longer lists, and their events. A calendar deleted or
+     unshared on the server otherwise stays in the sidebar indefinitely, and its events stay
+     in range queries, counting towards conflicts for a calendar the user cannot see.
+
+     Pruning is only trusted when the listing names at least one calendar already held
+     locally. Reaching here means the multistatus parsed, but a listing that matches nothing
+     we hold is far more likely a change in how the server spells its hrefs (percent-encoding,
+     a trailing slash, an absolute URL, a principal suffix), which changes every id at once,
+     than the user removing every calendar; acting on it would erase the account's calendars
+     and every event, including ones composed here and not yet written to the server.
+     */
+    bool listingMatchesLocal = false;
+    for (auto & id : heldBefore) {
+        if (listedIds.count(id)) {
+            listingMatchesLocal = true;
+            break;
+        }
+    }
+    if (listingMatchesLocal) {
+        for (auto & id : heldBefore) {
+            if (listedIds.count(id)) {
+                continue;
+            }
+            auto calendar = local[id];
+            auto events = store->findAll<Event>(Query().equal("calendarId", id));
+            {
+                MailStoreTransaction transaction{store, "pruneCalendar"};
+                for (auto & event : events) {
+                    store->remove(event.get());
+                }
+                store->remove(calendar.get());
+                transaction.commit();
+            }
+            logger->info("Removed calendar '{}' and its {} events; the server no longer lists it",
+                         calendar->name(), events.size());
+        }
+    }
 }
 
 void DAVWorker::runForCalendar(string calendarId, string name, string url) {
@@ -2325,22 +2454,38 @@ void DAVWorker::deleteEvent(shared_ptr<Event> event) {
 
     string href = event->href();
 
-    // 2. If no href stored, reconstruct it using the icsUID.
+    // 2. If no href stored, reconstruct the one writeAndResyncEvent would have used.
     if (href == "") {
-        if (event->icsUID().empty()) {
-            throw SyncException("no-href", "Cannot delete event without href or icsUID", false);
-        }
         href = hrefForNewEvent(calendar->path(), event);
+    }
+
+    // 3. A series and its RECURRENCE-ID exceptions share one resource, so a DELETE here takes
+    // the whole series; one occurrence is removed by a PUT that adds an EXDATE instead.
+    if (!event->recurrenceId().empty()) {
+        size_t vevents = 0;
+        ICalendar resource(event->icsData());
+        for (auto & vevent : resource.Events) {
+            if (vevent->UID == event->icsUID()) vevents++;
+        }
+        // Sibling rows too, in case ingestion skipped a VEVENT (one with no DTSTART).
+        auto siblings = store->findAll<Event>(
+            Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()));
+        if (vevents > 1 || siblings.size() > 1) {
+            throw SyncException("shared-resource",
+                                "Cannot delete a single occurrence by removing its calendar "
+                                "resource; the rest of the series shares it",
+                                false);
+        }
     }
 
     string calendarUrl = resolvedCalendarURL(calendar->path());
     string fullUrl = replacePath(calendarUrl, href);
 
-    // 3. Perform DELETE request with If-Match header if we have an etag
+    // 4. Perform DELETE request with If-Match header if we have an etag
     string existingEtag = event->etag();
     performICSRequest(fullUrl, "DELETE", "", existingEtag);
 
-    // 4. Remove from local database
+    // 5. Remove from local database, only now that the server has accepted
     store->remove(event.get());
     logger->info("Event deleted successfully: {}", href);
 }

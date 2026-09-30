@@ -123,7 +123,7 @@ log lines match, to bound a loop the engine should take a known number of times)
 {count, folders, fetched, metadata}}}` (the one-shot flag mail rules run on: no message carries
 it on two deltas, across restarts, and each such delta carries the body; `folders` the
 mailboxes that delta must list, `fetched` whether it is the delta that fetched the body),
-`connection_error: {reported: true, cleared: true}`
+`folder_roles: {path: role}`, `connection_error: {reported: true, cleared: true}`
 (the ProcessState stream behind the client's offline state), `migrate_output: regex` (the
 last `--mode migrate` stdout), `unchanged_since: snapshot`, `running`, `exit`. Any
 expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,
@@ -215,14 +215,17 @@ Things learned from Dovecot while building the conformance suite, all now modell
 ## Server kinds
 
 - `fake:<personality>` - `dovecot` (baseline), `plain` (no CONDSTORE/QRESYNC: the deep-scan
-  branch), `proton-bridge`, `gateway-duplicate-list`, `netease`, `courier`, `outlook`,
+  branch), `proton-bridge`, `gateway-duplicate-list`, `netease-coremail`, `courier`, `outlook`,
   `icloud`, `gmail`, `yahoo` (permuted COPYUID), `cyrus-vanished` (Dovecot plus Cyrus's
   VANISHED clipped at `*`, cyrus-imapd #6071), `yahoo-messagelimit` (enforces
-  MESSAGELIMIT=50 on UID FETCH, RFC 9738). `fake:dovecot-without-condstore-qresync` style names strip capabilities.
-  Hostname-gated engine behaviour (iCloud, NetEase, Outlook) needs the account's
-  `imap_host` to resolve to 127.0.0.1; a scenario declares `{fake: netease, imap_host:
-  imap.163.com}` and is skipped with instructions unless `/etc/hosts` maps it.
+  MESSAGELIMIT=50 on UID FETCH, RFC 9738), `inbox-only` (no SPECIAL-USE, only INBOX
+  configured: roles by name), `hmailserver` (STATUS reports UIDNEXT 0).
+  `fake:dovecot-without-condstore-qresync` style names strip capabilities.
+  Hostname-gated engine behaviour (iCloud, Outlook) needs the account's `imap_host` to
+  resolve to 127.0.0.1; a scenario declares `{fake: icloud, imap_host: imap.mail.me.com}`
+  and is skipped with instructions unless `/etc/hosts` maps it.
 - `dovecot:<profile>` - `qresync`, `plain` (capability override, as the #140 control run),
+  `no-move` (`plain` without MOVE: COPY + `\\Deleted` + expunge),
   `proton-like` (plain + `\All` "All Mail"), `tls` (self-signed, implicit TLS), `sdbox`.
 - `cyrus:<profile>` - Cyrus IMAP 3.6.1 (Debian bookworm's `cyrus-imapd`, `servers/cyrus/`),
   the server Fastmail runs: its own CONDSTORE/QRESYNC, MOVE/COPYUID and SPECIAL-USE, and
@@ -231,7 +234,8 @@ Things learned from Dovecot while building the conformance suite, all now modell
   `altnamespace` + `unixhierarchysep`, folders at the top level, as a live Fastmail account
   shows), `default-ns` (Debian's out-of-the-box `INBOX.`-rooted folders with `.`; no major
   provider is known to use it, so only four scenarios list it), `plain` (`fastmail` with
-  `suppress_capabilities: CONDSTORE QRESYNC`). One container per run (~3 s); the image is
+  `suppress_capabilities: CONDSTORE QRESYNC`), `no-move` (`fastmail` with
+  `suppress_capabilities: MOVE`). One container per run (~3 s); the image is
   built on first use and re-tagged whenever `servers/cyrus/` changes. Docker only.
   - **Namespace.** Scenarios keep their flat names. Under `default-ns` the adapter maps
     `Archive` to `INBOX.Archive` for every server operation, and `Server.scenario_name`
@@ -274,7 +278,7 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | o365-duplicate-sent-copies | placements: identical copies at adjacent UIDs | fake, dovecot |
 | proton-all-mail-duplicates | #137 `\All` skip | fake, dovecot |
 | gateway-duplicate-list-entries | #139 duplicate LIST lines | fake |
-| netease-id-before-select | #121 ID before SELECT, STATUS without UIDNEXT | fake (hosts alias) |
+| netease-coremail-id-before-select | #121 ID before SELECT (Coremail greeting), STATUS without UIDNEXT | fake |
 | uidvalidity-change | UIDVALIDITY remap | fake, dovecot |
 | two-folders-identical-messages | #140 non-converging gap scan must settle | fake, dovecot |
 | client-task-move | ChangeFolder/Starred/Unread tasks | fake, dovecot |
@@ -313,6 +317,11 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | sent-copy-multisend | tracked send: one server copy per recipient, all deleted, one untracked copy kept | fake (+smtp) |
 | sent-copy-cleanup-store-refused | a late copy whose delete is refused keeps its placement and is removed on the next pass (CONDSTORE) | fake (+smtp) |
 | sent-copy-multisend-late | as above with the per-recipient copies filed after the engine stopped waiting | fake (+smtp) |
+| move-without-move-keeps-other-deleted | no-MOVE fallback expunges only the moved UID; another client's `\\Deleted` message survives | fake, dovecot, cyrus |
+| move-without-move-connection-drop | connection lost after the server ran UID EXPUNGE: no plain EXPUNGE on reconnect | fake |
+| folder-roles-by-localized-name | roles by name without SPECIAL-USE: modified UTF-7 names, Borradores, `\\Archive` | fake |
+| status-uidnext-zero-new-mail | STATUS UIDNEXT 0 (hMailServer): new mail found from the message count on the next pass | fake |
+| list-refused-transiently | O365 `NO Server Unavailable` to LIST: offline and retried, not a crash | fake |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up

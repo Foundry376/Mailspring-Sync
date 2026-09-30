@@ -1,0 +1,26 @@
+name: list-refused-transiently
+description: >
+  During a transient Exchange outage O365 answers LIST "" "*" with NO Server Unavailable.
+  The engine must treat that as a connection problem: report the account offline, keep
+  running, and recover on the next pass, instead of reading it as a missing folder and
+  aborting the process.
+source: "docs/tasks/03-connection-health.md item 8: O365 engine log 2026-09-24 21:00:49, LIST \"\" \"*\" -> NO Server Unavailable. 15, then * BYE Connection closed."
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: 5}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, session: background, command: "^LIST"}, text: "Server Unavailable. 15"}
+  - client.wake: {}
+  - wait: {log: "--sleeping", timeout: 30}
+  - wait: {seconds: 2}
+  - server.append: {mailbox: INBOX, messages: 1}
+  - client.wake: {}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  running: true
+  connection_error: {reported: true, cleared: true}
+  counts: {INBOX: 6}
+  db_matches_server: {}
