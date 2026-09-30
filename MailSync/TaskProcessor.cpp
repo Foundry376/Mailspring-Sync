@@ -1934,15 +1934,15 @@ void TaskProcessor::removeLateSentCopies(Folder & sent) {
     AutoreleasePool pool;
     vector<string> messageIds;
     {
-        // Runs every pass, and Sent may hold thousands of older duplicates: only messages
-        // appended within the window are loaded.
+        // Runs every pass: start from the messages dated within the window (their Date is
+        // the send time) so the account's date index keeps this off the rest of Sent.
         SQLite::Statement query(store->db(),
-            "SELECT d.messageId FROM (SELECT messageId FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID > 0 "
-            "GROUP BY messageId HAVING COUNT(*) > 1) d JOIN Message m ON m.id = d.messageId "
-            "WHERE json_extract(m.data, '$._asc.x') >= ?");
+            "SELECT mf.messageId FROM Message m JOIN MessageFolder mf ON mf.messageId = m.id "
+            "WHERE m.accountId = ? AND m.date >= ? AND mf.folderId = ? AND mf.remoteUID > 0 "
+            "GROUP BY mf.messageId HAVING COUNT(*) > 1");
         query.bind(1, account->id());
-        query.bind(2, sent.id());
-        query.bind(3, (long long)time(0));
+        query.bind(2, (long long)(time(0) - SENT_COPY_CLEANUP_WINDOW));
+        query.bind(3, sent.id());
         while (query.executeStep()) {
             messageIds.push_back(query.getColumn("messageId").getString());
         }
