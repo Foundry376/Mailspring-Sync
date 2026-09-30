@@ -5,9 +5,6 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  create:
-    tags:
-      - '*'
 
 jobs:
   build:
@@ -29,11 +26,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
+      # Only builds of master are signed, and those are exactly the builds uploaded to S3 below.
       - name: Set up codesigning (MacOS)
-        if: runner.os == 'macOS' # && (github.ref == 'refs/heads/master')
-        uses: apple-actions/import-codesign-certs@v3
+        if: runner.os == 'macOS' && github.ref == 'refs/heads/master'
+        uses: apple-actions/import-codesign-certs@v7
         with:
           p12-file-base64: ${{ secrets.APPLE_CODESIGN_P12 }}
           p12-password: ${{ secrets.APPLE_CODESIGN_KEY_PASSWORD }}
@@ -66,6 +64,8 @@ jobs:
 
       - name: Run build script
         run: ./build.sh
+        env:
+          SIGN_BUILD: ${{ github.ref == 'refs/heads/master' }}
 
       - name: Verify universal binary architectures (macOS)
         if: runner.os == 'macOS'
@@ -113,7 +113,7 @@ jobs:
 
       - name: Setup AWS CLI
         if: success() && (github.ref == 'refs/heads/master')
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -130,14 +130,14 @@ jobs:
 
       - name: Upload Linux artifact for distribution testing
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: mailsync.tar.gz
           retention-days: 1
 
       - name: Cache build dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /tmp/mailsync-build-deps-v2
           key: ${{ runner.os }}-${{ runner.arch }}-mailsync-deps-${{ hashFiles('**/build.sh') }}
@@ -161,7 +161,7 @@ jobs:
             artifact: mailsync-linux-arm64
     steps:
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.artifact }}
 
@@ -222,7 +222,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mailsync-linux
 
@@ -300,7 +300,7 @@ jobs:
             arch: arm64
     steps:
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.artifact }}
 
@@ -385,7 +385,7 @@ jobs:
             artifact: mailsync-linux-arm64
     steps:
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.artifact }}
 

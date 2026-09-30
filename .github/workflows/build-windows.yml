@@ -5,9 +5,6 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  create:
-    tags:
-      - '*'
 
 env:
   VCPKG_DEFAULT_TRIPLET: x86-windows
@@ -21,10 +18,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -41,7 +38,7 @@ jobs:
       # Cache packages installed by MSBuild's vcpkg manifest mode
       # MSBuild with VcpkgEnableManifest=true installs to vcpkg_installed/ next to vcpkg.json
       - name: Restore vcpkg packages cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: vcpkg_installed
           key: vcpkg-msbuild-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-overlay-ports/**') }}
@@ -173,7 +170,7 @@ jobs:
           7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe -so | 7z -si -tgzip a .\mailsync.tar.gz
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: win-ia32-mailsync
           path: Windows/mailsync.tar.gz
@@ -201,7 +198,7 @@ jobs:
 
     steps:
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: win-ia32-mailsync
 
