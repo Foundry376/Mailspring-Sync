@@ -1503,6 +1503,31 @@ void DAVWorker::runCalendars() {
     }
 
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
+    // `local` is indexed with operator[] below, which adds an entry for every calendar this pass
+    // creates, so the set of calendars held before the pass is taken now.
+    set<string> heldBefore {};
+    for (auto & pair : local) {
+        heldBefore.insert(pair.first);
+    }
+
+    // Every response counts as listed, not only those passing the VEVENT filter: a 207 is
+    // per-resource (RFC 4918 section 9.1), so an error propstat is not an unlisted calendar.
+    // The home collection answers for itself too, and never counts.
+    const string homePath = normalizeHref(
+        calendarHomeURL.find("://") == string::npos ? "https://" + calendarHomeURL : calendarHomeURL);
+    set<string> listedIds {};
+    calendarSetDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+        auto path = calendarSetDoc->nodeContentAtXPath("./D:href/text()", node);
+        // Answered for, but positively not a calendar: Nextcloud lists a deleted calendar in the
+        // home for 30 days with a resourcetype of <nc:deleted-calendar/> instead.
+        bool notACalendar = false;
+        calendarSetDoc->evaluateXPath(
+            "./D:propstat[contains(D:status, ' 200 ')]/D:prop/D:resourcetype[not(caldav:calendar)]",
+            ([&](xmlNodePtr) { notACalendar = true; }), node);
+        if (!path.empty() && normalizeHref(path) != homePath && !notACalendar) {
+            listedIds.insert(MailUtils::idForCalendar(account->id(), path));
+        }
+    }));
 
     // Filter calendars by supported-calendar-component-set to only sync those with VEVENT.
     // This is the RFC 4791 compliant way to discover event calendars, as opposed to
@@ -1625,6 +1650,45 @@ void DAVWorker::runCalendars() {
             }
         }
     }));
+
+    /*
+     Drop calendars the server no longer lists, and their events. A calendar deleted or
+     unshared on the server otherwise stays in the sidebar indefinitely, and its events stay
+     in range queries, counting towards conflicts for a calendar the user cannot see.
+
+     Pruning is only trusted when the listing names at least one calendar already held
+     locally. Reaching here means the multistatus parsed, but a listing that matches nothing
+     we hold is far more likely a change in how the server spells its hrefs (percent-encoding,
+     a trailing slash, an absolute URL, a principal suffix), which changes every id at once,
+     than the user removing every calendar; acting on it would erase the account's calendars
+     and every event, including ones composed here and not yet written to the server.
+     */
+    bool listingMatchesLocal = false;
+    for (auto & id : heldBefore) {
+        if (listedIds.count(id)) {
+            listingMatchesLocal = true;
+            break;
+        }
+    }
+    if (listingMatchesLocal) {
+        for (auto & id : heldBefore) {
+            if (listedIds.count(id)) {
+                continue;
+            }
+            auto calendar = local[id];
+            auto events = store->findAll<Event>(Query().equal("calendarId", id));
+            {
+                MailStoreTransaction transaction{store, "pruneCalendar"};
+                for (auto & event : events) {
+                    store->remove(event.get());
+                }
+                store->remove(calendar.get());
+                transaction.commit();
+            }
+            logger->info("Removed calendar '{}' and its {} events; the server no longer lists it",
+                         calendar->name(), events.size());
+        }
+    }
 }
 
 void DAVWorker::runForCalendar(string calendarId, string name, string url) {
