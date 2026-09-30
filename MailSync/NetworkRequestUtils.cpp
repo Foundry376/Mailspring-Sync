@@ -149,7 +149,9 @@ const string PerformExpectedRedirect(string url) {
     long http_code = 0;
     string redirect = "";
     curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &http_code);
-    if (http_code == 301 || http_code == 302) {
+    // RFC 6764 §5: clients MUST follow redirects on .well-known. 308 postdates the RFC.
+    bool isRedirect = http_code == 301 || http_code == 302 || http_code == 303 || http_code == 307 || http_code == 308;
+    if (isRedirect) {
         char * _redirect = nullptr;
         if (curl_easy_getinfo(curl_handle, CURLINFO_REDIRECT_URL, &_redirect) == CURLE_OK && _redirect != nullptr) {
             redirect = string(_redirect);
