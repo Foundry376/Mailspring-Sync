@@ -2908,6 +2908,99 @@ static string base64PartBody(String * text) {
     return out;
 }
 
+/*
+ A slot as a person reads it: "Fri, Oct 9, 2026 at 2:30 PM to 3:00 PM CDT", crossing a day
+ "... at 11:00 PM to Sat, Oct 10, 2026 at 1:00 AM CDT", all-day "Fri, Oct 9, 2026" or
+ "Fri, Oct 9 to Sat, Oct 10, 2026" (DTEND is exclusive, RFC 5545 section 3.6.1). Wall clock
+ and zone are this machine's, the zone the proposer chose the time in; the recipient's
+ calendar takes the exact instant from the text/calendar part.
+ */
+static string readableSlot(time_t start, time_t end, bool allDay) {
+    auto local = [](time_t when) {
+        struct tm parts {};
+#ifdef _MSC_VER
+        localtime_s(&parts, &when);
+#else
+        localtime_r(&when, &parts);
+#endif
+        return parts;
+    };
+    auto day = [](const struct tm & parts, bool withYear) {
+        char buffer[32];
+        strftime(buffer, sizeof(buffer), "%a, %b ", &parts);
+        string out = string(buffer) + to_string(parts.tm_mday);
+        return withYear ? out + ", " + to_string(parts.tm_year + 1900) : out;
+    };
+    auto clock = [](const struct tm & parts) {
+        char minute[4];
+        snprintf(minute, sizeof(minute), "%02d", parts.tm_min);
+        int hour = parts.tm_hour % 12 == 0 ? 12 : parts.tm_hour % 12;
+        return to_string(hour) + ":" + minute + (parts.tm_hour < 12 ? " AM" : " PM");
+    };
+    struct tm from = local(start);
+    if (allDay) {
+        // The exclusive DTEND is the midnight after the last day; a missing DTEND is one day.
+        struct tm to = local(end > start ? end - 1 : start);
+        bool sameDay = from.tm_year == to.tm_year && from.tm_yday == to.tm_yday;
+        return sameDay ? day(from, true) : day(from, false) + " to " + day(to, true);
+    }
+    char zone[64];
+    strftime(zone, sizeof(zone), "%Z", &from);
+    string out = day(from, true) + " at " + clock(from);
+    if (end > start) {
+        struct tm to = local(end);
+        bool sameDay = from.tm_year == to.tm_year && from.tm_yday == to.tm_yday;
+        out += " to " + (sameDay ? clock(to) : day(to, true) + " at " + clock(to));
+    }
+    return out + " " + zone;
+}
+
+static string readableSlot(Date start, Date end) {
+    return readableSlot(start.toUnix(), end.IsEmpty() ? start.toUnix() : end.toUnix(), !start.WithTime);
+}
+
+/*
+ The slot the organizer last sent for what a COUNTER counters, from the calendar's copy of the
+ invitation; empty when no calendar holds the UID. A COUNTER names only the proposed time
+ (RFC 5546 section 3.2.7). Each row stores the whole resource, so the countered occurrence is
+ the exception VEVENT whose RECURRENCE-ID it names, otherwise an unmoved occurrence starting
+ at that RECURRENCE-ID for the series' duration, and without a RECURRENCE-ID the master.
+ */
+static string currentSlotOfCountered(MailStore * store, string accountId, ICalendarEvent * counter) {
+    auto rows = store->findAll<Event>(Query().equal("accountId", accountId).equal("icsuid", counter->UID));
+    if (rows.empty()) {
+        return "";
+    }
+    ICalendar stored(rows.front()->icsData());
+    Date countered;
+    if (!counter->RecurrenceId.empty()) {
+        countered = counter->RecurrenceId;
+    }
+    ICalendarEvent * master = nullptr;
+    for (auto & vevent : stored.Events) {
+        if (vevent->UID != counter->UID) {
+            continue;
+        }
+        if (vevent->RecurrenceId.empty()) {
+            master = vevent;
+            continue;
+        }
+        Date recurrenceId;
+        recurrenceId = vevent->RecurrenceId;
+        if (!countered.IsEmpty() && recurrenceId.toUnix() == countered.toUnix()) {
+            return readableSlot(vevent->DtStart, vevent->DtEnd);
+        }
+    }
+    if (!master) {
+        return "";
+    }
+    if (countered.IsEmpty()) {
+        return readableSlot(master->DtStart, master->DtEnd);
+    }
+    time_t duration = master->DtEnd.IsEmpty() ? 0 : master->DtEnd.toUnix() - master->DtStart.toUnix();
+    return readableSlot(countered.toUnix(), countered.toUnix() + duration, !master->DtStart.WithTime);
+}
+
 void TaskProcessor::performRemoteSendRSVP(Task * task) {
     AutoreleasePool pool;
     ErrorCode err = ErrorNone;
@@ -3045,6 +3138,12 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     string humanReadableText;
     if (method == "COUNTER") {
         humanReadableText = fromEmail + " proposed a new time for: " + eventSummary;
+        string current = currentSlotOfCountered(store, account->id(), event);
+        if (!current.empty()) {
+            humanReadableText += "\r\n\r\nCurrently: " + current;
+        }
+        humanReadableText += (current.empty() ? "\r\n\r\n" : "\r\n") +
+            string("Proposed: ") + readableSlot(event->DtStart, event->DtEnd);
         if (task->data().count("comment")) {
             string comment = task->data()["comment"].get<string>();
             if (!comment.empty()) {
