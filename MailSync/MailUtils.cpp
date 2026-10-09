@@ -772,28 +772,48 @@ class MailcoreSPDLogger : public ConnectionLogger {
     }
 };
 
-string MailUtils::tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed) {
+// OpenSSL reports "error:0A00018A:SSL routines::dh key too small". Only the reason
+// after the last "::" is worth showing; the full string stays in the connection log.
+static string _tlsRejectionReason(mailcore::String * tlsErrorDescription) {
     if (tlsErrorDescription == nullptr) {
         return "";
     }
-
-    // Only speak up when establishing the connection is what failed. Anything
-    // later - authentication above all - has its own cause, and a handshake
-    // reason recorded during a successful fallback would be a red herring.
-    if (err != mailcore::ErrorConnection &&
-        err != mailcore::ErrorTLSNotAvailable &&
-        err != mailcore::ErrorStartTLSNotAvailable &&
-        err != mailcore::ErrorCertificate) {
-        return "";
-    }
-
-    // OpenSSL reports "error:0A00018A:SSL routines::dh key too small". Only the
-    // reason after the last "::" is worth showing; the full string stays in the
-    // connection log.
     string reason = tlsErrorDescription->UTF8Characters();
     size_t sep = reason.rfind("::");
     if (sep != string::npos && sep + 2 < reason.size()) {
         reason = reason.substr(sep + 2);
+    }
+    return reason;
+}
+
+string MailUtils::tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed) {
+    string reason = _tlsRejectionReason(tlsErrorDescription);
+
+    // A certificate rejection is reported without any TLS reason string: mailcore runs
+    // checkCertificate() after the handshake has already succeeded, and IMAPSession::connect
+    // releases the description unless OpenSSL rejected the negotiation itself, so this case
+    // cannot be gated on one. It must also never point at "Allow insecure SSL", which only
+    // relaxes the handshake to security level 0 and leaves the certificate check enabled.
+    if (err == mailcore::ErrorCertificate) {
+        string advice = "Mailspring could not verify this server's certificate";
+        advice += reason.empty() ? string(". ") : " (" + reason + "). ";
+        advice += "If the certificate is self-signed or issued by a private certificate authority, "
+                  "install it in your operating system's trust store (Keychain Access on macOS, the "
+                  "Windows certificate store, or the system CA directory on Linux) and reconnect; "
+                  "\"Allow insecure SSL\" does not bypass certificate validation.";
+        return advice;
+    }
+
+    // Otherwise only speak up when negotiating the connection is what failed, and only when
+    // OpenSSL said why. Anything later - authentication above all - has its own cause, and a
+    // handshake reason recorded during a successful fallback would be a red herring.
+    if (err != mailcore::ErrorConnection &&
+        err != mailcore::ErrorTLSNotAvailable &&
+        err != mailcore::ErrorStartTLSNotAvailable) {
+        return "";
+    }
+    if (reason.empty()) {
+        return "";
     }
 
     string advice = "The server rejected the secure connection (" + reason + "). ";
