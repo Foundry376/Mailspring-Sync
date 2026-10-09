@@ -747,9 +747,10 @@ class MailcoreSPDLogger : public ConnectionLogger {
             logTypeString = "sent";
             break;
 
+        // mailcore tags AUTH commands and their credential payloads (passwords,
+        // XOAUTH2 bearer tokens) as private; they must never reach the log.
         case ConnectionLogTypeSentPrivate:
-            logTypeString = "sent-private";
-            break;
+            return;
 
         case ConnectionLogTypeErrorParse:
             logTypeString = "error-parse";

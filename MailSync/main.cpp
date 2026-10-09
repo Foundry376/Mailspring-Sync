@@ -83,7 +83,8 @@ public:
     }
 
     void log(void * sender, ConnectionLogType logType, Data * buffer) {
-        if (buffer) {
+        // Private entries are AUTH commands and credential payloads.
+        if (buffer && logType != ConnectionLogTypeSentPrivate) {
             accumulated = accumulated + buffer->stringWithCharset("UTF-8")->UTF8Characters();
         }
     }
