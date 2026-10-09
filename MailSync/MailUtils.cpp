@@ -834,10 +834,14 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
     } else {
         session.setConnectionType(ConnectionType::ConnectionTypeClear);
     }
+    // Certificate validation stays enabled for every account, including this one. A
+    // self-signed certificate or a private internal CA is accommodated by installing it in
+    // the operating system trust store, which is where mailcore's check already looks
+    // (SecTrustEvaluate on macOS, the OpenSSL CA paths elsewhere), so the trust store is the
+    // allowlist and the certificate check never has to be turned off. What this option does
+    // is let the handshake fall back to OpenSSL security level 0, for servers still using
+    // SHA-1 certificates or undersized DH groups.
     if (account->IMAPAllowInsecureSSL()) {
-        session.setCheckCertificateEnabled(false);
-        // Also let the handshake itself fall back to OpenSSL security level 0,
-        // for servers still using SHA-1 certificates or undersized DH groups.
         session.setObsoleteTLSAllowed(true);
     }
 
@@ -878,8 +882,9 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     } else {
         session.setConnectionType(ConnectionType::ConnectionTypeClear);
     }
+    // Certificate validation stays enabled here too; a self-signed certificate or private
+    // CA belongs in the operating system trust store. See the IMAP overload above.
     if (account->SMTPAllowInsecureSSL()) {
-        session.setCheckCertificateEnabled(false);
         session.setObsoleteTLSAllowed(true);
     }
 
