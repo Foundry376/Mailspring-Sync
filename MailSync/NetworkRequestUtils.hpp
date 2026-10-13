@@ -23,6 +23,14 @@ using namespace std;
 
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp);
 
+// Structure to hold curl request data that needs cleanup
+// Stored in CURLOPT_PRIVATE to enable proper cleanup of headers
+struct CurlRequestData {
+    struct curl_slist *headers;
+
+    CurlRequestData() : headers(nullptr) {}
+};
+
 // Helper to cleanup curl handle and associated header list stored in CURLOPT_PRIVATE
 void CleanupCurlRequest(CURL * curl_handle);
 
@@ -36,6 +44,8 @@ const json PerformJSONRequest(CURL * curl_handle);
 
 const string PerformExpectedRedirect(string url);
 
+// Throws on a transport error or a non-2xx status, freeing the handle (and its
+// CurlRequestData) first. On success the caller frees it with CleanupCurlRequest.
 void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp);
 
 // Shorthand methods for Identity Server

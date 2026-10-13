@@ -20,14 +20,6 @@
 #include <cstdlib>
 #include <cstring>
 
-// Structure to hold curl request data that needs cleanup
-// Stored in CURLOPT_PRIVATE to enable proper cleanup of headers
-struct CurlRequestData {
-    struct curl_slist *headers;
-
-    CurlRequestData() : headers(nullptr) {}
-};
-
 // Helper to properly cleanup a curl handle including headers stored in private data
 void CleanupCurlRequest(CURL * curl_handle) {
     if (curl_handle == nullptr) return;
@@ -177,6 +169,7 @@ const json PerformJSONRequest(CURL * curl_handle) {
 void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
     char * _url = nullptr;
     if (curl_easy_getinfo(curl_handle, CURLINFO_EFFECTIVE_URL, &_url) != CURLE_OK || _url == nullptr) {
+        CleanupCurlRequest(curl_handle);
         throw SyncException(res, "Unable to get URL");
     }
     string url { _url };
