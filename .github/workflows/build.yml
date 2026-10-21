@@ -116,6 +116,7 @@ jobs:
       # its HTTP request to $IDENTITY_SERVER/ping through that code.
       - name: HTTPS certificate checks (macOS)
         if: runner.os == 'macOS'
+        timeout-minutes: 15
         run: |
           set -e
           export PATH="$(brew --prefix openssl@3)/bin:$PATH"
@@ -146,10 +147,18 @@ jobs:
           check https://127.0.0.1:8443 reject
           sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$ca/root.crt"
           check https://127.0.0.1:8443 accept
+
+          # IMAP and SMTP over TLS with the same CA, through mailcore's SecTrust check.
+          e2e() { python3 test/windows-certificates/mailsync_cert_e2e.py --mailsync /tmp/mailspring/mailsync --ca-dir "$ca" "$@"; }
+          e2e --host 127.0.0.1 --expect accept
+          e2e --host 127.0.0.1 --expect accept --tls smtp
+          e2e --host localhost --expect reject
+
           sudo security add-trusted-cert -d -r deny -k /Library/Keychains/System.keychain "$ca/int.crt"
           check https://127.0.0.1:8443 reject
-          sudo security remove-trusted-cert -d "$ca/int.crt"
-          sudo security remove-trusted-cert -d "$ca/root.crt"
+          e2e --host 127.0.0.1 --expect reject
+          # No trust-settings cleanup: remove-trusted-cert waits for interactive authorization,
+          # and the runner is discarded after the job.
           kill $server
 
       - name: Setup AWS CLI
