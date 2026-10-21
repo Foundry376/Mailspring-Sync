@@ -18,7 +18,9 @@
 #endif
 #include <windows.h>
 #include <wincrypt.h>
+#include <bcrypt.h>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -37,10 +39,57 @@ namespace mailcore {
     struct Win32ChainVerification {
         bool trusted = false;
         bool apiFailure = false;
+        bool blockedKey = false;
         DWORD policyError = 0;
         DWORD chainErrorStatus = 0;
         std::vector<std::string> elements; // "subject (error 0x..)" for each certificate in the chain
     };
+
+    /*
+     SHA-256 of the SubjectPublicKeyInfo of each compromised eMudhra intermediate, from the
+     disclosure's impacted-intermediates.json (https://emudhra.we-have-a-problem.com/). Each key
+     is also cross-signed by Sectigo's AAA Certificate Services, so matching the key covers both.
+     Windows only rejects these once disallowedcert.stl has synced or a CRL fetch succeeds; CI
+     runners on 2026-10-21 had neither list entry, and an attacker who can intercept the mail
+     connection can also block the CRL fetch that soft-fail revocation depends on.
+    */
+    static const char * const compromisedKeySHA256[] = {
+        "EBED6475C2C2D80FCB199F3FE8DD6E6B3CE60B77EB15D4E42C3DEC0C6F5B5105", // EM DV TLS CA - G3B
+        "43BFFA19D6EF651451F6841E019931E96F6F2EAEFF28AB4B6F1CE4576DE2717B", // EM OV TLS CA - G3B
+        "E0254C7FCDC265E2F0F8A428DABB75AB4AE039B4872D62F5EE57F0877D5A8A41", // EM EV TLS CA - G3B
+        "49DD353DC2B919A3770645117D0E60C16115E7D1BC259EEFE734B00EA434FE5F", // EM DV TLS CA - G3C
+        "63ECEFEE431D49523BC1136C4E72D0206A477086CAF606CD5CF025686C109CF8", // EM OV TLS CA - G3C
+        "5C0660A2B164910D8FF589C18E14552E9E0EC237DCEFE2CB736D41A4811F81A0", // EM EV TLS CA - G3C
+        "EC4FFA1AD0AC88081314B7AAFFEF6A91F97CD57291BB5BA686C5415F5EB4F6B6", // EM OV CS CA - G3B
+        "92C063D67E8F14DB71D288E11266FFDAF69CBF115F7BAB14F3BC2F68D25E0E30", // EM OV CS CA - G3C
+    };
+
+    static inline bool hasCompromisedKey(PCCERT_CONTEXT cert)
+    {
+        BYTE * spki = NULL;
+        DWORD spkiLength = 0;
+        if (!CryptEncodeObjectEx(X509_ASN_ENCODING, X509_PUBLIC_KEY_INFO, &cert->pCertInfo->SubjectPublicKeyInfo,
+                                 CRYPT_ENCODE_ALLOC_FLAG, NULL, &spki, &spkiLength)) {
+            return false;
+        }
+        BYTE hash[32];
+        DWORD hashLength = sizeof(hash);
+        BOOL hashed = CryptHashCertificate2(BCRYPT_SHA256_ALGORITHM, 0, NULL, spki, spkiLength, hash, &hashLength);
+        LocalFree(spki);
+        if (!hashed || hashLength != sizeof(hash)) {
+            return false;
+        }
+        char hex[65];
+        for (DWORD i = 0; i < hashLength; i++) {
+            snprintf(hex + i * 2, 3, "%02X", hash[i]);
+        }
+        for (const char * blocked : compromisedKeySHA256) {
+            if (strcmp(hex, blocked) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /*
      Copying the ROOT store into OpenSSL misses everything Windows uses to distrust a CA: the
@@ -107,14 +156,18 @@ namespace mailcore {
         }
 
         result.chainErrorStatus = chain->TrustStatus.dwErrorStatus;
-        if (chain->cChain > 0) {
-            PCERT_SIMPLE_CHAIN simple = chain->rgpChain[0];
+        for (DWORD c = 0; c < chain->cChain; c++) {
+            PCERT_SIMPLE_CHAIN simple = chain->rgpChain[c];
             for (DWORD i = 0; i < simple->cElement; i++) {
+                PCCERT_CONTEXT cert = simple->rgpElement[i]->pCertContext;
+                bool blocked = hasCompromisedKey(cert);
+                result.blockedKey = result.blockedKey || blocked;
                 char name[512] = {0};
                 char element[600];
-                CertGetNameStringA(simple->rgpElement[i]->pCertContext, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, NULL, name, sizeof(name));
-                snprintf(element, sizeof(element), "%s (error 0x%08lx)", name,
-                         (unsigned long)simple->rgpElement[i]->TrustStatus.dwErrorStatus);
+                CertGetNameStringA(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, NULL, name, sizeof(name));
+                snprintf(element, sizeof(element), "%s (error 0x%08lx)%s", name,
+                         (unsigned long)simple->rgpElement[i]->TrustStatus.dwErrorStatus,
+                         blocked ? " compromised key" : "");
                 result.elements.push_back(element);
             }
         }
@@ -145,7 +198,7 @@ namespace mailcore {
             result.policyError = policyStatus.dwError;
         }
 
-        result.trusted = result.policyError == 0 &&
+        result.trusted = result.policyError == 0 && !result.blockedKey &&
             (result.chainErrorStatus & (CERT_TRUST_IS_REVOKED | CERT_TRUST_IS_EXPLICIT_DISTRUST)) == 0;
 
     done:

@@ -326,9 +326,14 @@ jobs:
             & "C:\Program Files\Git\usr\bin\openssl.exe" verify -CAfile roots.pem -untrusted $f.FullName $f.FullName
           }
 
-      - name: Live chains, revocation off (diagnostic, isolates the disallowed list)
-        continue-on-error: true
-        run: ./certtest.exe manifest manifest.txt none
+      # What a client sees when an attacker blocks CRL fetches and the disallowed list hasn't
+      # synced: only the compromised-key blocklist stands between it and the eMudhra chains.
+      # revoked.badssl.com can only fail through revocation, so it is left out here.
+      - name: Live chains, revocation unavailable
+        shell: bash
+        run: |
+          grep -v revoked.badssl.com manifest.txt > manifest-no-revocation.txt
+          ./certtest.exe manifest manifest-no-revocation.txt none
 
       - name: Live chains, as mailsync verifies them
         run: ./certtest.exe manifest manifest.txt soft
@@ -339,9 +344,12 @@ jobs:
 
       - name: Local CA, trusted and then distrusted, through mailsync.exe
         shell: bash
+        env:
+          # Otherwise Git Bash rewrites openssl's -subj "/CN=..." into a Windows path.
+          MSYS_NO_PATHCONV: 1
         run: |
           set -e
-          ./make_local_ca.sh localca > /dev/null 2>&1
+          ./make_local_ca.sh localca
           e2e() { python mailsync_cert_e2e.py --mailsync "$RUNNER_TEMP/mailsync/mailsync.exe" --ca-dir localca "$@"; }
 
           e2e --host 127.0.0.1 --expect reject                    # root not trusted

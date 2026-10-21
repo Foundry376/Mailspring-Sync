@@ -137,8 +137,9 @@ err:
     Win32ChainVerification verification = verifyServerChainWithCryptoAPI(derChain, host);
     if (!verification.trusted)
     {
-        MCLog("Verification failed: policy error 0x%08lx, chain status 0x%08lx%s",
+        MCLog("Verification failed: policy error 0x%08lx, chain status 0x%08lx%s%s",
               (unsigned long)verification.policyError, (unsigned long)verification.chainErrorStatus,
+              verification.blockedKey ? " (compromised CA key)" : "",
               verification.apiFailure ? " (CryptoAPI call failed)" : "");
         for (const std::string &element : verification.elements)
         {
