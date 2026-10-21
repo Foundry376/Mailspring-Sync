@@ -954,8 +954,7 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
             string id = vcard->getUniqueId()->getValue();
             if (id == "") id = MailUtils::idForCalendar(account->id(), href);
             string email = vcard->getEmails().front()->getValue();
-            string name = vcard->getFormattedName()->getValue();
-            if (name == "") name = vcard->getName()->getValue();
+            string name = vcard->displayName();
             bool isGroup = DAVUtils::isGroupCard(vcard);
             parsed.push_back({id, etag, href, vcardString, email, name, isGroup});
         }));
@@ -1208,8 +1207,7 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
                 string id = vcard->getUniqueId()->getValue();
                 if (id == "") id = MailUtils::idForCalendar(account->id(), href);
                 string email = vcard->getEmails().front()->getValue();
-                string name = vcard->getFormattedName()->getValue();
-                if (name == "") name = vcard->getName()->getValue();
+                string name = vcard->displayName();
                 bool isGroup = DAVUtils::isGroupCard(vcard);
                 parsed.push_back({id, etag, href, vcardString, email, name, isGroup});
             }));
@@ -1337,8 +1335,7 @@ shared_ptr<Contact> DAVWorker::ingestAddressDataNode(shared_ptr<DavXML> doc, xml
     string id = vcard->getUniqueId()->getValue();
     if (id == "") id = MailUtils::idForCalendar(account->id(), href);
     string email = vcard->getEmails().front()->getValue();
-    string name = vcard->getFormattedName()->getValue();
-    if (name == "") name = vcard->getName()->getValue();
+    string name = vcard->displayName();
     
     auto contact = store->find<Contact>(Query().equal("id", id));
     if (!contact) {
@@ -1385,7 +1382,7 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
     }
     // vcard3 members / icloud
     for (const auto & prop : vcard->getExtendedProperties()) {
-        if (prop->getName()!= X_VCARD3_MEMBER) continue;
+        if (prop->baseName() != X_VCARD3_MEMBER) continue;
         string mid = prop->getValue();
         if (mid.find("urn:uuid:") == 0) {
             mid = mid.substr(9);

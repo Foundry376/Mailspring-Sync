@@ -893,6 +893,35 @@ class ScenarioRun:
                                    f"metadata={[e.get('pluginId') for e in m.get('metadata') or []]} v={m.get('v')}")
         return out
 
+    def expect_contacts(self, arg: dict) -> list:
+        """Contact rows. `mail: {email: name}` checks found-in-mail contacts by email (`null`:
+        there must be none); `carddav: {id: {email, name}}` checks address-book contacts by id.
+        Each contact found must have the ContactSearch row the engine indexes for it (email
+        with `@` as a space, then name), which is what composer autocomplete matches."""
+        out = []
+
+        def check(label, row, want):
+            if want is None:
+                if row:
+                    out.append(f"contact {label}: expected none, found one named {row['name']!r}")
+                return
+            if not row:
+                out.append(f"contact {label}: missing")
+                return
+            for key, value in (want if isinstance(want, dict) else {"name": want}).items():
+                if row[key] != value:
+                    out.append(f"contact {label}: {key} {row[key]!r}, expected {value!r}")
+            indexed = row["email"].replace("@", " ", 1) + " " + row["name"]
+            if row["search"] != indexed:
+                out.append(f"contact {label}: ContactSearch holds {row['search']!r}, expected {indexed!r}")
+
+        with self.ms.db() as c:
+            for email, want in (arg.get("mail") or {}).items():
+                check(email, dbmod.contact(c, "mail", email=email), want)
+            for cid, want in (arg.get("carddav") or {}).items():
+                check(cid, dbmod.contact(c, "carddav", id=cid), want)
+        return out
+
     def expect_connection_error(self, arg: dict) -> list:
         """The ProcessState deltas from beginConnectionError / endConnectionError, which drive
         the client's offline banner. `reported: true` needs a connectionError: true among

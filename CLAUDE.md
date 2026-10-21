@@ -17,6 +17,9 @@ sudo apt install libc-ares-dev libicu-dev libctemplate-dev libtidy-dev uuid-dev 
 cd Vendor/libetpan && ./autogen.sh && make && sudo make install prefix=/usr
 cd Vendor/mailcore2 && mkdir -p build && cd build && cmake .. && make
 cmake . && make
+
+# Unit tests for code with no mailcore dependency (VCard parsing)
+make vcard_test && ./vcard_test
 ```
 
 ### macOS

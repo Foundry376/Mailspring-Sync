@@ -103,7 +103,8 @@ Steps:
 A scenario may also start on another build with a top-level `binary: ab/mailsync-0df7864`
 (relative to `test/`) and `restart` onto the build under test - how a database written by an
 older engine is handed to the current one (`migration-from-pre-placements-db`;
-`ab/mailsync-eb246b6`, the last V10 build, for `migration-v11-from-v10-db`). `--mailsync`
+`ab/mailsync-eb246b6`, the last V10 build, for `migration-v11-from-v10-db`;
+`ab/mailsync-f7b0239`, the last V12 build, for `migration-v13-repairs-contacts`). `--mailsync`
 still sets the build under test that a `restart` with no `binary:` lands on. The harness runs
 `--mode migrate` on every launch, as the client does, so a restart onto a newer build
 upgrades the schema.
@@ -123,7 +124,8 @@ log lines match, to bound a loop the engine should take a known number of times)
 {count, folders, fetched, metadata}}}` (the one-shot flag mail rules run on: no message carries
 it on two deltas, across restarts, and each such delta carries the body; `folders` the
 mailboxes that delta must list, `fetched` whether it is the delta that fetched the body),
-`folder_roles: {path: role}`, `connection_error: {reported: true, cleared: true}`
+`folder_roles: {path: role}`, `contacts: {mail: {email: name}, carddav: {id: {email, name}}}`
+(Contact rows and the ContactSearch content autocomplete matches), `connection_error: {reported: true, cleared: true}`
 (the ProcessState stream behind the client's offline state), `migrate_output: regex` (the
 last `--mode migrate` stdout), `unchanged_since: snapshot`, `running`, `exit`. Any
 expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,
@@ -322,6 +324,8 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | folder-roles-by-localized-name | roles by name without SPECIAL-USE: modified UTF-7 names, Borradores, `\\Archive` | fake |
 | status-uidnext-zero-new-mail | STATUS UIDNEXT 0 (hMailServer): new mail found from the message count on the next pass | fake |
 | list-refused-transiently | O365 `NO Server Unavailable` to LIST: offline and retried, not a crash | fake |
+| contacts-from-sent-mail | found-in-mail contacts: junk display names stored as "", quotes stripped, a later real name fills a blank one and reaches ContactSearch | fake, dovecot |
+| migration-v13-repairs-contacts | V13 repairs junk mail-contact names and CardDAV rows (grouped `item1.EMAIL`, empty FN) from the stored vCard | fake (starts on `ab/mailsync-f7b0239`) |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up
