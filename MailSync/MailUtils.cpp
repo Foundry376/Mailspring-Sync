@@ -865,11 +865,12 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
     // Certificate validation stays enabled for every account, including this one: a
     // self-signed certificate or a private internal CA belongs in the operating system
     // trust store, which is where mailcore's check already looks (SecTrustEvaluate on
-    // macOS, the OpenSSL CA paths elsewhere), so the trust store is the allowlist and
-    // validation never has to be turned off. This option only lowers the OpenSSL handshake
-    // security level to 0, for undersized DH groups and legacy protocol versions. It does
-    // not weaken certificate validation, and on macOS it cannot reach it at all, because
-    // SecTrust is independent of OpenSSL. tlsFailureAdvice explains the rest to the user.
+    // macOS, the CryptoAPI chain engine on Windows, the OpenSSL CA paths on Linux), so the
+    // trust store is the allowlist and validation never has to be turned off. This option
+    // only lowers the OpenSSL handshake security level to 0, for undersized DH groups and
+    // legacy protocol versions. It does not weaken certificate validation, and on macOS and
+    // Windows it cannot reach it at all, because SecTrust and CryptoAPI are independent of
+    // OpenSSL. tlsFailureAdvice explains the rest to the user.
     if (account->IMAPAllowInsecureSSL()) {
         session.setObsoleteTLSAllowed(true);
     }

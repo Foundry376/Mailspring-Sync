@@ -349,7 +349,8 @@ jobs:
           ./certtest.exe chain localca/chain.pem 127.0.0.1 soft    # no CRL URL: soft-fail accepts
           e2e --host 127.0.0.1 --expect accept
           e2e --host localhost --expect reject                     # name not in the certificate
-          e2e --host localhost --expect accept --allow-insecure    # "allow insecure SSL" still bypasses
+          e2e --host localhost --expect reject --allow-insecure    # "allow insecure SSL" doesn't bypass validation
+          e2e --host 127.0.0.1 --expect accept --allow-insecure    # ...and doesn't break a valid certificate
           certutil -addstore Disallowed localca/int.crt > /dev/null
           ! ./certtest.exe chain localca/chain.pem 127.0.0.1 none  # explicit distrust
           e2e --host 127.0.0.1 --expect reject
