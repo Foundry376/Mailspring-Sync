@@ -6,11 +6,18 @@
 //  Copyright (c) 2013 MailCore. All rights reserved.
 //
 
+#ifdef _MSC_VER
+// Exposes CERT_CHAIN_PARA.dwUrlRetrievalTimeout; must precede the first <wincrypt.h>.
+#define CERT_CHAIN_PARA_HAS_EXTRA_FIELDS
+#endif
+
 #include "MCCertificateUtils.h"
 
 #if __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
+#elif defined(_MSC_VER)
+#include "MCCertificateUtilsWin32.h"
 #else
 #include <string>
 #include <vector>
@@ -108,6 +115,37 @@ free_certs:
     CFRelease(hostnameCFString);
 err:
     return result;
+#elif defined(_MSC_VER)
+    carray *cCerts = mailstream_get_certificate_chain(stream);
+    if (cCerts == NULL)
+    {
+        MCLog("warning: No certificate chain retrieved");
+        return false;
+    }
+    std::vector<std::string> derChain;
+    for (unsigned int i = 0; i < carray_count(cCerts); i++)
+    {
+        MMAPString *str = (MMAPString *)carray_get(cCerts, i);
+        derChain.push_back(std::string(str->str, str->len));
+    }
+    mailstream_certificate_chain_free(cCerts);
+
+    std::wstring host;
+    if (hostname != NULL) {
+        host = std::wstring((const wchar_t *)hostname->unicodeCharacters(), hostname->length());
+    }
+    Win32ChainVerification verification = verifyServerChainWithCryptoAPI(derChain, host);
+    if (!verification.trusted)
+    {
+        MCLog("Verification failed: policy error 0x%08lx, chain status 0x%08lx%s",
+              (unsigned long)verification.policyError, (unsigned long)verification.chainErrorStatus,
+              verification.apiFailure ? " (CryptoAPI call failed)" : "");
+        for (const std::string &element : verification.elements)
+        {
+            MCLog("  %s", element.c_str());
+        }
+    }
+    return verification.trusted;
 #else
     bool result = false;
     X509_STORE *store = NULL;
@@ -163,49 +201,7 @@ err:
         goto free_certs;
     }
 
-#ifdef _MSC_VER
-    HCERTSTORE systemStore = CertOpenSystemStore(NULL, L"ROOT");
-
-    PCCERT_CONTEXT previousCert = NULL;
-    int certCount = 0;
-    int certLoadedCount = 0;
-    int certFailedCount = 0;
-    while (1)
-    {
-        PCCERT_CONTEXT nextCert = CertEnumCertificatesInStore(systemStore, previousCert);
-        if (nextCert == NULL)
-        {
-            break;
-        }
-        certCount++;
-
-        // Important: d2i_X509 advances the pointer, so we need to use a copy
-        const unsigned char *certData = nextCert->pbCertEncoded;
-        X509 *openSSLCert = d2i_X509(NULL, &certData, nextCert->cbCertEncoded);
-        if (openSSLCert != NULL)
-        {
-            int addResult = X509_STORE_add_cert(store, openSSLCert);
-            if (addResult == 1) {
-                certLoadedCount++;
-            } else {
-                // Note: X509_STORE_add_cert returns 0 for duplicates, which is not an error
-                unsigned long err = ERR_peek_last_error();
-                if (ERR_GET_REASON(err) == X509_R_CERT_ALREADY_IN_HASH_TABLE) {
-                    certLoadedCount++; // Count duplicates as loaded
-                } else {
-                    certFailedCount++;
-                }
-            }
-            X509_free(openSSLCert);
-        }
-        else
-        {
-            certFailedCount++;
-        }
-        previousCert = nextCert;
-    }
-    CertCloseStore(systemStore, 0);
-#elif defined(ANDROID) || defined(__ANDROID__)
+#if defined(ANDROID) || defined(__ANDROID__)
     dir = opendir("/system/etc/security/cacerts");
     while (ent = readdir(dir))
     {
