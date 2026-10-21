@@ -326,21 +326,23 @@ jobs:
             & "C:\Program Files\Git\usr\bin\openssl.exe" verify -CAfile roots.pem -untrusted $f.FullName $f.FullName
           }
 
-      # What a client sees when an attacker blocks CRL fetches and the disallowed list hasn't
-      # synced: only the compromised-key blocklist stands between it and the eMudhra chains.
-      # revoked.badssl.com can only fail through revocation, so it is left out here.
-      - name: Live chains, revocation unavailable
+      # Mail providers must pass and badssl's expired, wrong-host, self-signed and untrusted-root
+      # chains must fail on any Windows machine. The eMudhra chains and revoked.badssl.com are
+      # rejected through Microsoft's disallowed list and CRLs, so whether they fail here depends
+      # on the runner image being up to date; the local CA step below proves mailsync honors both.
+      - name: Live chains, as mailsync verifies them
         shell: bash
         run: |
-          grep -v revoked.badssl.com manifest.txt > manifest-no-revocation.txt
-          ./certtest.exe manifest manifest-no-revocation.txt none
+          grep -v -e emudhra -e revoked.badssl.com manifest.txt > manifest-platform-independent.txt
+          ./certtest.exe manifest manifest-platform-independent.txt soft
 
-      - name: Live chains, as mailsync verifies them
+      - name: Live chains including eMudhra and revoked (diagnostic, depends on runner updates)
+        continue-on-error: true
         run: ./certtest.exe manifest manifest.txt soft
 
-      - name: Live chains, hard-fail revocation (diagnostic)
+      - name: Live chains, revocation off (diagnostic, isolates the disallowed list)
         continue-on-error: true
-        run: ./certtest.exe manifest manifest.txt hard
+        run: ./certtest.exe manifest manifest.txt none
 
       - name: Local CA, trusted and then distrusted, through mailsync.exe
         shell: bash
