@@ -27,6 +27,7 @@ Start with `docs/adding-scenarios.md` if you are here to add a test, and
 
 ```bash
 pip install -r test/requirements.txt   # pytest, pytest-xdist, pyyaml
+sudo apt install libsasl2-modules      # SASL PLAIN/LOGIN plugins: every SMTP send fails without them
 python3 -m pytest test                 # everything, 16 cases at a time: ~6 min
 python3 -m pytest test --servers fake -k qresync       # narrow by server kind / name
 python3 -m pytest test -n 0 -k baseline-initial-sync   # serially, for debugging

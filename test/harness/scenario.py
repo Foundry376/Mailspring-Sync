@@ -21,6 +21,7 @@ import re
 import shutil
 import socket
 import sqlite3
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -179,6 +180,23 @@ class ScenarioRun:
                 f"behaviour on the hostname). Add `127.0.0.1 {host}` to /etc/hosts to enable it."
             )
 
+    def _check_sasl_plugins(self):
+        """libetpan authenticates SMTP through Cyrus SASL, which loads PLAIN/LOGIN from plugin
+        files (libsasl2-modules on Debian/Ubuntu). Without them the engine never sends AUTH and
+        every send fails with "ErrorAuthentication LibEtPan code: 296", which reads like a
+        credentials or TLS problem rather than a missing package."""
+        if not sys.platform.startswith("linux") or "SendDraftTask" not in json.dumps(self.sc.get("steps") or []):
+            return
+        dirs = [Path(d) for d in os.environ.get("SASL_PATH", "").split(":") if d]
+        dirs += [Path("/usr/lib/sasl2"), Path("/usr/lib64/sasl2"), Path("/usr/local/lib/sasl2")]
+        dirs += list(Path("/usr/lib").glob("*/sasl2"))
+        if not any(next(d.glob(f"lib{mech}.so*"), None) for d in dirs for mech in ("plain", "login")):
+            raise ScenarioFailure(
+                "no Cyrus SASL PLAIN/LOGIN plugin found (searched SASL_PATH and /usr/lib*/sasl2), so "
+                "the engine cannot AUTH to SMTP and every send fails with ErrorAuthentication. "
+                "Install libsasl2-modules (apt) or cyrus-sasl-plain (dnf)."
+            )
+
     def _initial_binary(self) -> Optional[Path]:
         """A scenario may start on another build (`binary: ab/mailsync-0df7864`, relative to
         test/) and `restart` onto the build under test, which is how a database written by
@@ -200,6 +218,7 @@ class ScenarioRun:
 
     def setup(self):
         self._check_host_alias()
+        self._check_sasl_plugins()
         if self.work.exists():
             shutil.rmtree(self.work)
         self.work.mkdir(parents=True)
