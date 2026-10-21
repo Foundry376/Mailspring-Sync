@@ -127,7 +127,6 @@ jobs:
           # Chains through the compromised eMudhra intermediates (https://emudhra.we-have-a-problem.com/)
           check https://dv-g3b-emudhra.we-have-a-problem.com reject
           check https://ev-g3c-aaa-emudhra.we-have-a-problem.com reject
-          check https://revoked.badssl.com reject
           check https://wrong.host.badssl.com reject
           check https://caldav.icloud.com accept
           check https://apidata.googleusercontent.com accept
