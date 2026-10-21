@@ -23,6 +23,9 @@ using namespace std;
 
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp);
 
+// Use in place of curl_easy_init: on macOS it adds the SecTrust check of the server's certificates.
+CURL * CreateCurlHandle();
+
 // Helper to cleanup curl handle and associated header list stored in CURLOPT_PRIVATE
 void CleanupCurlRequest(CURL * curl_handle);
 
