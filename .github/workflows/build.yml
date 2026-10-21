@@ -111,6 +111,48 @@ jobs:
             echo "✓ mailsync install-check passed on macOS"
           fi
 
+      # Apple's libcurl trusts /etc/ssl/cert.pem and ignores Apple's distrust data, so
+      # NetworkRequestUtils re-checks every HTTPS peer with SecTrust. install-check sends
+      # its HTTP request to $IDENTITY_SERVER/ping through that code.
+      - name: HTTPS certificate checks (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          export PATH="$(brew --prefix openssl@3)/bin:$PATH"
+          check() { # url expect(accept|reject)
+            out=$(CONFIG_DIR_PATH=/tmp IDENTITY_SERVER="$1" /tmp/mailspring/mailsync --mode install-check 2>/dev/null | grep -o '"http_check":{[^}]*}' || true)
+            if [[ "$out" == *status_code* ]]; then got=accept; else got=reject; fi
+            if [[ "$got" == "$2" ]]; then echo "OK   $1 $out"; else echo "FAIL $1 expected $2: $out"; return 1; fi
+          }
+          # Chains through the compromised eMudhra intermediates (https://emudhra.we-have-a-problem.com/)
+          check https://dv-g3b-emudhra.we-have-a-problem.com reject
+          check https://ev-g3c-aaa-emudhra.we-have-a-problem.com reject
+          check https://revoked.badssl.com reject
+          check https://wrong.host.badssl.com reject
+          check https://caldav.icloud.com accept
+          check https://apidata.googleusercontent.com accept
+
+          # A private CA trusted only in the System keychain, like a self-hosted CalDAV server.
+          ca=$(mktemp -d)
+          bash test/windows-certificates/make_local_ca.sh "$ca" > /dev/null 2>&1
+          python3 -c "
+          import http.server, ssl
+          srv = http.server.HTTPServer(('127.0.0.1', 8443), http.server.SimpleHTTPRequestHandler)
+          ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          ctx.load_cert_chain('$ca/chain.pem', '$ca/leaf.key')
+          srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+          srv.serve_forever()" &
+          server=$!
+          sleep 2
+          check https://127.0.0.1:8443 reject
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$ca/root.crt"
+          check https://127.0.0.1:8443 accept
+          sudo security add-trusted-cert -d -r deny -k /Library/Keychains/System.keychain "$ca/int.crt"
+          check https://127.0.0.1:8443 reject
+          sudo security remove-trusted-cert -d "$ca/int.crt"
+          sudo security remove-trusted-cert -d "$ca/root.crt"
+          kill $server
+
       - name: Setup AWS CLI
         if: success() && (github.ref == 'refs/heads/master')
         uses: aws-actions/configure-aws-credentials@v6

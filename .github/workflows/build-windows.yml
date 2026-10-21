@@ -262,3 +262,105 @@ jobs:
           } else {
             Write-Host "OK mailsync install-check passed on Windows"
           }
+
+  # IMAP/SMTP certificate verification on real Windows, where the auto-updated disallowed
+  # list, CRL fetching and on-demand root download exist (Wine has none of them). certtest
+  # compiles MCCertificateUtilsWin32.h, the code mailsync ships, and mailsync_cert_e2e.py
+  # drives the built mailsync.exe against a local TLS IMAP server.
+  certificates-windows:
+    needs: build-windows
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: test/windows-certificates
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Download artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: win-ia32-mailsync
+          path: ${{ runner.temp }}/mailsync
+
+      - name: Extract mailsync
+        shell: pwsh
+        working-directory: ${{ runner.temp }}/mailsync
+        run: tar -xzf mailsync.tar.gz
+
+      # Win32, like mailsync.exe
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Build certtest.exe
+        shell: cmd
+        run: cl /nologo /EHsc /O1 /std:c++17 certtest.cpp crypt32.lib advapi32.lib /Fe:certtest.exe
+
+      - name: Fetch live server chains
+        shell: bash
+        run: ./fetch_chains.sh chains
+
+      - name: Force a disallowed list sync, then show the trust stores
+        shell: pwsh
+        run: |
+          certutil -verifyCTL Disallowed | Select-Object -Last 3
+          certutil -verifyCTL AuthRootWU | Select-Object -Last 3
+          ./certtest.exe stores
+
+      # The previous implementation: the ROOT store exported to PEM and checked by OpenSSL,
+      # with no hostname or revocation check. Expected to trust the eMudhra chains.
+      - name: Previous behavior (diagnostic)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $pem = foreach ($c in (Get-ChildItem Cert:\CurrentUser\Root) + (Get-ChildItem Cert:\LocalMachine\Root)) {
+            "-----BEGIN CERTIFICATE-----"; [Convert]::ToBase64String($c.RawData, 'InsertLineBreaks'); "-----END CERTIFICATE-----" }
+          $pem | Set-Content -Encoding ascii roots.pem
+          foreach ($f in Get-ChildItem chains\*emudhra*.pem) {
+            & "C:\Program Files\Git\usr\bin\openssl.exe" verify -CAfile roots.pem -untrusted $f.FullName $f.FullName
+          }
+
+      - name: Live chains, revocation off (diagnostic, isolates the disallowed list)
+        continue-on-error: true
+        run: ./certtest.exe manifest manifest.txt none
+
+      - name: Live chains, as mailsync verifies them
+        run: ./certtest.exe manifest manifest.txt soft
+
+      - name: Live chains, hard-fail revocation (diagnostic)
+        continue-on-error: true
+        run: ./certtest.exe manifest manifest.txt hard
+
+      - name: Local CA, trusted and then distrusted, through mailsync.exe
+        shell: bash
+        run: |
+          set -e
+          ./make_local_ca.sh localca > /dev/null 2>&1
+          e2e() { python mailsync_cert_e2e.py --mailsync "$RUNNER_TEMP/mailsync/mailsync.exe" --ca-dir localca "$@"; }
+
+          e2e --host 127.0.0.1 --expect reject                    # root not trusted
+          certutil -addstore Root localca/root.crt > /dev/null
+          ./certtest.exe chain localca/chain.pem 127.0.0.1 soft    # no CRL URL: soft-fail accepts
+          e2e --host 127.0.0.1 --expect accept
+          e2e --host localhost --expect reject                     # name not in the certificate
+          e2e --host localhost --expect accept --allow-insecure    # "allow insecure SSL" still bypasses
+          certutil -addstore Disallowed localca/int.crt > /dev/null
+          ! ./certtest.exe chain localca/chain.pem 127.0.0.1 none  # explicit distrust
+          e2e --host 127.0.0.1 --expect reject
+          certutil -delstore Disallowed "Mailspring Test Intermediate" > /dev/null
+          e2e --host 127.0.0.1 --expect accept
+          certutil -delstore Root "Mailspring Test Root" > /dev/null
+
+      # mailsync's libcurl is vcpkg curl[ssl], which is Schannel on Windows, as is System32 curl.exe.
+      - name: Schannel rejects the eMudhra chains
+        shell: bash
+        run: |
+          for h in dv-g3b-emudhra dv-g3b-aaa-emudhra; do
+            if /c/Windows/System32/curl.exe -sS -o /dev/null https://$h.we-have-a-problem.com/; then echo "UNEXPECTED: $h trusted"; exit 1; else echo "OK: $h rejected"; fi
+          done
