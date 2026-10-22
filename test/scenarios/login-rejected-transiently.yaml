@@ -1,0 +1,30 @@
+name: login-rejected-transiently
+description: >
+  After a reconnect the server answers one login NO, then accepts the same credentials. The
+  engine must log the server's reply, keep running, and log in again after the retry delay
+  instead of exiting, which the client counts toward marking the account as needing
+  re-authentication.
+source: >
+  community.getmailspring.com/t/14606: Outlook.com rejected AUTHENTICATE for a valid XOAuth2
+  token about a second after the other worker's login with the same token succeeded; each
+  rejection exited mailsync, and five in 15 s left the account flagged for re-auth.
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: 5}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, command: "^LOGIN"}, text: "AUTHENTICATE failed."}
+  - server.drop_connections: {}
+  - client.wake: {}
+  - wait: {log: "^-X Login rejected: AUTHENTICATE failed"}
+  - wait: {log: "^--sleeping 30s before retrying login"}
+  - server.append: {mailbox: INBOX, messages: 1}
+  - client.wake: {}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  running: true
+  log_count: {"^-X Login rejected": {min: 1, max: 1}}
+  counts: {INBOX: 6}
+  db_matches_server: {}

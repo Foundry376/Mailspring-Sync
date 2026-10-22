@@ -143,3 +143,8 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, O
     _cache[key] = parts;
     return parts;
 }
+
+void XOAuth2TokenManager::invalidateTokenForAccount(shared_ptr<Account> account) {
+    lock_guard<mutex> guard(_cacheLock);
+    _cache.erase(account->id());
+}
