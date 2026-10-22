@@ -18,7 +18,7 @@ class FakeServer(Server):
                  email: str = "test@example.test", reject_non_fqdn_helo: bool = False,
                  smtp_sent_copy: Optional[str] = None, smtp_sent_copy_delay: float = 0,
                  smtp_auth_response: Optional[str] = None, graph: bool = False, graph_send: bool = True,
-                 graph_consented: bool = True, graph_sent_copy: Optional[str] = "Sent Items",
+                 graph_consented: bool = True, graph_consent_refusals: int = 0, graph_sent_copy: Optional[str] = "Sent Items",
                  graph_sent_copy_delay: float = 0, graph_failures: Optional[list] = None, **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
@@ -37,7 +37,7 @@ class FakeServer(Server):
         # fake's mail-scoped access tokens, and with `graph_send` (the default) mail goes out
         # through the fake Graph API, which files its Sent Items copy in `graph_sent_copy`.
         self.graph_send = graph and graph_send
-        self.graph = FakeGraphServer(graph_consented=graph_consented,
+        self.graph = FakeGraphServer(graph_consented=graph_consented, consent_refusals=graph_consent_refusals,
                                      sent_copy=(self.store, graph_sent_copy) if graph_sent_copy else None,
                                      sent_copy_delay=graph_sent_copy_delay, failures=graph_failures,
                                      deliver_to=(self.store, "INBOX", email)) if graph else None

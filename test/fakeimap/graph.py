@@ -191,7 +191,10 @@ class _Handler(BaseHTTPRequestHandler):
         if form.get("grant_type") != "refresh_token" or form.get("refresh_token") != srv.refresh_token:
             return self._reply(400, {"error": "invalid_grant", "error_description": "AADSTS70000: The refresh token is invalid."})
         if GRAPH_SCOPE in scope:
-            if not srv.graph_consented:
+            with srv.lock:
+                lagging = srv.consent_refusals > 0
+                srv.consent_refusals -= 1 if lagging else 0
+            if not srv.graph_consented or lagging:
                 return self._reply(400, {"error": "invalid_grant", "error_description":
                                          "AADSTS65001: The user or administrator has not consented to use the application."})
             token = f"graph-token-{len(srv.token_scopes)}"
@@ -265,11 +268,14 @@ class _Handler(BaseHTTPRequestHandler):
 
 class FakeGraphServer:
     def __init__(self, host="127.0.0.1", port=0, refresh_token="refresh-token", graph_consented=True,
-                 sent_copy=None, sent_copy_delay: float = 0, failures: Optional[list] = None, deliver_to=None):
+                 sent_copy=None, sent_copy_delay: float = 0, failures: Optional[list] = None, deliver_to=None,
+                 consent_refusals: int = 0):
         """sent_copy: optional (Store, mailbox) every sent message's copy is appended to, as
         Exchange files it in Sent Items. sent_copy_delay: seconds between /send and that copy.
         graph_consented: whether the refresh token may be exchanged for Graph scopes (an
         account authorized before Mail.Send was requested may not).
+        consent_refusals: refuse the first N Graph token requests with AADSTS65001 anyway, as
+        Azure AD does for a few seconds while a consent the user just gave replicates.
         failures: [{route: regex on the path after /v1.0/me/, method, status, code, message,
         times}] - answer matching requests with that error, `times` times (default always).
         deliver_to: optional (Store, mailbox, address) - sent mail addressed to `address` is
@@ -277,6 +283,7 @@ class FakeGraphServer:
         self.host, self.port = host, port
         self.refresh_token = refresh_token
         self.graph_consented = graph_consented
+        self.consent_refusals = consent_refusals
         self.sent_copy = sent_copy
         self.sent_copy_delay = sent_copy_delay
         self.deliver_to = deliver_to

@@ -419,7 +419,8 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   SMTP) accept the fake's mail tokens and, unless `graph_send: false`, sends through Graph.
   Each sent message's copy is appended to `graph_sent_copy` (default `Sent Items`) after
   `graph_sent_copy_delay` seconds; `graph_consented: false` refuses Graph scopes with
-  AADSTS65001, as for an account authorized before Mail.Send was requested; `graph_failures:
+  AADSTS65001, as for an account authorized before Mail.Send was requested, and
+  `graph_consent_refusals: n` refuses only the first n, as while a fresh consent replicates; `graph_failures:
   [{route, method, status, code, message, times}]` injects errors (`graph-send-*`). The
   engine reaches it through `MS_GRAPH_URL` and `MS_OAUTH_TOKEN_URL`, which the server adds to
   the engine's environment (`Server.engine_env`). A draft attachment written as `{filename,

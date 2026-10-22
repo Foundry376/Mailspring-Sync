@@ -367,7 +367,21 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
         // itself cannot be checked without sending.
         alogger.log("\n\n----------MICROSOFT GRAPH----------\n");
         errorService = "microsoft graph";
-        auto parts = SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraph);
+        XOAuth2Parts parts;
+        for (int attempt = 0; ; attempt ++) {
+            try {
+                parts = SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraph);
+                break;
+            } catch (SyncException & ex) {
+                // Azure AD can answer AADSTS65001 for a few seconds after the user granted the
+                // Graph scopes, until the consent replicates (work tenant, 2026-10-22).
+                if (attempt >= 4 || ex.debuginfo.find("AADSTS65001") == string::npos) {
+                    throw;
+                }
+                alogger.log("Microsoft has not finished recording consent (AADSTS65001), retrying in 5s.\n");
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+            }
+        }
         auto resp = PerformGraphRequest("GET", MicrosoftGraphURL() + "/me/mailFolders/sentitems?$select=id", parts.accessToken);
         if (resp.status != 200) {
             alogger.log("Reading Sent Items returned HTTP " + to_string(resp.status) + ": " + GraphErrorDescription(resp) + "\n");
