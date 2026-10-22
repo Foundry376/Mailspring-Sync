@@ -2142,8 +2142,14 @@ void IMAPSession::findUIDsOfRecentHeaderMessageID(String * folder, String * head
         return;
     }
     
-    int min = lastFolderMessageCount() > 15 ? (lastFolderMessageCount() - 15) : 0;
-    set->addRange(RangeMake(min, lastFolderMessageCount() - min));
+    // Sequence numbers start at 1: a range starting at 0 is sent as "*:N", which is only
+    // message N, so in a folder of 15 messages or fewer only the newest one was checked.
+    unsigned int count = lastFolderMessageCount();
+    if (count == 0) {
+        return;
+    }
+    unsigned int min = count > 15 ? (count - 15) : 1;
+    set->addRange(RangeMake(min, count - min));
     Array * lastFew = fetchMessagesByNumber(folder, IMAPMessagesRequestKindHeaders, set, nullptr, &err);
     if (err != ErrorNone) {
         return;
