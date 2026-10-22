@@ -53,6 +53,14 @@ static string MAILSPRING_FOLDER_PREFIX_V2 = "Mailspring";
 // How long after a send a later copy in Sent is taken to be the server's late copy of it.
 #define SENT_COPY_CLEANUP_WINDOW    (30 * 60)
 
+// Microsoft Graph rejects requests over 4 MB with 413. A message is uploaded as base64 MIME, so
+// attachments are moved out of it until it fits and added to the draft one request each:
+// whole when their base64 fits a request, otherwise through an upload session, whose chunks
+// must be multiples of 320 KiB. https://learn.microsoft.com/en-us/graph/outlook-large-attachments
+#define GRAPH_MAX_REQUEST_BYTES         (3500 * 1024)
+#define GRAPH_MAX_SIMPLE_ATTACHMENT     (2500 * 1024)
+#define GRAPH_UPLOAD_CHUNK_BYTES        (10 * 320 * 1024)
+
 static vector<string> ACCOUNT_RESET_QUERIES = {
     "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Folder` WHERE `accountId` = ?)",
     "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Label` WHERE `accountId` = ?)",

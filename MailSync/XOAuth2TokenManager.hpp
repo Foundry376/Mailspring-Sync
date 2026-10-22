@@ -16,6 +16,7 @@
 #include <mutex>
 #include <condition_variable>
 #include "Account.hpp"
+#include "NetworkRequestUtils.hpp"
 #include "json.hpp"
 #include "spdlog/spdlog.h"
 
@@ -35,7 +36,7 @@ class XOAuth2TokenManager  {
 public:
     XOAuth2TokenManager();
     ~XOAuth2TokenManager();
-    XOAuth2Parts partsForAccount(shared_ptr<Account> account);
+    XOAuth2Parts partsForAccount(shared_ptr<Account> account, OAuthTokenAudience audience = OAuthTokenAudience::Mail);
 };
 
 

@@ -42,6 +42,7 @@
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
 #include "NetworkRequestUtils.hpp"
+#include "XOAuth2TokenManager.hpp"
 #include "ThreadUtils.h"
 #include "constants.h"
 #include "SPDLogExtensions.hpp"
@@ -357,6 +358,23 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
     }
     if (err != ErrorNone) {
         alogger.log("\n\nRequired folder not found. Ensure your account has an `Inbox` folder, or if this is a Gmail account, verify that `All Mail` is enabled for IMAP in your Gmail settings.\n");
+        goto done;
+    }
+
+    if (account->sendsViaGraph()) {
+        // Mail goes out through Graph, so SMTP AUTH (often disabled on Exchange Online) is never
+        // exercised. Reading Sent Items proves the token carries the Graph mail scopes; Mail.Send
+        // itself cannot be checked without sending.
+        alogger.log("\n\n----------MICROSOFT GRAPH----------\n");
+        errorService = "microsoft graph";
+        auto parts = SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraph);
+        auto resp = PerformGraphRequest("GET", MicrosoftGraphURL() + "/me/mailFolders/sentitems?$select=id", parts.accessToken);
+        if (resp.status != 200) {
+            alogger.log("Reading Sent Items returned HTTP " + to_string(resp.status) + ": " + GraphErrorDescription(resp) + "\n");
+            err = (resp.status == 401 || resp.status == 403) ? ErrorAuthentication : ErrorConnection;
+        } else {
+            alogger.log("Sent Items is readable through Microsoft Graph.\n");
+        }
         goto done;
     }
 

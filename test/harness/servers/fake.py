@@ -7,6 +7,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from fakeimap import FakeImapServer, Store  # noqa: E402
 from fakeimap.smtp import FakeSmtpServer  # noqa: E402
+from fakeimap.graph import FakeGraphServer  # noqa: E402
 from .base import Server
 
 
@@ -15,7 +16,10 @@ class FakeServer(Server):
 
     def __init__(self, personality: str = "dovecot", log_path: Optional[str] = None, smtp: bool = False,
                  email: str = "test@example.test", reject_non_fqdn_helo: bool = False,
-                 smtp_sent_copy: Optional[str] = None, smtp_sent_copy_delay: float = 0, **kw):
+                 smtp_sent_copy: Optional[str] = None, smtp_sent_copy_delay: float = 0,
+                 smtp_auth_response: Optional[str] = None, graph: bool = False, graph_send: bool = True,
+                 graph_consented: bool = True, graph_sent_copy: Optional[str] = "Sent Items",
+                 graph_sent_copy_delay: float = 0, graph_failures: Optional[list] = None, **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
@@ -27,26 +31,55 @@ class FakeServer(Server):
         self.smtp = FakeSmtpServer(credentials=(self.username, self.password), reject_non_fqdn_helo=reject_non_fqdn_helo,
                                    deliver_to=(self.store, "INBOX", email),
                                    sent_copy=(self.store, smtp_sent_copy) if smtp_sent_copy else None,
-                                   sent_copy_delay=smtp_sent_copy_delay) if smtp else None
+                                   sent_copy_delay=smtp_sent_copy_delay,
+                                   auth_response=smtp_auth_response) if smtp else None
+        # `graph: true` makes the account a Microsoft OAuth account: IMAP and SMTP take the
+        # fake's mail-scoped access tokens, and with `graph_send` (the default) mail goes out
+        # through the fake Graph API, which files its Sent Items copy in `graph_sent_copy`.
+        self.graph_send = graph and graph_send
+        self.graph = FakeGraphServer(graph_consented=graph_consented,
+                                     sent_copy=(self.store, graph_sent_copy) if graph_sent_copy else None,
+                                     sent_copy_delay=graph_sent_copy_delay, failures=graph_failures,
+                                     deliver_to=(self.store, "INBOX", email)) if graph else None
+        if self.graph:
+            self.imap.oauth_tokens = self.graph.mail_tokens
+            if self.smtp:
+                self.smtp.oauth_tokens = self.graph.mail_tokens
 
     def start(self):
         self.imap.start()
         self.port = self.imap.port
         if self.smtp:
             self.smtp.start()
+        if self.graph:
+            self.graph.start()
         return self
 
     def stop(self):
         self.imap.stop()
         if self.smtp:
             self.smtp.stop()
+        if self.graph:
+            self.graph.stop()
 
     def account_kwargs(self) -> dict:
         kw = super().account_kwargs()
         kw["email"] = self.email
         if self.smtp:
             kw["smtp_host"], kw["smtp_port"] = "127.0.0.1", self.smtp.port
+        if self.graph:
+            kw["provider"] = "office365"
+            kw["extra_settings"] = {
+                "refresh_client_id": "harness-client-id",
+                "refresh_token": self.graph.refresh_token,
+                "graph_send": self.graph_send,
+            }
         return kw
+
+    def engine_env(self) -> dict:
+        if not self.graph:
+            return {}
+        return {"MS_GRAPH_URL": self.graph.url, "MS_OAUTH_TOKEN_URL": self.graph.token_url}
 
     def sent_messages(self) -> list:
         return list(self.smtp.messages) if self.smtp else []

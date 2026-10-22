@@ -19,6 +19,10 @@
 #include <vector>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+#include <thread>
+#include <chrono>
+#include "spdlog/spdlog.h"
 
 #if __APPLE__
 #include <Security/Security.h>
@@ -189,14 +193,18 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
     return real_size;
 }
 
-const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken) {
+const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken, OAuthTokenAudience audience) {
     CURL * curl_handle = CreateCurlHandle();
-    const char * url =
+    bool microsoft = provider == "office365" || provider == "outlook";
+    string microsoftURL = MailUtils::getEnvUTF8("MS_OAUTH_TOKEN_URL");
+    if (microsoftURL == "") {
+        microsoftURL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+    }
+    string url =
           provider == "gmail" ? "https://www.googleapis.com/oauth2/v4/token"
-        : provider == "office365" ? "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-        : provider == "outlook" ? "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        : microsoft ? microsoftURL
         : "";
-    curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
 
     char * c = curl_easy_escape(curl_handle, clientId.c_str(), 0);
@@ -205,11 +213,15 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
     curl_free(c);
     curl_free(r);
 
-    if (provider == "office365" || provider == "outlook") {
+    if (microsoft) {
         // workaround the fact that Microsoft's OAUTH flow allows you to authorize many scopes, but you
         // have to get a separate token for outlook (email + IMAP) and contacts / calendar / Microsoft Graph APIs
         // separately. The same refresh token will give you access tokens, but the access tokens are different.
-        payload += "&scope=https%3A%2F%2Foutlook.office.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send";
+        if (audience == OAuthTokenAudience::MicrosoftGraph) {
+            payload += "&scope=https%3A%2F%2Fgraph.microsoft.com%2FMail.ReadWrite%20https%3A%2F%2Fgraph.microsoft.com%2FMail.Send";
+        } else {
+            payload += "&scope=https%3A%2F%2Foutlook.office.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send";
+        }
     }
 
     string gmailClientId = MailUtils::getEnvUTF8("GMAIL_CLIENT_ID");
@@ -340,6 +352,118 @@ void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
         string debuginfo = url + " RETURNED " + resp;
         throw SyncException("Invalid Response Code: " + to_string(http_code), debuginfo, retryable);
     }
+}
+
+// Microsoft Graph
+
+string MicrosoftGraphURL() {
+    string url = MailUtils::getEnvUTF8("MS_GRAPH_URL");
+    return url != "" ? url : "https://graph.microsoft.com/v1.0";
+}
+
+static size_t _onGraphHeader(char * buffer, size_t size, size_t nitems, void * userdata) {
+    size_t length = size * nitems;
+    string line(buffer, length);
+    static const string RETRY_AFTER = "retry-after:";
+    if (line.size() > RETRY_AFTER.size()) {
+        string name = line.substr(0, RETRY_AFTER.size());
+        std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+        if (name == RETRY_AFTER) {
+            try {
+                *(long *)userdata = stol(line.substr(RETRY_AFTER.size()));
+            } catch (std::exception &) {
+                // An HTTP-date instead of seconds: fall back to the default wait.
+            }
+        }
+    }
+    return length;
+}
+
+static GraphResponse _performGraphRequestOnce(string method, string url, string accessToken, const string & body, string contentType, vector<string> & headers) {
+    CURL * curl_handle = CreateCurlHandle();
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
+    // Uploads can be large, so bound a stalled transfer rather than the whole request.
+    curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_TIME, 60L);
+
+    CurlRequestData *requestData = new CurlRequestData();
+    requestData->headers = curl_slist_append(requestData->headers, "Accept: application/json");
+    if (accessToken != "") {
+        requestData->headers = curl_slist_append(requestData->headers, ("Authorization: Bearer " + accessToken).c_str());
+        // Ids that survive the draft moving to Sent Items, so the sent copy can be found by the
+        // draft's id. https://learn.microsoft.com/en-us/graph/outlook-immutable-id
+        requestData->headers = curl_slist_append(requestData->headers, "Prefer: IdType=\"ImmutableId\"");
+    }
+    for (auto & header : headers) {
+        requestData->headers = curl_slist_append(requestData->headers, header.c_str());
+    }
+    if (method != "GET" && method != "DELETE") {
+        // Always send a body, even an empty one: Graph answers a bodiless POST with 411.
+        requestData->headers = curl_slist_append(requestData->headers, ("Content-Type: " + contentType).c_str());
+        curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, body.data());
+        curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)body.size());
+    }
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, requestData->headers);
+    curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_PRIVATE, requestData);
+
+    GraphResponse resp {0, nullptr, 0};
+    string result;
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
+    curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, _onGraphHeader);
+    curl_easy_setopt(curl_handle, CURLOPT_HEADERDATA, (void *)&resp.retryAfter);
+    CURLcode res = curl_easy_perform(curl_handle);
+
+#if __APPLE__
+    if (res == CURLE_ABORTED_BY_CALLBACK) {
+        CleanupCurlRequest(curl_handle);
+        throw SyncException(CURLE_PEER_FAILED_VERIFICATION, url + " " + _secTrustRejection);
+    }
+#endif
+    if (res != CURLE_OK) {
+        CleanupCurlRequest(curl_handle);
+        throw SyncException(res, url);
+    }
+    curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &resp.status);
+    CleanupCurlRequest(curl_handle);
+
+    try {
+        resp.body = result.size() ? json::parse(result) : json::object();
+    } catch (json::exception &) {
+        resp.body = {{"text", result}};
+    }
+    return resp;
+}
+
+GraphResponse PerformGraphRequest(string method, string url, string accessToken, const string & body, string contentType, vector<string> headers) {
+    GraphResponse resp {0, nullptr, 0};
+    for (int attempt = 0; attempt < 3; attempt ++) {
+        resp = _performGraphRequestOnce(method, url, accessToken, body, contentType, headers);
+        if (resp.status != 429 && resp.status != 503) {
+            break;
+        }
+        long wait = (std::min)((std::max)(resp.retryAfter, 1L), 30L); // parenthesized for <windows.h>'s min/max macros
+        spdlog::get("logger")->info("-- Graph returned {}, retrying in {}s", resp.status, wait);
+        std::this_thread::sleep_for(std::chrono::seconds(wait));
+    }
+    return resp;
+}
+
+string GraphErrorDescription(const GraphResponse & resp) {
+    const json & body = resp.body;
+    if (body.is_object() && body.count("error") && body["error"].is_object()) {
+        const json & error = body["error"];
+        string code = error.count("code") && error["code"].is_string() ? error["code"].get<string>() : "";
+        string message = error.count("message") && error["message"].is_string() ? error["message"].get<string>() : "";
+        return code + ": " + message;
+    }
+    string text = body.dump();
+    if (text.length() > 512) {
+        text = text.substr(0, 512) + "... (truncated)";
+    }
+    return "HTTP " + to_string(resp.status) + " " + text;
 }
 
 // Shorthand methods for Identity Server

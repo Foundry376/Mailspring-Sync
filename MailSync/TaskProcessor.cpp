@@ -27,6 +27,7 @@
 #include "ProgressCollectors.hpp"
 #include "SyncException.hpp"
 #include "NetworkRequestUtils.hpp"
+#include "XOAuth2TokenManager.hpp"
 
 #include <sstream>
 #include <algorithm>
@@ -2083,6 +2084,217 @@ void TaskProcessor::removeLateSentCopies(Folder & sent) {
     }
 }
 
+// Sending through Microsoft Graph
+//
+// Exchange Online can refuse SMTP AUTH for a whole tenant (5.7.139), so accounts that consented
+// to Graph Mail.Send send through Graph instead. The message is created as a draft from our own
+// MIME (so Message-ID, References and the body are exactly what SMTP would have sent), oversized
+// attachments are added to the draft separately, and the draft is sent. Exchange always files the
+// sent copy in Sent Items under the draft's immutable id, so we never APPEND one ourselves.
+
+static size_t _base64Length(size_t length) {
+    return 4 * ((length + 2) / 3);
+}
+
+// Graph ids are base64 and may contain '/' and '+'.
+static string _graphIdForURL(string graphId) {
+    char * escaped = curl_easy_escape(nullptr, graphId.c_str(), (int)graphId.size());
+    string result = escaped ? escaped : graphId;
+    curl_free(escaped);
+    return result;
+}
+
+static string _mcString(String * value, string fallback = "") {
+    return (value != nullptr && value->length() > 0) ? string(value->UTF8Characters()) : fallback;
+}
+
+static void _throwGraphSendFailed(string step, const GraphResponse & resp) {
+    string description = GraphErrorDescription(resp);
+    spdlog::get("logger")->error("-X Microsoft Graph could not {} (HTTP {}): {}", step, resp.status, description);
+    throw SyncException("send-failed", "Microsoft could not " + step + ". " + description, false);
+}
+
+static void _graphDeleteQuietly(string token, string messageURL) {
+    try {
+        PerformGraphRequest("DELETE", messageURL, token);
+    } catch (std::exception & ex) {
+        spdlog::get("logger")->warn("-- Could not delete the unsent Graph draft: {}", ex.what());
+    }
+}
+
+static void _graphAddAttachment(string token, string messageURL, Attachment * a) {
+    Data * data = a->data();
+    string name = _mcString(a->filename(), "attachment");
+    json item = {
+        {"name", name},
+        {"contentType", _mcString(a->mimeType(), "application/octet-stream")},
+        {"isInline", a->isInlineAttachment()},
+    };
+    if (a->contentID() != nullptr) {
+        item["contentId"] = _mcString(a->contentID());
+    }
+
+    if (data->length() <= GRAPH_MAX_SIMPLE_ATTACHMENT) {
+        spdlog::get("logger")->info("-- Adding attachment {} ({} bytes) to the Graph draft", name, data->length());
+        item["@odata.type"] = "#microsoft.graph.fileAttachment";
+        item["contentBytes"] = MailUtils::toBase64(data->bytes(), data->length());
+        auto resp = PerformGraphRequest("POST", messageURL + "/attachments", token, item.dump());
+        if (resp.status < 200 || resp.status > 299) {
+            _throwGraphSendFailed("attach " + name, resp);
+        }
+        return;
+    }
+
+    spdlog::get("logger")->info("-- Uploading attachment {} ({} bytes) to the Graph draft", name, data->length());
+    item["attachmentType"] = "file";
+    item["size"] = data->length();
+    json payload = {{"AttachmentItem", item}};
+    auto session = PerformGraphRequest("POST", messageURL + "/attachments/createUploadSession", token, payload.dump());
+    if (session.status < 200 || session.status > 299 || !session.body.count("uploadUrl") || !session.body["uploadUrl"].is_string()) {
+        _throwGraphSendFailed("start uploading " + name, session);
+    }
+    string uploadURL = session.body["uploadUrl"].get<string>();
+
+    size_t total = data->length();
+    for (size_t offset = 0; offset < total; offset += GRAPH_UPLOAD_CHUNK_BYTES) {
+        size_t length = (std::min)((size_t)GRAPH_UPLOAD_CHUNK_BYTES, total - offset);
+        string chunk(data->bytes() + offset, length);
+        string range = "Content-Range: bytes " + to_string(offset) + "-" + to_string(offset + length - 1) + "/" + to_string(total);
+        // The upload URL carries its own credential and rejects an Authorization header.
+        auto resp = PerformGraphRequest("PUT", uploadURL, "", chunk, "application/octet-stream", {range});
+        if (resp.status < 200 || resp.status > 299) {
+            _throwGraphSendFailed("upload " + name, resp);
+        }
+    }
+}
+
+// Removes the largest attachments from the builder until its MIME fits in one Graph request,
+// and returns them. The builder is left without them.
+static vector<Attachment *> _detachAttachmentsForGraph(MessageBuilder & builder) {
+    vector<Attachment *> detached;
+    Array * attachments = Array::array();
+    attachments->addObjectsFromArray(builder.attachments());
+    Array * related = Array::array();
+    related->addObjectsFromArray(builder.relatedAttachments());
+
+    while (_base64Length(builder.data()->length()) > GRAPH_MAX_REQUEST_BYTES) {
+        Array * owner = nullptr;
+        Attachment * largest = nullptr;
+        for (Array * list : {attachments, related}) {
+            for (unsigned int i = 0; i < list->count(); i ++) {
+                Attachment * a = (Attachment *)list->objectAtIndex(i);
+                if (largest == nullptr || a->data()->length() > largest->data()->length()) {
+                    largest = a;
+                    owner = list;
+                }
+            }
+        }
+        if (largest == nullptr) {
+            break; // the body alone is too large; Graph's 413 will say so
+        }
+        detached.push_back(largest);
+        owner->removeObject(largest);
+        builder.setAttachments(attachments);
+        builder.setRelatedAttachments(related);
+    }
+    return detached;
+}
+
+// Creates, fills and sends a Graph draft. Returns the draft's immutable id, which the copy
+// Exchange files in Sent Items keeps.
+static string _sendViaGraph(shared_ptr<Account> account, MessageBuilder & builder) {
+    auto logger = spdlog::get("logger");
+    string token;
+    try {
+        token = SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraph).accessToken;
+    } catch (SyncException & ex) {
+        throw SyncException("send-failed", "Microsoft did not authorize sending. Reconnect this account in Preferences > Accounts. " + ex.debuginfo, false);
+    }
+
+    vector<Attachment *> detached = _detachAttachmentsForGraph(builder);
+    Data * mime = builder.data();
+    logger->info("-- Creating Graph draft ({} bytes of MIME, {} attachments added separately)", mime->length(), detached.size());
+
+    string encoded = MailUtils::toBase64(mime->bytes(), mime->length());
+    auto created = PerformGraphRequest("POST", MicrosoftGraphURL() + "/me/messages", token, encoded, "text/plain");
+    if (created.status != 201 || !created.body.count("id") || !created.body["id"].is_string()) {
+        _throwGraphSendFailed("create the message", created);
+    }
+    string graphId = created.body["id"].get<string>();
+    string messageURL = MicrosoftGraphURL() + "/me/messages/" + _graphIdForURL(graphId);
+
+    try {
+        for (Attachment * a : detached) {
+            _graphAddAttachment(token, messageURL, a);
+        }
+    } catch (...) {
+        _graphDeleteQuietly(token, messageURL);
+        throw;
+    }
+
+    logger->info("-- Sending Graph draft");
+    GraphResponse sent;
+    try {
+        sent = PerformGraphRequest("POST", messageURL + "/send", token);
+    } catch (SyncException & ex) {
+        // No response: the message may or may not have gone out, so leave the draft alone.
+        throw SyncException("send-failed", "The connection to Microsoft was lost while sending. Check your Sent folder before sending again. " + ex.debuginfo, false);
+    }
+    if (sent.status >= 500) {
+        // A gateway error can arrive after Exchange accepted the message. Deleting the draft
+        // then could cancel or remove a message that went out, so leave it alone.
+        logger->error("-X Graph returned {} for /send: {}", sent.status, GraphErrorDescription(sent));
+        throw SyncException("send-failed", "Microsoft returned an error while sending. Check your Sent folder before sending again. " + GraphErrorDescription(sent), false);
+    }
+    if (sent.status < 200 || sent.status > 299) {
+        _graphDeleteQuietly(token, messageURL);
+        _throwGraphSendFailed("send the message", sent);
+    }
+    return graphId;
+}
+
+// Waits for Exchange to file the sent copy in Sent Items and returns its Message-ID (without
+// angle brackets), or "" if it has not appeared. Exchange creates the copy only once the
+// message has been submitted, typically within seconds.
+static string _waitForGraphSentCopy(shared_ptr<Account> account, string graphId) {
+    auto logger = spdlog::get("logger");
+    try {
+        string token = SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraph).accessToken;
+        auto sentItems = PerformGraphRequest("GET", MicrosoftGraphURL() + "/me/mailFolders/sentitems?$select=id", token);
+        if (sentItems.status != 200 || !sentItems.body.count("id") || !sentItems.body["id"].is_string()) {
+            logger->error("-X Could not look up Sent Items: {}", GraphErrorDescription(sentItems));
+            return "";
+        }
+        string sentItemsId = sentItems.body["id"].get<string>();
+        string url = MicrosoftGraphURL() + "/me/messages/" + _graphIdForURL(graphId) + "?$select=parentFolderId,internetMessageId";
+
+        for (int delay : {0, 1, 1, 2, 2, 3, 3, 5, 5, 8, 10, 10}) {
+            if (delay) {
+                std::this_thread::sleep_for(std::chrono::seconds(delay));
+            }
+            auto resp = PerformGraphRequest("GET", url, token);
+            if (resp.status == 200 && resp.body.value("parentFolderId", json()) == sentItemsId) {
+                json internetMessageId = resp.body.value("internetMessageId", json());
+                string messageId = internetMessageId.is_string() ? internetMessageId.get<string>() : "";
+                if (messageId.size() > 1 && messageId.front() == '<' && messageId.back() == '>') {
+                    messageId = messageId.substr(1, messageId.size() - 2);
+                }
+                logger->info("-- Exchange filed the sent copy in Sent Items (Message-ID {})", messageId);
+                return messageId;
+            }
+            if (resp.status != 200 && resp.status != 404) {
+                logger->warn("-- Looking for the sent copy returned {}", GraphErrorDescription(resp));
+            }
+        }
+    } catch (std::exception & ex) {
+        // The message has gone out; failing to find its copy must not fail the send.
+        logger->error("-X Could not look for the sent copy: {}", ex.what());
+        return "";
+    }
+    logger->error("-X Exchange has not filed the sent copy yet. It will arrive with the next sync, without draft metadata.");
+    return "";
+}
+
 void TaskProcessor::performRemoteSendDraft(Task * task) {
     AutoreleasePool pool;
     ErrorCode err = ErrorNone;
@@ -2222,53 +2434,75 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     // Save the message data / body we'll write to the sent folder
     Data * messageDataForSent = builder.data();
 
-    /*
-    OK! If we've reached this point we're going to deliver the message. To do multisend,
-    we need to hit the SMTP gateway more than once. If one request fails we stop and mark
-    the task as failed, but keep track of who got the message.
-    */
+    bool viaGraph = account->sendsViaGraph();
+    string sentMessageId = draft.headerMessageId();
 
-    SMTPSession smtp;
-    SMTPProgress sprogress;
-    MailUtils::configureSessionForAccount(smtp, account);
-    string succeeded;
-
-    if (multisend) {
-        logger->info("-- Sending customized message bodies to each recipient:");
-
-        for (json::iterator it = perRecipientBodies.begin(); it != perRecipientBodies.end(); ++it) {
-            if (it.key() == "self") {
-                continue;
-            }
-            
-            logger->info("--- Sending to {}", it.key());
-            if (plaintext) {
-                builder.setTextBody(AS_MCSTR(it.value().get<string>()));
-            } else {
-                builder.setHTMLBody(AS_MCSTR(it.value().get<string>()));
-            }
-            Address * to = Address::addressWithMailbox(AS_MCSTR(it.key()));
-            Data * messageData = builder.data();
-            smtp.sendMessage(builder.header()->from(), Array::arrayWithObject(to), messageData, &sprogress, &err);
-            if (err != ErrorNone) {
-                break;
-            }
-            succeeded += "\n - " + it.key();
+    if (viaGraph) {
+        // Graph delivers to every To/Cc/Bcc in the MIME and has no separate envelope, so it
+        // cannot send each recipient their own body. The client does not ask it to.
+        if (multisend) {
+            throw SyncException("send-failed", "Separate per-recipient bodies cannot be sent through Microsoft Graph.", false);
         }
-
+        logger->info("-- Sending through Microsoft Graph:");
+        string graphId = _sendViaGraph(account, builder);
+        string filedMessageId = _waitForGraphSentCopy(account, graphId);
+        if (filedMessageId != "") {
+            sentMessageId = filedMessageId;
+        }
     } else {
-        logger->info("-- Sending a single message body to all recipients:");
-        smtp.sendMessage(messageDataForSent, &sprogress, &err);
-    }
-    
-    if (err != ErrorNone) {
-        int e = smtp.lastLibetpanError();
-        string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : to_string(e);
-        logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], es);
-        if (succeeded.size() > 0) {
-            throw SyncException("send-partially-failed", ErrorCodeToTypeMap[err] + ":::" + succeeded, false);
+        /*
+        OK! If we've reached this point we're going to deliver the message. To do multisend,
+        we need to hit the SMTP gateway more than once. If one request fails we stop and mark
+        the task as failed, but keep track of who got the message.
+        */
+
+        SMTPSession smtp;
+        SMTPProgress sprogress;
+        MailUtils::configureSessionForAccount(smtp, account);
+        string succeeded;
+
+        if (multisend) {
+            logger->info("-- Sending customized message bodies to each recipient:");
+
+            for (json::iterator it = perRecipientBodies.begin(); it != perRecipientBodies.end(); ++it) {
+                if (it.key() == "self") {
+                    continue;
+                }
+            
+                logger->info("--- Sending to {}", it.key());
+                if (plaintext) {
+                    builder.setTextBody(AS_MCSTR(it.value().get<string>()));
+                } else {
+                    builder.setHTMLBody(AS_MCSTR(it.value().get<string>()));
+                }
+                Address * to = Address::addressWithMailbox(AS_MCSTR(it.key()));
+                Data * messageData = builder.data();
+                smtp.sendMessage(builder.header()->from(), Array::arrayWithObject(to), messageData, &sprogress, &err);
+                if (err != ErrorNone) {
+                    break;
+                }
+                succeeded += "\n - " + it.key();
+            }
+
         } else {
-            throw SyncException("send-failed", ErrorCodeToTypeMap[err], false);
+            logger->info("-- Sending a single message body to all recipients:");
+            smtp.sendMessage(messageDataForSent, &sprogress, &err);
+        }
+    
+        if (err != ErrorNone) {
+            int e = smtp.lastLibetpanError();
+            string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : to_string(e);
+            logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], es);
+            String * response = smtp.lastSMTPResponse();
+            if (succeeded.size() > 0) {
+                throw SyncException("send-partially-failed", ErrorCodeToTypeMap[err] + ":::" + succeeded, false);
+            } else if (response != nullptr && string(response->UTF8Characters()).find("5.7.139") != string::npos) {
+                // Exchange Online refuses SMTP AUTH for this tenant or mailbox (or under security
+                // defaults). Reconnecting the account switches it to Graph. https://aka.ms/smtp_auth_disabled
+                throw SyncException("smtp-auth-disabled", response->UTF8Characters(), false);
+            } else {
+                throw SyncException("send-failed", ErrorCodeToTypeMap[err], false);
+            }
         }
     }
     
@@ -2284,7 +2518,26 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
      */
     uint32_t sentFolderMessageUID = 0;
     bool appendedToSent = false;
-    {
+    if (viaGraph) {
+        // Graph has already seen the copy in Sent Items; IMAP can show it a moment later.
+        IndexSet * uids = IndexSet::indexSet();
+        for (int delay : {0, 1, 2, 3}) {
+            if (delay) {
+                std::this_thread::sleep_for(std::chrono::seconds(delay));
+            }
+            uids->removeAllIndexes();
+            session->findUIDsOfRecentHeaderMessageID(sentPath, AS_MCSTR(sentMessageId), uids);
+            if (uids->count() > 0) {
+                break;
+            }
+        }
+        if (uids->count() > 0) {
+            sentFolderMessageUID = (uint32_t)uids->allRanges()[0].location;
+            logger->info("-- Found the sent copy Exchange filed in {} (UID {}, {} copies)", sent->path(), sentFolderMessageUID, uids->count());
+        } else {
+            logger->info("-- The sent copy is not visible in {} yet; the next sync will pick it up.", sent->path());
+        }
+    } else {
         // Exchange Online files its copy 0.5-3.5 s after the SMTP 250, sometimes 6-8 s, and
         // was seen to take ~3 min (76 sends, 2026-09-27); Gmail, Yahoo and Zoho file one too,
         // iCloud and Fastmail by default do not. A Sent folder where a copy has turned up
@@ -2344,7 +2597,7 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         }
     }
 
-    if (sentFolderMessageUID == 0) {
+    if (sentFolderMessageUID == 0 && !viaGraph) {
         // Manually place a single message in the sent folder
         IMAPProgress iprogress;
         logger->info("-- Placing a new message with `self` body in the sent folder.");

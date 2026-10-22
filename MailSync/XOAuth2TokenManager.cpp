@@ -87,8 +87,8 @@ XOAuth2TokenManager::~XOAuth2TokenManager() {
 
 
 
-XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
-    string key = account->id();
+XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, OAuthTokenAudience audience) {
+    string key = account->id() + (audience == OAuthTokenAudience::MicrosoftGraph ? ":graph" : "");
     
     // There's not much of a point to having two threads request the same token at once.
     // Only allow one thread to access / update the cache and make others wait until it
@@ -108,8 +108,9 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account) {
         throw SyncException("invalid-xoauth2-resp", "XOAuth2 token expired and Mailspring no longer does server-side token refresh.", false);
     }
 
-    spdlog::get("logger")->info("Fetching XOAuth2 access token ({}) for {}", account->provider(), account->id());
-    json updated = MakeOAuthRefreshRequest(account->provider(), refreshClientId, account->refreshToken());
+    spdlog::get("logger")->info("Fetching XOAuth2 access token ({}{}) for {}", account->provider(),
+        audience == OAuthTokenAudience::MicrosoftGraph ? ", Graph" : "", account->id());
+    json updated = MakeOAuthRefreshRequest(account->provider(), refreshClientId, account->refreshToken(), audience);
 
     // A 2xx does not mean the body is a token response: a captive portal or intercepting
     // proxy answers 200 with its own sign-in page, which PerformJSONRequest returns as
