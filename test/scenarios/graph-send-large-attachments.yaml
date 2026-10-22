@@ -1,9 +1,9 @@
 name: graph-send-large-attachments
 description: >
-  A message with 6 MB of attachments is sent through Microsoft Graph, which refuses any request
-  over 4 MB. The engine creates the draft from MIME that holds what fits, adds a mid-sized
-  attachment with one POST and uploads the largest through an upload session in 320 KiB-multiple
-  chunks, then sends. Every attachment, the inline image included, must reach the recipient and
+  A message with 8.8 MB of attachments is sent through Microsoft Graph, which refuses any request
+  over 4 MB. The engine creates the draft from MIME that holds what fits, adds the attachments
+  under 3 MB with one POST each (the 2.8 MB one included) and uploads the 3 MB one through an
+  upload session in 320 KiB-multiple chunks, as Graph documents, then sends. Every attachment, the inline image included, must reach the recipient and
   the Sent Items copy, and no request may exceed the limit.
 source: "Graph request size limit and upload sessions: https://learn.microsoft.com/en-us/graph/outlook-large-attachments"
 servers:
@@ -28,6 +28,7 @@ steps:
         fwdMsgId: ""
         files:
           - {filename: "video.bin", bytes: 3000000}
+          - {filename: "deck.pptx", bytes: 2800000}
           - {filename: "slides.pdf", bytes: 2000000, contentType: "application/pdf"}
           - {filename: "notes.txt", bytes: 900000, contentType: "text/plain"}
           - {filename: "logo.png", bytes: 100000, contentType: "image/png", contentId: "logo@example.test"}
@@ -45,10 +46,10 @@ expect:
     max_request_bytes: 4194304
     messages:
       - recipients: ["bob@example.net"]
-        attachments: ["video.bin", "slides.pdf", "notes.txt", "logo.png"]
+        attachments: ["video.bin", "deck.pptx", "slides.pdf", "notes.txt", "logo.png"]
   server_counts: {Sent Items: 1}
   counts: {Sent Items: 1}
-  log_present: ["Uploading attachment video.bin", "Adding attachment slides.pdf"]
+  log_present: ["Uploading attachment video.bin", "Adding attachment deck.pptx", "Adding attachment slides.pdf"]
   log_absent: ["Placing a new message"]
   db_matches_server: {}
   running: true

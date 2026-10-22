@@ -2135,7 +2135,7 @@ static void _graphAddAttachment(const string & token, const string & messageURL,
         item["contentId"] = _mcString(a->contentID());
     }
 
-    if (data->length() <= GRAPH_MAX_SIMPLE_ATTACHMENT) {
+    if (data->length() < GRAPH_MIN_UPLOAD_SESSION_BYTES) {
         spdlog::get("logger")->info("-- Adding attachment {} ({} bytes) to the Graph draft", name, data->length());
         item["@odata.type"] = "#microsoft.graph.fileAttachment";
         item["contentBytes"] = MailUtils::toBase64(data->bytes(), data->length());

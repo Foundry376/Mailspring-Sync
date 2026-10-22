@@ -54,11 +54,13 @@ static string MAILSPRING_FOLDER_PREFIX_V2 = "Mailspring";
 #define SENT_COPY_CLEANUP_WINDOW    (30 * 60)
 
 // Microsoft Graph rejects requests over 4 MB with 413. A message is uploaded as base64 MIME, so
-// attachments are moved out of it until it fits and added to the draft one request each:
-// whole when their base64 fits a request, otherwise through an upload session, whose chunks
-// must be multiples of 320 KiB. https://learn.microsoft.com/en-us/graph/outlook-large-attachments
+// attachments are moved out of it until it fits and added to the draft one request each: in
+// one POST below 3 MB, otherwise through an upload session, whose chunks must be multiples of
+// 320 KiB. https://learn.microsoft.com/en-us/graph/outlook-large-attachments documents those
+// limits; a 2,999,999-byte POST (a 4,000,130-byte request) succeeded on outlook.com and
+// Exchange Online (2026-10-22).
 #define GRAPH_MAX_REQUEST_BYTES         (3500 * 1024)
-#define GRAPH_MAX_SIMPLE_ATTACHMENT     (2500 * 1024)
+#define GRAPH_MIN_UPLOAD_SESSION_BYTES  3000000
 #define GRAPH_UPLOAD_CHUNK_BYTES        (10 * 320 * 1024)
 
 static vector<string> ACCOUNT_RESET_QUERIES = {
