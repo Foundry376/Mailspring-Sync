@@ -78,6 +78,6 @@ expect:
   smtp: {count: 0}
   graph: {count: 0, drafts: 1}
   server_counts: {Sent Items: 0}
-  log_present: ["ErrorAccessDenied: Access is denied", "Graph returned 500 for /send"]
+  log_present: ["ErrorAccessDenied: Access is denied", "could not send the message \\(HTTP 500\\)"]
   db_matches_server: {}
   running: true

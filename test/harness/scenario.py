@@ -940,15 +940,19 @@ class ScenarioRun:
         return out
 
     def expect_task_error(self, arg: dict) -> list:
-        """{label: error key, or null for success}: how each labelled task finished."""
+        """{label: error key, or null for success, or {key, debuginfo: regex}}: how each
+        labelled task finished."""
         out = []
         for label, want in arg.items():
             with self.ms.db() as c:
                 row = c.execute("SELECT data FROM Task WHERE id = ?", (self.labels[label],)).fetchone()
             error = (json.loads(row[0]).get("error") or {}) if row else {}
             got = error.get("key") if error else None
-            if got != want:
-                out.append(f"task {label} finished with error {got!r} ({error.get('debuginfo', '')}), expected {want!r}")
+            want_key = want.get("key") if isinstance(want, dict) else want
+            if got != want_key:
+                out.append(f"task {label} finished with error {got!r} ({error.get('debuginfo', '')}), expected {want_key!r}")
+            elif isinstance(want, dict) and "debuginfo" in want and not re.search(want["debuginfo"], error.get("debuginfo", "")):
+                out.append(f"task {label} error debuginfo {error.get('debuginfo', '')!r} does not match {want['debuginfo']!r}")
         return out
 
     def expect_rules_ready(self, arg: dict) -> list:

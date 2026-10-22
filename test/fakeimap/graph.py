@@ -155,8 +155,9 @@ class _Handler(BaseHTTPRequestHandler):
         route = path[len("/v1.0/me/"):]
         failure = srv.failure_for(route, self.command)
         if failure:
-            return self._error(failure.get("status", 500), failure.get("code", "ErrorInternalServerError"),
-                               failure.get("message", "Injected failure"))
+            headers = {"Retry-After": str(failure["retry_after"])} if "retry_after" in failure else None
+            return self._reply(failure.get("status", 500), {"error": {"code": failure.get("code", "ErrorInternalServerError"),
+                               "message": failure.get("message", "Injected failure")}}, headers)
 
         if route == "mailFolders/sentitems" and self.command == "GET":
             return self._reply(200, {"id": SENT_ITEMS_ID})
@@ -208,6 +209,10 @@ class _Handler(BaseHTTPRequestHandler):
             srv.token_scopes.append(scope)
         if form.get("grant_type") != "refresh_token" or form.get("refresh_token") != srv.refresh_token:
             return self._reply(400, {"error": "invalid_grant", "error_description": "AADSTS70000: The refresh token is invalid."})
+        if GRAPH_SCOPE in scope and srv.drop_graph_token:
+            self.close_connection = True   # no response at all: curl reports CURLE_GOT_NOTHING
+            self.connection.shutdown(2)
+            return
         if GRAPH_SCOPE in scope:
             with srv.lock:
                 lagging = srv.consent_refusals > 0
@@ -296,11 +301,14 @@ class _Handler(BaseHTTPRequestHandler):
 class FakeGraphServer:
     def __init__(self, host="127.0.0.1", port=0, refresh_token="refresh-token", graph_consented=True,
                  sent_copy=None, sent_copy_delay: float = 0, failures: Optional[list] = None, deliver_to=None,
-                 consent_refusals: int = 0, mailbox: Optional[str] = None, aliases=()):
+                 consent_refusals: int = 0, mailbox: Optional[str] = None, aliases=(),
+                 drop_graph_token: bool = False):
         """sent_copy: optional (Store, mailbox) every sent message's copy is appended to, as
         Exchange files it in Sent Items. sent_copy_delay: seconds between /send and that copy.
         graph_consented: whether the refresh token may be exchanged for Graph scopes (an
         account authorized before Mail.Send was requested may not).
+        drop_graph_token: close the connection on Graph token requests without answering, as
+        when the machine goes offline mid-send.
         consent_refusals: refuse the first N Graph token requests with AADSTS65001 anyway, as
         Azure AD does for a few seconds while a consent the user just gave replicates.
         mailbox / aliases: the mailbox's primary address and the aliases it may send as. A
@@ -308,13 +316,15 @@ class FakeGraphServer:
         of `from` sets it, and /send refuses an address outside these with ErrorSendAsDenied
         (outlook.com, 2026-10-22).
         failures: [{route: regex on the path after /v1.0/me/, method, status, code, message,
-        times}] - answer matching requests with that error, `times` times (default always).
+        times, retry_after}] - answer matching requests with that error, `times` times (default
+        always), with a Retry-After header when `retry_after` is given.
         deliver_to: optional (Store, mailbox, address) - sent mail addressed to `address` is
         appended to that mailbox, as Exchange delivers mail the user sends to themself."""
         self.host, self.port = host, port
         self.refresh_token = refresh_token
         self.graph_consented = graph_consented
         self.consent_refusals = consent_refusals
+        self.drop_graph_token = drop_graph_token
         self.mailbox = mailbox
         self.aliases = list(aliases)
         self.sent_copy = sent_copy

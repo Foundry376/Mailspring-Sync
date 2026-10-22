@@ -130,7 +130,7 @@ mailboxes that delta must list, `fetched` whether it is the delta that fetched t
 (the ProcessState stream behind the client's offline state), `migrate_output: regex` (the
 last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], log_absent:
 [regex]}` (runs `--mode test`, the client's account-add check, and compares its JSON),
-`task_error: {label: key or null}` (how a labelled task finished), `graph: {count, messages:
+`task_error: {label: key or null or {key, debuginfo: regex}}` (how a labelled task finished), `graph: {count, messages:
 [{recipients, headers, attachments}], drafts, upload_sessions, graph_token_requests,
 max_request_bytes}` (what the fake Graph server sent and still holds), `unchanged_since:
 snapshot`, `running`, `exit`. Any
@@ -420,11 +420,12 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   Each sent message's copy is appended to `graph_sent_copy` (default `Sent Items`) after
   `graph_sent_copy_delay` seconds; `graph_consented: false` refuses Graph scopes with
   AADSTS65001, as for an account authorized before Mail.Send was requested, and
-  `graph_consent_refusals: n` refuses only the first n, as while a fresh consent replicates;
+  `graph_consent_refusals: n` refuses only the first n, as while a fresh consent replicates,
+  and `graph_drop_token: true` closes the connection on them unanswered, as when offline;
   `graph_aliases: [address]` are the addresses besides the account's own it may send as - a
   MIME draft from any other address is rewritten to the account's, as Exchange does, and
   /send refuses a From outside them with ErrorSendAsDenied; `graph_failures:
-  [{route, method, status, code, message, times}]` injects errors (`graph-send-*`). The
+  [{route, method, status, code, message, times, retry_after}]` injects errors (`graph-send-*`). The
   engine reaches it through `MS_GRAPH_URL` and `MS_OAUTH_TOKEN_URL`, which the server adds to
   the engine's environment (`Server.engine_env`). A draft attachment written as `{filename,
   bytes, contentType, contentId}` is created on disk where the engine looks for it.

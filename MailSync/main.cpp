@@ -382,10 +382,10 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
                 std::this_thread::sleep_for(std::chrono::seconds(5));
             }
         }
-        auto resp = PerformGraphRequest("GET", MicrosoftGraphURL() + "/me/mailFolders/sentitems?$select=id", parts.accessToken);
-        if (resp.status != 200) {
-            alogger.log("Reading Sent Items returned HTTP " + to_string(resp.status) + ": " + GraphErrorDescription(resp) + "\n");
-            err = (resp.status == 401 || resp.status == 403) ? ErrorAuthentication : ErrorConnection;
+        GraphResponse failure;
+        if (GraphSentItemsId(parts.accessToken, &failure).empty()) {
+            alogger.log("Reading Sent Items returned HTTP " + to_string(failure.status) + ": " + GraphErrorDescription(failure) + "\n");
+            err = (failure.status == 401 || failure.status == 403) ? ErrorAuthentication : ErrorConnection;
         } else {
             alogger.log("Sent Items is readable through Microsoft Graph.\n");
         }

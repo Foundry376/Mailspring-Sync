@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <thread>
 #include <chrono>
+#include <ctime>
 #include "spdlog/spdlog.h"
 
 #if __APPLE__
@@ -307,14 +308,32 @@ const string PerformExpectedRedirect(string url) {
 }
 
 
+// A response body as JSON, or {"text": body} when it is not JSON (a captive portal's page).
+static json _parseJSONOrText(const string & body) {
+    try {
+        return json::parse(body);
+    } catch (json::exception &) {
+        return {{"text", body}};
+    }
+}
+
+// Throws, freeing the handle first, when curl_easy_perform did not get an HTTP response.
+static void _throwIfTransportFailed(CURLcode res, CURL * curl_handle, const string & url) {
+#if __APPLE__
+    if (res == CURLE_ABORTED_BY_CALLBACK) {
+        CleanupCurlRequest(curl_handle);
+        throw SyncException(CURLE_PEER_FAILED_VERIFICATION, url + " " + _secTrustRejection);
+    }
+#endif
+    if (res != CURLE_OK) {
+        CleanupCurlRequest(curl_handle);
+        throw SyncException(res, url);
+    }
+}
+
 const json PerformJSONRequest(CURL * curl_handle) {
     string result = PerformRequest(curl_handle);
-    json resultJSON = nullptr;
-    try {
-        resultJSON = json::parse(result);
-    } catch (json::exception &) {
-        resultJSON = {{"text", result}};
-    }
+    json resultJSON = _parseJSONOrText(result);
     CleanupCurlRequest(curl_handle);
     return resultJSON;
 }
@@ -326,17 +345,7 @@ void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
         throw SyncException(res, "Unable to get URL");
     }
     string url { _url };
-
-#if __APPLE__
-    if (res == CURLE_ABORTED_BY_CALLBACK) {
-        CleanupCurlRequest(curl_handle);
-        throw SyncException(CURLE_PEER_FAILED_VERIFICATION, url + " " + _secTrustRejection);
-    }
-#endif
-    if (res != CURLE_OK) {
-        CleanupCurlRequest(curl_handle);
-        throw SyncException(res, url);
-    }
+    _throwIfTransportFailed(res, curl_handle, url);
 
     long http_code = 0;
     curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &http_code);
@@ -361,25 +370,12 @@ string MicrosoftGraphURL() {
     return url != "" ? url : "https://graph.microsoft.com/v1.0";
 }
 
-static size_t _onGraphHeader(char * buffer, size_t size, size_t nitems, void * userdata) {
-    size_t length = size * nitems;
-    string line(buffer, length);
-    static const string RETRY_AFTER = "retry-after:";
-    if (line.size() > RETRY_AFTER.size()) {
-        string name = line.substr(0, RETRY_AFTER.size());
-        std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-        if (name == RETRY_AFTER) {
-            try {
-                *(long *)userdata = stol(line.substr(RETRY_AFTER.size()));
-            } catch (std::exception &) {
-                // An HTTP-date instead of seconds: fall back to the default wait.
-            }
-        }
-    }
-    return length;
+static size_t _onAppendHeader(char * buffer, size_t size, size_t nitems, void * userdata) {
+    ((string *)userdata)->append(buffer, size * nitems);
+    return size * nitems;
 }
 
-static GraphResponse _performGraphRequestOnce(string method, string url, string accessToken, const string & body, string contentType, vector<string> & headers) {
+static GraphResponse _performGraphRequestOnce(const string & method, const string & url, const string & accessToken, const string & body, const string & contentType, const vector<string> & headers) {
     CURL * curl_handle = CreateCurlHandle();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
@@ -408,37 +404,25 @@ static GraphResponse _performGraphRequestOnce(string method, string url, string 
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_PRIVATE, requestData);
 
-    GraphResponse resp {0, nullptr, 0};
     string result;
+    string responseHeaders;
     curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
     curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
-    curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, _onGraphHeader);
-    curl_easy_setopt(curl_handle, CURLOPT_HEADERDATA, (void *)&resp.retryAfter);
+    curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, _onAppendHeader);
+    curl_easy_setopt(curl_handle, CURLOPT_HEADERDATA, (void *)&responseHeaders);
     CURLcode res = curl_easy_perform(curl_handle);
+    _throwIfTransportFailed(res, curl_handle, url);
 
-#if __APPLE__
-    if (res == CURLE_ABORTED_BY_CALLBACK) {
-        CleanupCurlRequest(curl_handle);
-        throw SyncException(CURLE_PEER_FAILED_VERIFICATION, url + " " + _secTrustRejection);
-    }
-#endif
-    if (res != CURLE_OK) {
-        CleanupCurlRequest(curl_handle);
-        throw SyncException(res, url);
-    }
+    GraphResponse resp;
     curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &resp.status);
     CleanupCurlRequest(curl_handle);
-
-    try {
-        resp.body = result.size() ? json::parse(result) : json::object();
-    } catch (json::exception &) {
-        resp.body = {{"text", result}};
-    }
+    resp.body = result.empty() ? json::object() : _parseJSONOrText(result);
+    resp.retryAfter = ParseRetryAfter(HTTPHeaderValue(responseHeaders, "Retry-After"));
     return resp;
 }
 
-GraphResponse PerformGraphRequest(string method, string url, string accessToken, const string & body, string contentType, vector<string> headers) {
-    GraphResponse resp {0, nullptr, 0};
+GraphResponse PerformGraphRequest(const string & method, const string & url, const string & accessToken, const string & body, const string & contentType, const vector<string> & headers) {
+    GraphResponse resp;
     for (int attempt = 0; attempt < 3; attempt ++) {
         resp = _performGraphRequestOnce(method, url, accessToken, body, contentType, headers);
         if (resp.status != 429 && resp.status != 503) {
@@ -454,16 +438,147 @@ GraphResponse PerformGraphRequest(string method, string url, string accessToken,
 string GraphErrorDescription(const GraphResponse & resp) {
     const json & body = resp.body;
     if (body.is_object() && body.count("error") && body["error"].is_object()) {
-        const json & error = body["error"];
-        string code = error.count("code") && error["code"].is_string() ? error["code"].get<string>() : "";
-        string message = error.count("message") && error["message"].is_string() ? error["message"].get<string>() : "";
-        return code + ": " + message;
+        return JSONString(body["error"], "code") + ": " + JSONString(body["error"], "message");
     }
     string text = body.dump();
     if (text.length() > 512) {
         text = text.substr(0, 512) + "... (truncated)";
     }
     return "HTTP " + to_string(resp.status) + " " + text;
+}
+
+string GraphSentItemsId(const string & accessToken, GraphResponse * failure) {
+    auto resp = PerformGraphRequest("GET", MicrosoftGraphURL() + "/me/mailFolders/sentitems?$select=id", accessToken);
+    string id = resp.ok() ? JSONString(resp.body, "id") : "";
+    if (id.empty() && failure != nullptr) {
+        *failure = resp;
+    }
+    return id;
+}
+
+// HTTP helpers
+
+string URLEscape(const string & value) {
+    char * escaped = curl_easy_escape(nullptr, value.c_str(), (int)value.size());
+    string result = escaped ? escaped : value;
+    curl_free(escaped);
+    return result;
+}
+
+string JSONString(const json & object, const string & key) {
+    if (!object.is_object() || !object.count(key) || !object[key].is_string()) {
+        return "";
+    }
+    return object[key].get<string>();
+}
+
+// HTTP Protocol Quirk: Header Case Sensitivity
+// While HTTP specifications (RFC 7230) require case-insensitive header handling, some
+// server implementations or proxies treat headers as case-sensitive. The Python caldav
+// library uses CaseInsensitiveDict for all header operations. We achieve the same effect
+// by normalizing both the headers and search term to lowercase before matching.
+string HTTPHeaderValue(const string& headers, const string& headerName) {
+    string searchFor = headerName + ":";
+    size_t pos = 0;
+
+    // Case-insensitive search (handles server inconsistencies)
+    string headersLower = headers;
+    string searchLower = searchFor;
+    transform(headersLower.begin(), headersLower.end(), headersLower.begin(), ::tolower);
+    transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::tolower);
+
+    pos = headersLower.find(searchLower);
+    if (pos == string::npos) {
+        return "";
+    }
+
+    // Find the value after the colon
+    size_t valueStart = pos + searchFor.length();
+    size_t valueEnd = headers.find("\r\n", valueStart);
+    if (valueEnd == string::npos) {
+        valueEnd = headers.find("\n", valueStart);
+    }
+    if (valueEnd == string::npos) {
+        valueEnd = headers.length();
+    }
+
+    string value = headers.substr(valueStart, valueEnd - valueStart);
+
+    // Trim whitespace
+    size_t start = value.find_first_not_of(" \t");
+    size_t end = value.find_last_not_of(" \t\r\n");
+    if (start == string::npos) return "";
+    return value.substr(start, end - start + 1);
+}
+
+#ifdef _MSC_VER
+// Windows doesn't have strptime, provide a minimal implementation for HTTP-date parsing
+static char* win32_strptime(const char* s, const char* format, struct tm* tm) {
+    // Only supports the HTTP-date format: "%a, %d %b %Y %H:%M:%S"
+    static const char* months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    char weekday[4], month[4];
+    int day, year, hour, min, sec;
+
+    if (sscanf_s(s, "%3s, %d %3s %d %d:%d:%d",
+                 weekday, (unsigned)sizeof(weekday),
+                 &day,
+                 month, (unsigned)sizeof(month),
+                 &year, &hour, &min, &sec) != 7) {
+        return nullptr;
+    }
+
+    int mon = -1;
+    for (int i = 0; i < 12; i++) {
+        if (_stricmp(month, months[i]) == 0) {
+            mon = i;
+            break;
+        }
+    }
+    if (mon < 0) return nullptr;
+
+    tm->tm_mday = day;
+    tm->tm_mon = mon;
+    tm->tm_year = year - 1900;
+    tm->tm_hour = hour;
+    tm->tm_min = min;
+    tm->tm_sec = sec;
+
+    // Return pointer past the parsed portion (approximate)
+    return const_cast<char*>(s + strlen(s));
+}
+#define strptime win32_strptime
+#define timegm _mkgmtime
+#endif
+
+// Parse Retry-After header value (RFC 7231)
+// Supports both delay-seconds (integer) and HTTP-date formats
+int ParseRetryAfter(const string& retryAfter) {
+    if (retryAfter.empty()) {
+        return 0;
+    }
+
+    // Try parsing as integer (delay-seconds format)
+    try {
+        int seconds = stoi(retryAfter);
+        if (seconds > 0) {
+            return seconds;
+        }
+    } catch (...) {
+        // Not an integer, try parsing as HTTP-date
+    }
+
+    // Try parsing as HTTP-date (e.g., "Fri, 31 Dec 2024 23:59:59 GMT")
+    struct tm tm = {};
+    if (strptime(retryAfter.c_str(), "%a, %d %b %Y %H:%M:%S", &tm) != nullptr) {
+        time_t targetTime = timegm(&tm);
+        time_t now = time(nullptr);
+        if (targetTime > now) {
+            return static_cast<int>(targetTime - now);
+        }
+    }
+
+    return 0;
 }
 
 // Shorthand methods for Identity Server
