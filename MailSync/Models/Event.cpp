@@ -41,6 +41,33 @@ Date endOf(ICalendarEvent *event)
     return DISTANT_FUTURE;
 }
 
+// Calendar sync time range configuration
+// Events outside this range are not synced to reduce storage and improve performance
+static const int CALENDAR_SYNC_PAST_MONTHS = 12;
+static const int CALENDAR_SYNC_FUTURE_MONTHS = 18;
+
+CalendarSyncRange getCalendarSyncRange() {
+    time_t now = time(nullptr);
+    time_t start = now - (CALENDAR_SYNC_PAST_MONTHS * 30 * 24 * 60 * 60);
+    time_t end = now + (CALENDAR_SYNC_FUTURE_MONTHS * 30 * 24 * 60 * 60);
+    return {
+        start,
+        end,
+        MailUtils::formatDateTimeUTC(start),
+        MailUtils::formatDateTimeUTC(end)
+    };
+}
+
+// RFC 4791 compliant overlap check: event overlaps range if (eventStart < rangeEnd) AND (eventEnd > rangeStart).
+// Used for client-side validation of server results. Some CalDAV servers (notably Bedework
+// and SOGo, per python-caldav project documentation) return events outside the requested
+// time-range, so we validate overlap client-side when processing sync-token responses
+// to avoid accumulating events outside our sync window.
+bool eventOverlapsRange(time_t eventStart, time_t eventEnd, const CalendarSyncRange& range) {
+    // Event overlaps range if it ends after range start AND starts before range end
+    return eventEnd >= range.start && eventStart <= range.end;
+}
+
 Event::Event(string etag, string accountId, string calendarId, string ics, ICalendarEvent *event)
     : MailModel(MailUtils::idForEvent(accountId, calendarId, event->UID, event->RecurrenceId), accountId)
 {

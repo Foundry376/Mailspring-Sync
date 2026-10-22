@@ -83,4 +83,15 @@ public:
 // Helper function to calculate event end time (handles recurrence)
 Date endOf(ICalendarEvent *event);
 
+struct CalendarSyncRange {
+    time_t start;
+    time_t end;
+    string startStr;  // Formatted for CalDAV time-range filter
+    string endStr;
+};
+
+CalendarSyncRange getCalendarSyncRange();
+
+bool eventOverlapsRange(time_t eventStart, time_t eventEnd, const CalendarSyncRange& range);
+
 #endif /* Event_hpp */
