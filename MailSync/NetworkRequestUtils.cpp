@@ -20,6 +20,12 @@
 #include <cstdlib>
 #include <cstring>
 
+#if __APPLE__
+#include <Security/Security.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <strings.h>
+#endif
+
 // Structure to hold curl request data that needs cleanup
 // Stored in CURLOPT_PRIVATE to enable proper cleanup of headers
 struct CurlRequestData {
@@ -43,6 +49,141 @@ void CleanupCurlRequest(CURL * curl_handle) {
     curl_easy_cleanup(curl_handle);
 }
 
+#if __APPLE__
+
+// Why the last request on this thread was rejected by _verifyPeerWithSecTrust, for the error.
+static thread_local string _secTrustRejection;
+
+static vector<uint8_t> _derFromCertinfoPEM(const char * pem) {
+    static const char * begin = "-----BEGIN CERTIFICATE-----";
+    vector<uint8_t> der;
+    const char * start = strstr(pem, begin);
+    const char * end = strstr(pem, "-----END CERTIFICATE-----");
+    if (start == nullptr || end == nullptr || end < start) {
+        return der;
+    }
+    uint32_t bits = 0;
+    int bitCount = 0;
+    for (const char * c = start + strlen(begin); c < end; c++) {
+        int value;
+        if (*c >= 'A' && *c <= 'Z') value = *c - 'A';
+        else if (*c >= 'a' && *c <= 'z') value = *c - 'a' + 26;
+        else if (*c >= '0' && *c <= '9') value = *c - '0' + 52;
+        else if (*c == '+') value = 62;
+        else if (*c == '/') value = 63;
+        else continue; // line breaks and '=' padding
+        bits = (bits << 6) | value;
+        bitCount += 6;
+        if (bitCount >= 8) {
+            bitCount -= 8;
+            der.push_back((bits >> bitCount) & 0xFF);
+        }
+    }
+    return der;
+}
+
+/*
+ Apple's system libcurl uses LibreSSL, which trusts /etc/ssl/cert.pem and never consults
+ Apple's revocation and distrust data. Apple blocked the compromised eMudhra intermediates
+ (https://emudhra.we-have-a-problem.com/) only through that data, so this re-evaluates the
+ peer chain with SecTrust after the handshake and before any request bytes, including
+ Authorization headers and refresh tokens, are sent. It is the same evaluation mailcore
+ applies to IMAP and SMTP on macOS. Failing to obtain the chain or hostname blocks the request.
+*/
+static int _verifyPeerWithSecTrust(void * clientp, char *, char *, int, int) {
+    CURL * curl_handle = (CURL *)clientp;
+    _secTrustRejection = "";
+
+    char * scheme = nullptr;
+    curl_easy_getinfo(curl_handle, CURLINFO_SCHEME, &scheme);
+    if (scheme == nullptr || strcasecmp(scheme, "https") != 0) {
+        return CURL_PREREQFUNC_OK;
+    }
+
+    // mailsync never sets CURLOPT_FOLLOWLOCATION, so the effective URL names the host we connected to.
+    char * url = nullptr;
+    char * host = nullptr;
+    curl_easy_getinfo(curl_handle, CURLINFO_EFFECTIVE_URL, &url);
+    CURLU * parsed = curl_url();
+    if (url != nullptr && curl_url_set(parsed, CURLUPART_URL, url, 0) == CURLUE_OK) {
+        curl_url_get(parsed, CURLUPART_HOST, &host, 0);
+    }
+    string hostname = host ? host : "";
+    curl_free(host);
+    curl_url_cleanup(parsed);
+    if (hostname.size() > 2 && hostname.front() == '[' && hostname.back() == ']') {
+        hostname = hostname.substr(1, hostname.size() - 2);
+    }
+
+    struct curl_certinfo * certinfo = nullptr;
+    curl_easy_getinfo(curl_handle, CURLINFO_CERTINFO, &certinfo);
+
+    CFMutableArrayRef chain = CFArrayCreateMutable(nullptr, 0, &kCFTypeArrayCallBacks);
+    for (int i = 0; certinfo != nullptr && i < certinfo->num_of_certs; i++) {
+        for (struct curl_slist * field = certinfo->certinfo[i]; field != nullptr; field = field->next) {
+            if (strncmp(field->data, "Cert:", 5) != 0) continue;
+            vector<uint8_t> der = _derFromCertinfoPEM(field->data + 5);
+            CFDataRef data = CFDataCreate(nullptr, der.data(), (CFIndex)der.size());
+            SecCertificateRef cert = SecCertificateCreateWithData(nullptr, data);
+            if (cert != nullptr) {
+                CFArrayAppendValue(chain, cert);
+                CFRelease(cert);
+            }
+            CFRelease(data);
+        }
+    }
+
+    bool trusted = false;
+    if (hostname == "") {
+        _secTrustRejection = "could not determine the server's hostname";
+    } else if (CFArrayGetCount(chain) == 0) {
+        _secTrustRejection = "could not read the server's certificate chain";
+    } else {
+        CFStringRef hostCF = CFStringCreateWithCString(nullptr, hostname.c_str(), kCFStringEncodingUTF8);
+        SecPolicyRef policy = SecPolicyCreateSSL(true, hostCF);
+        SecTrustRef trust = nullptr;
+        if (SecTrustCreateWithCertificates(chain, policy, &trust) == errSecSuccess) {
+            CFErrorRef error = nullptr;
+            trusted = SecTrustEvaluateWithError(trust, &error);
+            if (error != nullptr) {
+                CFStringRef description = CFErrorCopyDescription(error);
+                char buffer[512] = "";
+                CFStringGetCString(description, buffer, sizeof(buffer), kCFStringEncodingUTF8);
+                _secTrustRejection = buffer;
+                CFRelease(description);
+                CFRelease(error);
+            }
+            CFRelease(trust);
+        } else {
+            _secTrustRejection = "could not create a trust evaluation";
+        }
+        CFRelease(policy);
+        CFRelease(hostCF);
+    }
+    CFRelease(chain);
+    return trusted ? CURL_PREREQFUNC_OK : CURL_PREREQFUNC_ABORT;
+}
+
+#endif
+
+CURL * CreateCurlHandle() {
+    CURL * curl_handle = curl_easy_init();
+#if __APPLE__
+    // CURLINFO_CERTINFO is only filled in for a new connection, so a reused one would have no
+    // chain to evaluate. Forbidding reuse costs nothing: every handle performs one request.
+    bool configured =
+        curl_easy_setopt(curl_handle, CURLOPT_CERTINFO, 1L) == CURLE_OK &&
+        curl_easy_setopt(curl_handle, CURLOPT_FORBID_REUSE, 1L) == CURLE_OK &&
+        curl_easy_setopt(curl_handle, CURLOPT_PREREQFUNCTION, _verifyPeerWithSecTrust) == CURLE_OK &&
+        curl_easy_setopt(curl_handle, CURLOPT_PREREQDATA, curl_handle) == CURLE_OK;
+    if (!configured) {
+        // Never make an HTTPS request without the SecTrust check.
+        curl_easy_setopt(curl_handle, CURLOPT_PROTOCOLS_STR, "http");
+    }
+#endif
+    return curl_handle;
+}
+
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp) {
     string * buffer = (string *)userp;
     size_t real_size = length * nmemb;
@@ -57,7 +198,7 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
 }
 
 const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken) {
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     const char * url =
           provider == "gmail" ? "https://www.googleapis.com/oauth2/v4/token"
         : provider == "office365" ? "https://login.microsoftonline.com/common/oauth2/v2.0/token"
@@ -103,7 +244,7 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
 }
 
 CURL * CreateJSONRequest(string url, string method, string authorization, const char * payloadChars) {
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
 
@@ -137,7 +278,7 @@ const string PerformRequest(CURL * curl_handle) {
 
 
 const string PerformExpectedRedirect(string url) {
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 10);
 
@@ -181,6 +322,12 @@ void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
     }
     string url { _url };
 
+#if __APPLE__
+    if (res == CURLE_ABORTED_BY_CALLBACK) {
+        CleanupCurlRequest(curl_handle);
+        throw SyncException(CURLE_PEER_FAILED_VERIFICATION, url + " " + _secTrustRejection);
+    }
+#endif
     if (res != CURLE_OK) {
         CleanupCurlRequest(curl_handle);
         throw SyncException(res, url);

@@ -2350,7 +2350,7 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     string depthHeader = "Depth: " + depth;
     headers = curl_slist_append(headers, depthHeader.c_str());
 
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     const char * payloadChars = payload.c_str();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 40);
@@ -2390,7 +2390,7 @@ string DAVWorker::performVCardRequest(string _url, string method, string vcard, 
         headers = curl_slist_append(headers, etagHeader.c_str());
     }
 
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     const char * payloadChars = vcard.c_str();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 40);
@@ -2420,7 +2420,7 @@ string DAVWorker::performICSRequest(string _url, string method, string icsData, 
         headers = curl_slist_append(headers, etagHeader.c_str());
     }
 
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     const char * payloadChars = icsData.c_str();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 40);
