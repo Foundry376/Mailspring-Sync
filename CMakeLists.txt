@@ -66,6 +66,10 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
   add_executable(mailsync MailSync/main.cpp ${SOURCES})
 
+  # Unit tests for code with no mailcore dependency: make vcard_test && ./vcard_test
+  add_executable(vcard_test EXCLUDE_FROM_ALL test/unit/vcard_test.cpp MailSync/VCard.cpp
+    Vendor/StanfordCPPLib/strlib.cpp Vendor/StanfordCPPLib/error.cpp)
+
   add_definitions(-DSQLITE_ENABLE_FTS5=1 -DHAVE_USLEEP=1 -DSQLITE_OMIT_LOAD_EXTENSION=1)
 
   target_link_libraries(mailsync libMailCore.a)

@@ -18,6 +18,7 @@
 #include "Label.hpp"
 #include "Account.hpp"
 #include "Query.hpp"
+#include "strlib.h"
 
 #include <random>
 
@@ -263,6 +264,33 @@ string MailUtils::contactKeyForEmail(string email) {
     }
     
     return email;
+}
+
+/*
+ The display name a found-in-mail contact should carry, or "" when the header's isn't one.
+ Old Apple Mail (2006-2011) wrote the address again in angle brackets as the name, `")"`,
+ and quoted encoded-words whose decoded text keeps its quotes, and mailcore parses all of
+ them faithfully. Matches the client's ContactDisplayName helper.
+ */
+string MailUtils::contactNameFromHeader(string name, string email) {
+    name = trim(name);
+    if (name.size() >= 2 && name.front() == '"' && name.back() == '"') {
+        name = trim(name.substr(1, name.size() - 2));
+    }
+
+    string bare = name;
+    if (bare.size() >= 2 && bare.front() == '<' && bare.back() == '>') {
+        bare = trim(bare.substr(1, bare.size() - 2));
+    }
+    if (toLowerCase(bare) == toLowerCase(trim(email))) {
+        return "";
+    }
+
+    // Note: any non-ASCII byte counts as a letter, so names in other scripts are kept.
+    bool hasLetterOrDigit = any_of(name.begin(), name.end(), [](unsigned char c) {
+        return c >= 0x80 || isalnum(c);
+    });
+    return hasLetterOrDigit ? name : "";
 }
 
 int MailUtils::compareEmails(void * a, void * b, void * context) {

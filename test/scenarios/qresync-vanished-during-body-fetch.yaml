@@ -8,7 +8,7 @@ source: Mailspring-Sync PR #141 (VANISHED was only harvested after IDLE)
 servers:
   - {fake: dovecot}
 mailboxes:
-  INBOX: {messages: {count: 200, age_days: 40}}    # old enough that bodies are not prefetched
+  INBOX: {messages: {count: 200, age_days: 120}}    # past maxAgeForBodySync (90 days), so bodies are not prefetched
 steps:
   - wait: quiescent
   - server.expunge: {mailbox: INBOX, uids: [150], at: before_fetch_body}

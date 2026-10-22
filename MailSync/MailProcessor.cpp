@@ -849,6 +849,14 @@ void MailProcessor::upsertContacts(Message * message) {
         byEmail.erase("");
     }
     
+    // "Mailspring Team" is used in the welcome email sent from the user's own address.
+    // Its name must not become the name of the user's own contact.
+    auto isWelcomeEmailSender = [](json & c) {
+        string name = c.count("name") ? c["name"].get<string>() : "";
+        string email = c.count("email") ? c["email"].get<string>() : "";
+        return name == "Mailspring Team" && email.find("@getmailspring.com") == string::npos;
+    };
+
     vector<string> emails{};
     for (auto const& imap: byEmail) {
         emails.push_back(imap.first);
@@ -869,8 +877,22 @@ void MailProcessor::upsertContacts(Message * message) {
         
         // update refcounts of existing items if this is a sent message
         for (auto & result : results) {
+            bool changed = false;
             if (result->refs() < CONTACT_MAX_REFS) {
                 result->incrementRefs();
+                changed = true;
+            }
+            // A later message can supply the name an earlier header lacked.
+            auto header = byEmail.find(result->email());
+            if (result->name() == "" && header != byEmail.end() && !isWelcomeEmailSender(header->second)) {
+                string name = header->second.count("name") ? header->second["name"].get<string>() : "";
+                name = MailUtils::contactNameFromHeader(name, result->email());
+                if (name != "") {
+                    result->setName(name);
+                    changed = true;
+                }
+            }
+            if (changed) {
                 store->save(result.get());
             }
             byEmail.erase(result->email());
@@ -878,17 +900,14 @@ void MailProcessor::upsertContacts(Message * message) {
         
         // insert remaining items (contacts not yet in the database)
         for (auto & result : byEmail) {
+            if (isWelcomeEmailSender(result.second)) {
+                continue;
+            }
             string name = result.second.count("name") ? result.second["name"].get<string>() : "";
             string email = result.second.count("email") ? result.second["email"].get<string>() : "";
 
-            // "Mailspring Team" is used in the welcome email sent from the user's own address.
-            // Skip creating the contact to avoid saving the wrong display name.
-            if (name == "Mailspring Team" && email.find("@getmailspring.com") == string::npos) {
-                continue;
-            }
-
             auto c = make_shared<Contact>(result.first, message->accountId(), result.first, 0, CONTACT_SOURCE_MAIL);
-            c->setName(name);
+            c->setName(MailUtils::contactNameFromHeader(name, email));
             c->incrementRefs();
             store->save(c.get());
         }

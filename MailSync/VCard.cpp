@@ -49,6 +49,14 @@ string VCardProperty::getName() {
     return _name;
 }
 
+// RFC 6350 §3.3: a name may carry a group prefix (`item1.EMAIL`), which Apple Contacts
+// writes on most multi-value properties. Lookups compare this; `_name` keeps the group so
+// serialize() reproduces the line.
+string VCardProperty::baseName() {
+    size_t dot = _name.rfind('.');
+    return dot == string::npos ? _name : _name.substr(dot + 1);
+}
+
 void VCardProperty::setName(string name) {
     _name = name;
 }
@@ -159,6 +167,61 @@ shared_ptr<VCardProperty> VCard::getName() {
     return propertiesWithName("N", true).front();
 }
 
+shared_ptr<VCardProperty> VCard::getOrganization() {
+    return propertiesWithName("ORG", true).front();
+}
+
+/*
+ Splits a structured value (N, ORG) into its components and unescapes each one. Commas
+ separate multiple values within a component; they are joined with spaces.
+ */
+static vector<string> structuredValueComponents(string value) {
+    vector<string> components{""};
+    for (size_t i = 0; i < value.size(); i++) {
+        char c = value[i];
+        if (c == '\\' && i + 1 < value.size()) {
+            char next = value[++i];
+            components.back() += (next == 'n' || next == 'N') ? ' ' : next;
+        } else if (c == ';') {
+            components.push_back("");
+        } else if (c == ',') {
+            components.back() += ' ';
+        } else {
+            components.back() += c;
+        }
+    }
+    for (auto & component : components) {
+        component = trim(component);
+    }
+    return components;
+}
+
+/*
+ The name to show for the card: FN, else the N components in reading order (prefix, given,
+ additional, family, suffix — what the client's VCFHelpers.parseName shows), else the first
+ ORG component, else "". iOS 5 writes `N:;;;;` with an empty FN, and N's raw value is not a
+ name.
+ */
+string VCard::displayName() {
+    string fn = trim(getFormattedName()->getValue());
+    if (fn != "") {
+        return fn;
+    }
+
+    auto n = structuredValueComponents(getName()->getValue());
+    n.resize(5);
+    string name = "";
+    for (int idx : {3, 1, 2, 0, 4}) {
+        if (n[idx] == "") continue;
+        name += (name == "" ? "" : " ") + n[idx];
+    }
+    if (name != "") {
+        return name;
+    }
+
+    return structuredValueComponents(getOrganization()->getValue()).front();
+}
+
 void VCard::setName(string name) {
     propertiesWithName("N", true).front()->setValue(name);
 }
@@ -181,7 +244,7 @@ vector<shared_ptr<VCardProperty>> VCard::getMembers() {
 vector<shared_ptr<VCardProperty>> VCard::getExtendedProperties() {
     vector<shared_ptr<VCardProperty>> results {};
     for (auto prop : _properties) {
-        if (prop->getName().substr(0, 2) == "X-") {
+        if (prop->baseName().substr(0, 2) == "X-") {
             results.push_back(prop);
         }
     }
@@ -191,7 +254,7 @@ vector<shared_ptr<VCardProperty>> VCard::getExtendedProperties() {
 vector<shared_ptr<VCardProperty>> VCard::propertiesWithName(string name, bool createIfEmpty) {
     vector<shared_ptr<VCardProperty>> results {};
     for (auto prop : _properties) {
-        if (prop->getName() == name) {
+        if (prop->baseName() == name) {
             results.push_back(prop);
         }
     }

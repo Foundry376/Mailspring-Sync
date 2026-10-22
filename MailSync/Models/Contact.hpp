@@ -33,7 +33,10 @@ static int CONTACT_MAX_REFS = 100000;
 class Message;
 
 class Contact : public MailModel {
-    
+    // Found-in-mail contacts are saved on every sent message for their refcount alone;
+    // only a name or email change rewrites their ContactSearch row.
+    bool _searchContentChanged = false;
+
 public:
     static string TABLE_NAME;
 

@@ -1,0 +1,68 @@
+name: contacts-from-sent-mail
+description: >
+  Found-in-mail contacts come from the recipients of sent mail, named by the header's
+  display name. Old Apple Mail wrote display names that are not names: the address again
+  in angle brackets, a lone ")", and a quoted encoded-word whose decoded text keeps its
+  quotes. (The bracketed address is written quoted here: libetpan parses no address at all
+  from the unquoted `<a> <a>` form.) The engine must store "" for the first two and strip the quotes from the third.
+  A later sent message with a real name fills a blank one, and reaches ContactSearch
+  (composer autocomplete), but never replaces a name already set.
+source: "Apple Mail 2.752.2 (2006), 2.752.3 (2007), 2.1082 (2011) headers in a real mailbox; MailProcessor::upsertContacts"
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 2}
+  Sent: {messages: 0}
+setup:
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: '"<repeat@example.net>" <repeat@example.net>'
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: '")" <paren@example.net>'
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: '<bare@example.net>'
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: "=?iso-8859-1?Q?=22Ver=F3nica_Ach=E1_Alvarez=22?= <veronica@example.net>, Plain Person <plain@example.net>"
+steps:
+  - wait: quiescent
+  - assert:
+      contacts:
+        mail:
+          repeat@example.net: ""
+          paren@example.net: ""
+          bare@example.net: ""
+          veronica@example.net: "Verónica Achá Alvarez"
+          plain@example.net: "Plain Person"
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: "Paren Person <paren@example.net>, Bare Person <bare@example.net>, Someone Else <plain@example.net>"
+  - sync: pass
+expect:
+  contacts:
+    mail:
+      repeat@example.net: ""
+      paren@example.net: "Paren Person"
+      bare@example.net: "Bare Person"
+      veronica@example.net: "Verónica Achá Alvarez"
+      plain@example.net: "Plain Person"
+  db_matches_server: {}
+  running: true
