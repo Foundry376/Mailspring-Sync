@@ -6,8 +6,10 @@ mailsync derives a message's identity from its headers, so two different message
 share a Message-ID, subject, date and recipients collapse onto one row. That is a real
 phenomenon worth testing deliberately, never something a generator should do by accident.
 """
+import base64
 import email.utils
 import hashlib
+import quopri
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
@@ -40,6 +42,7 @@ def message(
     extra_headers: Optional[dict] = None,
     message_id: Optional[str] = None,
     age_days: Optional[float] = None,   # push the Date back, e.g. beyond the body-prefetch window
+    transfer_encoding: str = "7bit",    # or quoted-printable / base64 for a non-ASCII body
 ) -> bytes:
     """Message number n of a series. Deterministic for the same arguments."""
     name, addr = sender or SENDERS[n % len(SENDERS)]
@@ -71,7 +74,12 @@ def message(
 
     if not html and not attachment and not calendar:
         headers.append(("Content-Type", 'text/plain; charset="utf-8"'))
-        headers.append(("Content-Transfer-Encoding", "7bit"))
+        headers.append(("Content-Transfer-Encoding", transfer_encoding))
+        if transfer_encoding == "quoted-printable":
+            # RFC 5322 bodies end in CRLF; Cyrus 3.6 does not search an unterminated QP last line.
+            body = quopri.encodestring(body.encode("utf-8") + b"\n").decode("ascii").replace("\n", "\r\n")
+        elif transfer_encoding == "base64":
+            body = base64.encodebytes(body.encode("utf-8")).decode("ascii").replace("\n", "\r\n")
         return (hdr_block(headers) + "\r\n" + body).encode("utf-8")
 
     boundary = f"=_harness_{hashlib.md5(mid.encode()).hexdigest()[:12]}"
@@ -92,7 +100,6 @@ def message(
                f"SUMMARY:{subject}\r\nORGANIZER:mailto:{addr}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
         parts.append(f"Content-Type: text/calendar; charset=\"utf-8\"; method=REQUEST\r\nContent-Transfer-Encoding: 7bit\r\n\r\n{ics}")
     if attachment:
-        import base64
         fname, data = attachment
         if isinstance(data, str):
             data = data.encode()

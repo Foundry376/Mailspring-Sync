@@ -62,6 +62,9 @@ namespace mailcore {
         static IMAPSearchExpression * searchAnd(IMAPSearchExpression * left, IMAPSearchExpression * right);
         static IMAPSearchExpression * searchOr(IMAPSearchExpression * left, IMAPSearchExpression * right);
         static IMAPSearchExpression * searchNot(IMAPSearchExpression * notExpr);
+        // FUZZY expr (RFC 6203): the server matches the whole expression in its own, usually
+        // indexed, manner. Only for servers advertising SEARCH=FUZZY.
+        static IMAPSearchExpression * searchFuzzy(IMAPSearchExpression * expr);
         
         
     public: // subclass behavior

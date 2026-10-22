@@ -1,0 +1,164 @@
+name: search-remote-criteria
+description: >
+  `search-remote` runs the client's criteria as IMAP SEARCH on the server and answers with
+  the local ids of the matching messages. Without \All the engine searches every folder but
+  Junk and Trash, as Gmail and Thunderbird do, unless the request names folders. Bodies the
+  engine never downloaded (mail older than its body window) are still found, which is what
+  the local index cannot do. A limit keeps the newest threads by message date, whichever
+  folder they came from. Every criteria operator and every rejected request has a case.
+source: "MailSync/SearchWorker.cpp; RFC 3501 6.4.4 (SEARCH), RFC 6154 (special-use roles)"
+servers:
+  - {fake: dovecot}
+  - {fake: cyrus}
+  - {dovecot: qresync}
+  - {dovecot: plain}
+  - {cyrus: fastmail}
+  - {cyrus: plain}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: Quarterly report, body: "The pineapple budget is attached.", sender: [Alice Example, alice@example.org], message_id: "<report@search.test>"}}
+  - server.append: {mailbox: INBOX, flags: [], messages: {subject: Invoice 42, body: "Payment terms are net 30.", sender: [Carol Billing, carol@billing.example], message_id: "<invoice@search.test>"}}
+  - server.append: {mailbox: Archive, messages: {subject: Lunch, body: "Pineapple pizza on Friday?", sender: [Bob Builder, bob@example.net], message_id: "<lunch@search.test>", age_days: 400}}
+  - server.append: {mailbox: Trash, messages: {subject: Old note, body: "pineapple leftovers", sender: [Bob Builder, bob@example.net], message_id: "<trashed@search.test>"}}
+  - server.append: {mailbox: Junk, messages: {subject: Win a prize, body: "free pineapple", sender: [Spammer, win@spam.example], message_id: "<spam@search.test>"}}
+  - server.append: {mailbox: INBOX, messages: {subject: Budget review, body: "Quarterly numbers inside.", sender: [Dave Dev, dave@dev.example], message_id: "<budget-old@search.test>", age_days: 30, extra_headers: {Cc: "Erin Copy <erin@cc.example>"}}}
+  - server.append: {mailbox: Archive, messages: {subject: Budget final, body: "Signed off.", sender: [Dave Dev, dave@dev.example], message_id: "<budget-new@search.test>", extra_headers: {Bcc: "Frank Blind <frank@bcc.example>", X-Mailer: SearchHarness}}}
+  - server.flags: {mailbox: INBOX, uids: [1], add: ["\\Flagged"]}
+  - server.duplicate: {mailbox: INBOX, uids: [1], to: Archive}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [text, pineapple]}
+    as: text
+  - client.search: {criteria: [and, [from, alice], [text, pineapple]]}
+    as: from_and_text
+  - client.search: {criteria: [and, [subject, invoice]]}
+    as: and_single
+  - client.search: {criteria: [or, [subject, invoice], [subject, lunch]]}
+    as: subject_or
+  - client.search: {criteria: [not, [text, pineapple]]}
+    as: negated
+  - client.search: {criteria: [all]}
+    as: all
+  - client.search: {criteria: [to, harness]}
+    as: to
+  - client.search: {criteria: [cc, erin]}
+    as: cc
+  - client.search: {criteria: [bcc, frank]}
+    as: bcc
+  - client.search: {criteria: [text, quarterly]}
+    as: text_quarterly
+  - client.search: {criteria: [body, quarterly]}
+    as: body_quarterly
+  - client.search: {criteria: [header, X-Mailer, SearchHarness]}
+    as: header
+  - client.search: {criteria: [unread]}
+    as: unread
+  - client.search: {criteria: [read]}
+    as: read
+  - client.search: {criteria: [flagged]}
+    as: flagged
+  - client.search: {criteria: [unflagged]}
+    as: unflagged
+  - client.search: {criteria: [larger, 1]}
+    as: larger
+  - client.search: {criteria: [smaller, 1]}
+    as: smaller
+  - client.search: {criteria: [text, pineapple], folders: [Trash]}
+    as: in_trash
+  - client.search: {criteria: [and, [since, "@today-2"], [before, "@today+2"], [subject, invoice]]}
+    as: dated
+  - client.search: {criteria: [since, "@today+2"]}
+    as: future
+  - client.search: {criteria: [subject, budget], limit: 1}
+    as: newest_first
+  - client.search: {criteria: [bogus, x]}
+    as: unknown_op
+  - client.search: {criteria: [not]}
+    as: not_arity
+  - client.search: {criteria: [and]}
+    as: and_empty
+  - client.search: {criteria: [text, ""]}
+    as: empty_term
+  - client.search: {criteria: [text, "@repeat:a:1025"]}
+    as: long_term
+  - client.search: {criteria: [since, yesterday]}
+    as: bad_date
+  - client.search: {criteria: [larger, big]}
+    as: bad_size
+  - client.search: {criteria: [text, pineapple], limit: -1}
+    as: bad_limit
+  - client.search: {criteria: [text, pineapple], limit: 0}
+    as: zero_limit
+  - client.search: {criteria: [header, X-Mailer]}
+    as: header_arity
+  - client.search: {criteria: [subject, 5]}
+    as: term_not_string
+  - client.search: {criteria: [since, "2026-13-01"]}
+    as: month_high
+  - client.search: {criteria: [since, "2026-00-10"]}
+    as: month_low
+  - client.search: {criteria: [since, "2026-01-32"]}
+    as: day_high
+  - client.search: {criteria: [since, "2026-01-00"]}
+    as: day_low
+  - client.search: {criteria: [larger]}
+    as: larger_arity
+  - client.search: {criteria: [larger, 1, 2]}
+    as: larger_extra
+  - client.search: {criteria: [not, [all], [all]]}
+    as: not_two
+  - client.search: {criteria: text}
+    as: not_array
+  - client.search: {criteria: []}
+    as: empty_array
+  - client.search: {criteria: [5]}
+    as: op_not_string
+expect:
+  search:
+    text: {message_ids: ["<report@search.test>", "<lunch@search.test>"], folder_errors: 0}
+    from_and_text: {message_ids: ["<report@search.test>"]}
+    and_single: {message_ids: ["<invoice@search.test>"]}
+    subject_or: {message_ids: ["<invoice@search.test>", "<lunch@search.test>"]}
+    negated: {message_ids: ["<invoice@search.test>", "<budget-old@search.test>", "<budget-new@search.test>"]}
+    all: {message_ids: ["<report@search.test>", "<invoice@search.test>", "<lunch@search.test>", "<budget-old@search.test>", "<budget-new@search.test>"]}
+    to: {message_ids: ["<report@search.test>", "<invoice@search.test>", "<lunch@search.test>", "<budget-old@search.test>", "<budget-new@search.test>"]}
+    cc: {message_ids: ["<budget-old@search.test>"]}
+    bcc: {message_ids: ["<budget-new@search.test>"]}
+    text_quarterly: {message_ids: ["<report@search.test>", "<budget-old@search.test>"]}
+    body_quarterly: {message_ids: ["<budget-old@search.test>"]}
+    header: {message_ids: ["<budget-new@search.test>"]}
+    unread: {message_ids: ["<invoice@search.test>"]}
+    read: {message_ids: ["<report@search.test>", "<lunch@search.test>", "<budget-old@search.test>", "<budget-new@search.test>"]}
+    flagged: {message_ids: ["<report@search.test>"]}
+    unflagged: {message_ids: ["<invoice@search.test>", "<lunch@search.test>", "<budget-old@search.test>", "<budget-new@search.test>"]}
+    larger: {message_ids: ["<report@search.test>", "<invoice@search.test>", "<lunch@search.test>", "<budget-old@search.test>", "<budget-new@search.test>"]}
+    smaller: {message_ids: []}
+    in_trash: {message_ids: ["<trashed@search.test>"]}
+    dated: {message_ids: ["<invoice@search.test>"]}
+    future: {message_ids: []}
+    newest_first: {message_ids: ["<budget-new@search.test>"]}
+    unknown_op: {error: "unknown search criteria bogus"}
+    not_arity: {error: "search not takes one operand"}
+    and_empty: {error: "search and needs at least one operand"}
+    empty_term: {error: 'search criteria ["text",""] needs a non-empty string'}
+    long_term: {error: "search term is longer than 1024 bytes"}
+    bad_date: {error: 'search date ["since","yesterday"] is not YYYY-MM-DD'}
+    bad_size: {error: "search larger takes a byte count"}
+    bad_limit: {error: "search limit must be a positive integer"}
+    zero_limit: {error: "search limit must be a positive integer"}
+    header_arity: {error: 'search criteria ["header","X-Mailer"] needs a non-empty string'}
+    term_not_string: {error: 'search criteria ["subject",5] needs a non-empty string'}
+    month_high: {error: 'search date ["since","2026-13-01"] is not YYYY-MM-DD'}
+    month_low: {error: 'search date ["since","2026-00-10"] is not YYYY-MM-DD'}
+    day_high: {error: 'search date ["since","2026-01-32"] is not YYYY-MM-DD'}
+    day_low: {error: 'search date ["since","2026-01-00"] is not YYYY-MM-DD'}
+    larger_arity: {error: "search larger takes a byte count"}
+    larger_extra: {error: "search larger takes a byte count"}
+    not_two: {error: "search not takes one operand"}
+    not_array: {error: 'search criteria "text" is not [op, ...]'}
+    empty_array: {error: "search criteria [] is not [op, ...]"}
+    op_not_string: {error: "search criteria [5] is not [op, ...]"}
+  log_count:
+    'Search connection idle, disconnecting': 0
+  log_absent:
+    - 'UID SEARCH .*FUZZY'
+  running: true

@@ -38,6 +38,7 @@
 #include "MetadataExpirationWorker.hpp"
 #include "DAVWorker.hpp"
 #include "GoogleContactsWorker.hpp"
+#include "SearchWorker.hpp"
 #include "SyncException.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
@@ -61,6 +62,7 @@ shared_ptr<SyncWorker> bgWorker = nullptr;
 shared_ptr<SyncWorker> fgWorker = nullptr;
 shared_ptr<DAVWorker> davWorker = nullptr;
 shared_ptr<GoogleContactsWorker> contactsWorker = nullptr;
+shared_ptr<SearchWorker> searchWorker = nullptr;
 
 shared_ptr<MetadataWorker> metadataWorker = nullptr;
 shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
@@ -852,6 +854,21 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                         runningCalendarSync = false;
                     }).detach();
                 }
+            }
+
+            if (type == "search-remote") {
+                if (!searchWorker) {
+                    searchWorker = make_shared<SearchWorker>(account);
+                    std::thread([]() {
+                        SetThreadName("search");
+                        searchWorker->run();
+                    }).detach();
+                }
+                searchWorker->enqueue(packet);
+            }
+
+            if (type == "search-remote-cancel" && searchWorker) {
+                searchWorker->cancel(packet.value("searchId", ""));
             }
 
             if (type == "test-crash") {

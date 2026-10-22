@@ -111,6 +111,30 @@ def probe_select_fetch(rig: Rig):
     return out
 
 
+def probe_search_keys(rig: Rig):
+    """The SEARCH forms SearchWorker sends for `search-remote`: nested OR/NOT, parenthesised
+    AND, every string key, received-date bounds, and CHARSET UTF-8 with a LITERAL+ term."""
+    out = {}
+    rig.a.cmd("SELECT INBOX")
+    for name, command in [
+        ("text", 'UID SEARCH TEXT "body of message 3"'),
+        ("body", 'UID SEARCH BODY "message 5."'),
+        ("subject", 'UID SEARCH SUBJECT "Message 1"'),
+        ("from", "UID SEARCH FROM alice"),
+        ("to", "UID SEARCH TO harness"),
+        ("or_nested", 'UID SEARCH OR OR SUBJECT "Message 2" FROM bob NOT FROM noreply'),
+        ("not_or", 'UID SEARCH NOT OR FROM alice FROM bob'),
+        ("and_group", 'UID SEARCH (FROM alice SUBJECT "Message 4")'),
+        ("since", "UID SEARCH SINCE 1-Jan-2000"),
+        ("before", "UID SEARCH BEFORE 1-Jan-2000"),
+        ("header", "UID SEARCH HEADER Content-Type multipart/mixed"),
+        ("unseen_flagged", "UID SEARCH UNSEEN UNFLAGGED"),
+        ("charset_literal", "UID SEARCH CHARSET UTF-8 TEXT {9+}\r\nmessage 7"),
+    ]:
+        out[name] = [normalize(l) for l in rig.a.cmd(command)]
+    return out
+
+
 def probe_store(rig: Rig):
     out = {}
     rig.a.cmd("ENABLE QRESYNC")
@@ -260,5 +284,5 @@ def probe_stale_fetch(rig: Rig):
     return out
 
 
-PROBES = [probe_session_setup, probe_list_status, probe_select_fetch, probe_store, probe_bulk_store_modseq, probe_changedsince,
+PROBES = [probe_session_setup, probe_list_status, probe_select_fetch, probe_search_keys, probe_store, probe_bulk_store_modseq, probe_changedsince,
           probe_copy_move_append, probe_idle, probe_stale_fetch]

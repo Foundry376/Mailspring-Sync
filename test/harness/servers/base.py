@@ -97,6 +97,10 @@ class Server(ABC):
     def drop_connections(self):
         raise NotImplementedError(f"{self.kind} cannot drop connections")
 
+    def index(self):
+        """Bring the search index up to date with the mail appended so far. A server that
+        searches by scanning, or indexes on delivery, has nothing to do."""
+
     # -- observation
     def truth(self) -> Truth:
         return truth_via_imap(self.host, self.port, self.username, self.password, gmail=self.gmail)

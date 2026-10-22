@@ -1,0 +1,74 @@
+name: search-remote-failures
+description: >
+  How `search-remote` behaves when things go wrong. A folder whose SEARCH the server refuses
+  is reported in `errors` and the other folders are still searched. A connection dropped
+  under a SEARCH is reopened once and the search completes. A newer request supersedes one
+  still in flight: the older search stops at the next folder and never reports `done`. A
+  connection idle past SEARCH_IDLE_DISCONNECT is closed and reopened by the next search. A
+  server that drops the reconnect too fails the whole search with the connection error.
+  `search-remote-cancel` stops only the search it names, and a request without a searchId
+  is ignored.
+source: "MailSync/SearchWorker.cpp"
+servers:
+  - {fake: dovecot}
+env:
+  SEARCH_IDLE_DISCONNECT: "3"
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: Inbox pineapple, message_id: "<inbox@search.test>"}}
+  - server.append: {mailbox: Archive, messages: {subject: Archived pineapple, message_id: "<archive@search.test>"}}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, command: "^UID SEARCH", mailbox: INBOX}, code: CANNOT, text: "Search failed"}
+  - client.search: {criteria: [subject, pineapple]}
+    as: refused
+  - server.drop_connections: {at: {hook: before_command, command: "^UID SEARCH"}}
+  - client.search: {criteria: [subject, pineapple]}
+    as: dropped
+  - server.pause: {at: {hook: before_command, command: "^UID SEARCH", mailbox: INBOX, delay: 3}}
+  - client.search: {criteria: [subject, pineapple], wait: false}
+    as: superseded
+  - wait: {seconds: 1}
+  - client.search: {criteria: [subject, archived]}
+    as: newer
+  - wait: {seconds: 4}
+  - wait: {log: "Search connection idle, disconnecting", timeout: 15}
+  - wait: {seconds: 7}
+  - client.search: {criteria: [subject, inbox]}
+    as: after_idle
+  - server.pause: {at: {hook: before_command, command: "^UID SEARCH", mailbox: INBOX, delay: 3}}
+  - client.search: {criteria: [subject, pineapple], wait: false}
+    as: cancelled
+  - wait: {seconds: 1}
+  - client.search_cancel: {of: cancelled}
+  - wait: {seconds: 8}
+  - server.pause: {at: {hook: before_command, command: "^UID SEARCH", mailbox: INBOX, delay: 2}}
+  - client.search: {criteria: [subject, pineapple], wait: false}
+    as: stale_cancel
+  - client.search_cancel: {searchId: some-earlier-search}
+  - client.search_without_id: {}
+  - wait: {seconds: 6}
+  - server.pause: {at: {hook: before_command, command: "^UID SEARCH", mailbox: INBOX, delay: 2}}
+  - client.search: {criteria: [subject, pineapple], wait: false}
+    as: running
+  - wait: {seconds: 0.5}
+  - client.search: {criteria: [subject, archived], wait: false}
+    as: queued
+  - client.search_cancel: {of: queued}
+  - wait: {seconds: 6}
+  - server.drop_connections: {at: {hook: before_command, command: "^UID SEARCH", every: true}}
+  - client.search: {criteria: [subject, pineapple]}
+    as: server_down
+  - wait: {seconds: 7}
+expect:
+  search:
+    refused: {message_ids: ["<archive@search.test>"], folder_errors: 1}
+    dropped: {message_ids: ["<inbox@search.test>", "<archive@search.test>"], folder_errors: 0}
+    newer: {message_ids: ["<archive@search.test>"]}
+    after_idle: {message_ids: ["<inbox@search.test>"]}
+    server_down: {error: ErrorConnection}
+    stale_cancel: {message_ids: ["<inbox@search.test>", "<archive@search.test>"]}
+  search_not_done: [superseded, cancelled, running, queued]
+  no_search_without_id: {}
+  log_count:
+    'Search connection idle, disconnecting': 4
+  running: true
