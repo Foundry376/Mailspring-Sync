@@ -1,6 +1,6 @@
 #!/bin/bash
 # Generates a throwaway root -> intermediate -> leaf (SAN: DNS mailspring-test.invalid, IP 127.0.0.1)
-# for the Disallowed-store test. No CRL/OCSP URLs, like many private CAs and AV proxies.
+# for the certificate tests. No CRL/OCSP URLs, like many private CAs and AV proxies.
 set -e; out="$1"; mkdir -p "$out"; cd "$out"
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout root.key -out root.crt -days 2 \
   -subj "/CN=Mailspring Test Root" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"

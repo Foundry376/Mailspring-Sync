@@ -17,7 +17,11 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 #elif defined(_MSC_VER)
-#include "MCCertificateUtilsWin32.h"
+#include <windows.h>
+#include <wincrypt.h>
+#ifndef SECURITY_FLAG_IGNORE_REVOCATION
+#define SECURITY_FLAG_IGNORE_REVOCATION 0x00000080 // <wininet.h>
+#endif
 #else
 #include <string>
 #include <vector>
@@ -38,6 +42,110 @@
 #endif
 
 #include "MCLog.h"
+
+#ifdef _MSC_VER
+/*
+ Copying the ROOT store into OpenSSL misses everything Windows uses to distrust a CA: the
+ Disallowed store, the auto-updated disallowedcert.stl, and revocation. Microsoft distrusted the
+ compromised eMudhra intermediates (https://emudhra.we-have-a-problem.com/) through
+ disallowedcert.stl and the CAs revoked them by CRL, which only the chain engine sees. It also
+ sees enterprise and group policy roots and downloads Microsoft program roots that aren't cached
+ yet. The SSL policy checks the hostname, as SecPolicyCreateSSL does on macOS.
+
+ Revocation is soft-fail: when no CRL or OCSP answer is available (offline, captive portal, a
+ private CA or TLS-inspecting antivirus without CRL URLs) the chain is still accepted, but a
+ chain that is revoked or explicitly distrusted is always rejected.
+*/
+static bool checkCertificateWithCryptoAPI(carray *cCerts, mailcore::String *hostname)
+{
+    bool result = false;
+    HCERTSTORE peerStore = NULL;
+    PCCERT_CONTEXT leaf = NULL;
+    PCCERT_CHAIN_CONTEXT chain = NULL;
+
+    if (carray_count(cCerts) == 0 || hostname == NULL || hostname->length() == 0) {
+        MCLog("warning: Empty certificate chain or hostname");
+        return false;
+    }
+
+    // The certificates the server sent are only candidates for building the path. Trust still
+    // has to come from the system stores.
+    peerStore = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0, CERT_STORE_CREATE_NEW_FLAG, NULL);
+    if (peerStore == NULL) {
+        return false;
+    }
+    for (unsigned int i = 0; i < carray_count(cCerts); i++) {
+        MMAPString *str = (MMAPString *)carray_get(cCerts, i);
+        BOOL added = CertAddEncodedCertificateToStore(peerStore, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+                                                      (const BYTE *)str->str, (DWORD)str->len,
+                                                      CERT_STORE_ADD_ALWAYS, i == 0 ? &leaf : NULL);
+        if (!added && i == 0) {
+            MCLog("Could not decode the server certificate (0x%08lx)", GetLastError());
+            goto done;
+        }
+    }
+
+    {
+        LPSTR serverAuth[] = {(LPSTR)szOID_PKIX_KP_SERVER_AUTH};
+        CERT_CHAIN_PARA chainPara;
+        ZeroMemory(&chainPara, sizeof(chainPara));
+        chainPara.cbSize = sizeof(chainPara);
+        chainPara.RequestedUsage.dwType = USAGE_MATCH_TYPE_AND;
+        chainPara.RequestedUsage.Usage.cUsageIdentifier = 1;
+        chainPara.RequestedUsage.Usage.rgpszUsageIdentifier = serverAuth;
+        // Bounds the total CRL/OCSP/AIA fetch time on networks that blackhole those URLs.
+        chainPara.dwUrlRetrievalTimeout = 15000;
+
+        DWORD flags = CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT;
+        if (!CertGetCertificateChain(NULL, leaf, NULL, peerStore, &chainPara, flags, NULL, &chain)) {
+            MCLog("CertGetCertificateChain failed (0x%08lx)", GetLastError());
+            goto done;
+        }
+    }
+
+    {
+        SSL_EXTRA_CERT_CHAIN_POLICY_PARA sslPara;
+        ZeroMemory(&sslPara, sizeof(sslPara));
+        sslPara.cbSize = sizeof(sslPara);
+        sslPara.dwAuthType = AUTHTYPE_SERVER;
+        sslPara.pwszServerName = (WCHAR *)hostname->unicodeCharacters();
+        sslPara.fdwChecks = SECURITY_FLAG_IGNORE_REVOCATION;
+
+        CERT_CHAIN_POLICY_PARA policyPara;
+        ZeroMemory(&policyPara, sizeof(policyPara));
+        policyPara.cbSize = sizeof(policyPara);
+        policyPara.dwFlags = CERT_CHAIN_POLICY_IGNORE_ALL_REV_UNKNOWN_FLAGS;
+        policyPara.pvExtraPolicyPara = &sslPara;
+
+        CERT_CHAIN_POLICY_STATUS policyStatus;
+        ZeroMemory(&policyStatus, sizeof(policyStatus));
+        policyStatus.cbSize = sizeof(policyStatus);
+        if (!CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, chain, &policyPara, &policyStatus)) {
+            MCLog("CertVerifyCertificateChainPolicy failed (0x%08lx)", GetLastError());
+            goto done;
+        }
+
+        DWORD neverIgnored = CERT_TRUST_IS_REVOKED | CERT_TRUST_IS_EXPLICIT_DISTRUST;
+        result = policyStatus.dwError == 0 && (chain->TrustStatus.dwErrorStatus & neverIgnored) == 0;
+        if (!result) {
+            MCLog("Verification failed: policy error 0x%08lx, chain status 0x%08lx",
+                  policyStatus.dwError, chain->TrustStatus.dwErrorStatus);
+            PCERT_SIMPLE_CHAIN simple = chain->rgpChain[0];
+            for (DWORD i = 0; i < simple->cElement; i++) {
+                char name[512] = {0};
+                CertGetNameStringA(simple->rgpElement[i]->pCertContext, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, NULL, name, sizeof(name));
+                MCLog("  %s (error 0x%08lx)", name, simple->rgpElement[i]->TrustStatus.dwErrorStatus);
+            }
+        }
+    }
+
+done:
+    if (chain != NULL) CertFreeCertificateChain(chain);
+    if (leaf != NULL) CertFreeCertificateContext(leaf);
+    CertCloseStore(peerStore, 0);
+    return result;
+}
+#endif
 
 bool mailcore::checkCertificate(mailstream *stream, String *hostname)
 {
@@ -122,30 +230,9 @@ err:
         MCLog("warning: No certificate chain retrieved");
         return false;
     }
-    std::vector<std::string> derChain;
-    for (unsigned int i = 0; i < carray_count(cCerts); i++)
-    {
-        MMAPString *str = (MMAPString *)carray_get(cCerts, i);
-        derChain.push_back(std::string(str->str, str->len));
-    }
+    bool result = checkCertificateWithCryptoAPI(cCerts, hostname);
     mailstream_certificate_chain_free(cCerts);
-
-    std::wstring host;
-    if (hostname != NULL) {
-        host = std::wstring((const wchar_t *)hostname->unicodeCharacters(), hostname->length());
-    }
-    Win32ChainVerification verification = verifyServerChainWithCryptoAPI(derChain, host);
-    if (!verification.trusted)
-    {
-        MCLog("Verification failed: policy error 0x%08lx, chain status 0x%08lx%s",
-              (unsigned long)verification.policyError, (unsigned long)verification.chainErrorStatus,
-              verification.apiFailure ? " (CryptoAPI call failed)" : "");
-        for (const std::string &element : verification.elements)
-        {
-            MCLog("  %s", element.c_str());
-        }
-    }
-    return verification.trusted;
+    return result;
 #else
     bool result = false;
     X509_STORE *store = NULL;
