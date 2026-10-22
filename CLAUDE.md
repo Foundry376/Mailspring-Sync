@@ -11,12 +11,15 @@ Mailspring-Sync is the native C++17 sync engine for the Mailspring email client.
 ### Linux
 ```bash
 # Install dependencies (Ubuntu)
-sudo apt install libc-ares-dev libicu-dev libctemplate-dev libtidy-dev uuid-dev libxml2-dev libsasl2-dev liblzma-dev libcurl4-openssl-dev libglib2.0-dev libssl-dev
+sudo apt install libc-ares-dev libicu-dev libctemplate-dev libtidy-dev uuid-dev libxml2-dev libsasl2-dev libsasl2-modules liblzma-dev libcurl4-openssl-dev libglib2.0-dev libssl-dev
 
 # Build (from project root)
 cd Vendor/libetpan && ./autogen.sh && make && sudo make install prefix=/usr
 cd Vendor/mailcore2 && mkdir -p build && cd build && cmake .. && make
 cmake . && make
+
+# Unit tests for code with no mailcore dependency (VCard parsing)
+make vcard_test && ./vcard_test
 ```
 
 ### macOS

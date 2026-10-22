@@ -11,6 +11,7 @@ the server side by harness.servers.base.Server.truth(), which is what makes
 import json
 import sqlite3
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -129,6 +130,18 @@ def folder_status(conn: sqlite3.Connection) -> dict:
 
 def tasks(conn: sqlite3.Connection) -> list:
     return [dict(id=r["id"], status=r["status"], data=json.loads(r["data"])) for r in conn.execute("SELECT id, status, data FROM Task")]
+
+
+def contact(conn: sqlite3.Connection, source: str, *, email: Optional[str] = None, id: Optional[str] = None) -> Optional[dict]:
+    """One Contact row of `source` ('mail', 'carddav', ...) by email or id, with the content
+    of its ContactSearch row (`search`, None if it has none)."""
+    where, value = ("email", email.lower()) if email is not None else ("id", id)
+    row = conn.execute(f"SELECT id, email, json_extract(data, '$.name') AS name FROM Contact "
+                       f"WHERE source = ? AND {where} = ?", (source, value)).fetchone()
+    if not row:
+        return None
+    search = conn.execute("SELECT content FROM ContactSearch WHERE content_id = ?", (row["id"],)).fetchone()
+    return {"id": row["id"], "email": row["email"], "name": row["name"], "search": search[0] if search else None}
 
 
 def thread_counts(conn: sqlite3.Connection) -> dict:

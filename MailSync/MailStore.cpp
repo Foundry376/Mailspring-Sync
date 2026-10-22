@@ -20,6 +20,7 @@
 #include "Folder.hpp"
 #include "Message.hpp"
 #include "Thread.hpp"
+#include "DAVUtils.hpp"
 
 #include <filesystem>
 #include <algorithm>
@@ -113,7 +114,7 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA main.synchronous = NORMAL").exec();
 }
 
-static int CURRENT_VERSION = 12;
+static int CURRENT_VERSION = 13;
 static string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 30 * 24 * 60 * 60; // 30 days
 
@@ -262,6 +263,9 @@ void MailStore::migrate() {
     }
     if (version < 12) {
         recomputeEventTimes();
+    }
+    if (version < 13) {
+        _migrateToV13();
     }
 
     // Update the version flag. Note that we don't want to go from v3 back to v2
@@ -425,6 +429,57 @@ void MailStore::_migrateToV11(bool announce) {
 
     if (recounted) {
         cout << "\nMigration V11: " << recounted << " threads recounted";
+        cout.flush();
+    }
+}
+
+/*
+ V13 rewrites the names and emails contact ingest used to get wrong (see
+ VCard::displayName, VCardProperty::baseName and MailUtils::contactNameFromHeader). CardDAV
+ rows are re-read from their stored vCard, because an unchanged card's etag never triggers
+ a re-fetch; the result is what a fresh sync of the card would store. A row this cannot read
+ is left as it was. Deltas are dropped, as in V11.
+ */
+void MailStore::_migrateToV13() {
+    vector<string> ids;
+    SQLite::Statement find(_db, "SELECT id FROM Contact WHERE source IN (?, ?)");
+    find.bind(1, CONTACT_SOURCE_MAIL);
+    find.bind(2, CARDDAV_SYNC_SOURCE);
+    while (find.executeStep()) {
+        ids.push_back(find.getColumn(0).getString());
+    }
+
+    int repaired = 0;
+    for (auto & chunk : MailUtils::chunksOfVector(ids, 500)) {
+        MailStoreTransaction transaction{this, "_migrateToV13"};
+        for (auto & contact : findAll<Contact>(Query().equal("id", chunk))) {
+            try {
+                string email = contact->email();
+                string name = contact->name();
+                if (contact->source() == CARDDAV_SYNC_SOURCE) {
+                    VCard card(contact->info()["vcf"].get<string>());
+                    email = card.getEmails().front()->getValue();
+                    name = card.displayName();
+                } else {
+                    name = MailUtils::contactNameFromHeader(name, email);
+                }
+                if (email == contact->email() && name == contact->name()) {
+                    continue;
+                }
+                contact->setEmail(email);
+                contact->setName(name);
+                save(contact.get());
+                repaired++;
+            } catch (...) {
+                continue;
+            }
+        }
+        unsafeEraseTransactionDeltas();
+        transaction.commit();
+    }
+
+    if (repaired) {
+        cout << "\nMigration V13: " << repaired << " contacts repaired";
         cout.flush();
     }
 }

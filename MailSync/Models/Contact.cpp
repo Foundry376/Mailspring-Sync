@@ -51,6 +51,7 @@ string Contact::name() {
 }
 
 void Contact::setName(string name) {
+    if (_data["name"] != name) _searchContentChanged = true;
     _data["name"] = name;
 }
 
@@ -67,6 +68,7 @@ string Contact::email() {
 }
 
 void Contact::setEmail(string email) {
+    if (_data["email"] != email) _searchContentChanged = true;
     _data["email"] = email;
 }
 
@@ -179,12 +181,13 @@ void Contact::afterSave(MailStore * store) {
         insert.bind(1, id());
         insert.bind(2, searchContent());
         insert.exec();
-    } else if (source() != CONTACT_SOURCE_MAIL) {
+    } else if (source() != CONTACT_SOURCE_MAIL || _searchContentChanged) {
         SQLite::Statement update(store->db(), "UPDATE ContactSearch SET content = ? WHERE content_id = ?");
         update.bind(1, searchContent());
         update.bind(2, id());
         update.exec();
     }
+    _searchContentChanged = false;
 }
 
 void Contact::afterRemove(MailStore * store) {

@@ -48,6 +48,7 @@ public:
     static Address * addressFromContactJSON(json & j);
 
     static string contactKeyForEmail(string email);
+    static string contactNameFromHeader(string name, string email);
 
     static string localTimestampForTime(time_t time);
     static string formatDateTimeUTC(time_t time);

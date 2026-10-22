@@ -1,0 +1,105 @@
+name: migration-v13-repairs-contacts
+description: >
+  Contacts written before V13: found-in-mail contacts named by junk display names (the
+  address again in angle brackets, a lone ")", a decoded name that kept its quotes), and
+  CardDAV contacts stored with email '' because their only EMAIL is grouped (`item1.EMAIL`,
+  as Apple Contacts writes it) or with the raw `N` value as their name because FN is empty.
+  CardDAV cards whose etag has not changed are never fetched again, so V13 must repair
+  them from the stored vCard, and announce how many rows it changed. A card that was
+  already right, and a contact whose name is real, are left alone. The harness has no
+  CardDAV server, so the CardDAV rows are written into the stopped engine's database as
+  the pre-V13 ingest stored them.
+source: "Contact ingest task (2026-10-20): 291 iCloud contacts with email '' and a grouped EMAIL, 808 of 3,134 mail contacts with junk names; MailStore::_migrateToV13"
+servers:
+  - {fake: dovecot}
+binary: ab/mailsync-f7b0239
+mailboxes:
+  INBOX: {messages: 2}
+  Sent: {messages: 0}
+setup:
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: '"<repeat@example.net>" <repeat@example.net>'
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: '")" <paren@example.net>'
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: "=?iso-8859-1?Q?=22Ver=F3nica_Ach=E1_Alvarez=22?= <veronica@example.net>, Plain Person <plain@example.net>"
+steps:
+  - wait: quiescent
+  - restart:
+      timeout: 120
+      before:
+        - db.sql:
+            - >-
+              INSERT INTO Contact (id, data, accountId, email, version, refs, hidden, source, bookId, etag)
+              SELECT 'card-grouped', json_object('id', 'card-grouped', 'aid', a, 'v', 1, '__cls', 'Contact', 'email', '', 's', 'carddav',
+                'refs', 100000, 'gis', json('[]'), 'name', 'Lloyd', 'bid', 'book-1', 'etag', 'etag-card-grouped', 'h', json('false'),
+                'info', json_object('href', '/book-1/card-grouped.vcf', 'vcf', replace('BEGIN:VCARD|VERSION:3.0|UID:card-grouped|FN:Lloyd|item1.EMAIL;type=INTERNET;type=pref:Melloyd@aol.com|item1.X-ABLabel:INTERNET|END:VCARD|', '|', char(13, 10)))),
+                a, '', 1, 100000, 0, 'carddav', 'book-1', 'etag-card-grouped'
+              FROM (SELECT accountId AS a FROM Folder LIMIT 1)
+            - >-
+              INSERT INTO ContactSearch (content_id, content) VALUES ('card-grouped', ' Lloyd')
+            - >-
+              INSERT INTO Contact (id, data, accountId, email, version, refs, hidden, source, bookId, etag)
+              SELECT 'card-ios5', json_object('id', 'card-ios5', 'aid', a, 'v', 1, '__cls', 'Contact', 'email', '', 's', 'carddav',
+                'refs', 100000, 'gis', json('[]'), 'name', ';;;;', 'bid', 'book-1', 'etag', 'etag-card-ios5', 'h', json('false'),
+                'info', json_object('href', '/book-1/card-ios5.vcf', 'vcf', replace('BEGIN:VCARD|VERSION:3.0|UID:card-ios5|N:;;;;|FN:|TEL;type=CELL:+15555550100|END:VCARD|', '|', char(13, 10)))),
+                a, '', 1, 100000, 0, 'carddav', 'book-1', 'etag-card-ios5'
+              FROM (SELECT accountId AS a FROM Folder LIMIT 1)
+            - >-
+              INSERT INTO ContactSearch (content_id, content) VALUES ('card-ios5', ' ;;;;')
+            - >-
+              INSERT INTO Contact (id, data, accountId, email, version, refs, hidden, source, bookId, etag)
+              SELECT 'card-address', json_object('id', 'card-address', 'aid', a, 'v', 1, '__cls', 'Contact', 'email', '', 's', 'carddav',
+                'refs', 100000, 'gis', json('[]'), 'name', 'Ave;121;Roup;;', 'bid', 'book-1', 'etag', 'etag-card-address', 'h', json('false'),
+                'info', json_object('href', '/book-1/card-address.vcf', 'vcf', replace('BEGIN:VCARD|VERSION:3.0|UID:card-address|N:Ave;121;Roup;;|FN:|item1.ADR;type=HOME:;;121 Roup Ave;Pittsburgh;PA;15213;|END:VCARD|', '|', char(13, 10)))),
+                a, '', 1, 100000, 0, 'carddav', 'book-1', 'etag-card-address'
+              FROM (SELECT accountId AS a FROM Folder LIMIT 1)
+            - >-
+              INSERT INTO ContactSearch (content_id, content) VALUES ('card-address', ' Ave;121;Roup;;')
+            - >-
+              INSERT INTO Contact (id, data, accountId, email, version, refs, hidden, source, bookId, etag)
+              SELECT 'card-org', json_object('id', 'card-org', 'aid', a, 'v', 1, '__cls', 'Contact', 'email', 'info@acme.example', 's', 'carddav',
+                'refs', 100000, 'gis', json('[]'), 'name', ';;;;', 'bid', 'book-1', 'etag', 'etag-card-org', 'h', json('false'),
+                'info', json_object('href', '/book-1/card-org.vcf', 'vcf', replace('BEGIN:VCARD|VERSION:3.0|UID:card-org|N:;;;;|FN:|ORG:Acme;Sales|EMAIL;type=INTERNET:info@acme.example|END:VCARD|', '|', char(13, 10)))),
+                a, 'info@acme.example', 1, 100000, 0, 'carddav', 'book-1', 'etag-card-org'
+              FROM (SELECT accountId AS a FROM Folder LIMIT 1)
+            - >-
+              INSERT INTO ContactSearch (content_id, content) VALUES ('card-org', 'info acme.example ;;;;')
+            - >-
+              INSERT INTO Contact (id, data, accountId, email, version, refs, hidden, source, bookId, etag)
+              SELECT 'card-plain', json_object('id', 'card-plain', 'aid', a, 'v', 1, '__cls', 'Contact', 'email', 'card@example.net', 's', 'carddav',
+                'refs', 100000, 'gis', json('[]'), 'name', 'Plain Card', 'bid', 'book-1', 'etag', 'etag-card-plain', 'h', json('false'),
+                'info', json_object('href', '/book-1/card-plain.vcf', 'vcf', replace('BEGIN:VCARD|VERSION:3.0|UID:card-plain|FN:Plain Card|EMAIL:card@example.net|END:VCARD|', '|', char(13, 10)))),
+                a, 'card@example.net', 1, 100000, 0, 'carddav', 'book-1', 'etag-card-plain'
+              FROM (SELECT accountId AS a FROM Folder LIMIT 1)
+            - >-
+              INSERT INTO ContactSearch (content_id, content) VALUES ('card-plain', 'card example.net Plain Card')
+expect:
+  migrate_output: "Migration V13: 7 contacts repaired"
+  contacts:
+    mail:
+      repeat@example.net: ""
+      paren@example.net: ""
+      veronica@example.net: "Verónica Achá Alvarez"
+      plain@example.net: "Plain Person"
+      test@example.test: "Harness Test"
+    carddav:
+      card-grouped: {email: Melloyd@aol.com, name: Lloyd}
+      card-ios5: {email: "", name: ""}
+      card-address: {email: "", name: "121 Roup Ave"}
+      card-org: {email: info@acme.example, name: Acme}
+      card-plain: {email: card@example.net, name: Plain Card}
+  db_matches_server: {}
+  running: true

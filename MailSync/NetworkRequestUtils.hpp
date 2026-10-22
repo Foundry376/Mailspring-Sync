@@ -31,6 +31,9 @@ struct CurlRequestData {
     CurlRequestData() : headers(nullptr) {}
 };
 
+// Use in place of curl_easy_init: on macOS it adds the SecTrust check of the server's certificates.
+CURL * CreateCurlHandle();
+
 // Helper to cleanup curl handle and associated header list stored in CURLOPT_PRIVATE
 void CleanupCurlRequest(CURL * curl_handle);
 

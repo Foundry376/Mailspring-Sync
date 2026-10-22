@@ -1602,7 +1602,6 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
     for (json & c : task->data()["contacts"]) {
         contactIds.push_back(c["id"].get<string>());
     }
-    auto contacts = store->findLargeSet<Contact>("id", contactIds);
     auto direction = task->data()["direction"].get<string>();
     auto groupId = task->data()["group"]["id"].get<string>();
     
@@ -1620,6 +1619,8 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
         group->syncMembers(store, groupMemberIds);
 
     } else {
+        // Note: loaded here, not above: findLargeSet empties contactIds, which the gmail branch reads.
+        auto contacts = store->findLargeSet<Contact>("id", contactIds);
         auto contactForGroup = store->find<Contact>(Query().equal("id", groupId).equal("accountId", account->id()));
        
         contactForGroup->mutateCardInInfo([&](shared_ptr<VCard> card) {

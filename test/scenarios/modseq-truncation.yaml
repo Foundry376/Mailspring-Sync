@@ -14,7 +14,7 @@ servers:
   - {dovecot: qresync}
   - {cyrus: fastmail}
 mailboxes:
-  INBOX: {messages: {count: 5000, age_days: 60}}
+  INBOX: {messages: {count: 5000, age_days: 120}}    # past maxAgeForBodySync (90 days)
 steps:
   - wait: {quiescent: true, timeout: 300}
   # Change 4200 flags one message at a time while the engine is stopped, so it comes back to
