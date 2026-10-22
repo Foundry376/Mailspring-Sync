@@ -2168,6 +2168,33 @@ static void _graphAddAttachment(string token, string messageURL, Attachment * a)
     }
 }
 
+// Exchange replaces a MIME From naming one of the mailbox's aliases with its primary address
+// when it creates the draft, but keeps an alias set on the draft's `from` (outlook.com alias,
+// 2026-10-22). Sending as an address the mailbox may not use still fails with ErrorSendAsDenied.
+static void _graphRestoreFromAddress(string token, string messageURL, Address * from, const json & created) {
+    if (from == nullptr || from->mailbox() == nullptr) {
+        return;
+    }
+    string wanted = _mcString(from->mailbox());
+    string actual = "";
+    if (created.count("from") && created["from"].is_object() && created["from"].count("emailAddress")) {
+        json address = created["from"]["emailAddress"].value("address", json());
+        actual = address.is_string() ? address.get<string>() : "";
+    }
+    string wantedLower = wanted, actualLower = actual;
+    std::transform(wantedLower.begin(), wantedLower.end(), wantedLower.begin(), ::tolower);
+    std::transform(actualLower.begin(), actualLower.end(), actualLower.begin(), ::tolower);
+    if (wantedLower == actualLower) {
+        return;
+    }
+    spdlog::get("logger")->info("-- Graph changed From to {}, restoring {}", actual, wanted);
+    json payload = {{"from", {{"emailAddress", {{"name", _mcString(from->displayName())}, {"address", wanted}}}}}};
+    auto resp = PerformGraphRequest("PATCH", messageURL, token, payload.dump());
+    if (resp.status < 200 || resp.status > 299) {
+        _throwGraphSendFailed("send from " + wanted, resp);
+    }
+}
+
 // Removes the largest attachments from the builder until its MIME fits in one Graph request,
 // and returns them. The builder is left without them.
 static vector<Attachment *> _detachAttachmentsForGraph(MessageBuilder & builder) {
@@ -2224,6 +2251,7 @@ static string _sendViaGraph(shared_ptr<Account> account, MessageBuilder & builde
     string messageURL = MicrosoftGraphURL() + "/me/messages/" + _graphIdForURL(graphId);
 
     try {
+        _graphRestoreFromAddress(token, messageURL, builder.header()->from(), created.body);
         for (Attachment * a : detached) {
             _graphAddAttachment(token, messageURL, a);
         }

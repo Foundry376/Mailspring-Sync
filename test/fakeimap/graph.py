@@ -34,6 +34,13 @@ SENT_ITEMS_ID = "AQMkAGSentItems="
 DRAFTS_ID = "AQMkAGDrafts="
 
 
+def _with_from(mime: bytes, name: str, address: str) -> bytes:
+    msg = email.message_from_bytes(mime, policy=email.policy.default)
+    del msg["From"]
+    msg["From"] = f"{name} <{address}>" if name else address
+    return msg.as_bytes(policy=email.policy.SMTP)
+
+
 class GraphMessage:
     def __init__(self, graph_id: str, mime: bytes):
         self.id = graph_id
@@ -50,6 +57,10 @@ class GraphMessage:
     def header(self, name: str) -> Optional[str]:
         value = self.parsed[name]
         return str(value) if value is not None else None
+
+    def from_address(self) -> dict:
+        addr = self.parsed["From"].addresses[0]
+        return {"name": addr.display_name, "address": addr.addr_spec}
 
     def recipients(self) -> list:
         msg = self.parsed
@@ -118,6 +129,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self._dispatch()
 
+    def do_PATCH(self):
+        self._dispatch()
+
     def _dispatch(self):
         srv: "FakeGraphServer" = self.server.owner
         body = self._body()
@@ -158,6 +172,10 @@ class _Handler(BaseHTTPRequestHandler):
         if rest == "" and self.command == "GET":
             return self._reply(200, {"id": msg.id, "parentFolderId": msg.folder,
                                      "internetMessageId": msg.header("Message-ID")})
+        if rest == "" and self.command == "PATCH":
+            sender = json.loads(body).get("from", {}).get("emailAddress", {})
+            msg.mime = _with_from(msg.mime, sender.get("name", ""), sender["address"])
+            return self._reply(200, {"id": msg.id, "from": {"emailAddress": msg.from_address()}})
         if rest == "" and self.command == "DELETE":
             with srv.lock:
                 del srv.messages[graph_id]
@@ -216,11 +234,20 @@ class _Handler(BaseHTTPRequestHandler):
         with srv.lock:
             # Real ids are base64 and contain '/' and '+', which the engine must escape in URLs.
             graph_id = f"AAMkAG/{len(srv.messages) + len(srv.deleted) + len(srv.sent) + 1}+Draft="
-            srv.messages[graph_id] = GraphMessage(graph_id, mime)
-        return self._reply(201, {"id": graph_id, "isDraft": True, "parentFolderId": DRAFTS_ID})
+            msg = GraphMessage(graph_id, mime)
+            sender = msg.from_address()
+            if srv.mailbox and sender["address"].lower() != srv.mailbox.lower():
+                msg.mime = _with_from(msg.mime, sender["name"], srv.mailbox)
+            srv.messages[graph_id] = msg
+        return self._reply(201, {"id": graph_id, "isDraft": True, "parentFolderId": DRAFTS_ID,
+                                 "from": {"emailAddress": msg.from_address()}})
 
     def _send(self, msg: GraphMessage):
         srv: "FakeGraphServer" = self.server.owner
+        allowed = {a.lower() for a in [srv.mailbox] + list(srv.aliases) if a}
+        if allowed and msg.from_address()["address"].lower() not in allowed:
+            return self._error(403, "ErrorSendAsDenied", "The user account which was used to submit this request "
+                               "does not have the right to send mail on behalf of the specified sending account.")
         msg.sent_at = time.time()
         with srv.lock:
             srv.sent.append(msg)
@@ -269,13 +296,17 @@ class _Handler(BaseHTTPRequestHandler):
 class FakeGraphServer:
     def __init__(self, host="127.0.0.1", port=0, refresh_token="refresh-token", graph_consented=True,
                  sent_copy=None, sent_copy_delay: float = 0, failures: Optional[list] = None, deliver_to=None,
-                 consent_refusals: int = 0):
+                 consent_refusals: int = 0, mailbox: Optional[str] = None, aliases=()):
         """sent_copy: optional (Store, mailbox) every sent message's copy is appended to, as
         Exchange files it in Sent Items. sent_copy_delay: seconds between /send and that copy.
         graph_consented: whether the refresh token may be exchanged for Graph scopes (an
         account authorized before Mail.Send was requested may not).
         consent_refusals: refuse the first N Graph token requests with AADSTS65001 anyway, as
         Azure AD does for a few seconds while a consent the user just gave replicates.
+        mailbox / aliases: the mailbox's primary address and the aliases it may send as. A
+        MIME draft whose From is any other address gets the primary address instead, a PATCH
+        of `from` sets it, and /send refuses an address outside these with ErrorSendAsDenied
+        (outlook.com, 2026-10-22).
         failures: [{route: regex on the path after /v1.0/me/, method, status, code, message,
         times}] - answer matching requests with that error, `times` times (default always).
         deliver_to: optional (Store, mailbox, address) - sent mail addressed to `address` is
@@ -284,6 +315,8 @@ class FakeGraphServer:
         self.refresh_token = refresh_token
         self.graph_consented = graph_consented
         self.consent_refusals = consent_refusals
+        self.mailbox = mailbox
+        self.aliases = list(aliases)
         self.sent_copy = sent_copy
         self.sent_copy_delay = sent_copy_delay
         self.deliver_to = deliver_to
