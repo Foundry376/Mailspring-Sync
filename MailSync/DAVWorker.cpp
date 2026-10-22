@@ -2338,8 +2338,10 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     //   curl_easy_setopt(curl_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
     // for detected Baikal servers (hostname containing "baikal").
 
+    // Note: fetched before allocating requestData, because an OAuth token refresh can throw.
+    string authorization = getAuthorizationHeader();
     CurlRequestData *requestData = new CurlRequestData();
-    requestData->headers = curl_slist_append(requestData->headers, getAuthorizationHeader().c_str());
+    requestData->headers = curl_slist_append(requestData->headers, authorization.c_str());
     requestData->headers = curl_slist_append(requestData->headers, "Prefer: return-minimal");
     requestData->headers = curl_slist_append(requestData->headers, "Content-Type: application/xml; charset=utf-8");
     // Note: Do NOT set Accept: text/vcard here. WebDAV REPORT/PROPFIND responses are always
@@ -2383,8 +2385,10 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
 string DAVWorker::performVCardRequest(string _url, string method, string vcard, ETAG existingEtag) {
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
     
+    // Note: fetched before allocating requestData, because an OAuth token refresh can throw.
+    string authorization = getAuthorizationHeader();
     CurlRequestData *requestData = new CurlRequestData();
-    requestData->headers = curl_slist_append(requestData->headers, getAuthorizationHeader().c_str());
+    requestData->headers = curl_slist_append(requestData->headers, authorization.c_str());
     requestData->headers = curl_slist_append(requestData->headers, "Content-Type: text/vcard; charset=utf-8");
     requestData->headers = curl_slist_append(requestData->headers, "Accept: text/vcard; version=4.0");
     if (existingEtag != "") {
@@ -2414,8 +2418,10 @@ string DAVWorker::performVCardRequest(string _url, string method, string vcard, 
 string DAVWorker::performICSRequest(string _url, string method, string icsData, ETAG existingEtag) {
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
 
+    // Note: fetched before allocating requestData, because an OAuth token refresh can throw.
+    string authorization = getAuthorizationHeader();
     CurlRequestData *requestData = new CurlRequestData();
-    requestData->headers = curl_slist_append(requestData->headers, getAuthorizationHeader().c_str());
+    requestData->headers = curl_slist_append(requestData->headers, authorization.c_str());
     requestData->headers = curl_slist_append(requestData->headers, "Content-Type: text/calendar; charset=utf-8");
 
     if (existingEtag != "") {
