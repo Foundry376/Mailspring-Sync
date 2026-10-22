@@ -141,7 +141,7 @@ class _TCP(socketserver.ThreadingTCPServer):
 class FakeSmtpServer:
     def __init__(self, host="127.0.0.1", port=0, credentials=("test", "pass"), hostname="mail.example.test",
                  require_auth=True, reject_non_fqdn_helo=False, deliver_to=None, sent_copy=None,
-                 deliver_delay: float = 0, sent_copy_delay: float = 0,
+                 deliver_delay: float = 0, sent_copy_delay: float = 0, rewrite_message_id: bool = False,
                  tls_context: Optional[ssl.SSLContext] = None):
         """deliver_to: optional (Store, mailbox, address) - messages sent to `address` are appended
         to that mailbox, as a real server delivers self-addressed mail back to the sender.
@@ -151,6 +151,10 @@ class FakeSmtpServer:
         sent_copy_delay: seconds between accepting a message and filing that copy; Exchange
         Online made it visible 0.5-3.5 s after the 250, twice 6-8 s, once ~3 min (live O365
         sends, 2026-09-27).
+        rewrite_message_id: replace the Message-ID of every accepted message with one of the
+        server's own and keep the client's in X-Microsoft-Original-Message-ID, as Outlook.com
+        (smtp-mail.outlook.com) does to the copy it files in Sent Items and to what it delivers
+        (live.fr account, 2026-10-22). `messages` keeps what the client submitted.
         deliver_delay: seconds between accepting a self-addressed message and delivering it,
         for a hand-driven client (tools/cyrus_server.py); scenarios use hold()/release().
         tls_context: serve implicit TLS (SMTPS, "SSL / TLS" in account settings) with it."""
@@ -162,6 +166,7 @@ class FakeSmtpServer:
         self.deliver_to = deliver_to
         self.sent_copy = sent_copy
         self.sent_copy_delay = sent_copy_delay
+        self.rewrite_message_id = rewrite_message_id
         self.deliver_delay = deliver_delay
         self.tls_context = tls_context
         self.messages: list = []
@@ -173,7 +178,30 @@ class FakeSmtpServer:
     def log(self, direction, line):
         self.transcript.append((time.time(), direction, line))
 
+    def _rewritten(self, msg: SmtpMessage) -> SmtpMessage:
+        head, sep, body = msg.raw.partition(b"\r\n\r\n")
+        lines = head.split(b"\r\n")
+        kept, original, skipping = [], None, False
+        for line in lines:
+            if skipping and line[:1] in (b" ", b"\t"):
+                original += b" " + line.strip()
+                continue
+            skipping = False
+            if line.lower().startswith(b"message-id:"):
+                original = line.split(b":", 1)[1].strip()
+                skipping = True
+                continue
+            kept.append(line)
+        server_id = b"<GVAP278MB%06dCDCE510576C6EF0203%s@GVAP278MB732740.CHEP278.PROD.OUTLOOK.COM>" % (
+            len(self.messages), str(int(time.time() * 1000) % 100000).encode())
+        kept.insert(0, b"Message-ID: " + server_id)
+        if original:
+            kept.append(b"X-Microsoft-Original-Message-ID: " + original)
+        return SmtpMessage(msg.helo, msg.sender, msg.recipients, b"\r\n".join(kept) + sep + body)
+
     def deliver(self, msg: SmtpMessage):
+        if self.rewrite_message_id:
+            msg = self._rewritten(msg)
         if self.sent_copy:
             store, mailbox = self.sent_copy
             if self.sent_copy_delay:

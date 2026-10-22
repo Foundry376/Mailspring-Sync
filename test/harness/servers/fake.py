@@ -15,7 +15,8 @@ class FakeServer(Server):
 
     def __init__(self, personality: str = "dovecot", log_path: Optional[str] = None, smtp: bool = False,
                  email: str = "test@example.test", reject_non_fqdn_helo: bool = False,
-                 smtp_sent_copy: Optional[str] = None, smtp_sent_copy_delay: float = 0, **kw):
+                 smtp_sent_copy: Optional[str] = None, smtp_sent_copy_delay: float = 0,
+                 smtp_rewrite_message_id: bool = False, **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
@@ -23,11 +24,14 @@ class FakeServer(Server):
         self.email = email
         # Mail the user sends to themself is delivered back into INBOX, as a real MTA would.
         # `smtp_sent_copy` names a mailbox every submitted message is filed into as well
-        # (Gmail's submission service saves sent mail under \Sent by itself).
+        # (Gmail's submission service saves sent mail under \Sent by itself);
+        # `smtp_rewrite_message_id` replaces the Message-ID of what the server files and
+        # delivers, as Outlook.com does.
         self.smtp = FakeSmtpServer(credentials=(self.username, self.password), reject_non_fqdn_helo=reject_non_fqdn_helo,
                                    deliver_to=(self.store, "INBOX", email),
                                    sent_copy=(self.store, smtp_sent_copy) if smtp_sent_copy else None,
-                                   sent_copy_delay=smtp_sent_copy_delay) if smtp else None
+                                   sent_copy_delay=smtp_sent_copy_delay,
+                                   rewrite_message_id=smtp_rewrite_message_id) if smtp else None
 
     def start(self):
         self.imap.start()
