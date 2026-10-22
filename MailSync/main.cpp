@@ -173,6 +173,9 @@ static int retryDelayAfterLoginRejected(SyncException & ex, SyncWorker & worker,
     if (rejections.count >= LOGIN_REJECTED_RETRY_DELAYS.size()) {
         return -1;
     }
+    // mailcore leaves the session connected after a NO, and servers close unauthenticated
+    // connections long before the retry.
+    worker.disconnect();
     if (worker.account->refreshToken() != "") {
         SharedXOAuth2TokenManager()->invalidateTokenForAccount(worker.account);
     }

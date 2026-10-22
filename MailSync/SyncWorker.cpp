@@ -93,6 +93,11 @@ string SyncWorker::lastLoginResponse()
     return response ? response->UTF8Characters() : "";
 }
 
+void SyncWorker::disconnect()
+{
+    session.disconnect();
+}
+
 void SyncWorker::idleInterrupt()
 {
     // called on main / random threads to interrupt idle

@@ -1,9 +1,10 @@
 name: login-rejected-transiently
 description: >
-  After a reconnect the server answers one login NO, then accepts the same credentials. The
-  engine must log the server's reply, keep running, and log in again after the retry delay
-  instead of exiting, which the client counts toward marking the account as needing
-  re-authentication.
+  After a reconnect the server answers one login NO, then closes the unauthenticated
+  connection while the engine waits to retry. The engine must log the server's reply, keep
+  running, and log in again on a new connection after the retry delay, instead of exiting
+  (which the client counts toward marking the account as needing re-authentication) or
+  retrying on the closed socket and reporting the account offline.
 source: >
   community.getmailspring.com/t/14606: Outlook.com rejected AUTHENTICATE for a valid XOAuth2
   token about a second after the other worker's login with the same token succeeded; each
@@ -19,9 +20,11 @@ steps:
   - client.wake: {}
   - wait: {log: "^-X Login rejected: AUTHENTICATE failed"}
   - wait: {log: "^--sleeping 30s before retrying login"}
+  - server.drop_connections: {}
   - server.append: {mailbox: INBOX, messages: 1}
   - client.wake: {}
-  - wait: {quiescent: true}
+  # A retry on the closed socket fails as ErrorConnection and waits out the 120 s sleep.
+  - wait: {quiescent: true, timeout: 60}
   - sync: pass
 expect:
   running: true
