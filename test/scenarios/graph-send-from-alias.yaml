@@ -1,0 +1,62 @@
+name: graph-send-from-alias
+description: >
+  The user sends from one of the mailbox's aliases. Exchange replaces an alias in a MIME
+  draft's From with the mailbox's primary address, so the engine must set the alias on the
+  draft before sending or the recipient sees the primary address. Sending as an address the
+  mailbox may not use must fail with Graph's ErrorSendAsDenied and leave no draft behind.
+source: "outlook.com alias, 2026-10-22: a MIME draft From bengotow-sales@ arrived From bengotow@; PATCHing `from` on the draft delivered it from the alias, as Outlook on the web does"
+servers:
+  - {fake: outlook, smtp: true, graph: true, graph_aliases: ["sales@example.test"]}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "alias-1@example.test"
+        subject: "From the sales alias"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Sales Team", email: "sales@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 90}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "alias-2@example.test"
+        subject: "From someone else"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Someone Else", email: "boss@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send2
+  - wait: {task: send2, timeout: 90}
+  - wait: {quiescent: true}
+expect:
+  task_error: {send1: null, send2: send-failed}
+  graph:
+    count: 1
+    drafts: 0
+    messages:
+      - recipients: ["bob@example.net"]
+        headers: {From: "Sales Team <sales@example.test>", Message-ID: "<alias-1@example.test>"}
+  log_present: ["Graph changed From to test@example.test, restoring sales@example.test", "ErrorSendAsDenied"]
+  server_counts: {Sent Items: 1}
+  db_matches_server: {}
+  running: true

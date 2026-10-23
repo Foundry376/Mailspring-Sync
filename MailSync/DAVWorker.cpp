@@ -28,45 +28,6 @@
 #include <set>
 #include <curl/curl.h>
 
-#ifdef _MSC_VER
-// Windows doesn't have strptime, provide a minimal implementation for HTTP-date parsing
-static char* win32_strptime(const char* s, const char* format, struct tm* tm) {
-    // Only supports the HTTP-date format: "%a, %d %b %Y %H:%M:%S"
-    static const char* months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-    char weekday[4], month[4];
-    int day, year, hour, min, sec;
-
-    if (sscanf_s(s, "%3s, %d %3s %d %d:%d:%d",
-                 weekday, (unsigned)sizeof(weekday),
-                 &day,
-                 month, (unsigned)sizeof(month),
-                 &year, &hour, &min, &sec) != 7) {
-        return nullptr;
-    }
-
-    int mon = -1;
-    for (int i = 0; i < 12; i++) {
-        if (_stricmp(month, months[i]) == 0) {
-            mon = i;
-            break;
-        }
-    }
-    if (mon < 0) return nullptr;
-
-    tm->tm_mday = day;
-    tm->tm_mon = mon;
-    tm->tm_year = year - 1900;
-    tm->tm_hour = hour;
-    tm->tm_min = min;
-    tm->tm_sec = sec;
-
-    // Return pointer past the parsed portion (approximate)
-    return const_cast<char*>(s + strlen(s));
-}
-#define strptime win32_strptime
-#define timegm _mkgmtime
-#endif
 
 struct EventResult {
     std::string icsHref;
@@ -310,75 +271,6 @@ size_t headerCallback(char* buffer, size_t size, size_t nitems, void* userdata) 
     return totalSize;
 }
 
-// HTTP Protocol Quirk: Header Case Sensitivity
-// While HTTP specifications (RFC 7230) require case-insensitive header handling, some
-// server implementations or proxies treat headers as case-sensitive. The Python caldav
-// library uses CaseInsensitiveDict for all header operations. We achieve the same effect
-// by normalizing both the headers and search term to lowercase before matching.
-static string extractHeader(const string& headers, const string& headerName) {
-    string searchFor = headerName + ":";
-    size_t pos = 0;
-
-    // Case-insensitive search (handles server inconsistencies)
-    string headersLower = headers;
-    string searchLower = searchFor;
-    transform(headersLower.begin(), headersLower.end(), headersLower.begin(), ::tolower);
-    transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::tolower);
-
-    pos = headersLower.find(searchLower);
-    if (pos == string::npos) {
-        return "";
-    }
-
-    // Find the value after the colon
-    size_t valueStart = pos + searchFor.length();
-    size_t valueEnd = headers.find("\r\n", valueStart);
-    if (valueEnd == string::npos) {
-        valueEnd = headers.find("\n", valueStart);
-    }
-    if (valueEnd == string::npos) {
-        valueEnd = headers.length();
-    }
-
-    string value = headers.substr(valueStart, valueEnd - valueStart);
-
-    // Trim whitespace
-    size_t start = value.find_first_not_of(" \t");
-    size_t end = value.find_last_not_of(" \t\r\n");
-    if (start == string::npos) return "";
-    return value.substr(start, end - start + 1);
-}
-
-// Parse Retry-After header value (RFC 7231)
-// Supports both delay-seconds (integer) and HTTP-date formats
-int DAVWorker::parseRetryAfter(const string& retryAfter) {
-    if (retryAfter.empty()) {
-        return 0;
-    }
-
-    // Try parsing as integer (delay-seconds format)
-    try {
-        int seconds = stoi(retryAfter);
-        if (seconds > 0) {
-            return seconds;
-        }
-    } catch (...) {
-        // Not an integer, try parsing as HTTP-date
-    }
-
-    // Try parsing as HTTP-date (e.g., "Fri, 31 Dec 2024 23:59:59 GMT")
-    struct tm tm = {};
-    if (strptime(retryAfter.c_str(), "%a, %d %b %Y %H:%M:%S", &tm) != nullptr) {
-        time_t targetTime = timegm(&tm);
-        time_t now = time(nullptr);
-        if (targetTime > now) {
-            return static_cast<int>(targetTime - now);
-        }
-    }
-
-    return 0;
-}
-
 void DAVWorker::applyRateLimitDelay() {
     time_t now = time(nullptr);
 
@@ -415,7 +307,7 @@ void DAVWorker::recordRateLimitResponse(int httpCode, const string& retryAfter) 
     consecutiveSuccesses = 0;
 
     // Parse Retry-After header if present
-    int retrySeconds = parseRetryAfter(retryAfter);
+    int retrySeconds = ParseRetryAfter(retryAfter);
 
     if (retrySeconds > 0) {
         // Server specified a wait time
@@ -2375,7 +2267,7 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
         // The exception key format is "Invalid Response Code: XXX"
         if (e.key.find("429") != string::npos || e.key.find("503") != string::npos) {
             int httpCode = (e.key.find("429") != string::npos) ? 429 : 503;
-            string retryAfter = extractHeader(capturedHeaders, "Retry-After");
+            string retryAfter = HTTPHeaderValue(capturedHeaders, "Retry-After");
             recordRateLimitResponse(httpCode, retryAfter);
         }
         throw;

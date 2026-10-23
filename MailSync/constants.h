@@ -53,6 +53,22 @@ static string MAILSPRING_FOLDER_PREFIX_V2 = "Mailspring";
 // How long after a send a later copy in Sent is taken to be the server's late copy of it.
 #define SENT_COPY_CLEANUP_WINDOW    (30 * 60)
 
+// Microsoft Graph documents a 4 MB request limit. A message is uploaded as base64 MIME, so
+// attachments are moved out of it until it fits and added to the draft one request each: in
+// one POST below 3 MB, otherwise through an upload session, whose chunks must be multiples of
+// 320 KiB. https://learn.microsoft.com/en-us/graph/outlook-large-attachments
+//
+// Observed on outlook.com and Exchange Online (2026-10-22), GRAPH_MAX_REQUEST_BYTES is very
+// conservative: drafts were created from base64 MIME of up to 20 MB, and refused with
+// ErrorMessageSizeExceeded at 36 MB. A 2,999,999-byte attachment POST (a 4,000,130-byte
+// request) and upload sessions for 1 MB files both succeeded. Moving attachments out is still
+// what lets a message reach the client's 25 MB attachment limit: base64 MIME of 25 MB of
+// attachments is about 45 MB. Exchange also throttles each app at roughly 150 MB uploaded
+// per mailbox per 5 minutes (429 ApplicationThrottled, "IncomingBytes limit").
+#define GRAPH_MAX_REQUEST_BYTES         (3500 * 1024)
+#define GRAPH_MIN_UPLOAD_SESSION_BYTES  3000000
+#define GRAPH_UPLOAD_CHUNK_BYTES        (10 * 320 * 1024)
+
 static vector<string> ACCOUNT_RESET_QUERIES = {
     "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Folder` WHERE `accountId` = ?)",
     "DELETE FROM `ThreadCounts` WHERE `categoryId` IN (SELECT id FROM `Label` WHERE `accountId` = ?)",

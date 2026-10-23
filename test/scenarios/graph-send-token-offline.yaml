@@ -1,0 +1,36 @@
+name: graph-send-token-offline
+description: >
+  The Graph token request gets no answer (the machine went offline between syncing and
+  sending). The send must fail as a connection error, which the client explains as one,
+  rather than telling the user to reconnect an account whose authorization is fine.
+source: "Review of the Graph send path: transport failures on the token refresh were reported as missing authorization"
+servers:
+  - {fake: outlook, smtp: true, graph: true, graph_drop_token: true}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "offline-1@example.test"
+        subject: "Offline"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 60}
+  - wait: {quiescent: true}
+expect:
+  task_error: {send1: {key: send-failed, debuginfo: "^ErrorConnection$"}}
+  smtp: {count: 0}
+  graph: {count: 0, drafts: 0}
+  running: true

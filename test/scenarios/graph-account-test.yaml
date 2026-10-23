@@ -1,0 +1,21 @@
+name: graph-account-test
+description: >
+  Adding an Office 365 account that sends through Graph runs `--mode test`. On a tenant with
+  SMTP AUTH disabled the SMTP check would fail the sign-in, so for these accounts the test must
+  check IMAP and then read Sent Items through Graph, and never connect to SMTP.
+source: "https://aka.ms/smtp_auth_disabled; client onboarding finalizeAndValidateAccount"
+servers:
+  - fake: outlook
+    smtp: true
+    graph: true
+    smtp_auth_response: "535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Tenant."
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: quiescent
+expect:
+  test_auth:
+    error: null
+    log: ["----------IMAP----------", "Sent Items is readable through Microsoft Graph"]
+    log_absent: ["----------SMTP----------"]
+  running: true

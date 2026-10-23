@@ -55,6 +55,10 @@ class Server(ABC):
         """Keyword arguments for harness.mailsync.account_json."""
         return dict(imap_host=self.host, imap_port=self.port, username=self.username, password=self.password)
 
+    def engine_env(self) -> dict:
+        """Environment the engine needs to reach endpoints this server provides besides IMAP."""
+        return {}
+
     # -- population / mutation
     @abstractmethod
     def create_mailbox(self, name: str, special_use: Optional[str] = None): ...

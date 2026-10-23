@@ -42,6 +42,7 @@
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
 #include "NetworkRequestUtils.hpp"
+#include "XOAuth2TokenManager.hpp"
 #include "ThreadUtils.h"
 #include "constants.h"
 #include "SPDLogExtensions.hpp"
@@ -357,6 +358,37 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
     }
     if (err != ErrorNone) {
         alogger.log("\n\nRequired folder not found. Ensure your account has an `Inbox` folder, or if this is a Gmail account, verify that `All Mail` is enabled for IMAP in your Gmail settings.\n");
+        goto done;
+    }
+
+    if (account->sendsViaGraph()) {
+        // Mail goes out through Graph, so SMTP AUTH (often disabled on Exchange Online) is never
+        // exercised. Reading Sent Items proves the token carries the Graph mail scopes; Mail.Send
+        // itself cannot be checked without sending.
+        alogger.log("\n\n----------MICROSOFT GRAPH----------\n");
+        errorService = "microsoft graph";
+        XOAuth2Parts parts;
+        for (int attempt = 0; ; attempt ++) {
+            try {
+                parts = SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraph);
+                break;
+            } catch (SyncException & ex) {
+                // Azure AD can answer AADSTS65001 for a few seconds after the user granted the
+                // Graph scopes, until the consent replicates (work tenant, 2026-10-22).
+                if (attempt >= 4 || ex.debuginfo.find("AADSTS65001") == string::npos) {
+                    throw;
+                }
+                alogger.log("Microsoft has not finished recording consent (AADSTS65001), retrying in 5s.\n");
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+            }
+        }
+        GraphResponse failure;
+        if (GraphSentItemsId(parts.accessToken, &failure).empty()) {
+            alogger.log("Reading Sent Items returned HTTP " + to_string(failure.status) + ": " + GraphErrorDescription(failure) + "\n");
+            err = (failure.status == 401 || failure.status == 403) ? ErrorAuthentication : ErrorConnection;
+        } else {
+            alogger.log("Sent Items is readable through Microsoft Graph.\n");
+        }
         goto done;
     }
 

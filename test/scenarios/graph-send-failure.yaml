@@ -1,0 +1,83 @@
+name: graph-send-failure
+description: >
+  Graph refuses /send (the mailbox may not send as this address). The task must fail with
+  send-failed carrying Graph's message, the unsent draft must be deleted from the server so it
+  does not appear in the user's Drafts, and nothing may land in Sent Items. A task asking for
+  separate per-recipient bodies (open / link tracking over SMTP) must be refused before any
+  request: Graph cannot address one copy to each recipient. A 500 from /send is ambiguous -
+  Exchange may have accepted the message - so that draft must be left in place.
+source: "Graph error format: https://learn.microsoft.com/en-us/graph/errors"
+servers:
+  - fake: outlook
+    smtp: true
+    graph: true
+    graph_failures:
+      - {route: "/send$", method: POST, status: 403, code: ErrorAccessDenied, message: "Access is denied. Check credentials and try again.", times: 1}
+      - {route: "/send$", method: POST, status: 500, code: ErrorInternalServerError, message: "An internal server error occurred.", times: 1}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-refused@example.test"
+        subject: "Refused"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files: []
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 60}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-multisend@example.test"
+        subject: "Tracked"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files: []
+      perRecipientBodies: {self: "<p>Hi Bob</p>", "bob@example.net": "<p>Hi Bob<img src=x></p>"}
+    as: send2
+  - wait: {task: send2, timeout: 60}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-ambiguous@example.test"
+        subject: "Ambiguous"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files: []
+      perRecipientBodies: null
+    as: send3
+  - wait: {task: send3, timeout: 60}
+  - wait: {quiescent: true}
+expect:
+  task_error: {send1: send-failed, send2: send-failed, send3: send-failed}
+  smtp: {count: 0}
+  graph: {count: 0, drafts: 1}
+  server_counts: {Sent Items: 0}
+  log_present: ["ErrorAccessDenied: Access is denied", "could not send the message \\(HTTP 500\\)"]
+  db_matches_server: {}
+  running: true

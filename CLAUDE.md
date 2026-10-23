@@ -327,6 +327,9 @@ the Comment Style section for what a comment should and should not say.
 ## Gmail-Specific Behavior
 Gmail accounts sync only Spam, All Mail, and Trash folders, using X-GM-LABELS extension for label handling. Virtual folders are ignored. Every message has exactly one placement, in whichever of those three folders holds it (see Message Identity and Placements).
 
+## Microsoft Graph Sending
+Office 365 / Outlook accounts whose settings carry `graph_send: true` (the client sets it at sign-in when the user granted Graph `Mail.Send` and `Mail.ReadWrite`) still sync over IMAP but send through Microsoft Graph, because Exchange Online tenants can disable SMTP AUTH (`5.7.139`, surfaced to the client as `smtp-auth-disabled`). `XOAuth2TokenManager` caches one access token per audience (IMAP/SMTP vs Graph) from the same refresh token. `performRemoteSendDraft` creates a Graph draft from the same MIME SMTP would send, adds attachments that do not fit Graph's 4 MB request limit separately (upload sessions from 3 MB), sends it, and waits for Exchange to file the copy in Sent Items under the draft's immutable id; it never APPENDs a Sent copy for these accounts. Exchange rewrites an alias in a MIME draft's From to the mailbox's primary address, so the engine PATCHes `from` back onto the draft when they differ. Graph has no SMTP envelope, so per-recipient bodies (`perRecipientBodies`) are refused. Accounts without `graph_send` are untouched. `MS_GRAPH_URL` / `MS_OAUTH_TOKEN_URL` point the engine at the test harness's fake Graph server.
+
 ## Adding New Files
 New source files must be manually added to:
 - `CMakeLists.txt` (Linux)

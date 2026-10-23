@@ -1,0 +1,44 @@
+name: graph-send-copy-late
+description: >
+  Exchange files the Sent Items copy of a Graph send 6 s after /send. The engine must keep
+  polling the draft's immutable id until the copy reaches Sent Items, then record that copy
+  and attach the draft's metadata - and never APPEND a copy of its own, which Exchange's would
+  duplicate.
+source: "Mailspring dev O365 account, 2026-09-27: Exchange made its Sent Items copy visible 0.5-3.5 s after submission, twice 6-8 s"
+servers:
+  - {fake: outlook, smtp: true, graph: true, graph_sent_copy_delay: 6}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-late@example.test"
+        subject: "Slow copy"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files: []
+        metadata: [{pluginId: "link-tracking", v: 1, value: {uid: "graph-late@example.test"}}]
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 120}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  task_error: {send1: null}
+  graph: {count: 1, drafts: 0}
+  server_counts: {Sent Items: 1}
+  counts: {Sent Items: 1}
+  log_present: ["Exchange filed the sent copy in Sent Items", "Queueing task to attach link-tracking draft metadata"]
+  log_absent: ["Placing a new message"]
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true
