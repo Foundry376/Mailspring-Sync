@@ -153,6 +153,11 @@ static const vector<int> LOGIN_REJECTED_RETRY_DELAYS { 30, 120 };
 // success because a wake makes the foreground worker return before it logs in.
 static const time_t LOGIN_REJECTED_EPISODE_GAP = 10 * 60;
 
+// A wake ends a retry wait early, since the network may be back, but not this soon after the
+// rejection. The client wakes every account on resume, on the `online` event and when another
+// account reconnects, and a burst of wakes would otherwise use up the attempts in seconds.
+static const int LOGIN_REJECTED_MIN_WAIT = 30;
+
 struct LoginRejections {
     size_t count = 0;
     time_t last = 0;
@@ -182,6 +187,15 @@ static int retryDelayAfterLoginRejected(SyncException & ex, SyncWorker & worker,
     return LOGIN_REJECTED_RETRY_DELAYS[rejections.count++];
 }
 
+static void sleepBeforeRetryingLogin(int delay) {
+    spdlog::get("logger")->info("--sleeping {}s before retrying login", delay);
+    // Measured by wall clock so the wake the client sends on resume ends a wait the machine slept through.
+    time_t start = time(0);
+    do {
+        MailUtils::sleepWorkerUntilWakeOrSec(delay - (time(0) - start));
+    } while (time(0) - start < min(delay, LOGIN_REJECTED_MIN_WAIT));
+}
+
 void runForegroundSyncWorker() {
     LoginRejections loginRejections;
     while(true) {
@@ -193,8 +207,7 @@ void runForegroundSyncWorker() {
             exceptions::logCurrentExceptionWithStackTrace();
             int retryDelay = retryDelayAfterLoginRejected(ex, *fgWorker, loginRejections);
             if (retryDelay >= 0) {
-                spdlog::get("logger")->info("--sleeping {}s before retrying login", retryDelay);
-                MailUtils::sleepWorkerUntilWakeOrSec(retryDelay);
+                sleepBeforeRetryingLogin(retryDelay);
                 continue;
             }
             if (!ex.isRetryable()) {
@@ -261,8 +274,7 @@ void runBackgroundSyncWorker() {
             exceptions::logCurrentExceptionWithStackTrace();
             int retryDelay = retryDelayAfterLoginRejected(ex, *bgWorker, loginRejections);
             if (retryDelay >= 0) {
-                spdlog::get("logger")->info("--sleeping {}s before retrying login", retryDelay);
-                MailUtils::sleepWorkerUntilWakeOrSec(retryDelay);
+                sleepBeforeRetryingLogin(retryDelay);
                 continue;
             }
             if (!ex.isRetryable()) {
