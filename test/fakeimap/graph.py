@@ -12,7 +12,10 @@ session chunks are multiples of 320 KiB and refuse an Authorization header
 immutable id is kept when the draft moves to Sent Items
 (https://learn.microsoft.com/en-us/graph/outlook-immutable-id). A message is not readable
 between /send and the moment its Sent Items copy exists (the real service shows it in
-Outbox; the engine only cares whether it has reached Sent Items).
+Outbox; the engine only cares whether it has reached Sent Items). A draft PATCHed with
+PidTagDeleteAfterSubmit (`Boolean 0x0E01`) is deleted once sent and filed nowhere. Delivery
+uses the MIME's To and Cc plus the draft's `bccRecipients`; a Bcc header in the MIME is not
+modelled as a recipient, since Graph does not document honoring it.
 """
 import base64
 import email
@@ -49,6 +52,8 @@ class GraphMessage:
         self.folder = DRAFTS_ID
         self.sent_at: Optional[float] = None
         self.filed = False
+        self.bcc: list = []
+        self.delete_after_submit = False
 
     @property
     def parsed(self):
@@ -65,10 +70,10 @@ class GraphMessage:
     def recipients(self) -> list:
         msg = self.parsed
         out = []
-        for field in ("To", "Cc", "Bcc"):
+        for field in ("To", "Cc"):
             for addr in msg.get_all(field, []) or []:
                 out += [a.addr_spec for a in addr.addresses]
-        return out
+        return out + self.bcc
 
     def attachment_names(self) -> list:
         names = [part.get_filename() for part in self.parsed.walk() if part.get_filename()]
@@ -76,10 +81,12 @@ class GraphMessage:
 
     def sent_copy(self) -> bytes:
         """The MIME Exchange files in Sent Items: the draft's MIME plus the attachments that
-        were added to the draft separately."""
-        if not self.attachments:
+        were added to the draft separately, with its Bcc recipients shown to the sender."""
+        if not self.attachments and not self.bcc:
             return self.mime
         msg = email.message_from_bytes(self.mime, policy=email.policy.default)
+        if self.bcc and msg["Bcc"] is None:
+            msg["Bcc"] = ", ".join(self.bcc)
         if not isinstance(msg, EmailMessage):
             msg = EmailMessage(policy=email.policy.default)
         if not msg.is_multipart():
@@ -148,8 +155,11 @@ class _Handler(BaseHTTPRequestHandler):
         if len(body) > MAX_REQUEST_BYTES:
             return self._error(413, "RequestEntityTooLarge", "The request is larger than 4 MB.")
         auth = self.headers.get("Authorization") or ""
-        if auth[len("Bearer "):] not in srv.graph_tokens:
+        expires = srv.graph_tokens.get(auth[len("Bearer "):])
+        if expires is None:
             return self._error(401, "InvalidAuthenticationToken", "Access token is empty or invalid.")
+        if expires < time.time():
+            return self._error(401, "InvalidAuthenticationToken", "Lifetime validation failed, the token is expired.")
         if self.headers.get("Prefer") != 'IdType="ImmutableId"':
             return self._error(400, "HarnessError", "every request must ask for immutable ids")
         route = path[len("/v1.0/me/"):]
@@ -171,11 +181,18 @@ class _Handler(BaseHTTPRequestHandler):
         if msg is None or (msg.sent_at is not None and not msg.filed):
             return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
         if rest == "" and self.command == "GET":
-            return self._reply(200, {"id": msg.id, "parentFolderId": msg.folder,
+            return self._reply(200, {"id": msg.id, "parentFolderId": msg.folder, "isDraft": msg.sent_at is None,
                                      "internetMessageId": msg.header("Message-ID")})
         if rest == "" and self.command == "PATCH":
-            sender = json.loads(body).get("from", {}).get("emailAddress", {})
-            msg.mime = _with_from(msg.mime, sender.get("name", ""), sender["address"])
+            patch = json.loads(body)
+            sender = patch.get("from", {}).get("emailAddress")
+            if sender:
+                msg.mime = _with_from(msg.mime, sender.get("name", ""), sender["address"])
+            if "bccRecipients" in patch:
+                msg.bcc = [r["emailAddress"]["address"] for r in patch["bccRecipients"]]
+            for prop in patch.get("singleValueExtendedProperties", []):
+                if prop.get("id") == "Boolean 0x0E01":
+                    msg.delete_after_submit = str(prop.get("value")).lower() == "true"
             return self._reply(200, {"id": msg.id, "from": {"emailAddress": msg.from_address()}})
         if rest == "" and self.command == "DELETE":
             with srv.lock:
@@ -198,7 +215,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._reply(201, {"uploadUrl": f"http://127.0.0.1:{srv.port}/upload/{sid}",
                                      "expirationDateTime": "2099-01-01T00:00:00Z"})
         if rest == "/send" and self.command == "POST":
-            return self._send(msg)
+            return self._send(msg, route)
         return self._error(404, "ResourceNotFound", f"no route for {route}")
 
     def _token(self, body: bytes):
@@ -221,11 +238,11 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._reply(400, {"error": "invalid_grant", "error_description":
                                          "AADSTS65001: The user or administrator has not consented to use the application."})
             token = f"graph-token-{len(srv.token_scopes)}"
-            srv.graph_tokens.add(token)
+            srv.graph_tokens[token] = time.time() + srv.token_lifetime
         else:
             token = f"mail-token-{len(srv.token_scopes)}"
             srv.mail_tokens.add(token)
-        return self._reply(200, {"token_type": "Bearer", "scope": scope, "expires_in": 3599,
+        return self._reply(200, {"token_type": "Bearer", "scope": scope, "expires_in": srv.token_lifetime,
                                  "access_token": token, "refresh_token": srv.refresh_token})
 
     def _create(self, body: bytes):
@@ -247,7 +264,7 @@ class _Handler(BaseHTTPRequestHandler):
         return self._reply(201, {"id": graph_id, "isDraft": True, "parentFolderId": DRAFTS_ID,
                                  "from": {"emailAddress": msg.from_address()}})
 
-    def _send(self, msg: GraphMessage):
+    def _send(self, msg: GraphMessage, route: str):
         srv: "FakeGraphServer" = self.server.owner
         allowed = {a.lower() for a in [srv.mailbox] + list(srv.aliases) if a}
         if allowed and msg.from_address()["address"].lower() not in allowed:
@@ -258,9 +275,13 @@ class _Handler(BaseHTTPRequestHandler):
             srv.sent.append(msg)
 
         def file_copy():
-            msg.folder = SENT_ITEMS_ID
-            msg.filed = True
-            if srv.sent_copy:
+            if msg.delete_after_submit and srv.honors_delete_after_submit:
+                with srv.lock:
+                    srv.messages.pop(msg.id, None)
+            else:
+                msg.folder = SENT_ITEMS_ID
+                msg.filed = True
+            if srv.sent_copy and msg.filed:
                 store, mailbox = srv.sent_copy
                 store.append(mailbox, msg.sent_copy(), ["\\Seen"])
             if srv.deliver_to:
@@ -271,6 +292,10 @@ class _Handler(BaseHTTPRequestHandler):
             threading.Timer(srv.sent_copy_delay, file_copy).start()
         else:
             file_copy()
+        failure = srv.failure_for(route, "POST", after=True)
+        if failure:
+            return self._reply(failure.get("status", 500), {"error": {"code": failure.get("code", "ErrorInternalServerError"),
+                               "message": failure.get("message", "Injected failure")}})
         return self._reply(202)
 
     def _upload(self, sid: str, body: bytes):
@@ -302,7 +327,8 @@ class FakeGraphServer:
     def __init__(self, host="127.0.0.1", port=0, refresh_token="refresh-token", graph_consented=True,
                  sent_copy=None, sent_copy_delay: float = 0, failures: Optional[list] = None, deliver_to=None,
                  consent_refusals: int = 0, mailbox: Optional[str] = None, aliases=(),
-                 drop_graph_token: bool = False):
+                 drop_graph_token: bool = False, honors_delete_after_submit: bool = True,
+                 token_lifetime: int = 3599):
         """sent_copy: optional (Store, mailbox) every sent message's copy is appended to, as
         Exchange files it in Sent Items. sent_copy_delay: seconds between /send and that copy.
         graph_consented: whether the refresh token may be exchanged for Graph scopes (an
@@ -316,8 +342,14 @@ class FakeGraphServer:
         of `from` sets it, and /send refuses an address outside these with ErrorSendAsDenied
         (outlook.com, 2026-10-22).
         failures: [{route: regex on the path after /v1.0/me/, method, status, code, message,
-        times, retry_after}] - answer matching requests with that error, `times` times (default
-        always), with a Retry-After header when `retry_after` is given.
+        times, retry_after, after}] - answer matching requests with that error, `times` times
+        (default always), with a Retry-After header when `retry_after` is given. With `after:
+        true` a /send is carried out first and its 202 replaced by the error, as a gateway
+        that times out on a request the mailbox accepted.
+        token_lifetime: seconds an access token is valid for (its expires_in); Graph refuses an
+        expired one with 401.
+        honors_delete_after_submit: whether a draft marked PidTagDeleteAfterSubmit is deleted
+        when sent instead of being filed in Sent Items.
         deliver_to: optional (Store, mailbox, address) - sent mail addressed to `address` is
         appended to that mailbox, as Exchange delivers mail the user sends to themself."""
         self.host, self.port = host, port
@@ -329,10 +361,12 @@ class FakeGraphServer:
         self.aliases = list(aliases)
         self.sent_copy = sent_copy
         self.sent_copy_delay = sent_copy_delay
+        self.honors_delete_after_submit = honors_delete_after_submit
         self.deliver_to = deliver_to
         self.failures = [dict(f) for f in (failures or [])]
         self.mail_tokens: set = set()
-        self.graph_tokens: set = set()
+        self.graph_tokens: dict = {}   # token -> expiry
+        self.token_lifetime = token_lifetime
         self.token_scopes: list = []
         self.messages: dict = {}   # graph id -> GraphMessage, drafts and filed copies
         self.sent: list = []
@@ -346,10 +380,12 @@ class FakeGraphServer:
     def log(self, method, path, status):
         self.transcript.append((time.time(), method, path, status))
 
-    def failure_for(self, route: str, method: str) -> Optional[dict]:
+    def failure_for(self, route: str, method: str, after: bool = False) -> Optional[dict]:
         with self.lock:
             for f in self.failures:
                 if f.get("method", method) != method or not re.search(f["route"], route):
+                    continue
+                if bool(f.get("after")) != after:
                     continue
                 if "times" in f:
                     if f["times"] <= 0:

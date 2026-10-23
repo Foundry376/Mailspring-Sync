@@ -421,11 +421,12 @@ static GraphResponse _performGraphRequestOnce(const string & method, const strin
     return resp;
 }
 
-GraphResponse PerformGraphRequest(const string & method, const string & url, const string & accessToken, const string & body, const string & contentType, const vector<string> & headers) {
+GraphResponse PerformGraphRequest(const string & method, const string & url, const string & accessToken, const string & body, const string & contentType, const vector<string> & headers, GraphRetry retry) {
     GraphResponse resp;
     for (int attempt = 0; attempt < 3; attempt ++) {
         resp = _performGraphRequestOnce(method, url, accessToken, body, contentType, headers);
-        if (resp.status != 429 && resp.status != 503) {
+        bool retryable = resp.status == 429 || (resp.status == 503 && retry == GraphRetry::ThrottledOrUnavailable);
+        if (!retryable) {
             break;
         }
         long wait = (std::min)((std::max)(resp.retryAfter, 1L), 30L); // parenthesized for <windows.h>'s min/max macros

@@ -3,8 +3,9 @@ description: >
   A message with 8.8 MB of attachments is sent through Microsoft Graph, which refuses any request
   over 4 MB. The engine creates the draft from MIME that holds what fits, adds the attachments
   under 3 MB with one POST each (the 2.8 MB one included) and uploads the 3 MB one through an
-  upload session in 320 KiB-multiple chunks, as Graph documents, then sends. Every attachment, the inline image included, must reach the recipient and
-  the Sent Items copy, and no request may exceed the limit.
+  upload session in 320 KiB-multiple chunks, as Graph documents, then sends. Every attachment,
+  the inline image included, must reach the recipient and the Sent Items copy the engine
+  APPENDs, and no request may exceed the limit.
 source: "Graph request size limit and upload sessions: https://learn.microsoft.com/en-us/graph/outlook-large-attachments"
 servers:
   - {fake: outlook, smtp: true, graph: true}
@@ -49,7 +50,7 @@ expect:
         attachments: ["video.bin", "deck.pptx", "slides.pdf", "notes.txt", "logo.png"]
   server_counts: {Sent Items: 1}
   counts: {Sent Items: 1}
-  log_present: ["Uploading attachment video.bin", "Adding attachment deck.pptx", "Adding attachment slides.pdf"]
-  log_absent: ["Placing a new message"]
+  log_present: ["Uploading attachment video.bin", "Adding attachment deck.pptx", "Adding attachment slides.pdf",
+                "Placing a new message with `self` body"]
   db_matches_server: {}
   running: true

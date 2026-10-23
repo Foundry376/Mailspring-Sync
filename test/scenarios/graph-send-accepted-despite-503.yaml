@@ -1,0 +1,45 @@
+name: graph-send-accepted-despite-503
+description: >
+  Graph answers /send with 503 although Exchange accepted the message, as a gateway that times
+  out on a request the mailbox carried out. The engine must not retry /send - the draft is gone,
+  so a retry would fail and its cleanup could remove the message - and must instead see that
+  the draft was submitted, report the send as complete and APPEND the Sent copy.
+source: "Pre-release audit of the Graph send path, 2026-10-23: PerformGraphRequest retried 503 on /send"
+servers:
+  - fake: outlook
+    smtp: true
+    graph: true
+    graph_failures:
+      - {route: "/send$", method: POST, status: 503, code: ServiceUnavailable, message: "The service is temporarily unavailable.", times: 1, after: true, retry_after: 1}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-503@example.test"
+        subject: "Accepted anyway"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files: []
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 60}
+  - wait: {quiescent: true}
+expect:
+  task_error: {send1: null}
+  graph: {count: 1, drafts: 0}
+  server_counts: {Sent Items: 1}
+  counts: {Sent Items: 1}
+  log_present: ["Exchange accepted the message despite HTTP 503"]
+  log_absent: ["Graph returned 503, retrying"]
+  db_matches_server: {}
+  running: true
