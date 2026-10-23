@@ -189,9 +189,11 @@ static int retryDelayAfterLoginRejected(SyncException & ex, SyncWorker & worker,
 
 static void sleepBeforeRetryingLogin(int delay) {
     spdlog::get("logger")->info("--sleeping {}s before retrying login", delay);
-    int minWait = min(delay, LOGIN_REJECTED_MIN_WAIT);
-    std::this_thread::sleep_for(std::chrono::seconds(minWait));
-    MailUtils::sleepWorkerUntilWakeOrSec(delay - minWait);
+    // Measured by wall clock so the wake the client sends on resume ends a wait the machine slept through.
+    time_t start = time(0);
+    do {
+        MailUtils::sleepWorkerUntilWakeOrSec(delay - (time(0) - start));
+    } while (time(0) - start < min(delay, LOGIN_REJECTED_MIN_WAIT));
 }
 
 void runForegroundSyncWorker() {
