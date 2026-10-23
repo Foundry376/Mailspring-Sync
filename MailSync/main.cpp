@@ -153,22 +153,18 @@ static const vector<int> LOGIN_REJECTED_RETRY_DELAYS { 30, 120 };
 // success because a wake makes the foreground worker return before it logs in.
 static const time_t LOGIN_REJECTED_EPISODE_GAP = 10 * 60;
 
-// The client wakes every account on resume, on the `online` event and when another account
-// reconnects. A rejection on the retry a wake starts is free this many times per episode, so a
-// burst of wakes can't exhaust the attempts but a steady stream can't retry a bad password forever.
-static const size_t LOGIN_REJECTED_FREE_WAKE_RETRIES = 2;
+// A wake ends a retry wait early, since the network may be back, but not this soon after the
+// rejection. The client wakes every account on resume, on the `online` event and when another
+// account reconnects, and a burst of wakes would otherwise use up the attempts in seconds.
+static const int LOGIN_REJECTED_MIN_WAIT = 30;
 
 struct LoginRejections {
     size_t count = 0;
     time_t last = 0;
-    size_t freeWakeRetries = 0;
-    bool wokeEarly = false;
 };
 
 // Returns the seconds to wait before retrying, or -1 if the exception should be handled as usual.
 static int retryDelayAfterLoginRejected(SyncException & ex, SyncWorker & worker, LoginRejections & rejections) {
-    bool woken = rejections.wokeEarly;
-    rejections.wokeEarly = false;
     if (ex.key != "ErrorAuthentication") {
         return -1;
     }
@@ -177,13 +173,8 @@ static int retryDelayAfterLoginRejected(SyncException & ex, SyncWorker & worker,
     time_t now = time(0);
     if (now - rejections.last > LOGIN_REJECTED_EPISODE_GAP) {
         rejections.count = 0;
-        rejections.freeWakeRetries = 0;
     }
     rejections.last = now;
-    if (woken && rejections.count > 0 && rejections.freeWakeRetries < LOGIN_REJECTED_FREE_WAKE_RETRIES) {
-        rejections.freeWakeRetries++;
-        rejections.count--;
-    }
     if (rejections.count >= LOGIN_REJECTED_RETRY_DELAYS.size()) {
         return -1;
     }
@@ -196,11 +187,11 @@ static int retryDelayAfterLoginRejected(SyncException & ex, SyncWorker & worker,
     return LOGIN_REJECTED_RETRY_DELAYS[rejections.count++];
 }
 
-static void sleepBeforeRetryingLogin(int delay, LoginRejections & rejections) {
+static void sleepBeforeRetryingLogin(int delay) {
     spdlog::get("logger")->info("--sleeping {}s before retrying login", delay);
-    time_t start = time(0);
-    MailUtils::sleepWorkerUntilWakeOrSec(delay);
-    rejections.wokeEarly = time(0) - start < delay;
+    int minWait = min(delay, LOGIN_REJECTED_MIN_WAIT);
+    std::this_thread::sleep_for(std::chrono::seconds(minWait));
+    MailUtils::sleepWorkerUntilWakeOrSec(delay - minWait);
 }
 
 void runForegroundSyncWorker() {
@@ -214,7 +205,7 @@ void runForegroundSyncWorker() {
             exceptions::logCurrentExceptionWithStackTrace();
             int retryDelay = retryDelayAfterLoginRejected(ex, *fgWorker, loginRejections);
             if (retryDelay >= 0) {
-                sleepBeforeRetryingLogin(retryDelay, loginRejections);
+                sleepBeforeRetryingLogin(retryDelay);
                 continue;
             }
             if (!ex.isRetryable()) {
@@ -281,7 +272,7 @@ void runBackgroundSyncWorker() {
             exceptions::logCurrentExceptionWithStackTrace();
             int retryDelay = retryDelayAfterLoginRejected(ex, *bgWorker, loginRejections);
             if (retryDelay >= 0) {
-                sleepBeforeRetryingLogin(retryDelay, loginRejections);
+                sleepBeforeRetryingLogin(retryDelay);
                 continue;
             }
             if (!ex.isRetryable()) {

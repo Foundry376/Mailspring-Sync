@@ -2,10 +2,10 @@ name: login-rejected-repeatedly
 description: >
   After a reconnect the server rejects every login. The engine retries twice (after 30 s,
   then 2 min) and exits on the third rejection so the client can decide whether to relaunch
-  it or mark the account as needing re-authentication. A wake cuts a wait short and retries
-  at once. The client wakes every account on resume, on the `online` event and when another
-  account reconnects, so the first two rejections on a woken retry don't use up an attempt;
-  the third does, so a steady stream of wakes can't retry a bad password forever.
+  it or mark the account as needing re-authentication. A wake ends a wait early, but not
+  within 30 s of the rejection: the client wakes every account on resume, on the `online`
+  event and when another account reconnects, and a burst of wakes must not use up the
+  attempts in seconds.
 source: community.getmailspring.com/t/14606
 servers:
   - {fake: dovecot}
@@ -19,12 +19,11 @@ steps:
   - wait: {log: "^--sleeping 30s before retrying login"}
   - wait: {seconds: 2}
   - client.wake: {}
-  - wait: {seconds: 3}
-  - client.wake: {}
-  - wait: {seconds: 3}
+  - wait: {seconds: 5}
   - assert: {log_absent: ["^--sleeping 120s before retrying login"], running: true}
+  - wait: {log: "^--sleeping 120s before retrying login", timeout: 60}
+  - wait: {seconds: 32}
   - client.wake: {}
-  - wait: {log: "^--sleeping 120s before retrying login", timeout: 10}
-  - wait: {seconds: 125}
+  - wait: {seconds: 10}
 expect:
   exit: {code: null}
