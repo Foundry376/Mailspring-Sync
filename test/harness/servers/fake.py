@@ -20,7 +20,9 @@ class FakeServer(Server):
                  smtp_auth_response: Optional[str] = None, graph: bool = False, graph_send: bool = True,
                  graph_consented: bool = True, graph_consent_refusals: int = 0,
                  graph_aliases: Optional[list] = None, graph_drop_token: bool = False, graph_sent_copy: Optional[str] = "Sent Items",
-                 graph_sent_copy_delay: float = 0, graph_failures: Optional[list] = None, **kw):
+                 graph_sent_copy_delay: float = 0, graph_failures: Optional[list] = None,
+                 graph_honors_delete_after_submit: bool = True, graph_token_lifetime: int = 3599,
+                 graph_drop_token_after: Optional[int] = None, **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
@@ -36,12 +38,15 @@ class FakeServer(Server):
                                    auth_response=smtp_auth_response) if smtp else None
         # `graph: true` makes the account a Microsoft OAuth account: IMAP and SMTP take the
         # fake's mail-scoped access tokens, and with `graph_send` (the default) mail goes out
-        # through the fake Graph API, which files its Sent Items copy in `graph_sent_copy`.
+        # through the fake Graph API, which files its Sent Items copy in `graph_sent_copy` unless
+        # the draft is marked delete-after-submit and `graph_honors_delete_after_submit` (default).
         self.graph_send = graph and graph_send
         self.graph = FakeGraphServer(graph_consented=graph_consented, consent_refusals=graph_consent_refusals,
                                      mailbox=email, aliases=graph_aliases or [], drop_graph_token=graph_drop_token,
                                      sent_copy=(self.store, graph_sent_copy) if graph_sent_copy else None,
                                      sent_copy_delay=graph_sent_copy_delay, failures=graph_failures,
+                                     honors_delete_after_submit=graph_honors_delete_after_submit,
+                                     token_lifetime=graph_token_lifetime, drop_graph_token_after=graph_drop_token_after,
                                      deliver_to=(self.store, "INBOX", email)) if graph else None
         if self.graph:
             self.imap.oauth_tokens = self.graph.mail_tokens
