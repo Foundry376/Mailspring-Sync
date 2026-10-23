@@ -1,0 +1,39 @@
+name: graph-send-not-consented
+description: >
+  The account is marked to send through Graph but its refresh token cannot be exchanged for a
+  Graph mail token (consent revoked, or an admin removed the permission). Sending must fail
+  with send-failed telling the user to reconnect, without falling back to SMTP, and IMAP sync
+  must carry on.
+source: "AADSTS65001 consent_required: https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes"
+servers:
+  - {fake: outlook, smtp: true, graph: true, graph_consented: false}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-noconsent@example.test"
+        subject: "No consent"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files: []
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 60}
+  - wait: {quiescent: true}
+expect:
+  task_error: {send1: send-failed}
+  smtp: {count: 0}
+  graph: {count: 0}
+  log_present: ["AADSTS65001"]
+  db_matches_server: {}
+  running: true

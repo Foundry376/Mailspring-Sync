@@ -70,13 +70,25 @@ class _Handler(socketserver.StreamRequestHandler):
                     self.send(f"250-{srv.hostname}")
                     self.send("250-SIZE 35882577")
                     self.send("250-8BITMIME")
-                    self.send("250-AUTH PLAIN LOGIN")
+                    self.send("250-AUTH PLAIN LOGIN XOAUTH2")
                     self.send("250 ENHANCEDSTATUSCODES")
                 else:
                     self.send(f"250 {srv.hostname}")
             elif verb == "AUTH":
                 mech, _, initial = arg.partition(" ")
-                if mech.upper() == "PLAIN":
+                if srv.auth_response:
+                    if not initial and mech.upper() != "LOGIN":
+                        self.send("334 ")
+                        self.rfile.readline()
+                    self.send(srv.auth_response)
+                    continue
+                if mech.upper() == "XOAUTH2":
+                    if not initial:
+                        self.send("334 ")
+                        initial = self.rfile.readline().strip().decode()
+                    m = re.search(rb"auth=Bearer ([^\x01]+)", base64.b64decode(initial))
+                    ok = srv.oauth_tokens is not None and m is not None and m.group(1).decode() in srv.oauth_tokens
+                elif mech.upper() == "PLAIN":
                     if not initial:
                         self.send("334 ")
                         initial = self.rfile.readline().strip().decode()
@@ -142,7 +154,7 @@ class FakeSmtpServer:
     def __init__(self, host="127.0.0.1", port=0, credentials=("test", "pass"), hostname="mail.example.test",
                  require_auth=True, reject_non_fqdn_helo=False, deliver_to=None, sent_copy=None,
                  deliver_delay: float = 0, sent_copy_delay: float = 0, rewrite_message_id: bool = False,
-                 tls_context: Optional[ssl.SSLContext] = None):
+                 tls_context: Optional[ssl.SSLContext] = None, auth_response: Optional[str] = None):
         """deliver_to: optional (Store, mailbox, address) - messages sent to `address` are appended
         to that mailbox, as a real server delivers self-addressed mail back to the sender.
         sent_copy: optional (Store, mailbox) - every submitted message is also appended there,
@@ -157,7 +169,11 @@ class FakeSmtpServer:
         (live.fr account, 2026-10-22). `messages` keeps what the client submitted.
         deliver_delay: seconds between accepting a self-addressed message and delivering it,
         for a hand-driven client (tools/cyrus_server.py); scenarios use hold()/release().
-        tls_context: serve implicit TLS (SMTPS, "SSL / TLS" in account settings) with it."""
+        tls_context: serve implicit TLS (SMTPS, "SSL / TLS" in account settings) with it.
+        auth_response: answer every AUTH with this line instead, e.g. Exchange Online's
+        "535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the
+        Tenant." (https://aka.ms/smtp_auth_disabled).
+        oauth_tokens (attribute): when set, AUTH XOAUTH2 accepts these bearer tokens."""
         self.host, self.port = host, port
         self.credentials = credentials
         self.hostname = hostname
@@ -169,6 +185,8 @@ class FakeSmtpServer:
         self.rewrite_message_id = rewrite_message_id
         self.deliver_delay = deliver_delay
         self.tls_context = tls_context
+        self.auth_response = auth_response
+        self.oauth_tokens: Optional[set] = None
         self.messages: list = []
         self.held: Optional[list] = None   # self-addressed deliveries waiting for release()
         self.lock = threading.Lock()

@@ -59,6 +59,7 @@ public:
     bool SMTPAllowInsecureSSL();
     string SMTPVerification();
     bool createHelperFolders();
+    bool sendsViaGraph();
 
     string tableName();
     string constructorName();

@@ -128,7 +128,12 @@ mailboxes that delta must list, `fetched` whether it is the delta that fetched t
 `folder_roles: {path: role}`, `contacts: {mail: {email: name}, carddav: {id: {email, name}}}`
 (Contact rows and the ContactSearch content autocomplete matches), `connection_error: {reported: true, cleared: true}`
 (the ProcessState stream behind the client's offline state), `migrate_output: regex` (the
-last `--mode migrate` stdout), `unchanged_since: snapshot`, `running`, `exit`. Any
+last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], log_absent:
+[regex]}` (runs `--mode test`, the client's account-add check, and compares its JSON),
+`task_error: {label: key or null or {key, debuginfo: regex}}` (how a labelled task finished), `graph: {count, messages:
+[{recipients, headers, attachments}], drafts, upload_sessions, graph_token_requests,
+max_request_bytes}` (what the fake Graph server sent and still holds), `unchanged_since:
+snapshot`, `running`, `exit`. Any
 expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,
 and reported as XPASS once it starts passing.
 
@@ -398,12 +403,32 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
 - **SMTP.** `fakeimap/smtp.py` (AUTH PLAIN/LOGIN, optional Postfix-style HELO rejection,
   delivery of self-addressed mail back into INBOX) is enabled per server spec with
   `{fake: dovecot, smtp: true}`, and on Dovecot and Cyrus the same way, where it delivers by
-  APPENDing to INBOX over IMAP; `--mode test` and the EHLO fallback (#135) have no scenario yet.
+  APPENDing to INBOX over IMAP; the EHLO fallback (#135) has no scenario yet.
+  `smtp_auth_response: "535 5.7.139 ..."` answers every AUTH with that line, as Exchange
+  Online does with SMTP AUTH disabled (`o365-smtp-auth-disabled`).
   `{fake: gmail, smtp: true, smtp_sent_copy: "[Gmail]/Sent Mail"}` also files every submitted
   message under the named mailbox, as Gmail's submission service saves sent mail under `\Sent`
   by itself - the copy the engine's send path looks for before it APPENDs its own
   (`gmail-send-and-labels`). `smtp_sent_copy_delay: s` files it that long after the 250, as
   Exchange Online does (`sent-copy-*`).
+- **Microsoft Graph.** `fakeimap/graph.py` is the Microsoft token endpoint plus the Graph
+  calls the send path makes: a draft from base64 MIME, attachments (one POST, or an upload
+  session in 320 KiB-multiple chunks without an Authorization header), `/send`, reading the
+  draft by its immutable id, Sent Items, and DELETE; requests over 4 MB get 413. `{fake:
+  outlook, graph: true}` turns the account into an `office365` OAuth account whose IMAP (and
+  SMTP) accept the fake's mail tokens and, unless `graph_send: false`, sends through Graph.
+  Each sent message's copy is appended to `graph_sent_copy` (default `Sent Items`) after
+  `graph_sent_copy_delay` seconds; `graph_consented: false` refuses Graph scopes with
+  AADSTS65001, as for an account authorized before Mail.Send was requested, and
+  `graph_consent_refusals: n` refuses only the first n, as while a fresh consent replicates,
+  and `graph_drop_token: true` closes the connection on them unanswered, as when offline;
+  `graph_aliases: [address]` are the addresses besides the account's own it may send as - a
+  MIME draft from any other address is rewritten to the account's, as Exchange does, and
+  /send refuses a From outside them with ErrorSendAsDenied; `graph_failures:
+  [{route, method, status, code, message, times, retry_after}]` injects errors (`graph-send-*`). The
+  engine reaches it through `MS_GRAPH_URL` and `MS_OAUTH_TOKEN_URL`, which the server adds to
+  the engine's environment (`Server.engine_env`). A draft attachment written as `{filename,
+  bytes, contentType, contentId}` is created on disk where the engine looks for it.
 - **Recording real providers.** `tools/record_personality.py HOST PORT USER --name NAME`
   captures greeting, capabilities, NAMESPACE, ID, LIST, STATUS/SELECT and FETCH shapes from a
   real account (no message content) into `fakeimap/recordings/`; use it to replace every

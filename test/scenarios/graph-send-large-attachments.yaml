@@ -1,0 +1,56 @@
+name: graph-send-large-attachments
+description: >
+  A message with 8.8 MB of attachments is sent through Microsoft Graph, which refuses any request
+  over 4 MB. The engine creates the draft from MIME that holds what fits, adds the attachments
+  under 3 MB with one POST each (the 2.8 MB one included) and uploads the 3 MB one through an
+  upload session in 320 KiB-multiple chunks, as Graph documents, then sends. Every attachment,
+  the inline image included, must reach the recipient and the Sent Items copy the engine
+  APPENDs, and no request may exceed the limit.
+source: "Graph request size limit and upload sessions: https://learn.microsoft.com/en-us/graph/outlook-large-attachments"
+servers:
+  - {fake: outlook, smtp: true, graph: true}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-large@example.test"
+        subject: "Big files"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files:
+          - {filename: "video.bin", bytes: 3000000}
+          - {filename: "deck.pptx", bytes: 2800000}
+          - {filename: "slides.pdf", bytes: 2000000, contentType: "application/pdf"}
+          - {filename: "notes.txt", bytes: 900000, contentType: "text/plain"}
+          - {filename: "logo.png", bytes: 100000, contentType: "image/png", contentId: "logo@example.test"}
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 120}
+  - wait: {quiescent: true}
+expect:
+  task_error: {send1: null}
+  smtp: {count: 0}
+  graph:
+    count: 1
+    drafts: 0
+    upload_sessions: 1
+    max_request_bytes: 4194304
+    messages:
+      - recipients: ["bob@example.net"]
+        attachments: ["video.bin", "deck.pptx", "slides.pdf", "notes.txt", "logo.png"]
+  server_counts: {Sent Items: 1}
+  counts: {Sent Items: 1}
+  log_present: ["Uploading attachment video.bin", "Adding attachment deck.pptx", "Adding attachment slides.pdf",
+                "Placing a new message with `self` body"]
+  db_matches_server: {}
+  running: true

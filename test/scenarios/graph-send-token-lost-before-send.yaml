@@ -1,0 +1,43 @@
+name: graph-send-token-lost-before-send
+description: >
+  The draft is created and its attachment uploaded, but the token refresh /send needs gets no
+  answer (the machine went offline mid-send). /send was never issued, so the send must fail
+  as a connection error at once - not wait to see whether Exchange submitted it, and not tell
+  the user Microsoft may have sent it.
+source: "Indent review of Foundry376/Mailspring-Sync#165: a token failure before /send was reported as a lost /send"
+servers:
+  - fake: outlook
+    smtp: true
+    graph: true
+    graph_token_lifetime: 62
+    graph_drop_token_after: 1
+    graph_failures:
+      - {route: "/attachments$", method: POST, status: 429, code: TooManyRequests, times: 1, retry_after: 3}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-token-lost@example.test"
+        subject: "Offline mid-send"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files:
+          - {filename: "big.bin", bytes: 2900000}
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 90}
+expect:
+  task_error: {send1: {key: send-failed, debuginfo: "^ErrorConnection$"}}
+  graph: {count: 0}
+  log_absent: ["Sending Graph draft", "Could not check whether the message was sent"]
+  running: true

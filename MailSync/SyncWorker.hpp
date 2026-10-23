@@ -63,6 +63,8 @@ public:
 
     SyncWorker(shared_ptr<Account> account);
     void configure();
+    string lastLoginResponse();
+    void disconnect();
 
 #pragma mark Foreground Worker
 
