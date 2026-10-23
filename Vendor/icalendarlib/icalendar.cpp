@@ -41,8 +41,10 @@ void ICalendar::LoadFromString(string icsData) {
 					NewEvent->DtStamp = GetProperty(Line);
 				} else if (Line.find("DTSTART") == 0) {
 					NewEvent->DtStart = GetProperty(Line);
+					NewEvent->DtStart.TzId = GetParameter(Line, "TZID");
 				} else if (Line.find("DTEND") == 0) {
 					NewEvent->DtEnd = GetProperty(Line);
+					NewEvent->DtEnd.TzId = GetParameter(Line, "TZID");
 				} else if (Line.find("DESCRIPTION") == 0) {
 					NewEvent->Description = GetProperty(Line);
 				} else if (Line.find("CATEGORIES") == 0) {
@@ -58,6 +60,7 @@ void ICalendar::LoadFromString(string icsData) {
 					// RECURRENCE-ID identifies which occurrence of a recurring event is being modified
 					// Format: RECURRENCE-ID:20240115T100000Z or RECURRENCE-ID;TZID=...:20240115T100000
 					NewEvent->RecurrenceId = GetProperty(Line);
+					NewEvent->RecurrenceIdTzId = GetParameter(Line, "TZID");
 				} else if (Line.find("STATUS") == 0) {
 					// STATUS can be TENTATIVE, CONFIRMED, or CANCELLED
 					NewEvent->Status = GetProperty(Line);

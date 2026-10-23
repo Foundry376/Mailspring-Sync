@@ -59,6 +59,7 @@ struct ICalendarEvent {
 		Description(Base.Description),
 		Categories(Base.Categories),
 		RecurrenceId(Base.RecurrenceId),
+		RecurrenceIdTzId(Base.RecurrenceIdTzId),
 		Status(Base.Status),
 		Location(Base.Location),
 		Organizer(Base.Organizer),
@@ -81,6 +82,7 @@ struct ICalendarEvent {
 
 	string UID, Summary, Description, Categories;
 	string RecurrenceId;  // RECURRENCE-ID for exception instances (e.g., "20240115T100000Z")
+	string RecurrenceIdTzId;  // its TZID parameter; empty for a UTC or floating value
 	string Status;        // STATUS: TENTATIVE, CONFIRMED, CANCELLED
 	string Location;      // LOCATION: physical or virtual location
 	string Organizer;     // ORGANIZER: event organizer (as "Name <email>" or just email) - RFC 5546 MUST for REPLY
