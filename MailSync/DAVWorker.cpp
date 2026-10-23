@@ -28,45 +28,6 @@
 #include <set>
 #include <curl/curl.h>
 
-#ifdef _MSC_VER
-// Windows doesn't have strptime, provide a minimal implementation for HTTP-date parsing
-static char* win32_strptime(const char* s, const char* format, struct tm* tm) {
-    // Only supports the HTTP-date format: "%a, %d %b %Y %H:%M:%S"
-    static const char* months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-    char weekday[4], month[4];
-    int day, year, hour, min, sec;
-
-    if (sscanf_s(s, "%3s, %d %3s %d %d:%d:%d",
-                 weekday, (unsigned)sizeof(weekday),
-                 &day,
-                 month, (unsigned)sizeof(month),
-                 &year, &hour, &min, &sec) != 7) {
-        return nullptr;
-    }
-
-    int mon = -1;
-    for (int i = 0; i < 12; i++) {
-        if (_stricmp(month, months[i]) == 0) {
-            mon = i;
-            break;
-        }
-    }
-    if (mon < 0) return nullptr;
-
-    tm->tm_mday = day;
-    tm->tm_mon = mon;
-    tm->tm_year = year - 1900;
-    tm->tm_hour = hour;
-    tm->tm_min = min;
-    tm->tm_sec = sec;
-
-    // Return pointer past the parsed portion (approximate)
-    return const_cast<char*>(s + strlen(s));
-}
-#define strptime win32_strptime
-#define timegm _mkgmtime
-#endif
 
 struct EventResult {
     std::string icsHref;
@@ -310,75 +271,6 @@ size_t headerCallback(char* buffer, size_t size, size_t nitems, void* userdata) 
     return totalSize;
 }
 
-// HTTP Protocol Quirk: Header Case Sensitivity
-// While HTTP specifications (RFC 7230) require case-insensitive header handling, some
-// server implementations or proxies treat headers as case-sensitive. The Python caldav
-// library uses CaseInsensitiveDict for all header operations. We achieve the same effect
-// by normalizing both the headers and search term to lowercase before matching.
-static string extractHeader(const string& headers, const string& headerName) {
-    string searchFor = headerName + ":";
-    size_t pos = 0;
-
-    // Case-insensitive search (handles server inconsistencies)
-    string headersLower = headers;
-    string searchLower = searchFor;
-    transform(headersLower.begin(), headersLower.end(), headersLower.begin(), ::tolower);
-    transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::tolower);
-
-    pos = headersLower.find(searchLower);
-    if (pos == string::npos) {
-        return "";
-    }
-
-    // Find the value after the colon
-    size_t valueStart = pos + searchFor.length();
-    size_t valueEnd = headers.find("\r\n", valueStart);
-    if (valueEnd == string::npos) {
-        valueEnd = headers.find("\n", valueStart);
-    }
-    if (valueEnd == string::npos) {
-        valueEnd = headers.length();
-    }
-
-    string value = headers.substr(valueStart, valueEnd - valueStart);
-
-    // Trim whitespace
-    size_t start = value.find_first_not_of(" \t");
-    size_t end = value.find_last_not_of(" \t\r\n");
-    if (start == string::npos) return "";
-    return value.substr(start, end - start + 1);
-}
-
-// Parse Retry-After header value (RFC 7231)
-// Supports both delay-seconds (integer) and HTTP-date formats
-int DAVWorker::parseRetryAfter(const string& retryAfter) {
-    if (retryAfter.empty()) {
-        return 0;
-    }
-
-    // Try parsing as integer (delay-seconds format)
-    try {
-        int seconds = stoi(retryAfter);
-        if (seconds > 0) {
-            return seconds;
-        }
-    } catch (...) {
-        // Not an integer, try parsing as HTTP-date
-    }
-
-    // Try parsing as HTTP-date (e.g., "Fri, 31 Dec 2024 23:59:59 GMT")
-    struct tm tm = {};
-    if (strptime(retryAfter.c_str(), "%a, %d %b %Y %H:%M:%S", &tm) != nullptr) {
-        time_t targetTime = timegm(&tm);
-        time_t now = time(nullptr);
-        if (targetTime > now) {
-            return static_cast<int>(targetTime - now);
-        }
-    }
-
-    return 0;
-}
-
 void DAVWorker::applyRateLimitDelay() {
     time_t now = time(nullptr);
 
@@ -415,7 +307,7 @@ void DAVWorker::recordRateLimitResponse(int httpCode, const string& retryAfter) 
     consecutiveSuccesses = 0;
 
     // Parse Retry-After header if present
-    int retrySeconds = parseRetryAfter(retryAfter);
+    int retrySeconds = ParseRetryAfter(retryAfter);
 
     if (retrySeconds > 0) {
         // Server specified a wait time
@@ -954,8 +846,7 @@ void DAVWorker::runForAddressBook(shared_ptr<ContactBook> ab) {
             string id = vcard->getUniqueId()->getValue();
             if (id == "") id = MailUtils::idForCalendar(account->id(), href);
             string email = vcard->getEmails().front()->getValue();
-            string name = vcard->getFormattedName()->getValue();
-            if (name == "") name = vcard->getName()->getValue();
+            string name = vcard->displayName();
             bool isGroup = DAVUtils::isGroupCard(vcard);
             parsed.push_back({id, etag, href, vcardString, email, name, isGroup});
         }));
@@ -1208,8 +1099,7 @@ bool DAVWorker::runForAddressBookWithSyncToken(shared_ptr<ContactBook> ab, int r
                 string id = vcard->getUniqueId()->getValue();
                 if (id == "") id = MailUtils::idForCalendar(account->id(), href);
                 string email = vcard->getEmails().front()->getValue();
-                string name = vcard->getFormattedName()->getValue();
-                if (name == "") name = vcard->getName()->getValue();
+                string name = vcard->displayName();
                 bool isGroup = DAVUtils::isGroupCard(vcard);
                 parsed.push_back({id, etag, href, vcardString, email, name, isGroup});
             }));
@@ -1337,8 +1227,7 @@ shared_ptr<Contact> DAVWorker::ingestAddressDataNode(shared_ptr<DavXML> doc, xml
     string id = vcard->getUniqueId()->getValue();
     if (id == "") id = MailUtils::idForCalendar(account->id(), href);
     string email = vcard->getEmails().front()->getValue();
-    string name = vcard->getFormattedName()->getValue();
-    if (name == "") name = vcard->getName()->getValue();
+    string name = vcard->displayName();
     
     auto contact = store->find<Contact>(Query().equal("id", id));
     if (!contact) {
@@ -1385,7 +1274,7 @@ void DAVWorker::rebuildContactGroup(shared_ptr<Contact> contact) {
     }
     // vcard3 members / icloud
     for (const auto & prop : vcard->getExtendedProperties()) {
-        if (prop->getName()!= X_VCARD3_MEMBER) continue;
+        if (prop->baseName() != X_VCARD3_MEMBER) continue;
         string mid = prop->getValue();
         if (mid.find("urn:uuid:") == 0) {
             mid = mid.substr(9);
@@ -2341,25 +2230,28 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
     //   curl_easy_setopt(curl_handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
     // for detected Baikal servers (hostname containing "baikal").
 
-    struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
-    headers = curl_slist_append(headers, "Prefer: return-minimal");
-    headers = curl_slist_append(headers, "Content-Type: application/xml; charset=utf-8");
+    // Note: fetched before allocating requestData, because an OAuth token refresh can throw.
+    string authorization = getAuthorizationHeader();
+    CurlRequestData *requestData = new CurlRequestData();
+    requestData->headers = curl_slist_append(requestData->headers, authorization.c_str());
+    requestData->headers = curl_slist_append(requestData->headers, "Prefer: return-minimal");
+    requestData->headers = curl_slist_append(requestData->headers, "Content-Type: application/xml; charset=utf-8");
     // Note: Do NOT set Accept: text/vcard here. WebDAV REPORT/PROPFIND responses are always
     // XML (207 Multi-Status). Setting Accept: text/vcard confuses some servers into returning
     // raw vCard text or an empty multistatus instead of the expected XML response. The vCard
     // format preference for embedded carddav:address-data should be set via XML request body
     // attributes, not via the HTTP Accept header.
     string depthHeader = "Depth: " + depth;
-    headers = curl_slist_append(headers, depthHeader.c_str());
+    requestData->headers = curl_slist_append(requestData->headers, depthHeader.c_str());
 
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     const char * payloadChars = payload.c_str();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 40);
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
-    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, requestData->headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
+    curl_easy_setopt(curl_handle, CURLOPT_PRIVATE, requestData);
 
     // Capture response headers for Retry-After extraction
     capturedHeaders.clear();
@@ -2367,6 +2259,7 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
 
     try {
         string result = PerformRequest(curl_handle);
+        CleanupCurlRequest(curl_handle);
         recordRequestSuccess();
         return make_shared<DavXML>(result, url);
     } catch (const SyncException& e) {
@@ -2374,7 +2267,7 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
         // The exception key format is "Invalid Response Code: XXX"
         if (e.key.find("429") != string::npos || e.key.find("503") != string::npos) {
             int httpCode = (e.key.find("429") != string::npos) ? 429 : 503;
-            string retryAfter = extractHeader(capturedHeaders, "Retry-After");
+            string retryAfter = HTTPHeaderValue(capturedHeaders, "Retry-After");
             recordRateLimitResponse(httpCode, retryAfter);
         }
         throw;
@@ -2384,22 +2277,25 @@ shared_ptr<DavXML> DAVWorker::performXMLRequest(string _url, string method, stri
 string DAVWorker::performVCardRequest(string _url, string method, string vcard, ETAG existingEtag) {
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
     
-    struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
-    headers = curl_slist_append(headers, "Content-Type: text/vcard; charset=utf-8");
-    headers = curl_slist_append(headers, "Accept: text/vcard; version=4.0");
+    // Note: fetched before allocating requestData, because an OAuth token refresh can throw.
+    string authorization = getAuthorizationHeader();
+    CurlRequestData *requestData = new CurlRequestData();
+    requestData->headers = curl_slist_append(requestData->headers, authorization.c_str());
+    requestData->headers = curl_slist_append(requestData->headers, "Content-Type: text/vcard; charset=utf-8");
+    requestData->headers = curl_slist_append(requestData->headers, "Accept: text/vcard; version=4.0");
     if (existingEtag != "") {
         string etagHeader = "If-Match: " + existingEtag;
-        headers = curl_slist_append(headers, etagHeader.c_str());
+        requestData->headers = curl_slist_append(requestData->headers, etagHeader.c_str());
     }
 
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     const char * payloadChars = vcard.c_str();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 40);
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
-    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, requestData->headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
+    curl_easy_setopt(curl_handle, CURLOPT_PRIVATE, requestData);
     
     if (MailUtils::isVerboseLoggingEnabled()) {
         logger->info("{}: {} {}", _url, vcard, existingEtag);
@@ -2407,29 +2303,33 @@ string DAVWorker::performVCardRequest(string _url, string method, string vcard, 
         logger->info("{}: {} bytes etag:{}", _url, vcard.size(), existingEtag);
     }
     string result = PerformRequest(curl_handle);
+    CleanupCurlRequest(curl_handle);
     return result;
 }
 
 string DAVWorker::performICSRequest(string _url, string method, string icsData, ETAG existingEtag) {
     string url = _url.find("http") != 0 ? "https://" + _url : _url;
 
-    struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, getAuthorizationHeader().c_str());
-    headers = curl_slist_append(headers, "Content-Type: text/calendar; charset=utf-8");
+    // Note: fetched before allocating requestData, because an OAuth token refresh can throw.
+    string authorization = getAuthorizationHeader();
+    CurlRequestData *requestData = new CurlRequestData();
+    requestData->headers = curl_slist_append(requestData->headers, authorization.c_str());
+    requestData->headers = curl_slist_append(requestData->headers, "Content-Type: text/calendar; charset=utf-8");
 
     if (existingEtag != "") {
         // For updates, use If-Match to ensure we don't overwrite concurrent changes
         string etagHeader = "If-Match: " + existingEtag;
-        headers = curl_slist_append(headers, etagHeader.c_str());
+        requestData->headers = curl_slist_append(requestData->headers, etagHeader.c_str());
     }
 
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     const char * payloadChars = icsData.c_str();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 40);
     curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
-    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, requestData->headers);
     curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, payloadChars);
+    curl_easy_setopt(curl_handle, CURLOPT_PRIVATE, requestData);
 
     // The ICS body carries the event's title, attendees and description, so it only goes to
     // the log when the user has explicitly turned on verbose logging to debug a sync problem.
@@ -2439,6 +2339,7 @@ string DAVWorker::performICSRequest(string _url, string method, string icsData, 
         logger->info("performICSRequest: {} {} etag:{}, {} bytes", method, _url, existingEtag, icsData.size());
     }
     string result = PerformRequest(curl_handle);
+    CleanupCurlRequest(curl_handle);
     return result;
 }
 

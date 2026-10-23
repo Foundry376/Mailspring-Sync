@@ -111,6 +111,48 @@ jobs:
             echo "✓ mailsync install-check passed on macOS"
           fi
 
+      # A local CA trusted and then denied in the System keychain, like a self-hosted CalDAV
+      # server: HTTPS through libcurl and NetworkRequestUtils' SecTrust check (install-check
+      # sends its request to $IDENTITY_SERVER/ping), and IMAP and SMTP through mailcore's.
+      - name: Certificate checks (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 15
+        run: |
+          set -e
+          export PATH="$(brew --prefix openssl@3)/bin:$PATH"
+          check() { # url expect(accept|reject)
+            out=$(CONFIG_DIR_PATH=/tmp IDENTITY_SERVER="$1" /tmp/mailspring/mailsync --mode install-check 2>/dev/null | grep -o '"http_check":{[^}]*}' || true)
+            if [[ "$out" == *status_code* ]]; then got=accept; else got=reject; fi
+            if [[ "$got" == "$2" ]]; then echo "OK   $1 $out"; else echo "FAIL $1 expected $2: $out"; return 1; fi
+          }
+          e2e() { python3 test/certificates/mailsync_cert_e2e.py --mailsync /tmp/mailspring/mailsync --ca-dir "$ca" "$@"; }
+
+          ca=$(mktemp -d)
+          bash test/certificates/make_local_ca.sh "$ca"
+          python3 -c "
+          import http.server, ssl
+          srv = http.server.HTTPServer(('127.0.0.1', 8443), http.server.SimpleHTTPRequestHandler)
+          ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+          ctx.load_cert_chain('$ca/chain.pem', '$ca/leaf.key')
+          srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+          srv.serve_forever()" &
+          server=$!
+          sleep 2
+
+          check https://127.0.0.1:8443 reject
+          e2e --host 127.0.0.1 --expect reject
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$ca/root.crt"
+          check https://127.0.0.1:8443 accept
+          e2e --host 127.0.0.1 --expect accept
+          e2e --host 127.0.0.1 --expect accept --tls smtp
+          e2e --host localhost --expect reject
+          sudo security add-trusted-cert -d -r deny -k /Library/Keychains/System.keychain "$ca/int.crt"
+          check https://127.0.0.1:8443 reject
+          e2e --host 127.0.0.1 --expect reject
+          # No trust-settings cleanup: remove-trusted-cert waits for interactive authorization,
+          # and the runner is discarded after the job.
+          kill $server
+
       - name: Setup AWS CLI
         if: success() && (github.ref == 'refs/heads/master')
         uses: aws-actions/configure-aws-credentials@v6

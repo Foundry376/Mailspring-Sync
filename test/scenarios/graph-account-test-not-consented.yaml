@@ -1,0 +1,19 @@
+name: graph-account-test-not-consented
+description: >
+  `--mode test` for an account marked to send through Graph whose refresh token was not
+  granted the Graph mail scopes must fail as an authentication error of the Graph service, so
+  the client's sign-in shows the user a permissions problem instead of adding an account that
+  cannot send.
+source: "AADSTS65001 consent_required"
+servers:
+  - {fake: outlook, smtp: true, graph: true, graph_consented: false}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: quiescent
+expect:
+  test_auth:
+    error: ErrorAuthentication
+    error_service: microsoft graph
+    log: ["AADSTS65001"]
+  running: true

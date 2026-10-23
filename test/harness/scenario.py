@@ -15,12 +15,15 @@ runs against it, and what must be true afterwards. See test/README.md for the vo
       db_matches_server: {}
       stable: {passes: 1}
 """
+import hashlib
 import json
 import os
+import random
 import re
 import shutil
 import socket
 import sqlite3
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -179,6 +182,23 @@ class ScenarioRun:
                 f"behaviour on the hostname). Add `127.0.0.1 {host}` to /etc/hosts to enable it."
             )
 
+    def _check_sasl_plugins(self):
+        """libetpan authenticates SMTP through Cyrus SASL, which loads PLAIN/LOGIN from plugin
+        files (libsasl2-modules on Debian/Ubuntu). Without them the engine never sends AUTH and
+        every send fails with "ErrorAuthentication LibEtPan code: 296", which reads like a
+        credentials or TLS problem rather than a missing package."""
+        if not sys.platform.startswith("linux") or "SendDraftTask" not in json.dumps(self.sc.get("steps") or []):
+            return
+        dirs = [Path(d) for d in os.environ.get("SASL_PATH", "").split(":") if d]
+        dirs += [Path("/usr/lib/sasl2"), Path("/usr/lib64/sasl2"), Path("/usr/local/lib/sasl2")]
+        dirs += list(Path("/usr/lib").glob("*/sasl2"))
+        if not any(next(d.glob(f"lib{mech}.so*"), None) for d in dirs for mech in ("plain", "login")):
+            raise ScenarioFailure(
+                "no Cyrus SASL PLAIN/LOGIN plugin found (searched SASL_PATH and /usr/lib*/sasl2), so "
+                "the engine cannot AUTH to SMTP and every send fails with ErrorAuthentication. "
+                "Install libsasl2-modules (apt) or cyrus-sasl-plain (dnf)."
+            )
+
     def _initial_binary(self) -> Optional[Path]:
         """A scenario may start on another build (`binary: ab/mailsync-0df7864`, relative to
         test/) and `restart` onto the build under test, which is how a database written by
@@ -200,6 +220,7 @@ class ScenarioRun:
 
     def setup(self):
         self._check_host_alias()
+        self._check_sasl_plugins()
         if self.work.exists():
             shutil.rmtree(self.work)
         self.work.mkdir(parents=True)
@@ -232,7 +253,9 @@ class ScenarioRun:
     def _engine_env(self) -> dict:
         """A scenario's top-level `env:` is added to the engine's environment, for the knobs the
         engine reads from it (e.g. ORPHAN_SWEEP_MAX_WAIT)."""
-        return {k: str(v) for k, v in (self.sc.get("env") or {}).items()}
+        env = self.server.engine_env() if self.server else {}
+        env.update({k: str(v) for k, v in (self.sc.get("env") or {}).items()})
+        return env
 
     def teardown(self):
         if self.ms:
@@ -561,6 +584,7 @@ class ScenarioRun:
                 draft.setdefault("v", 0)
                 draft.setdefault("date", int(time.time()))
                 draft.setdefault("__cls", "Message")
+                draft["files"] = [self._attachment_file(f) for f in draft.get("files") or []]
             task_id = self.ms.queue_task(task)
             self._note(f"queued {task['__cls']} as {task_id}")
             return task_id
@@ -570,6 +594,24 @@ class ScenarioRun:
             self.ms.need_bodies(self._resolve_messages(arg["messages"]))
             return
         raise ScenarioFailure(f"unknown client op {op!r}")
+
+    def _attachment_file(self, spec: dict) -> dict:
+        """A draft attachment given as {filename, bytes, contentType?, contentId?}: write that
+        many pseudo-random bytes where the engine's MailUtils::pathForFile looks for the file
+        and return the File JSON the client would send."""
+        if "bytes" not in spec:
+            return spec
+        file_id = spec.get("id") or hashlib.sha1(spec["filename"].encode()).hexdigest()[:24]
+        folder = self.ms.config_dir / "files" / file_id[0:2] / file_id[2:4] / file_id
+        folder.mkdir(parents=True, exist_ok=True)
+        data = random.Random(file_id).randbytes(int(spec["bytes"]))
+        (folder / spec["filename"]).write_bytes(data)
+        out = {"id": file_id, "__cls": "File", "aid": self.ms.account["id"], "v": 0,
+               "filename": spec["filename"], "size": len(data),
+               "contentType": spec.get("contentType", "application/octet-stream")}
+        if spec.get("contentId"):
+            out["contentId"] = spec["contentId"]
+        return out
 
     def _undo_task(self, arg: dict):
         """{of: label}: queue the undo of a completed task the way UndoRedoStore does
@@ -835,6 +877,84 @@ class ScenarioRun:
                     out.append(f"SMTP message {i} header {h} = {m.header(h)!r}, expected {v!r}")
         return out
 
+    def expect_graph(self, arg: dict) -> list:
+        """What the fake Graph server sent: `count`; per message `recipients`, `headers` and
+        `attachments` (file names, wherever they ended up); `drafts` unsent drafts left on the
+        server; `upload_sessions` attachments that went through an upload session;
+        `graph_token_requests` refreshes that asked for Graph scopes; `max_request_bytes` the
+        largest request body the engine sent."""
+        graph = getattr(self.server, "graph", None)
+        if graph is None:
+            return ["scenario expects Graph but the server has no `graph: true`"]
+        out = []
+        sent = list(graph.sent)
+        if "count" in arg and len(sent) != arg["count"]:
+            out.append(f"expected {arg['count']} messages sent through Graph, got {len(sent)}")
+        for i, want in enumerate(arg.get("messages", [])):
+            if i >= len(sent):
+                out.append(f"Graph message {i} missing")
+                continue
+            m = sent[i]
+            if "recipients" in want and sorted(m.recipients()) != sorted(want["recipients"]):
+                out.append(f"Graph message {i} recipients {m.recipients()} != {want['recipients']}")
+            for h, v in (want.get("headers") or {}).items():
+                if m.header(h) != v:
+                    out.append(f"Graph message {i} header {h} = {m.header(h)!r}, expected {v!r}")
+            if "attachments" in want and m.attachment_names() != sorted(want["attachments"]):
+                out.append(f"Graph message {i} attachments {m.attachment_names()} != {sorted(want['attachments'])}")
+        if "drafts" in arg and len(graph.drafts()) != arg["drafts"]:
+            out.append(f"expected {arg['drafts']} unsent Graph drafts, found {len(graph.drafts())}")
+        if "upload_sessions" in arg and len(graph.uploads) != arg["upload_sessions"]:
+            out.append(f"expected {arg['upload_sessions']} upload sessions, saw {len(graph.uploads)}")
+        if "graph_token_requests" in arg:
+            got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com" in scope)
+            if got != arg["graph_token_requests"]:
+                out.append(f"expected {arg['graph_token_requests']} Graph token requests, saw {got}")
+        if "max_request_bytes" in arg:
+            largest = max((r["bytes"] for r in graph.requests), default=0)
+            if largest > arg["max_request_bytes"]:
+                out.append(f"largest Graph request was {largest} bytes, over {arg['max_request_bytes']}")
+        return out
+
+    def expect_test_auth(self, arg: dict) -> list:
+        """Run `--mode test` (the client's account-add check) and compare its JSON: `error` (the
+        error code, or null), `error_service`, and `log` / `log_absent` regexes on its log."""
+        r = self.ms.run_mode("test")
+        try:
+            resp = json.loads(r.stdout.strip().splitlines()[-1])
+        except (IndexError, json.JSONDecodeError):
+            return [f"--mode test printed no JSON (exit {r.returncode}): {r.stdout[-300:]} {r.stderr[-300:]}"]
+        self._note(f"--mode test said: error={resp.get('error')!r} service={resp.get('error_service')!r}")
+        out = []
+        if "error" in arg and resp.get("error") != arg["error"]:
+            out.append(f"--mode test error {resp.get('error')!r}, expected {arg['error']!r}: {resp.get('log', '')[-300:]}")
+        if "error_service" in arg and resp.get("error_service") != arg["error_service"]:
+            out.append(f"--mode test error_service {resp.get('error_service')!r}, expected {arg['error_service']!r}")
+        log = resp.get("log") or ""
+        for pattern in arg.get("log", []):
+            if not re.search(pattern, log):
+                out.append(f"--mode test log has no match for {pattern!r}")
+        for pattern in arg.get("log_absent", []):
+            if re.search(pattern, log):
+                out.append(f"--mode test log matches {pattern!r}")
+        return out
+
+    def expect_task_error(self, arg: dict) -> list:
+        """{label: error key, or null for success, or {key, debuginfo: regex}}: how each
+        labelled task finished."""
+        out = []
+        for label, want in arg.items():
+            with self.ms.db() as c:
+                row = c.execute("SELECT data FROM Task WHERE id = ?", (self.labels[label],)).fetchone()
+            error = (json.loads(row[0]).get("error") or {}) if row else {}
+            got = error.get("key") if error else None
+            want_key = want.get("key") if isinstance(want, dict) else want
+            if got != want_key:
+                out.append(f"task {label} finished with error {got!r} ({error.get('debuginfo', '')}), expected {want_key!r}")
+            elif isinstance(want, dict) and "debuginfo" in want and not re.search(want["debuginfo"], error.get("debuginfo", "")):
+                out.append(f"task {label} error debuginfo {error.get('debuginfo', '')!r} does not match {want['debuginfo']!r}")
+        return out
+
     def expect_rules_ready(self, arg: dict) -> list:
         """The one-shot `rulesReady` flag the client's mail rules run on. No message may carry
         it on more than one delta, counting every engine process the scenario ran, and every
@@ -891,6 +1011,35 @@ class ScenarioRun:
                                    f"rulesReady={bool(m.get('rulesReady'))} body={'body' in m} "
                                    f"fullSyncComplete={bool(m.get('fullSyncComplete'))} "
                                    f"metadata={[e.get('pluginId') for e in m.get('metadata') or []]} v={m.get('v')}")
+        return out
+
+    def expect_contacts(self, arg: dict) -> list:
+        """Contact rows. `mail: {email: name}` checks found-in-mail contacts by email (`null`:
+        there must be none); `carddav: {id: {email, name}}` checks address-book contacts by id.
+        Each contact found must have the ContactSearch row the engine indexes for it (email
+        with `@` as a space, then name), which is what composer autocomplete matches."""
+        out = []
+
+        def check(label, row, want):
+            if want is None:
+                if row:
+                    out.append(f"contact {label}: expected none, found one named {row['name']!r}")
+                return
+            if not row:
+                out.append(f"contact {label}: missing")
+                return
+            for key, value in (want if isinstance(want, dict) else {"name": want}).items():
+                if row[key] != value:
+                    out.append(f"contact {label}: {key} {row[key]!r}, expected {value!r}")
+            indexed = row["email"].replace("@", " ", 1) + " " + row["name"]
+            if row["search"] != indexed:
+                out.append(f"contact {label}: ContactSearch holds {row['search']!r}, expected {indexed!r}")
+
+        with self.ms.db() as c:
+            for email, want in (arg.get("mail") or {}).items():
+                check(email, dbmod.contact(c, "mail", email=email), want)
+            for cid, want in (arg.get("carddav") or {}).items():
+                check(cid, dbmod.contact(c, "carddav", id=cid), want)
         return out
 
     def expect_connection_error(self, arg: dict) -> list:

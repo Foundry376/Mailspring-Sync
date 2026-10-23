@@ -19,14 +19,17 @@
 #include <vector>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+#include <thread>
+#include <chrono>
+#include <ctime>
+#include "spdlog/spdlog.h"
 
-// Structure to hold curl request data that needs cleanup
-// Stored in CURLOPT_PRIVATE to enable proper cleanup of headers
-struct CurlRequestData {
-    struct curl_slist *headers;
-
-    CurlRequestData() : headers(nullptr) {}
-};
+#if __APPLE__
+#include <Security/Security.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <strings.h>
+#endif
 
 // Helper to properly cleanup a curl handle including headers stored in private data
 void CleanupCurlRequest(CURL * curl_handle) {
@@ -43,6 +46,141 @@ void CleanupCurlRequest(CURL * curl_handle) {
     curl_easy_cleanup(curl_handle);
 }
 
+#if __APPLE__
+
+// Why the last request on this thread was rejected by _verifyPeerWithSecTrust, for the error.
+static thread_local string _secTrustRejection;
+
+static vector<uint8_t> _derFromCertinfoPEM(const char * pem) {
+    static const char * begin = "-----BEGIN CERTIFICATE-----";
+    vector<uint8_t> der;
+    const char * start = strstr(pem, begin);
+    const char * end = strstr(pem, "-----END CERTIFICATE-----");
+    if (start == nullptr || end == nullptr || end < start) {
+        return der;
+    }
+    uint32_t bits = 0;
+    int bitCount = 0;
+    for (const char * c = start + strlen(begin); c < end; c++) {
+        int value;
+        if (*c >= 'A' && *c <= 'Z') value = *c - 'A';
+        else if (*c >= 'a' && *c <= 'z') value = *c - 'a' + 26;
+        else if (*c >= '0' && *c <= '9') value = *c - '0' + 52;
+        else if (*c == '+') value = 62;
+        else if (*c == '/') value = 63;
+        else continue; // line breaks and '=' padding
+        bits = (bits << 6) | value;
+        bitCount += 6;
+        if (bitCount >= 8) {
+            bitCount -= 8;
+            der.push_back((bits >> bitCount) & 0xFF);
+        }
+    }
+    return der;
+}
+
+/*
+ Apple's system libcurl uses LibreSSL, which trusts /etc/ssl/cert.pem and never consults
+ Apple's revocation and distrust data. Apple blocked the compromised eMudhra intermediates
+ (https://emudhra.we-have-a-problem.com/) only through that data, so this re-evaluates the
+ peer chain with SecTrust after the handshake and before any request bytes, including
+ Authorization headers and refresh tokens, are sent. It is the same evaluation mailcore
+ applies to IMAP and SMTP on macOS. Failing to obtain the chain or hostname blocks the request.
+*/
+static int _verifyPeerWithSecTrust(void * clientp, char *, char *, int, int) {
+    CURL * curl_handle = (CURL *)clientp;
+    _secTrustRejection = "";
+
+    char * scheme = nullptr;
+    curl_easy_getinfo(curl_handle, CURLINFO_SCHEME, &scheme);
+    if (scheme == nullptr || strcasecmp(scheme, "https") != 0) {
+        return CURL_PREREQFUNC_OK;
+    }
+
+    // mailsync never sets CURLOPT_FOLLOWLOCATION, so the effective URL names the host we connected to.
+    char * url = nullptr;
+    char * host = nullptr;
+    curl_easy_getinfo(curl_handle, CURLINFO_EFFECTIVE_URL, &url);
+    CURLU * parsed = curl_url();
+    if (url != nullptr && curl_url_set(parsed, CURLUPART_URL, url, 0) == CURLUE_OK) {
+        curl_url_get(parsed, CURLUPART_HOST, &host, 0);
+    }
+    string hostname = host ? host : "";
+    curl_free(host);
+    curl_url_cleanup(parsed);
+    if (hostname.size() > 2 && hostname.front() == '[' && hostname.back() == ']') {
+        hostname = hostname.substr(1, hostname.size() - 2);
+    }
+
+    struct curl_certinfo * certinfo = nullptr;
+    curl_easy_getinfo(curl_handle, CURLINFO_CERTINFO, &certinfo);
+
+    CFMutableArrayRef chain = CFArrayCreateMutable(nullptr, 0, &kCFTypeArrayCallBacks);
+    for (int i = 0; certinfo != nullptr && i < certinfo->num_of_certs; i++) {
+        for (struct curl_slist * field = certinfo->certinfo[i]; field != nullptr; field = field->next) {
+            if (strncmp(field->data, "Cert:", 5) != 0) continue;
+            vector<uint8_t> der = _derFromCertinfoPEM(field->data + 5);
+            CFDataRef data = CFDataCreate(nullptr, der.data(), (CFIndex)der.size());
+            SecCertificateRef cert = SecCertificateCreateWithData(nullptr, data);
+            if (cert != nullptr) {
+                CFArrayAppendValue(chain, cert);
+                CFRelease(cert);
+            }
+            CFRelease(data);
+        }
+    }
+
+    bool trusted = false;
+    if (hostname == "") {
+        _secTrustRejection = "could not determine the server's hostname";
+    } else if (CFArrayGetCount(chain) == 0) {
+        _secTrustRejection = "could not read the server's certificate chain";
+    } else {
+        CFStringRef hostCF = CFStringCreateWithCString(nullptr, hostname.c_str(), kCFStringEncodingUTF8);
+        SecPolicyRef policy = SecPolicyCreateSSL(true, hostCF);
+        SecTrustRef trust = nullptr;
+        if (SecTrustCreateWithCertificates(chain, policy, &trust) == errSecSuccess) {
+            CFErrorRef error = nullptr;
+            trusted = SecTrustEvaluateWithError(trust, &error);
+            if (error != nullptr) {
+                CFStringRef description = CFErrorCopyDescription(error);
+                char buffer[512] = "";
+                CFStringGetCString(description, buffer, sizeof(buffer), kCFStringEncodingUTF8);
+                _secTrustRejection = buffer;
+                CFRelease(description);
+                CFRelease(error);
+            }
+            CFRelease(trust);
+        } else {
+            _secTrustRejection = "could not create a trust evaluation";
+        }
+        CFRelease(policy);
+        CFRelease(hostCF);
+    }
+    CFRelease(chain);
+    return trusted ? CURL_PREREQFUNC_OK : CURL_PREREQFUNC_ABORT;
+}
+
+#endif
+
+CURL * CreateCurlHandle() {
+    CURL * curl_handle = curl_easy_init();
+#if __APPLE__
+    // CURLINFO_CERTINFO is only filled in for a new connection, so a reused one would have no
+    // chain to evaluate. Forbidding reuse costs nothing: every handle performs one request.
+    bool configured =
+        curl_easy_setopt(curl_handle, CURLOPT_CERTINFO, 1L) == CURLE_OK &&
+        curl_easy_setopt(curl_handle, CURLOPT_FORBID_REUSE, 1L) == CURLE_OK &&
+        curl_easy_setopt(curl_handle, CURLOPT_PREREQFUNCTION, _verifyPeerWithSecTrust) == CURLE_OK &&
+        curl_easy_setopt(curl_handle, CURLOPT_PREREQDATA, curl_handle) == CURLE_OK;
+    if (!configured) {
+        // Never make an HTTPS request without the SecTrust check.
+        curl_easy_setopt(curl_handle, CURLOPT_PROTOCOLS_STR, "http");
+    }
+#endif
+    return curl_handle;
+}
+
 size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *userp) {
     string * buffer = (string *)userp;
     size_t real_size = length * nmemb;
@@ -56,14 +194,18 @@ size_t _onAppendToString(void *contents, size_t length, size_t nmemb, void *user
     return real_size;
 }
 
-const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken) {
-    CURL * curl_handle = curl_easy_init();
-    const char * url =
+const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken, OAuthTokenAudience audience) {
+    CURL * curl_handle = CreateCurlHandle();
+    bool microsoft = provider == "office365" || provider == "outlook";
+    string microsoftURL = MailUtils::getEnvUTF8("MS_OAUTH_TOKEN_URL");
+    if (microsoftURL == "") {
+        microsoftURL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+    }
+    string url =
           provider == "gmail" ? "https://www.googleapis.com/oauth2/v4/token"
-        : provider == "office365" ? "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-        : provider == "outlook" ? "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        : microsoft ? microsoftURL
         : "";
-    curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
 
     char * c = curl_easy_escape(curl_handle, clientId.c_str(), 0);
@@ -72,11 +214,15 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
     curl_free(c);
     curl_free(r);
 
-    if (provider == "office365" || provider == "outlook") {
+    if (microsoft) {
         // workaround the fact that Microsoft's OAUTH flow allows you to authorize many scopes, but you
         // have to get a separate token for outlook (email + IMAP) and contacts / calendar / Microsoft Graph APIs
         // separately. The same refresh token will give you access tokens, but the access tokens are different.
-        payload += "&scope=https%3A%2F%2Foutlook.office.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send";
+        if (audience == OAuthTokenAudience::MicrosoftGraph) {
+            payload += "&scope=https%3A%2F%2Fgraph.microsoft.com%2FMail.ReadWrite%20https%3A%2F%2Fgraph.microsoft.com%2FMail.Send";
+        } else {
+            payload += "&scope=https%3A%2F%2Foutlook.office.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send";
+        }
     }
 
     string gmailClientId = MailUtils::getEnvUTF8("GMAIL_CLIENT_ID");
@@ -103,7 +249,7 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
 }
 
 CURL * CreateJSONRequest(string url, string method, string authorization, const char * payloadChars) {
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
 
@@ -137,7 +283,7 @@ const string PerformRequest(CURL * curl_handle) {
 
 
 const string PerformExpectedRedirect(string url) {
-    CURL * curl_handle = curl_easy_init();
+    CURL * curl_handle = CreateCurlHandle();
     curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 10);
 
@@ -162,14 +308,32 @@ const string PerformExpectedRedirect(string url) {
 }
 
 
+// A response body as JSON, or {"text": body} when it is not JSON (a captive portal's page).
+static json _parseJSONOrText(const string & body) {
+    try {
+        return json::parse(body);
+    } catch (json::exception &) {
+        return {{"text", body}};
+    }
+}
+
+// Throws, freeing the handle first, when curl_easy_perform did not get an HTTP response.
+static void _throwIfTransportFailed(CURLcode res, CURL * curl_handle, const string & url) {
+#if __APPLE__
+    if (res == CURLE_ABORTED_BY_CALLBACK) {
+        CleanupCurlRequest(curl_handle);
+        throw SyncException(CURLE_PEER_FAILED_VERIFICATION, url + " " + _secTrustRejection);
+    }
+#endif
+    if (res != CURLE_OK) {
+        CleanupCurlRequest(curl_handle);
+        throw SyncException(res, url);
+    }
+}
+
 const json PerformJSONRequest(CURL * curl_handle) {
     string result = PerformRequest(curl_handle);
-    json resultJSON = nullptr;
-    try {
-        resultJSON = json::parse(result);
-    } catch (json::exception &) {
-        resultJSON = {{"text", result}};
-    }
+    json resultJSON = _parseJSONOrText(result);
     CleanupCurlRequest(curl_handle);
     return resultJSON;
 }
@@ -177,14 +341,11 @@ const json PerformJSONRequest(CURL * curl_handle) {
 void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
     char * _url = nullptr;
     if (curl_easy_getinfo(curl_handle, CURLINFO_EFFECTIVE_URL, &_url) != CURLE_OK || _url == nullptr) {
+        CleanupCurlRequest(curl_handle);
         throw SyncException(res, "Unable to get URL");
     }
     string url { _url };
-
-    if (res != CURLE_OK) {
-        CleanupCurlRequest(curl_handle);
-        throw SyncException(res, url);
-    }
+    _throwIfTransportFailed(res, curl_handle, url);
 
     long http_code = 0;
     curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &http_code);
@@ -200,6 +361,224 @@ void ValidateRequestResp(CURLcode res, CURL * curl_handle, string resp) {
         string debuginfo = url + " RETURNED " + resp;
         throw SyncException("Invalid Response Code: " + to_string(http_code), debuginfo, retryable);
     }
+}
+
+// Microsoft Graph
+
+string MicrosoftGraphURL() {
+    string url = MailUtils::getEnvUTF8("MS_GRAPH_URL");
+    return url != "" ? url : "https://graph.microsoft.com/v1.0";
+}
+
+static size_t _onAppendHeader(char * buffer, size_t size, size_t nitems, void * userdata) {
+    ((string *)userdata)->append(buffer, size * nitems);
+    return size * nitems;
+}
+
+static GraphResponse _performGraphRequestOnce(const string & method, const string & url, const string & accessToken, const string & body, const string & contentType, const vector<string> & headers) {
+    CURL * curl_handle = CreateCurlHandle();
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 20);
+    // Uploads can be large, so bound a stalled transfer rather than the whole request.
+    curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl_handle, CURLOPT_LOW_SPEED_TIME, 60L);
+
+    CurlRequestData *requestData = new CurlRequestData();
+    requestData->headers = curl_slist_append(requestData->headers, "Accept: application/json");
+    if (accessToken != "") {
+        requestData->headers = curl_slist_append(requestData->headers, ("Authorization: Bearer " + accessToken).c_str());
+        // Ids that survive the draft moving to Sent Items, so the sent copy can be found by the
+        // draft's id. https://learn.microsoft.com/en-us/graph/outlook-immutable-id
+        requestData->headers = curl_slist_append(requestData->headers, "Prefer: IdType=\"ImmutableId\"");
+    }
+    for (auto & header : headers) {
+        requestData->headers = curl_slist_append(requestData->headers, header.c_str());
+    }
+    if (method != "GET" && method != "DELETE") {
+        // Always send a body, even an empty one: Graph answers a bodiless POST with 411.
+        requestData->headers = curl_slist_append(requestData->headers, ("Content-Type: " + contentType).c_str());
+        curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDS, body.data());
+        curl_easy_setopt(curl_handle, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)body.size());
+    }
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, requestData->headers);
+    curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, method.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_PRIVATE, requestData);
+
+    string result;
+    string responseHeaders;
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, _onAppendToString);
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *)&result);
+    curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, _onAppendHeader);
+    curl_easy_setopt(curl_handle, CURLOPT_HEADERDATA, (void *)&responseHeaders);
+    CURLcode res = curl_easy_perform(curl_handle);
+    _throwIfTransportFailed(res, curl_handle, url);
+
+    GraphResponse resp;
+    curl_easy_getinfo(curl_handle, CURLINFO_RESPONSE_CODE, &resp.status);
+    CleanupCurlRequest(curl_handle);
+    resp.body = result.empty() ? json::object() : _parseJSONOrText(result);
+    resp.retryAfter = ParseRetryAfter(HTTPHeaderValue(responseHeaders, "Retry-After"));
+    return resp;
+}
+
+GraphResponse PerformGraphRequest(const string & method, const string & url, const string & accessToken, const string & body, const string & contentType, const vector<string> & headers) {
+    GraphResponse resp;
+    for (int attempt = 0; attempt < 3; attempt ++) {
+        resp = _performGraphRequestOnce(method, url, accessToken, body, contentType, headers);
+        if (resp.status != 429 && resp.status != 503) {
+            break;
+        }
+        long wait = (std::min)((std::max)(resp.retryAfter, 1L), 30L); // parenthesized for <windows.h>'s min/max macros
+        spdlog::get("logger")->info("-- Graph returned {}, retrying in {}s", resp.status, wait);
+        std::this_thread::sleep_for(std::chrono::seconds(wait));
+    }
+    return resp;
+}
+
+string GraphErrorDescription(const GraphResponse & resp) {
+    const json & body = resp.body;
+    if (body.is_object() && body.count("error") && body["error"].is_object()) {
+        return JSONString(body["error"], "code") + ": " + JSONString(body["error"], "message");
+    }
+    string text = body.dump();
+    if (text.length() > 512) {
+        text = text.substr(0, 512) + "... (truncated)";
+    }
+    return "HTTP " + to_string(resp.status) + " " + text;
+}
+
+string GraphSentItemsId(const string & accessToken, GraphResponse * failure) {
+    auto resp = PerformGraphRequest("GET", MicrosoftGraphURL() + "/me/mailFolders/sentitems?$select=id", accessToken);
+    string id = resp.ok() ? JSONString(resp.body, "id") : "";
+    if (id.empty() && failure != nullptr) {
+        *failure = resp;
+    }
+    return id;
+}
+
+// HTTP helpers
+
+string URLEscape(const string & value) {
+    char * escaped = curl_easy_escape(nullptr, value.c_str(), (int)value.size());
+    string result = escaped ? escaped : value;
+    curl_free(escaped);
+    return result;
+}
+
+string JSONString(const json & object, const string & key) {
+    if (!object.is_object() || !object.count(key) || !object[key].is_string()) {
+        return "";
+    }
+    return object[key].get<string>();
+}
+
+// HTTP Protocol Quirk: Header Case Sensitivity
+// While HTTP specifications (RFC 7230) require case-insensitive header handling, some
+// server implementations or proxies treat headers as case-sensitive. The Python caldav
+// library uses CaseInsensitiveDict for all header operations. We achieve the same effect
+// by normalizing both the headers and search term to lowercase before matching.
+string HTTPHeaderValue(const string& headers, const string& headerName) {
+    string searchFor = headerName + ":";
+    size_t pos = 0;
+
+    // Case-insensitive search (handles server inconsistencies)
+    string headersLower = headers;
+    string searchLower = searchFor;
+    transform(headersLower.begin(), headersLower.end(), headersLower.begin(), ::tolower);
+    transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::tolower);
+
+    pos = headersLower.find(searchLower);
+    if (pos == string::npos) {
+        return "";
+    }
+
+    // Find the value after the colon
+    size_t valueStart = pos + searchFor.length();
+    size_t valueEnd = headers.find("\r\n", valueStart);
+    if (valueEnd == string::npos) {
+        valueEnd = headers.find("\n", valueStart);
+    }
+    if (valueEnd == string::npos) {
+        valueEnd = headers.length();
+    }
+
+    string value = headers.substr(valueStart, valueEnd - valueStart);
+
+    // Trim whitespace
+    size_t start = value.find_first_not_of(" \t");
+    size_t end = value.find_last_not_of(" \t\r\n");
+    if (start == string::npos) return "";
+    return value.substr(start, end - start + 1);
+}
+
+#ifdef _MSC_VER
+// Windows doesn't have strptime, provide a minimal implementation for HTTP-date parsing
+static char* win32_strptime(const char* s, const char* format, struct tm* tm) {
+    // Only supports the HTTP-date format: "%a, %d %b %Y %H:%M:%S"
+    static const char* months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    char weekday[4], month[4];
+    int day, year, hour, min, sec;
+
+    if (sscanf_s(s, "%3s, %d %3s %d %d:%d:%d",
+                 weekday, (unsigned)sizeof(weekday),
+                 &day,
+                 month, (unsigned)sizeof(month),
+                 &year, &hour, &min, &sec) != 7) {
+        return nullptr;
+    }
+
+    int mon = -1;
+    for (int i = 0; i < 12; i++) {
+        if (_stricmp(month, months[i]) == 0) {
+            mon = i;
+            break;
+        }
+    }
+    if (mon < 0) return nullptr;
+
+    tm->tm_mday = day;
+    tm->tm_mon = mon;
+    tm->tm_year = year - 1900;
+    tm->tm_hour = hour;
+    tm->tm_min = min;
+    tm->tm_sec = sec;
+
+    // Return pointer past the parsed portion (approximate)
+    return const_cast<char*>(s + strlen(s));
+}
+#define strptime win32_strptime
+#define timegm _mkgmtime
+#endif
+
+// Parse Retry-After header value (RFC 7231)
+// Supports both delay-seconds (integer) and HTTP-date formats
+int ParseRetryAfter(const string& retryAfter) {
+    if (retryAfter.empty()) {
+        return 0;
+    }
+
+    // Try parsing as integer (delay-seconds format)
+    try {
+        int seconds = stoi(retryAfter);
+        if (seconds > 0) {
+            return seconds;
+        }
+    } catch (...) {
+        // Not an integer, try parsing as HTTP-date
+    }
+
+    // Try parsing as HTTP-date (e.g., "Fri, 31 Dec 2024 23:59:59 GMT")
+    struct tm tm = {};
+    if (strptime(retryAfter.c_str(), "%a, %d %b %Y %H:%M:%S", &tm) != nullptr) {
+        time_t targetTime = timegm(&tm);
+        time_t now = time(nullptr);
+        if (targetTime > now) {
+            return static_cast<int>(targetTime - now);
+        }
+    }
+
+    return 0;
 }
 
 // Shorthand methods for Identity Server

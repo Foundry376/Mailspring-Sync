@@ -27,6 +27,7 @@ class VCardProperty
     VCardProperty(string line);
 
     string getName();
+    string baseName();
     void setName(string name);
     string getValue();
     void setValue(string value);
@@ -49,6 +50,9 @@ public:
 
     shared_ptr<VCardProperty> getName();
     void setName(string name);
+    shared_ptr<VCardProperty> getOrganization();
+
+    string displayName();
     
     vector<shared_ptr<VCardProperty>> getMembers();
 

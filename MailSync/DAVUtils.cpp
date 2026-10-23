@@ -32,7 +32,7 @@ void DAVUtils::addMembersToGroupCard(shared_ptr<VCard> card, vector<shared_ptr<C
         // vcard3 / icloud / fastmail
         } else  {
             for (auto prop : card->getExtendedProperties()) {
-                if (prop->getName() == X_VCARD3_MEMBER && prop->getValue() == uuid) {
+                if (prop->baseName() == X_VCARD3_MEMBER && prop->getValue() == uuid) {
                     found = true;
                     break;
                 }
@@ -61,7 +61,7 @@ void DAVUtils::removeMembersFromGroupCard(shared_ptr<VCard> card, vector<shared_
         // vcard3 / icloud / fastmail
         } else {
             for (auto prop : card->getExtendedProperties()) {
-                if (prop->getName() == X_VCARD3_MEMBER && prop->getValue() == uuid) {
+                if (prop->baseName() == X_VCARD3_MEMBER && prop->getValue() == uuid) {
                     card->removeProperty(prop);
                     break;
                 }
@@ -75,7 +75,7 @@ bool DAVUtils::isGroupCard(shared_ptr<VCard> card) {
         return true; //vcard4
     }
     for (auto prop : card->getExtendedProperties()) {
-        if (prop->getName() == X_VCARD3_KIND && prop->getValue() == "group") {
+        if (prop->baseName() == X_VCARD3_KIND && prop->getValue() == "group") {
             return true; // vcard3 / iCloud
         }
     }

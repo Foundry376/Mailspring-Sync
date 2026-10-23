@@ -262,3 +262,57 @@ jobs:
           } else {
             Write-Host "OK mailsync install-check passed on Windows"
           }
+
+  # Drives the built mailsync.exe over IMAP and SMTP with TLS against a local CA, to show
+  # certificate validation defers to the Windows trust stores: a root in Root is trusted, an
+  # intermediate in Disallowed is not, and the hostname must match.
+  certificates-windows:
+    needs: build-windows
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: test/certificates
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Download artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: win-ia32-mailsync
+          path: ${{ runner.temp }}/mailsync
+
+      - name: Extract mailsync
+        shell: pwsh
+        working-directory: ${{ runner.temp }}/mailsync
+        run: tar -xzf mailsync.tar.gz
+
+      - name: Local CA, trusted and then distrusted
+        shell: bash
+        env:
+          # Otherwise Git Bash rewrites openssl's -subj "/CN=..." into a Windows path.
+          MSYS_NO_PATHCONV: 1
+        run: |
+          set -e
+          ./make_local_ca.sh localca
+          e2e() { python mailsync_cert_e2e.py --mailsync "$RUNNER_TEMP/mailsync/mailsync.exe" --ca-dir localca "$@"; }
+
+          e2e --host 127.0.0.1 --expect reject                    # root not trusted
+          certutil -addstore Root localca/root.crt > /dev/null
+          e2e --host 127.0.0.1 --expect accept                     # IMAP and SMTP both over TLS
+          e2e --host 127.0.0.1 --expect accept --tls smtp          # SMTP's own check, IMAP in plaintext
+          e2e --host localhost --expect reject                     # name not in the certificate
+          e2e --host localhost --expect reject --tls smtp
+          e2e --host localhost --expect reject --allow-insecure    # "allow insecure SSL" doesn't bypass validation
+          e2e --host 127.0.0.1 --expect accept --allow-insecure    # ...and doesn't break a valid certificate
+          certutil -addstore Disallowed localca/int.crt > /dev/null
+          e2e --host 127.0.0.1 --expect reject                     # explicit distrust
+          e2e --host 127.0.0.1 --expect reject --tls smtp
+          certutil -delstore Disallowed "Mailspring Test Intermediate" > /dev/null
+          e2e --host 127.0.0.1 --expect accept
+          certutil -delstore Root "Mailspring Test Root" > /dev/null
