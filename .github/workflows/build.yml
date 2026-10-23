@@ -174,12 +174,10 @@ jobs:
           e2e --host 127.0.0.1 --expect accept --tls smtp
           e2e --host localhost --expect reject
           e2e --host localhost --expect reject --tls smtp
-          echo "127.0.0.1 mailspring-test.invalid" | sudo tee -a /etc/hosts > /dev/null
+          # glibc doesn't resolve a trailing-dot name from /etc/hosts on every Ubuntu, so it is an alias.
+          echo "127.0.0.1 mailspring-test.invalid mailspring-test.invalid." | sudo tee -a /etc/hosts > /dev/null
           e2e --host mailspring-test.invalid --expect accept
-          # Ubuntu 24.04's resolver doesn't find a trailing-dot name in /etc/hosts.
-          if getent hosts mailspring-test.invalid. > /dev/null; then
-            e2e --host mailspring-test.invalid. --expect accept
-          fi
+          e2e --host mailspring-test.invalid. --expect accept
 
       - name: Setup AWS CLI
         if: success() && (github.ref == 'refs/heads/master')
