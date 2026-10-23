@@ -864,8 +864,8 @@ static string _tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * tlsE
     }
 
     // Otherwise only speak up when negotiating the connection is what failed, and only when
-    // OpenSSL said why. Anything later - authentication above all - has its own cause, and a
-    // handshake reason recorded during a successful fallback would be a red herring.
+    // OpenSSL said why. Anything later - authentication above all - has its own cause. A
+    // successful connect() clears the reason, so a dropped connection afterwards has none.
     if (err != mailcore::ErrorConnection &&
         err != mailcore::ErrorTLSNotAvailable &&
         err != mailcore::ErrorStartTLSNotAvailable) {

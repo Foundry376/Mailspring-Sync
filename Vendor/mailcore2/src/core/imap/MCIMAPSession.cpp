@@ -767,6 +767,8 @@ void IMAPSession::connect(ErrorCode * pError)
                 MCLog("%s uses outdated encryption, connected at TLS compatibility level %i",
                       MCUTF8(mHostname), level);
             }
+            // A rejection at a weaker level isn't why anything later on this connection fails.
+            MC_SAFE_RELEASE(mLastTLSErrorDescription);
             return;
         }
 
