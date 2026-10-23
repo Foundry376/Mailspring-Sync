@@ -143,7 +143,47 @@ const option::Descriptor usage[] =
     {0,0,0,0,0,0}
 };
 
+// Outlook.com intermittently answers AUTHENTICATE with NO for a valid XOAuth2 token: the
+// other worker's login with the same token can succeed a second earlier (forum thread 14606).
+// A rejected login is retried after each of these delays, with a fresh token for OAuth
+// accounts; the next rejection exits, and the client decides whether to relaunch.
+static const vector<int> LOGIN_REJECTED_RETRY_DELAYS { 30, 120 };
+
+// Rejections this far apart count as separate episodes. Counted by time rather than reset on
+// success because a wake makes the foreground worker return before it logs in.
+static const time_t LOGIN_REJECTED_EPISODE_GAP = 10 * 60;
+
+struct LoginRejections {
+    size_t count = 0;
+    time_t last = 0;
+};
+
+// Returns the seconds to wait before retrying, or -1 if the exception should be handled as usual.
+static int retryDelayAfterLoginRejected(SyncException & ex, SyncWorker & worker, LoginRejections & rejections) {
+    if (ex.key != "ErrorAuthentication") {
+        return -1;
+    }
+    spdlog::get("logger")->error("-X Login rejected: {}", worker.lastLoginResponse());
+
+    time_t now = time(0);
+    if (now - rejections.last > LOGIN_REJECTED_EPISODE_GAP) {
+        rejections.count = 0;
+    }
+    rejections.last = now;
+    if (rejections.count >= LOGIN_REJECTED_RETRY_DELAYS.size()) {
+        return -1;
+    }
+    // mailcore leaves the session connected after a NO, and servers close unauthenticated
+    // connections long before the retry.
+    worker.disconnect();
+    if (worker.account->refreshToken() != "") {
+        SharedXOAuth2TokenManager()->invalidateTokenForAccount(worker.account);
+    }
+    return LOGIN_REJECTED_RETRY_DELAYS[rejections.count++];
+}
+
 void runForegroundSyncWorker() {
+    LoginRejections loginRejections;
     while(true) {
         try {
             fgWorker->configure();
@@ -151,6 +191,12 @@ void runForegroundSyncWorker() {
             SharedDeltaStream()->endConnectionError(fgWorker->account->id());
         } catch (SyncException & ex) {
             exceptions::logCurrentExceptionWithStackTrace();
+            int retryDelay = retryDelayAfterLoginRejected(ex, *fgWorker, loginRejections);
+            if (retryDelay >= 0) {
+                spdlog::get("logger")->info("--sleeping {}s before retrying login", retryDelay);
+                MailUtils::sleepWorkerUntilWakeOrSec(retryDelay);
+                continue;
+            }
             if (!ex.isRetryable()) {
                 abort();
             }
@@ -168,6 +214,7 @@ void runForegroundSyncWorker() {
 
 void runBackgroundSyncWorker() {
     bool started = false;
+    LoginRejections loginRejections;
     
     // wait a few seconds before launching. This avoids database locking caused by many
     // sync workers all trying to open several sqlite references at once.
@@ -212,6 +259,12 @@ void runBackgroundSyncWorker() {
 
         } catch (SyncException & ex) {
             exceptions::logCurrentExceptionWithStackTrace();
+            int retryDelay = retryDelayAfterLoginRejected(ex, *bgWorker, loginRejections);
+            if (retryDelay >= 0) {
+                spdlog::get("logger")->info("--sleeping {}s before retrying login", retryDelay);
+                MailUtils::sleepWorkerUntilWakeOrSec(retryDelay);
+                continue;
+            }
             if (!ex.isRetryable()) {
                 abort();
             }

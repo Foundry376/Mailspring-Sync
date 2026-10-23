@@ -37,6 +37,7 @@ public:
     XOAuth2TokenManager();
     ~XOAuth2TokenManager();
     XOAuth2Parts partsForAccount(shared_ptr<Account> account, OAuthTokenAudience audience = OAuthTokenAudience::Mail);
+    void invalidateTokenForAccount(shared_ptr<Account> account);
 };
 
 
