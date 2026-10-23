@@ -1,0 +1,75 @@
+name: graph-send
+description: >
+  An Office 365 account that consented to Graph Mail.Send sends a message to a colleague and
+  one to themself. Both go out through Microsoft Graph (a MIME draft, then /send), never over
+  SMTP. Exchange files each sent copy in Sent Items; the engine must find that copy, attach the
+  draft's metadata to it and never APPEND one of its own. Graph throttles the first draft
+  creation, which the engine retries after Retry-After.
+source: "Exchange Online disables SMTP AUTH for new tenants (https://aka.ms/smtp_auth_disabled); Graph sendMail / immutable ids (https://learn.microsoft.com/en-us/graph/outlook-immutable-id)"
+servers:
+  - fake: outlook
+    smtp: true
+    graph: true
+    graph_failures:
+      - {route: "^messages$", method: POST, status: 429, code: TooManyRequests, times: 1, retry_after: 2}
+mailboxes:
+  INBOX: {messages: 3}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-1@example.test"
+        subject: "Hello Bob"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: [{name: "Carol", email: "carol@example.net"}]
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: "original@example.net"
+        fwdMsgId: ""
+        metadata: [{pluginId: "open-tracking", v: 1, value: {uid: "graph-1@example.test"}}]
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 90}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-2@example.test"
+        subject: "Note to self"
+        body: "<p>Remember the milk</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Harness Test", email: "test@example.test"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send2
+  - wait: {task: send2, timeout: 90}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  task_error: {send1: null, send2: null}
+  smtp: {count: 0}
+  graph:
+    count: 2
+    drafts: 0
+    messages:
+      - recipients: ["bob@example.net", "carol@example.net"]
+        headers: {Subject: "Hello Bob", Message-ID: "<graph-1@example.test>", In-Reply-To: "<original@example.net>"}
+      - recipients: ["test@example.test"]
+        headers: {Subject: "Note to self"}
+  server_counts: {Sent Items: 2, INBOX: 4}
+  counts: {Sent Items: 2}
+  log_present: ["Graph returned 429, retrying in 2s", "Found the sent copy Exchange filed in Sent Items", "Queueing task to attach open-tracking draft metadata"]
+  log_absent: ["Placing a new message", "Sending a single message body"]
+  db_matches_server: {}
+  stable: {passes: 2}
+  running: true

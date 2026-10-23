@@ -1,0 +1,44 @@
+name: o365-legacy-account-sends-smtp
+description: >
+  An Office 365 account authorized before Mailspring asked for Graph Mail.Send has no
+  `graph_send` setting. It must keep sending over SMTP with its XOAUTH2 token exactly as before,
+  and never ask Microsoft for a Graph token its refresh token was not granted.
+source: "Upgrade path for existing Office 365 accounts (Mailspring #Graph send)"
+servers:
+  - {fake: outlook, smtp: true, graph: true, graph_send: false, graph_consented: false, smtp_sent_copy: "Sent Items", smtp_sent_copy_delay: 1}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "legacy-smtp@example.test"
+        subject: "Over SMTP"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files: []
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 90}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  task_error: {send1: null}
+  smtp:
+    count: 1
+    messages:
+      - {recipients: ["bob@example.net"], headers: {Subject: "Over SMTP", Message-ID: "<legacy-smtp@example.test>"}}
+  graph: {count: 0, graph_token_requests: 0}
+  server_counts: {Sent Items: 1}
+  counts: {Sent Items: 1}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

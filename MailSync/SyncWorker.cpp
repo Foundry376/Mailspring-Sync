@@ -87,6 +87,17 @@ void SyncWorker::configure()
     MailUtils::configureSessionForAccount(session, account);
 }
 
+string SyncWorker::lastLoginResponse()
+{
+    String * response = session.loginResponse();
+    return response ? response->UTF8Characters() : "";
+}
+
+void SyncWorker::disconnect()
+{
+    session.disconnect();
+}
+
 void SyncWorker::idleInterrupt()
 {
     // called on main / random threads to interrupt idle

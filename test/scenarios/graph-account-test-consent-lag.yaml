@@ -1,0 +1,17 @@
+name: graph-account-test-consent-lag
+description: >
+  Right after the user grants the Graph mail scopes, Azure AD can refuse the first Graph token
+  refresh with AADSTS65001 until the consent replicates. `--mode test` runs seconds after
+  sign-in, so it must retry instead of failing the sign-in.
+source: "Reconnecting an Office 365 work account, 2026-10-22: --mode test failed with AADSTS65001; the same refresh succeeded a minute later and on Try Again"
+servers:
+  - {fake: outlook, smtp: true, graph: true, graph_consent_refusals: 2}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: quiescent
+expect:
+  test_auth:
+    error: null
+    log: ["has not finished recording consent", "Sent Items is readable through Microsoft Graph"]
+  running: true

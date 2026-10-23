@@ -64,7 +64,6 @@ class DAVWorker {
     void applyRateLimitDelay();
     void recordRequestSuccess();
     void recordRateLimitResponse(int httpCode, const string& retryAfter);
-    int parseRetryAfter(const string& retryAfter);
 
 public:
     shared_ptr<Account> account;

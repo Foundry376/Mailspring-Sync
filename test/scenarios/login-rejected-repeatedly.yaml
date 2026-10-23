@@ -1,0 +1,22 @@
+name: login-rejected-repeatedly
+description: >
+  After a reconnect the server rejects every login. The engine retries twice (after 30 s,
+  then 2 min; a wake cuts each wait short) and exits on the third rejection so the client
+  can decide whether to relaunch it or mark the account as needing re-authentication.
+source: community.getmailspring.com/t/14606
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: 5}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, command: "^LOGIN", every: true}, text: "AUTHENTICATE failed."}
+  - server.drop_connections: {}
+  - client.wake: {}
+  - wait: {log: "^--sleeping 30s before retrying login"}
+  - client.wake: {}
+  - wait: {log: "^--sleeping 120s before retrying login"}
+  - client.wake: {}
+  - wait: {seconds: 5}
+expect:
+  exit: {code: null}

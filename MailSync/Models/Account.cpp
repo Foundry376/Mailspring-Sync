@@ -163,6 +163,14 @@ bool Account::createHelperFolders() {
     return s.count("create_helper_folders") ? s["create_helper_folders"].get<bool>() : true;
 }
 
+// Set by the client's Microsoft onboarding only when the user consented to Graph Mail.Send
+// and Mail.ReadWrite. Accounts authorized before that keep sending over SMTP: their refresh
+// tokens cannot be exchanged for a Graph mail token without the user signing in again.
+bool Account::sendsViaGraph() {
+    json & s = _data["settings"];
+    return s.count("graph_send") && s["graph_send"].is_boolean() && s["graph_send"].get<bool>();
+}
+
 string Account::constructorName() {
     return _data["__cls"].get<string>();
 }
