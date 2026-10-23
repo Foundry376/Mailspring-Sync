@@ -153,6 +153,28 @@ jobs:
           # and the runner is discarded after the job.
           kill $server
 
+      # mailcore validates IMAP and SMTP certificates against the system CA bundle with OpenSSL;
+      # the hostname must match the leaf's subjectAltNames, as on macOS and Windows.
+      - name: Certificate checks (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 15
+        run: |
+          set -e
+          mkdir -p /tmp/mailspring
+          tar -xzf ../app/dist/mailsync.tar.gz -C /tmp/mailspring
+          e2e() { python3 test/certificates/mailsync_cert_e2e.py --mailsync /tmp/mailspring/mailsync --ca-dir "$ca" "$@"; }
+
+          ca=$(mktemp -d)
+          bash test/certificates/make_local_ca.sh "$ca"
+
+          e2e --host 127.0.0.1 --expect reject
+          sudo cp "$ca/root.crt" /usr/local/share/ca-certificates/mailspring-test-root.crt
+          sudo update-ca-certificates > /dev/null
+          e2e --host 127.0.0.1 --expect accept
+          e2e --host 127.0.0.1 --expect accept --tls smtp
+          e2e --host localhost --expect reject
+          e2e --host localhost --expect reject --tls smtp
+
       - name: Setup AWS CLI
         if: success() && (github.ref == 'refs/heads/master')
         uses: aws-actions/configure-aws-credentials@v6

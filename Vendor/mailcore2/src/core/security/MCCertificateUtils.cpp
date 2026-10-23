@@ -32,6 +32,7 @@
 #include <openssl/ossl_typ.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
+#include <openssl/x509v3.h>
 #include <openssl/stack.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
@@ -375,6 +376,26 @@ err:
     {
         MCLog("Could not call X509_STORE_CTX_init");
         goto free_certs;
+    }
+
+    /* X509_verify_cert checks only the chain unless it is given a name to match against the
+     * leaf's subjectAltNames, which SecPolicyCreateSSL and the CryptoAPI SSL policy always do.
+     * An IP literal has to match an IP SAN, so it is set as an address rather than a name. */
+    if (hostname == NULL || hostname->length() == 0)
+    {
+        MCLog("warning: No hostname to verify the certificate against");
+        goto free_certs;
+    }
+    {
+        X509_VERIFY_PARAM *param = X509_STORE_CTX_get0_param(storectx);
+        const char *host = hostname->UTF8Characters();
+        X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+        if (X509_VERIFY_PARAM_set1_ip_asc(param, host) != 1 &&
+            X509_VERIFY_PARAM_set1_host(param, host, 0) != 1)
+        {
+            MCLog("Could not set the hostname to verify the certificate against");
+            goto free_certs;
+        }
     }
 
     status = X509_verify_cert(storectx);
