@@ -2305,11 +2305,19 @@ static void _sendViaGraph(shared_ptr<Account> account, MessageBuilder & builder,
         throw;
     }
 
+    string sendToken;
+    try {
+        sendToken = _graphAccessToken(account);
+    } catch (...) {
+        _graphDeleteQuietly(account, messageURL);
+        throw;
+    }
+
     logger->info("-- Sending Graph draft");
     GraphResponse sent;
     string lostConnection;
     try {
-        sent = PerformGraphRequest("POST", messageURL + "/send", _graphAccessToken(account), "", "application/json", {}, GraphRetry::ThrottledOnly);
+        sent = PerformGraphRequest("POST", messageURL + "/send", sendToken, "", "application/json", {}, GraphRetry::ThrottledOnly);
     } catch (SyncException & ex) {
         lostConnection = ex.debuginfo.empty() ? ex.key : ex.debuginfo;
     }
@@ -2322,16 +2330,17 @@ static void _sendViaGraph(shared_ptr<Account> account, MessageBuilder & builder,
     }
 
     // No answer, or a 5xx: Exchange may have accepted the message anyway. A draft that is still
-    // a draft is left alone, since deleting it could cancel a submission in progress.
+    // a draft is left alone, since deleting it could cancel a submission in progress. The Sent
+    // folder cannot settle it: a message submitted after we stop looking leaves no copy there.
     if (_graphDraftWasSubmitted(account, messageURL)) {
         logger->info("-- Exchange accepted the message despite {}", lostConnection.empty() ? "HTTP " + to_string(sent.status) : "the lost connection");
         return;
     }
-    static const string CHECK_SENT = "Check your Sent folder before sending again. ";
+    static const string UNCONFIRMED = "Microsoft did not confirm whether the message was sent, and it may still be delivered. Check with a recipient before sending it again. ";
     if (!lostConnection.empty()) {
-        throw SyncException("send-failed", "The connection to Microsoft was lost while sending. " + CHECK_SENT + lostConnection, false);
+        throw SyncException("send-failed", "The connection to Microsoft was lost while sending. " + UNCONFIRMED + lostConnection, false);
     }
-    _throwGraphSendFailed("send the message", sent, CHECK_SENT);
+    _throwGraphSendFailed("send the message", sent, UNCONFIRMED);
 }
 
 /*

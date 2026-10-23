@@ -226,7 +226,9 @@ class _Handler(BaseHTTPRequestHandler):
             srv.token_scopes.append(scope)
         if form.get("grant_type") != "refresh_token" or form.get("refresh_token") != srv.refresh_token:
             return self._reply(400, {"error": "invalid_grant", "error_description": "AADSTS70000: The refresh token is invalid."})
-        if GRAPH_SCOPE in scope and srv.drop_graph_token:
+        graph_requests = sum(1 for sc in srv.token_scopes if GRAPH_SCOPE in sc)
+        dropped = srv.drop_graph_token or (srv.drop_graph_token_after is not None and graph_requests > srv.drop_graph_token_after)
+        if GRAPH_SCOPE in scope and dropped:
             self.close_connection = True   # no response at all: curl reports CURLE_GOT_NOTHING
             self.connection.shutdown(2)
             return
@@ -328,13 +330,14 @@ class FakeGraphServer:
                  sent_copy=None, sent_copy_delay: float = 0, failures: Optional[list] = None, deliver_to=None,
                  consent_refusals: int = 0, mailbox: Optional[str] = None, aliases=(),
                  drop_graph_token: bool = False, honors_delete_after_submit: bool = True,
-                 token_lifetime: int = 3599):
+                 token_lifetime: int = 3599, drop_graph_token_after: Optional[int] = None):
         """sent_copy: optional (Store, mailbox) every sent message's copy is appended to, as
         Exchange files it in Sent Items. sent_copy_delay: seconds between /send and that copy.
         graph_consented: whether the refresh token may be exchanged for Graph scopes (an
         account authorized before Mail.Send was requested may not).
         drop_graph_token: close the connection on Graph token requests without answering, as
-        when the machine goes offline mid-send.
+        when the machine goes offline mid-send. drop_graph_token_after: answer that many Graph
+        token requests first.
         consent_refusals: refuse the first N Graph token requests with AADSTS65001 anyway, as
         Azure AD does for a few seconds while a consent the user just gave replicates.
         mailbox / aliases: the mailbox's primary address and the aliases it may send as. A
@@ -357,6 +360,7 @@ class FakeGraphServer:
         self.graph_consented = graph_consented
         self.consent_refusals = consent_refusals
         self.drop_graph_token = drop_graph_token
+        self.drop_graph_token_after = drop_graph_token_after
         self.mailbox = mailbox
         self.aliases = list(aliases)
         self.sent_copy = sent_copy
