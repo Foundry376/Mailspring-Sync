@@ -389,9 +389,15 @@ err:
     {
         X509_VERIFY_PARAM *param = X509_STORE_CTX_get0_param(storectx);
         const char *host = hostname->UTF8Characters();
+        /* A fully-qualified "imap.example.com." resolves like "imap.example.com", but OpenSSL
+         * doesn't match it against the certificate's names without the trailing dot. */
+        size_t hostLength = strlen(host);
+        if (hostLength > 1 && host[hostLength - 1] == '.') {
+            hostLength--;
+        }
         X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
         if (X509_VERIFY_PARAM_set1_ip_asc(param, host) != 1 &&
-            X509_VERIFY_PARAM_set1_host(param, host, 0) != 1)
+            X509_VERIFY_PARAM_set1_host(param, host, hostLength) != 1)
         {
             MCLog("Could not set the hostname to verify the certificate against");
             goto free_certs;
