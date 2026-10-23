@@ -70,6 +70,15 @@ namespace mailcore {
         // the connection actually failed. NULL when no handshake was rejected.
         virtual String * lastTLSErrorDescription();
 
+        // SHA-256 (lowercase hex) of a certificate the user accepted for this server. A
+        // certificate that fails validation is still used when it is exactly this one.
+        virtual void setAcceptedCertificateSHA256(String * sha256);
+        virtual String * acceptedCertificateSHA256();
+
+        // Certificates the server presented on the last TLS connection, leaf first, as DER
+        // Data. Kept after a certificate rejection so the caller can show it to the user.
+        virtual Array * lastCertificateChain();
+
         // Compatibility level the last connect() settled on. See
         // MAILSTREAM_SSL_COMPAT_* in libetpan's mailstream_ssl.h.
         virtual int tlsCompatibilityLevel();
@@ -287,6 +296,8 @@ namespace mailcore {
         bool mCheckCertificateEnabled;
         bool mObsoleteTLSAllowed;
         String * mLastTLSErrorDescription;
+        String * mAcceptedCertificateSHA256;
+        Array * mLastCertificateChain;
         bool mVoIPEnabled;
         char mDelimiter;
         IMAPNamespace * mDefaultNamespace;

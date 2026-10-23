@@ -385,6 +385,8 @@ void IMAPSession::init()
     mObsoleteTLSAllowed = false;
     mTLSCompatibilityLevel = MAILSTREAM_SSL_COMPAT_DEFAULT;
     mLastTLSErrorDescription = NULL;
+    mAcceptedCertificateSHA256 = NULL;
+    mLastCertificateChain = NULL;
     mVoIPEnabled = true;
     mDelimiter = 0;
     
@@ -456,6 +458,8 @@ IMAPSession::~IMAPSession()
     MC_SAFE_RELEASE(mDefaultNamespace);
     MC_SAFE_RELEASE(mCurrentFolder);
     MC_SAFE_RELEASE(mLastTLSErrorDescription);
+    MC_SAFE_RELEASE(mAcceptedCertificateSHA256);
+    MC_SAFE_RELEASE(mLastCertificateChain);
     pthread_mutex_destroy(&mIdleLock);
     pthread_mutex_destroy(&mConnectionLoggerLock);
 }
@@ -596,11 +600,29 @@ static bool hasError(int errorCode)
             (errorCode != MAILIMAP_NO_ERROR_NON_AUTHENTICATED));
 }
 
+void IMAPSession::setAcceptedCertificateSHA256(String * sha256)
+{
+    MC_SAFE_REPLACE_COPY(String, mAcceptedCertificateSHA256, sha256);
+}
+
+String * IMAPSession::acceptedCertificateSHA256()
+{
+    return mAcceptedCertificateSHA256;
+}
+
+Array * IMAPSession::lastCertificateChain()
+{
+    return mLastCertificateChain;
+}
+
 bool IMAPSession::checkCertificate()
 {
+    MC_SAFE_REPLACE_RETAIN(Array, mLastCertificateChain, mailcore::certificateChain(mImap->imap_stream));
     if (!isCheckCertificateEnabled())
         return true;
-    return mailcore::checkCertificate(mImap->imap_stream, hostname());
+    if (mailcore::checkCertificate(mImap->imap_stream, hostname()))
+        return true;
+    return mailcore::isAcceptedCertificate(mLastCertificateChain, mAcceptedCertificateSHA256);
 }
 
 void IMAPSession::body_progress(size_t current, size_t maximum, void * context)
@@ -721,6 +743,7 @@ void IMAPSession::unsetup()
 void IMAPSession::connect(ErrorCode * pError)
 {
     MC_SAFE_RELEASE(mLastTLSErrorDescription);
+    MC_SAFE_RELEASE(mLastCertificateChain);
 
     if (mConnectionType == ConnectionTypeClear) {
         mTLSCompatibilityLevel = MAILSTREAM_SSL_COMPAT_DEFAULT;
@@ -744,6 +767,8 @@ void IMAPSession::connect(ErrorCode * pError)
                 MCLog("%s uses outdated encryption, connected at TLS compatibility level %i",
                       MCUTF8(mHostname), level);
             }
+            // A rejection at a weaker level isn't why anything later on this connection fails.
+            MC_SAFE_RELEASE(mLastTLSErrorDescription);
             return;
         }
 

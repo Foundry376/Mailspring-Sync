@@ -303,11 +303,14 @@ jobs:
           e2e() { python mailsync_cert_e2e.py --mailsync "$RUNNER_TEMP/mailsync/mailsync.exe" --ca-dir localca "$@"; }
 
           e2e --host 127.0.0.1 --expect reject                    # root not trusted
+          e2e --host 127.0.0.1 --expect accept --accept leaf       # ...but the user accepted it
+          e2e --host 127.0.0.1 --expect reject --accept other      # the server's certificate changed
           certutil -addstore Root localca/root.crt > /dev/null
           e2e --host 127.0.0.1 --expect accept                     # IMAP and SMTP both over TLS
           e2e --host 127.0.0.1 --expect accept --tls smtp          # SMTP's own check, IMAP in plaintext
           e2e --host localhost --expect reject                     # name not in the certificate
           e2e --host localhost --expect reject --tls smtp
+          e2e --host localhost --expect accept --accept leaf       # wrong name, but the user accepted it
           e2e --host localhost --expect reject --allow-insecure    # "allow insecure SSL" doesn't bypass validation
           e2e --host 127.0.0.1 --expect accept --allow-insecure    # ...and doesn't break a valid certificate
           certutil -addstore Disallowed localca/int.crt > /dev/null

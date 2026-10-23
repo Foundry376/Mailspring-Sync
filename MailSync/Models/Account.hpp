@@ -48,6 +48,7 @@ public:
     string IMAPPassword();
     string IMAPSecurity();
     bool IMAPAllowInsecureSSL();
+    string IMAPCertificateSHA256();
 
     bool isICloud();
 
@@ -57,6 +58,7 @@ public:
     string SMTPPassword();
     string SMTPSecurity();
     bool SMTPAllowInsecureSSL();
+    string SMTPCertificateSHA256();
     string SMTPVerification();
     bool createHelperFolders();
     bool sendsViaGraph();
