@@ -220,6 +220,8 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
         // separately. The same refresh token will give you access tokens, but the access tokens are different.
         if (audience == OAuthTokenAudience::MicrosoftGraph) {
             payload += "&scope=https%3A%2F%2Fgraph.microsoft.com%2FMail.ReadWrite%20https%3A%2F%2Fgraph.microsoft.com%2FMail.Send";
+        } else if (audience == OAuthTokenAudience::MicrosoftGraphCalendars) {
+            payload += "&scope=https%3A%2F%2Fgraph.microsoft.com%2FCalendars.ReadWrite%20https%3A%2F%2Fgraph.microsoft.com%2FCalendars.ReadWrite.Shared";
         } else {
             payload += "&scope=https%3A%2F%2Foutlook.office.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send";
         }

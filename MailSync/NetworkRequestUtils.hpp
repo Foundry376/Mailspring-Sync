@@ -42,8 +42,10 @@ CURL * CreateJSONRequest(string url, string method = "GET", string authorization
 CURL * CreateCalDavRequest(string url, string method = "GET", const char * payloadChars = nullptr);
 
 // Microsoft issues access tokens per resource: one refresh token yields either a token for
-// IMAP/SMTP (outlook.office.com) or one for Microsoft Graph, never both at once.
-enum class OAuthTokenAudience { Mail, MicrosoftGraph };
+// IMAP/SMTP (outlook.office.com) or one for Microsoft Graph, never both at once. Graph calendars
+// get their own token: accounts authorized before Graph sending granted the calendar scopes but
+// not the mail ones, and a refresh asking for any ungranted scope is refused outright.
+enum class OAuthTokenAudience { Mail, MicrosoftGraph, MicrosoftGraphCalendars };
 
 const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken, OAuthTokenAudience audience = OAuthTokenAudience::Mail);
 

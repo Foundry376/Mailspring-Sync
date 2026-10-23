@@ -87,9 +87,18 @@ XOAuth2TokenManager::~XOAuth2TokenManager() {
 
 
 
+static string labelForAudience(OAuthTokenAudience audience) {
+    switch (audience) {
+        case OAuthTokenAudience::MicrosoftGraph: return "Graph";
+        case OAuthTokenAudience::MicrosoftGraphCalendars: return "Graph calendars";
+        default: return "";
+    }
+}
+
 XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, OAuthTokenAudience audience) {
-    string key = account->id() + (audience == OAuthTokenAudience::MicrosoftGraph ? ":graph" : "");
-    
+    string label = labelForAudience(audience);
+    string key = account->id() + (label.empty() ? "" : ":" + label);
+
     // There's not much of a point to having two threads request the same token at once.
     // Only allow one thread to access / update the cache and make others wait until it
     // exits.
@@ -109,7 +118,7 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, O
     }
 
     spdlog::get("logger")->info("Fetching XOAuth2 access token ({}{}) for {}", account->provider(),
-        audience == OAuthTokenAudience::MicrosoftGraph ? ", Graph" : "", account->id());
+        label.empty() ? "" : ", " + label, account->id());
     json updated = MakeOAuthRefreshRequest(account->provider(), refreshClientId, account->refreshToken(), audience);
 
     // A 2xx does not mean the body is a token response: a captive portal or intercepting
