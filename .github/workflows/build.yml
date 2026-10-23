@@ -141,11 +141,14 @@ jobs:
 
           check https://127.0.0.1:8443 reject
           e2e --host 127.0.0.1 --expect reject
+          e2e --host 127.0.0.1 --expect accept --accept leaf   # untrusted, but the user accepted it
+          e2e --host 127.0.0.1 --expect reject --accept other  # the server's certificate changed
           sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$ca/root.crt"
           check https://127.0.0.1:8443 accept
           e2e --host 127.0.0.1 --expect accept
           e2e --host 127.0.0.1 --expect accept --tls smtp
           e2e --host localhost --expect reject
+          e2e --host localhost --expect accept --accept leaf   # wrong name, but the user accepted it
           sudo security add-trusted-cert -d -r deny -k /Library/Keychains/System.keychain "$ca/int.crt"
           check https://127.0.0.1:8443 reject
           e2e --host 127.0.0.1 --expect reject
@@ -168,6 +171,8 @@ jobs:
           bash test/certificates/make_local_ca.sh "$ca"
 
           e2e --host 127.0.0.1 --expect reject
+          e2e --host 127.0.0.1 --expect accept --accept leaf   # untrusted, but the user accepted it
+          e2e --host 127.0.0.1 --expect reject --accept other  # the server's certificate changed
           sudo cp "$ca/root.crt" /usr/local/share/ca-certificates/mailspring-test-root.crt
           sudo update-ca-certificates > /dev/null
           e2e --host 127.0.0.1 --expect accept
@@ -178,6 +183,7 @@ jobs:
           echo "127.0.0.1 mailspring-test.invalid mailspring-test.invalid." | sudo tee -a /etc/hosts > /dev/null
           e2e --host mailspring-test.invalid --expect accept
           e2e --host mailspring-test.invalid. --expect accept
+          e2e --host localhost --expect accept --accept leaf   # wrong name, but the user accepted it
 
       - name: Setup AWS CLI
         if: success() && (github.ref == 'refs/heads/master')

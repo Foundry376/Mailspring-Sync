@@ -364,6 +364,19 @@ void runCalContactsSyncWorker() {
 }
 
 
+// A certificate that failed validation, for the client to show the user. Accepting it stores
+// `sha256` in the account's settings as <service>_certificate_sha256.
+static json _rejectedCertificate(string service, string host, unsigned int port, Array * chain) {
+    json certificate = {{"service", service}, {"host", host}, {"port", port}, {"sha256", ""}, {"chain", json::array()}};
+    for (unsigned int i = 0; chain != nullptr && i < chain->count(); i ++) {
+        certificate["chain"].push_back(((Data *) chain->objectAtIndex(i))->base64String()->UTF8Characters());
+    }
+    if (chain != nullptr && chain->count() > 0) {
+        certificate["sha256"] = MailUtils::certificateSHA256((Data *) chain->objectAtIndex(0));
+    }
+    return certificate;
+}
+
 int runTestAuth(shared_ptr<Account> account, string & errorService) {
     AutoreleasePool pool;
 
@@ -380,6 +393,7 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
     ErrorCode err = ErrorNone;
     Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
     string tlsAdvice = "";
+    json certificates = json::array();
     string containerFolderPath = account->containerFolder();
     string mainPrefix = "";
     
@@ -391,9 +405,24 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
     session.setConnectionLogger(&alogger);
     session.connect(&err);
     if (err != ErrorNone) {
-        tlsAdvice = MailUtils::tlsFailureAdvice(err, session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed());
+        tlsAdvice = MailUtils::tlsFailureAdvice(err, session);
         if (tlsAdvice != "") {
             alogger.log("\n\n" + tlsAdvice + "\n");
+        }
+        if (err == ErrorCertificate) {
+            certificates.push_back(_rejectedCertificate("imap", account->IMAPHost(), account->IMAPPort(), session.lastCertificateChain()));
+            // Check SMTP's certificate too, so the user reviews both at once. connect() stops
+            // after the certificate check and EHLO, before any credentials are sent.
+            if (!account->sendsViaGraph()) {
+                ErrorCode smtpErr = ErrorNone;
+                alogger.log("\n\n----------SMTP CERTIFICATE----------\n");
+                MailUtils::configureSessionForAccount(smtp, account);
+                smtp.setConnectionLogger(&alogger);
+                smtp.connect(&smtpErr);
+                if (smtpErr == ErrorCertificate) {
+                    certificates.push_back(_rejectedCertificate("smtp", account->SMTPHost(), account->SMTPPort(), smtp.lastCertificateChain()));
+                }
+            }
         }
         goto done;
     }
@@ -472,9 +501,12 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
         smtp.checkAccount(from, &err);
     }
     if (err != ErrorNone) {
-        tlsAdvice = MailUtils::tlsFailureAdvice(err, smtp.lastTLSErrorDescription(), smtp.isObsoleteTLSAllowed());
+        tlsAdvice = MailUtils::tlsFailureAdvice(err, smtp);
         if (tlsAdvice != "") {
             alogger.log("\n\n" + tlsAdvice + "\n");
+        }
+        if (err == ErrorCertificate) {
+            certificates.push_back(_rejectedCertificate("smtp", account->SMTPHost(), account->SMTPPort(), smtp.lastCertificateChain()));
         }
         alogger.log("\n\nSASL_PATH: " + MailUtils::getEnvUTF8("SASL_PATH"));
 
@@ -509,6 +541,9 @@ done:
         resp["error"] = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : "Unknown";
         if (tlsAdvice != "") {
             resp["error_advice"] = tlsAdvice;
+        }
+        if (!certificates.empty()) {
+            resp["certificates"] = certificates;
         }
         cout << resp.dump();
         return 1;

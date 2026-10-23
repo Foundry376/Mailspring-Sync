@@ -2387,6 +2387,10 @@ static void _sendViaSMTP(shared_ptr<Account> account, MessageBuilder & builder, 
         int e = smtp.lastLibetpanError();
         string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : to_string(e);
         logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], es);
+        string advice = MailUtils::tlsFailureAdvice(err, smtp);
+        if (advice != "") {
+            logger->error("-X {}", advice);
+        }
         String * response = smtp.lastSMTPResponse();
         if (succeeded.size() > 0) {
             throw SyncException("send-partially-failed", ErrorCodeToTypeMap[err] + ":::" + succeeded, false);
@@ -3570,6 +3574,10 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
         int e = smtp.lastLibetpanError();
         string es = LibEtPanCodeToTypeMap.count(e) ? LibEtPanCodeToTypeMap[e] : to_string(e);
         logger->info("-X An SMTP error occurred: {} LibEtPan code: {}", ErrorCodeToTypeMap[err], es);
+        string advice = MailUtils::tlsFailureAdvice(err, smtp);
+        if (advice != "") {
+            logger->error("-X {}", advice);
+        }
         throw SyncException("send-failed", ErrorCodeToTypeMap[err], false);
     }
 
