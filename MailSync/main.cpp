@@ -153,14 +153,22 @@ static const vector<int> LOGIN_REJECTED_RETRY_DELAYS { 30, 120 };
 // success because a wake makes the foreground worker return before it logs in.
 static const time_t LOGIN_REJECTED_EPISODE_GAP = 10 * 60;
 
+// The client wakes every account on resume, on the `online` event and when another account
+// reconnects. A rejection on the retry a wake starts is free this many times per episode, so a
+// burst of wakes can't exhaust the attempts but a steady stream can't retry a bad password forever.
+static const size_t LOGIN_REJECTED_FREE_WAKE_RETRIES = 2;
+
 struct LoginRejections {
     size_t count = 0;
     time_t last = 0;
+    size_t freeWakeRetries = 0;
     bool wokeEarly = false;
 };
 
 // Returns the seconds to wait before retrying, or -1 if the exception should be handled as usual.
 static int retryDelayAfterLoginRejected(SyncException & ex, SyncWorker & worker, LoginRejections & rejections) {
+    bool woken = rejections.wokeEarly;
+    rejections.wokeEarly = false;
     if (ex.key != "ErrorAuthentication") {
         return -1;
     }
@@ -169,14 +177,13 @@ static int retryDelayAfterLoginRejected(SyncException & ex, SyncWorker & worker,
     time_t now = time(0);
     if (now - rejections.last > LOGIN_REJECTED_EPISODE_GAP) {
         rejections.count = 0;
+        rejections.freeWakeRetries = 0;
     }
     rejections.last = now;
-    // A wake retries at once because the network may have just come back, so the client's
-    // wakes (resume, online, another account reconnecting) must not use up the attempts.
-    if (rejections.wokeEarly && rejections.count > 0) {
+    if (woken && rejections.count > 0 && rejections.freeWakeRetries < LOGIN_REJECTED_FREE_WAKE_RETRIES) {
+        rejections.freeWakeRetries++;
         rejections.count--;
     }
-    rejections.wokeEarly = false;
     if (rejections.count >= LOGIN_REJECTED_RETRY_DELAYS.size()) {
         return -1;
     }
