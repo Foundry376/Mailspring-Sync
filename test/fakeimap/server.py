@@ -773,6 +773,9 @@ class Session(socketserver.StreamRequestHandler):
         keys = []
         while not args.eof():
             keys.append(args.token())
+        if self.p.has("search-badcharset") and any(isinstance(k, str) and k.upper() == "CHARSET" for k in keys):
+            self.no(tag, "The specified charset is not supported.", code="BADCHARSET (US-ASCII)")
+            return
         with self.store.lock:
             pos = {u: i + 1 for i, u in enumerate(self.view)}
             matched = [m for m in mb.messages if m.uid in pos and self._search_match(m, keys, mb)]
@@ -785,59 +788,72 @@ class Session(socketserver.StreamRequestHandler):
         return self.cmd_search(tag, args, uid_mode=True)
 
     def _search_match(self, m: Message, keys: list, mb) -> bool:
+        """Search keys are ANDed (RFC 3501 6.4.4); OR and NOT take whole keys, which may
+        themselves be OR/NOT or a parenthesised list."""
         i = 0
         result = True
         while i < len(keys):
-            k = keys[i]
-            if isinstance(k, list):
-                val = self._search_match(m, k, mb)
-                i += 1
-            elif isinstance(k, bytes):
-                val = True
-                i += 1
-            else:
-                up = k.upper()
-                if up == "NOT":
-                    val = not self._search_match(m, [keys[i + 1]], mb)
-                    i += 2
-                elif up == "OR":
-                    val = self._search_match(m, [keys[i + 1]], mb) or self._search_match(m, [keys[i + 2]], mb)
-                    i += 3
-                elif up == "ALL":
-                    val = True; i += 1
-                elif up == "UID":
-                    val = m.uid in mb.resolve_set(keys[i + 1], True); i += 2
-                elif up in ("SEEN", "FLAGGED", "DELETED", "DRAFT", "ANSWERED"):
-                    val = ("\\" + up.capitalize()) in m.flags; i += 1
-                elif up in ("UNSEEN", "UNFLAGGED", "UNDELETED", "UNDRAFT", "UNANSWERED"):
-                    val = ("\\" + up[2:].capitalize()) not in m.flags; i += 1
-                elif up == "HEADER":
-                    field, value = keys[i + 1], keys[i + 2]
-                    hv = m.header(field) or ""
-                    val = (value or "") == "" and hv != "" or (value or "").lower() in hv.lower()
-                    i += 3
-                elif up in ("SUBJECT", "FROM", "TO", "CC", "BCC"):
-                    val = (keys[i + 1] or "").lower() in (m.header(up.capitalize()) or "").lower(); i += 2
-                elif up in ("BODY", "TEXT"):
-                    val = (keys[i + 1] or "").lower().encode() in m.raw.lower(); i += 2
-                elif up in ("SINCE", "BEFORE", "ON", "SENTSINCE", "SENTBEFORE"):
-                    d = datetime.strptime(keys[i + 1], "%d-%b-%Y").replace(tzinfo=timezone.utc)
-                    val = (m.internaldate >= d) if "SINCE" in up else (m.internaldate < d)
-                    i += 2
-                elif up in ("LARGER", "SMALLER"):
-                    n = int(keys[i + 1]); val = m.size > n if up == "LARGER" else m.size < n; i += 2
-                elif up == "KEYWORD":
-                    val = keys[i + 1] in m.flags; i += 2
-                elif up == "X-GM-RAW" or up == "X-GM-LABELS":
-                    val = keys[i + 1] in m.labels; i += 2
-                elif up == "MODSEQ":
-                    val = m.modseq >= int(keys[i + 1]); i += 2
-                elif re.match(r"^[\d:*,]+$", k):
-                    val = m.uid in mb.resolve_set(k, False, self.view); i += 1
-                else:
-                    val = True; i += 1
+            val, i = self._search_key(m, keys, i, mb)
             result = result and val
         return result
+
+    def _search_key(self, m: Message, keys: list, i: int, mb):
+        def text(v):
+            return (v.decode("utf-8", "replace") if isinstance(v, bytes) else (v or "")).lower()
+
+        k = keys[i]
+        if isinstance(k, list):
+            return self._search_match(m, k, mb), i + 1
+        if isinstance(k, bytes):
+            return True, i + 1
+        up = k.upper()
+        if up == "NOT":
+            val, j = self._search_key(m, keys, i + 1, mb)
+            return not val, j
+        if up == "OR":
+            a, j = self._search_key(m, keys, i + 1, mb)
+            b, j = self._search_key(m, keys, j, mb)
+            return a or b, j
+        if up == "FUZZY":
+            # RFC 6203: a modifier on the key that follows. This fake matches it exactly.
+            return self._search_key(m, keys, i + 1, mb)
+        if up == "ALL":
+            return True, i + 1
+        if up == "UID":
+            return m.uid in mb.resolve_set(keys[i + 1], True), i + 2
+        if up in ("SEEN", "FLAGGED", "DELETED", "DRAFT", "ANSWERED"):
+            return ("\\" + up.capitalize()) in m.flags, i + 1
+        if up in ("UNSEEN", "UNFLAGGED", "UNDELETED", "UNDRAFT", "UNANSWERED"):
+            return ("\\" + up[2:].capitalize()) not in m.flags, i + 1
+        if up == "HEADER":
+            field, value = text(keys[i + 1]), text(keys[i + 2])
+            hv = (m.header(field) or "").lower()
+            return (hv != "" if value == "" else value in hv), i + 3
+        if up in ("SUBJECT", "FROM", "TO", "CC", "BCC"):
+            return text(keys[i + 1]) in m.decoded_header(up.capitalize()).lower(), i + 2
+        if up == "TEXT":
+            headers = m.raw.split(b"\r\n\r\n", 1)[0].decode("utf-8", "replace")
+            haystack = headers + "\n" + m.decoded_header("Subject") + "\n" + m.decoded_body()
+            return text(keys[i + 1]) in haystack.lower(), i + 2
+        if up == "BODY":
+            return text(keys[i + 1]) in m.decoded_body().lower(), i + 2
+        if up in ("SINCE", "BEFORE", "ON", "SENTSINCE", "SENTBEFORE"):
+            d = datetime.strptime(keys[i + 1], "%d-%b-%Y").replace(tzinfo=timezone.utc)
+            return ((m.internaldate >= d) if "SINCE" in up else (m.internaldate < d)), i + 2
+        if up in ("LARGER", "SMALLER"):
+            n = int(keys[i + 1])
+            return (m.size > n if up == "LARGER" else m.size < n), i + 2
+        if up == "KEYWORD":
+            return keys[i + 1] in m.flags, i + 2
+        if up == "X-GM-RAW" or up == "X-GM-LABELS":
+            return keys[i + 1] in m.labels, i + 2
+        if up == "MODSEQ":
+            return m.modseq >= int(keys[i + 1]), i + 2
+        if up == "CHARSET":
+            return True, i + 2
+        if re.match(r"^[\d:*,]+$", k):
+            return m.uid in mb.resolve_set(k, False, self.view), i + 1
+        return True, i + 1
 
     def cmd_store(self, tag, args, uid_mode=False):
         if not self.require_selected(tag):

@@ -186,6 +186,10 @@ namespace mailcore {
         
         virtual IndexSet * search(String * folder, IMAPSearchKind kind, String * searchString, ErrorCode * pError);
         virtual IndexSet * search(String * folder, IMAPSearchExpression * expression, ErrorCode * pError);
+        // Whether search() can send a non-ASCII term: as a non-synchronizing literal (RFC 7888).
+        virtual bool acceptsNonSynchronizingLiterals();
+        // Whether the server advertises SEARCH=FUZZY (RFC 6203).
+        virtual bool supportsFuzzySearch();
         virtual void getQuota(uint32_t *usage, uint32_t *limit, ErrorCode * pError);
         
         virtual bool setupIdle();

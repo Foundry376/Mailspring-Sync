@@ -12,6 +12,8 @@ Profiles:
                namespace-prefix handling.
   plain        fastmail + suppress_capabilities CONDSTORE QRESYNC: the deep-scan branch.
   no-move      fastmail + suppress_capabilities MOVE: COPY + \\Deleted + EXPUNGE.
+  xapian       fastmail + search_engine: xapian, the index Fastmail runs: SEARCH=FUZZY is
+               advertised, and server.index runs squatter (nothing indexes on APPEND).
 
 Namespace. Under default-ns the server spells a scenario's `Archive` as `INBOX.Archive`
 (and `a/b` as `INBOX.a.b`). The adapter maps scenario names to server paths on every
@@ -57,6 +59,8 @@ PROFILES = {
     "default-ns": dict(conf="altnamespace: no\nunixhierarchysep: no", altnamespace=False),
     "plain": dict(conf="suppress_capabilities: CONDSTORE QRESYNC", altnamespace=True),
     "no-move": dict(conf="suppress_capabilities: MOVE", altnamespace=True),
+    "xapian": dict(conf="conversations: yes\nsearch_engine: xapian\ndefaultsearchtier: t1\n"
+                        "t1searchpartition-default: /var/lib/cyrus/search", altnamespace=True),
 }
 
 
@@ -182,6 +186,14 @@ class CyrusServer(ImapClientServer):
         if check and r.returncode != 0:
             raise RuntimeError(f"cyrus: `{script}` failed ({r.returncode}): {r.stderr.strip() or r.stdout.strip()}")
         return r.stdout
+
+    def index(self):
+        """squatter builds the Xapian index of every mailbox; Fastmail runs it in rolling mode.
+        FUZZY reads only the index, so before this a FUZZY search finds nothing."""
+        if "search_engine: xapian" not in self.cfg["conf"]:
+            return
+        self.exec("mkdir -p /var/lib/cyrus/search && chown cyrus:mail /var/lib/cyrus/search", user="root")
+        self.exec("/usr/lib/cyrus/bin/squatter -C /etc/imapd.conf")
 
     def logs(self) -> str:
         if not self.container:

@@ -485,29 +485,11 @@ bool SyncWorker::syncNow()
             firstChunk = true;
         }
         
-        // Step 1.5: Should we skip this folder?
-        //
-        // An \All mailbox (role "all") is a *duplicate view* of messages that also live
-        // in Inbox / Sent / Archive - ProtonMail Bridge's "All Mail" is the common case.
-        // Syncing the extra copy as a placement would double header traffic and rows, file
-        // every thread under "Archive" (the [archive, all] role group), and a delete from
-        // All Mail on Bridge is a delete everywhere. Skip the folder; it is still created so
-        // the client can archive into it. (#137)
-        //
-        // Gmail is the one provider where All Mail is the *primary* message store rather
-        // than a duplicate view: there we sync only all/spam/trash and derive the rest
-        // from X-GM-LABELS, so it must keep syncing.
-        //
-        // Note: this used to be keyed on `containerFolder() != "" && path == "All Mail"`,
-        // which only held for ProtonMail accounts that the client had tagged with a
-        // container folder. Accounts that reach the engine without one (any @proton.me
-        // or custom-domain Bridge account, since the client's provider table only lists
-        // protonmail.com / protonmail.ch / pm.me) fell through and hit the bug.
-        // The legacy `containerFolder` clause is kept so that a Bridge build which does
-        // not advertise SPECIAL-USE (leaving "All Mail" without a role) keeps the exact
-        // behaviour it has today.
-        bool isDuplicateAllMail = (!isGmail && folder->role() == "all") ||
-                                  (account->containerFolder() != "" && folder->path() == "All Mail");
+        // Step 1.5: Should we skip this folder? Syncing a duplicate \All view as a placement
+        // would double header traffic and rows, file every thread under "Archive" (the
+        // [archive, all] role group), and a delete from All Mail on Bridge is a delete
+        // everywhere. The folder is still created so the client can archive into it.
+        bool isDuplicateAllMail = MailUtils::isDuplicateAllMail(account.get(), folder.get(), isGmail);
 
         if (isDuplicateAllMail) {
             logger->info("SyncNow: skipped duplicate \\All folder {}", folder->path());

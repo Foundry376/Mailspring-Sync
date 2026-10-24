@@ -3709,11 +3709,27 @@ static struct mailimap_search_key * searchKeyFromSearchExpression(IMAPSearchExpr
         {
             return mailimap_search_key_new_not(searchKeyFromSearchExpression(expression->leftExpression()));
         }
+        case IMAPSearchKindFuzzy:
+        {
+            return mailimap_search_key_new_fuzzy(searchKeyFromSearchExpression(expression->leftExpression()));
+        }
 
         default:
         MCAssert(0);
         return NULL;
     }
+}
+
+bool IMAPSession::supportsFuzzySearch()
+{
+    return mailimap_has_extension(mImap, (char *)"SEARCH=FUZZY");
+}
+
+bool IMAPSession::acceptsNonSynchronizingLiterals()
+{
+    // LITERAL+, or LITERAL- for literals up to 4096 bytes (RFC 7888). Gmail has always been
+    // sent them here, whatever it advertises.
+    return mIsGmail || mailimap_has_extension(mImap, (char *)"LITERAL+") || mailimap_has_extension(mImap, (char *)"LITERAL-");
 }
 
 IndexSet * IMAPSession::search(String * folder, IMAPSearchExpression * expression, ErrorCode * pError)
@@ -3731,9 +3747,10 @@ IndexSet * IMAPSession::search(String * folder, IMAPSearchExpression * expressio
         charset = NULL;
     }
     
+    // A quoted string is 7-bit only (RFC 3501 4.3), so non-ASCII terms go as literals.
     int r;
     key = searchKeyFromSearchExpression(expression);
-    if (mIsGmail) {
+    if (acceptsNonSynchronizingLiterals()) {
         r = mailimap_uid_search_literalplus(mImap, charset, key, &result_list);
     }
     else {

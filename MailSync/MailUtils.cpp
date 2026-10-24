@@ -342,6 +342,17 @@ vector<string> MailUtils::roles() {
     return {"all", "sent", "drafts", "spam", "important", "starred", "archive", "inbox", "trash", "snoozed"};
 }
 
+// An \All mailbox (role "all") is a *duplicate view* of messages that also live in Inbox /
+// Sent / Archive - ProtonMail Bridge's "All Mail" is the common case - so it is neither synced
+// nor searched (#137). Gmail is the one provider where All Mail is the *primary* message store,
+// synced alongside spam/trash with the rest derived from X-GM-LABELS. The containerFolder
+// clause keeps a Bridge build that does not advertise SPECIAL-USE (leaving "All Mail" without
+// a role) on the same rule.
+bool MailUtils::isDuplicateAllMail(Account * account, Folder * folder, bool isGmail) {
+    return (!isGmail && folder->role() == "all") ||
+           (account->containerFolder() != "" && folder->path() == "All Mail");
+}
+
 string MailUtils::roleForFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
     string role = MailUtils::roleForFolderViaFlags(mainPrefix, folder);
     if (role == "") {

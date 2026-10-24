@@ -1,0 +1,33 @@
+name: search-remote-fuzzy-index
+description: >
+  What FUZZY changes on Cyrus with Xapian, measured on the harness's Cyrus 3.6 on 2026-10-22
+  and the reason the engine sends it: the index answers, so a word is found by its stem
+  ("searching" finds "searched"), as Fastmail's own search does
+  (fastmail.help "Searching your mail": stemmed by default), and a fragment of a word no
+  longer matches ("kubern"). Nothing indexes on APPEND here, so before squatter runs the
+  same search finds nothing; Fastmail runs squatter in rolling mode.
+source: "imapd.conf search_engine, search_fuzzy_always; RFC 6203"
+servers:
+  - {cyrus: xapian}
+account: {provider: fastmail}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: Kubernetes rollout, body: "We finished searching the cluster for stale pods.", message_id: "<rollout@search.test>"}}
+  - server.append: {mailbox: INBOX, messages: {subject: Weekly notes, body: "The rollouts were searched twice and nothing stale was found.", message_id: "<weekly@search.test>"}}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [text, searching]}
+    as: unindexed
+  - server.index
+  - client.search: {criteria: [text, searching]}
+    as: stemmed
+  - client.search: {criteria: [text, kubern]}
+    as: fragment
+  - client.search: {criteria: [subject, kubernetes]}
+    as: whole_word
+expect:
+  search:
+    unindexed: {message_ids: [], folder_errors: 0}
+    stemmed: {message_ids: ["<rollout@search.test>", "<weekly@search.test>"], folder_errors: 0}
+    fragment: {message_ids: [], folder_errors: 0}
+    whole_word: {message_ids: ["<rollout@search.test>"], folder_errors: 0}
+  running: true

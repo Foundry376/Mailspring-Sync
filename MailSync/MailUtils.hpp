@@ -23,6 +23,7 @@
 class File;
 class Label;
 class Account;
+class Folder;
 class Message;
 class Query;
 
@@ -64,6 +65,7 @@ public:
 
     static vector<string> roles();
     static string roleForFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
+    static bool isDuplicateAllMail(Account * account, Folder * folder, bool isGmail);
     static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
 
