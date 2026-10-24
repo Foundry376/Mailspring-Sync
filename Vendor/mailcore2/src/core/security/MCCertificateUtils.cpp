@@ -16,6 +16,7 @@
 #if __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
+#include <CommonCrypto/CommonDigest.h>
 #elif defined(_MSC_VER)
 #include <windows.h>
 #include <wincrypt.h>
@@ -32,7 +33,9 @@
 #include <openssl/ossl_typ.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
+#include <openssl/x509v3.h>
 #include <openssl/stack.h>
+#include <openssl/sha.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
 #endif
@@ -377,6 +380,32 @@ err:
         goto free_certs;
     }
 
+    /* X509_verify_cert checks only the chain unless it is given a name to match against the
+     * leaf's subjectAltNames, which SecPolicyCreateSSL and the CryptoAPI SSL policy always do.
+     * An IP literal has to match an IP SAN, so it is set as an address rather than a name. */
+    if (hostname == NULL || hostname->length() == 0)
+    {
+        MCLog("warning: No hostname to verify the certificate against");
+        goto free_certs;
+    }
+    {
+        X509_VERIFY_PARAM *param = X509_STORE_CTX_get0_param(storectx);
+        const char *host = hostname->UTF8Characters();
+        /* A fully-qualified "imap.example.com." resolves like "imap.example.com", but OpenSSL
+         * doesn't match it against the certificate's names without the trailing dot. */
+        size_t hostLength = strlen(host);
+        if (hostLength > 1 && host[hostLength - 1] == '.') {
+            hostLength--;
+        }
+        X509_VERIFY_PARAM_set_hostflags(param, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+        if (X509_VERIFY_PARAM_set1_ip_asc(param, host) != 1 &&
+            X509_VERIFY_PARAM_set1_host(param, host, hostLength) != 1)
+        {
+            MCLog("Could not set the hostname to verify the certificate against");
+            goto free_certs;
+        }
+    }
+
     status = X509_verify_cert(storectx);
     if (status == 1)
     {
@@ -428,4 +457,58 @@ free_certs:
 err:
     return result;
 #endif
+}
+
+mailcore::Array * mailcore::certificateChain(mailstream * stream)
+{
+    Array * result = Array::array();
+    carray * cCerts = mailstream_get_certificate_chain(stream);
+    if (cCerts == NULL) {
+        return result;
+    }
+    for (unsigned int i = 0; i < carray_count(cCerts); i++) {
+        MMAPString * str = (MMAPString *) carray_get(cCerts, i);
+        if (str != NULL) {
+            result->addObject(Data::dataWithBytes(str->str, (unsigned int) str->len));
+        }
+    }
+    mailstream_certificate_chain_free(cCerts);
+    return result;
+}
+
+mailcore::String * mailcore::certificateSHA256(Data * der)
+{
+    unsigned char hash[32];
+#if __APPLE__
+    CC_SHA256(der->bytes(), (CC_LONG) der->length(), hash);
+#elif defined(_MSC_VER)
+    DWORD size = sizeof(hash);
+    if (!CryptHashCertificate2(L"SHA256", 0, NULL, (const BYTE *) der->bytes(), der->length(), hash, &size)) {
+        return NULL;
+    }
+#else
+    SHA256((const unsigned char *) der->bytes(), der->length(), hash);
+#endif
+    String * hex = String::string();
+    for (unsigned char byte : hash) {
+        hex->appendUTF8Format("%02x", byte);
+    }
+    return hex;
+}
+
+bool mailcore::isAcceptedCertificate(Array * chain, String * acceptedSHA256)
+{
+    if (acceptedSHA256 == NULL || acceptedSHA256->length() == 0 || chain == NULL || chain->count() == 0) {
+        return false;
+    }
+    String * presented = certificateSHA256((Data *) chain->objectAtIndex(0));
+    if (presented == NULL) {
+        return false;
+    }
+    if (presented->isEqualCaseInsensitive(acceptedSHA256)) {
+        MCLog("Certificate %s was accepted by the user", MCUTF8(presented));
+        return true;
+    }
+    MCLog("Certificate %s is not the one the user accepted (%s)", MCUTF8(presented), MCUTF8(acceptedSHA256));
+    return false;
 }

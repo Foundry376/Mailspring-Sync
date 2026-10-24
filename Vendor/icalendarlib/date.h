@@ -110,6 +110,8 @@ public:
 	bool WithTime;
 	/** True when the value was written in UTC, i.e. ended in "Z". */
 	bool IsUTC;
+	/** The property's TZID parameter; empty for a UTC, floating or DATE value. */
+	string TzId;
 };
 
 class Date::DatePart {

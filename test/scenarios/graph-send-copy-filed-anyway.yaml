@@ -1,0 +1,48 @@
+name: graph-send-copy-filed-anyway
+description: >
+  Exchange ignores the draft's delete-after-submit mark and files its own Sent Items copy, with
+  the recipients' tracked body, 6 s after /send. The engine has already APPENDed the sender's
+  untracked copy and attached the draft's metadata to it; the next scan of Sent Items must
+  remove Exchange's late copy, keeping only the one without the tracking pixel.
+source: "PidTagDeleteAfterSubmit is honored by EWS SendOnly but not documented for Graph; Exchange Online filed SMTP sends' copies up to ~3 min late (2026-09-27)"
+servers:
+  - {fake: outlook, smtp: true, graph: true, graph_honors_delete_after_submit: false, graph_sent_copy_delay: 6}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-late@example.test"
+        subject: "Slow copy"
+        body: "<p>Hi Bob<img src=\"https://tracker.example/o/PIXEL2.png\"></p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files: []
+        metadata: [{pluginId: "link-tracking", v: 1, value: {uid: "graph-late@example.test"}}]
+      perRecipientBodies: {self: "<p>Hi Bob</p>"}
+    as: send1
+  - wait: {task: send1, timeout: 120}
+  - wait: {seconds: 7}
+  - sync: pass
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  task_error: {send1: null}
+  graph: {count: 1, drafts: 0, messages: [{body_contains: ["PIXEL2"]}]}
+  server_counts: {Sent Items: 1}
+  counts: {Sent Items: 1}
+  bodies:
+    Sent Items:
+      graph-late@example.test: {contains: ["Hi Bob"], lacks: ["PIXEL2"]}
+  log_present: ["Placing a new message with `self` body", "Queueing task to attach link-tracking draft metadata"]
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

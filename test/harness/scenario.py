@@ -900,6 +900,34 @@ class ScenarioRun:
                                     f"expected {sorted(want['flags'])}")
         return problems
 
+    def expect_bodies(self, arg: dict) -> list:
+        """{mailbox: {Message-ID: {contains: [...], lacks: [...]}}}: every server copy of that
+        message in that mailbox, and the body the engine stored for it, contain and lack those
+        strings - what tells the sender's copy of a tracked message from the recipients' (fake
+        servers only)."""
+        store = getattr(self.server, "store", None)
+        if store is None:
+            return ["bodies needs a fake server"]
+        out = []
+        for mb, messages in arg.items():
+            box = store.get(mb)
+            for mid, want in messages.items():
+                mid = normalize_message_id(mid)
+                copies = [m for m in (box.messages if box else []) if normalize_message_id(m.message_id) == mid]
+                if not copies:
+                    out.append(f"server has no {mid} in {mb}")
+                with self.ms.db() as c:
+                    row = c.execute("SELECT b.value FROM Message m JOIN MessageBody b ON b.id = m.id "
+                                    "WHERE m.headerMessageId = ?", (mid,)).fetchone()
+                if row is None:
+                    out.append(f"no stored body for {mid}")
+                texts = [(f"{mb} UID {m.uid}", m.raw.decode("utf-8", "replace")) for m in copies]
+                texts += [("stored body", row[0] or "")] if row else []
+                for where, text in texts:
+                    out += [f"{mid} {where} lacks {s!r}" for s in want.get("contains", []) if s not in text]
+                    out += [f"{mid} {where} contains {s!r}" for s in want.get("lacks", []) if s in text]
+        return out
+
     def expect_unchanged_since(self, arg) -> list:
         name = arg if isinstance(arg, str) else arg["snapshot"]
         with self.ms.db() as c:
@@ -929,10 +957,12 @@ class ScenarioRun:
         return out
 
     def expect_graph(self, arg: dict) -> list:
-        """What the fake Graph server sent: `count`; per message `recipients`, `headers` and
-        `attachments` (file names, wherever they ended up); `drafts` unsent drafts left on the
+        """What the fake Graph server sent: `count`; per message `recipients` (To, Cc and the
+        draft's bccRecipients), `headers` (null for one that must be absent), `body_contains` /
+        `body_lacks` strings and `attachments` (file names, wherever they ended up); `drafts` unsent drafts left on the
         server; `upload_sessions` attachments that went through an upload session;
-        `graph_token_requests` refreshes that asked for Graph scopes; `max_request_bytes` the
+        `graph_token_requests` refreshes that asked for Graph scopes; `distinct_tokens` two path
+        regexes whose requests used different access tokens; `max_request_bytes` the
         largest request body the engine sent."""
         graph = getattr(self.server, "graph", None)
         if graph is None:
@@ -951,6 +981,9 @@ class ScenarioRun:
             for h, v in (want.get("headers") or {}).items():
                 if m.header(h) != v:
                     out.append(f"Graph message {i} header {h} = {m.header(h)!r}, expected {v!r}")
+            sent_mime = m.mime.decode("utf-8", "replace")
+            out += [f"Graph message {i} lacks {s!r}" for s in want.get("body_contains", []) if s not in sent_mime]
+            out += [f"Graph message {i} contains {s!r}" for s in want.get("body_lacks", []) if s in sent_mime]
             if "attachments" in want and m.attachment_names() != sorted(want["attachments"]):
                 out.append(f"Graph message {i} attachments {m.attachment_names()} != {sorted(want['attachments'])}")
         if "drafts" in arg and len(graph.drafts()) != arg["drafts"]:
@@ -961,6 +994,14 @@ class ScenarioRun:
             got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com" in scope)
             if got != arg["graph_token_requests"]:
                 out.append(f"expected {arg['graph_token_requests']} Graph token requests, saw {got}")
+        if "distinct_tokens" in arg:
+            # [regex, regex]: the requests matching each path regex were made with different tokens
+            def tokens(rx):
+                return {r["headers"].get("authorization") for r in graph.requests
+                        if r["method"] != "GET" and re.search(rx, r["path"])}
+            first, second = (tokens(rx) for rx in arg["distinct_tokens"])
+            if not first or not second or first & second:
+                out.append(f"expected different tokens for {arg['distinct_tokens']}, saw {first} and {second}")
         if "max_request_bytes" in arg:
             largest = max((r["bytes"] for r in graph.requests), default=0)
             if largest > arg["max_request_bytes"]:

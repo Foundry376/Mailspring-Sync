@@ -91,6 +91,10 @@ public:
     static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
     static void configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account);
 
+    // Lowercase hex SHA-256 of a DER certificate: the form the client stores an accepted
+    // certificate in, and the one mailcore compares when the certificate fails validation.
+    static string certificateSHA256(Data * der);
+
     // Explains a connection that failed during the TLS handshake, e.g. because
     // the server offers a DH group or certificate that OpenSSL rejects. When the
     // account has not enabled "Allow insecure SSL", the advice mentions it,
@@ -103,9 +107,13 @@ public:
     // bundles it with authentication - would otherwise blame outdated encryption
     // for a wrong password.
     //
-    // Pass the error from the call, session.lastTLSErrorDescription() and
-    // session.isObsoleteTLSAllowed().
-    static string tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed);
+    // A certificate rejection names the certificate the server presented, and says so when
+    // it is not the one the user accepted for the account, since that failure otherwise looks
+    // like any other connection error once the account is syncing.
+    //
+    // Pass the error from the call and the session that made it.
+    static string tlsFailureAdvice(mailcore::ErrorCode err, IMAPSession & session);
+    static string tlsFailureAdvice(mailcore::ErrorCode err, SMTPSession & session);
     
     static IMAPMessagesRequestKind messagesRequestKindFor(IndexSet * capabilities, bool heavyOrNeedToComputeIDs);
 

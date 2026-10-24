@@ -172,7 +172,7 @@ void SyncWorker::idleCycleIteration()
     ErrorCode err = ErrorCode::ErrorNone;
     session.connectIfNeeded(&err);
     if (err != ErrorCode::ErrorNone) {
-        string advice = MailUtils::tlsFailureAdvice(err, session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed());
+        string advice = MailUtils::tlsFailureAdvice(err, session);
         if (advice != "") {
             logger->error("{}", advice);
             throw SyncException(err, "connectIfNeeded: " + advice);
@@ -856,6 +856,11 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         throw SyncException(ErrorCode::ErrorConnection, "syncFoldersAndLabels - fetchAllFolders refused");
     }
     if (err) {
+        // The background pass connects here first, so this is where a rejected certificate shows.
+        string advice = MailUtils::tlsFailureAdvice(err, session);
+        if (advice != "") {
+            logger->error("{}", advice);
+        }
         throw SyncException(err, "syncFoldersAndLabels - fetchAllFolders");
     }
 
