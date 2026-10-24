@@ -60,9 +60,11 @@ public:
     SearchWorker(shared_ptr<Account> account);
     ~SearchWorker();
 
-    // Called on the main thread.
+    // Called on the main thread. A request whose searchId is missing or not a string is
+    // ignored, never answered.
     void enqueue(json request);
     void cancel(string searchId);
+    static string searchIdOf(const json & packet);
 
     // Never returns: serves requests on the calling thread.
     void run();
@@ -78,6 +80,7 @@ private:
     vector<shared_ptr<Folder>> foldersToSearch(const json & request, bool gmail);
     void collectLocalMessages(string folderId, IndexSet * uids, SearchResults & results);
     json resultJSON(string searchId, SearchResults & results, size_t limit, const json & errors, bool done);
+    void emitFailure(string searchId, uint64_t gen, string error);
     void emit(const json & result);
 };
 

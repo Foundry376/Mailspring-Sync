@@ -7,7 +7,12 @@ description: >
   connection idle past SEARCH_IDLE_DISCONNECT is closed and reopened by the next search. A
   server that drops the reconnect too fails the whole search with the connection error.
   `search-remote-cancel` stops only the search it names, and a request without a searchId
-  is ignored.
+  is ignored. A term holding CR or LF, or a header name outside RFC 5322's field-name, fails
+  the request before anything is sent: libetpan writes ASCII terms as quoted strings and
+  escapes only `"` and `\`, so a CR LF inside one would end the SEARCH line and run whatever
+  follows as a second command. A searchId that is not a string is ignored like a missing
+  one, and the process stays up. A cancel that lands during the last folder's SEARCH still
+  keeps the search from reporting done, as does an error after the cancel.
 source: "MailSync/SearchWorker.cpp"
 servers:
   - {fake: dovecot}
@@ -55,6 +60,40 @@ steps:
     as: queued
   - client.search_cancel: {of: queued}
   - wait: {seconds: 6}
+  - client.search: {criteria: [subject, "pineapple\r\nA999 DELETE Archive"]}
+    as: crlf_term
+  - client.search: {criteria: [header, "X-Mailer\r\nA998 DELETE Archive", harness]}
+    as: crlf_header_name
+  - client.search: {criteria: [subject, "pineapple\rA996 DELETE Archive"]}
+    as: cr_term
+  - client.search: {criteria: [subject, "pine\x7Fapple"]}
+    as: del_term
+  - client.search: {criteria: [header, "X Mailer", harness]}
+    as: space_header_name
+  - client.search: {criteria: [header, "X-Mailer:", harness]}
+    as: colon_header_name
+  - client.search: {criteria: [header, "", harness]}
+    as: empty_header_name
+  - client.search: {criteria: [header, "X-Mail\u00E9r", harness]}
+    as: utf8_header_name
+  - client.send: {type: search-remote, searchId: 123, criteria: [all]}
+  - client.send: {type: search-remote, searchId: null, criteria: [all]}
+  - client.send: {type: search-remote-cancel, searchId: 123}
+  - client.search: {criteria: [subject, archived]}
+    as: after_bad_ids
+  - server.pause: {at: {hook: before_command, command: "^UID SEARCH", mailbox: Archive, delay: 3}}
+  - client.search: {criteria: [subject, pineapple], folders: [Archive], wait: false}
+    as: cancelled_last_folder
+  - wait: {seconds: 1}
+  - client.search_cancel: {of: cancelled_last_folder}
+  - wait: {seconds: 8}
+  - server.pause: {at: {hook: before_command, command: "^UID SEARCH", mailbox: Archive, delay: 3}}
+  - server.drop_connections: {at: {hook: before_command, command: "^UID SEARCH", mailbox: Archive, every: true}}
+  - client.search: {criteria: [subject, pineapple], folders: [Archive], wait: false}
+    as: cancelled_then_error
+  - wait: {seconds: 1}
+  - client.search_cancel: {of: cancelled_then_error}
+  - wait: {seconds: 8}
   - server.drop_connections: {at: {hook: before_command, command: "^UID SEARCH", every: true}}
   - client.search: {criteria: [subject, pineapple]}
     as: server_down
@@ -67,8 +106,19 @@ expect:
     after_idle: {message_ids: ["<inbox@search.test>"]}
     server_down: {error: ErrorConnection}
     stale_cancel: {message_ids: ["<inbox@search.test>", "<archive@search.test>"]}
-  search_not_done: [superseded, cancelled, running, queued]
+    crlf_term: {error: "search term holds a control character"}
+    crlf_header_name: {error: "search header name is not an RFC 5322 field name"}
+    cr_term: {error: "search term holds a control character"}
+    del_term: {error: "search term holds a control character"}
+    space_header_name: {error: "search header name is not an RFC 5322 field name"}
+    colon_header_name: {error: "search header name is not an RFC 5322 field name"}
+    empty_header_name: {error: "search header name is not an RFC 5322 field name"}
+    utf8_header_name: {error: "search header name is not an RFC 5322 field name"}
+    after_bad_ids: {message_ids: ["<archive@search.test>"]}
+  server_has:
+    Archive: ["<archive@search.test>"]
+  search_not_done: [superseded, cancelled, running, queued, cancelled_last_folder, cancelled_then_error]
   no_search_without_id: {}
   log_count:
-    'Search connection idle, disconnecting': 4
+    'Search connection idle, disconnecting': 5
   running: true

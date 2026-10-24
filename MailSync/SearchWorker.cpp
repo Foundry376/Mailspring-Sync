@@ -29,15 +29,42 @@ static int idleDisconnectSeconds() {
     return seconds;
 }
 
+static bool isControl(unsigned char c) {
+    return c < 0x20 || c == 0x7F;
+}
+
 static String * criteriaString(const json & criteria, size_t index) {
     if (criteria.size() <= index || !criteria[index].is_string() || criteria[index].get<string>() == "") {
         throw std::invalid_argument("search criteria " + criteria.dump() + " needs a non-empty string");
     }
+    string term = criteria[index].get<string>();
     // LITERAL- servers accept non-synchronizing literals of at most 4096 bytes (RFC 7888).
-    if (criteria[index].get<string>().size() > 1024) {
+    if (term.size() > 1024) {
         throw std::invalid_argument("search term is longer than 1024 bytes");
     }
-    return AS_MCSTR(criteria[index].get<string>());
+    // libetpan sends an ASCII term as a quoted string and escapes only `"` and `\`
+    // (mailimap_quoted_char_send), so a CR LF inside one would end the SEARCH line and run
+    // the rest as a second command. RFC 3501 keeps CR and LF out of quoted strings.
+    if (any_of(term.begin(), term.end(), [](char c) { return isControl((unsigned char)c); })) {
+        throw std::invalid_argument("search term holds a control character");
+    }
+    return AS_MCSTR(term);
+}
+
+// A header name is always sent as a quoted string (mailimap_header_fld_name_send), so it
+// is held to RFC 5322's field-name: printable ASCII other than ':'.
+static String * headerFieldName(const json & criteria, size_t index) {
+    if (criteria.size() <= index || !criteria[index].is_string()) {
+        throw std::invalid_argument("search criteria " + criteria.dump() + " needs a header name");
+    }
+    string name = criteria[index].get<string>();
+    bool fieldName = !name.empty() && all_of(name.begin(), name.end(), [](unsigned char c) {
+        return c >= 33 && c <= 126 && c != ':';
+    });
+    if (!fieldName) {
+        throw std::invalid_argument("search header name is not an RFC 5322 field name");
+    }
+    return criteriaString(criteria, index);
 }
 
 static time_t criteriaDate(const json & criteria) {
@@ -71,8 +98,17 @@ SearchWorker::~SearchWorker() {
     delete store;
 }
 
+string SearchWorker::searchIdOf(const json & packet) {
+    // A non-string searchId reads as missing: json::value would throw, and the listen
+    // thread's catch aborts the process over one malformed request.
+    if (!packet.contains("searchId") || !packet["searchId"].is_string()) {
+        return "";
+    }
+    return packet["searchId"].get<string>();
+}
+
 void SearchWorker::enqueue(json request) {
-    if (request.value("searchId", "") == "") {
+    if (searchIdOf(request) == "") {
         logger->warn("Search request without a searchId ignored");
         return;
     }
@@ -85,7 +121,7 @@ void SearchWorker::enqueue(json request) {
 
 void SearchWorker::cancel(string searchId) {
     std::unique_lock<std::mutex> lck(requestMtx);
-    if (hasPending && pending.value("searchId", "") == searchId) {
+    if (hasPending && searchIdOf(pending) == searchId) {
         hasPending = false;
     }
     if (activeSearchId == searchId) {
@@ -121,7 +157,7 @@ void SearchWorker::run() {
             request = pending;
             hasPending = false;
             gen = generation.load();
-            activeSearchId = request.value("searchId", "");
+            activeSearchId = searchIdOf(request);
         }
 
         string searchId = activeSearchId;
@@ -131,10 +167,10 @@ void SearchWorker::run() {
             perform(request, gen);
         } catch (SyncException & ex) {
             logger->error("Search {} failed: {}", searchId, ex.toJSON().dump());
-            emit({{"id", searchId}, {"accountId", account->id()}, {"done", true}, {"error", ex.key}});
+            emitFailure(searchId, gen, ex.key);
         } catch (std::exception & ex) {
             logger->error("Search {} failed: {}", searchId, ex.what());
-            emit({{"id", searchId}, {"accountId", account->id()}, {"done", true}, {"error", ex.what()}});
+            emitFailure(searchId, gen, ex.what());
         }
     }
 }
@@ -230,6 +266,12 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
         logger->info("Search {} in {}: {} match(es), server {}ms, local {}ms", searchId, folder->path(), uids->count(),
             chrono::duration_cast<chrono::milliseconds>(searched - started).count(),
             chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - searched).count());
+        // A cancel or newer request that arrived during this folder's SEARCH ends the
+        // search here, so a cancelled search never reports done.
+        if (superseded(gen)) {
+            logger->info("Search {} superseded", searchId);
+            return;
+        }
         emit(resultJSON(searchId, results, limit, errors, false));
     }
 
@@ -312,6 +354,14 @@ void SearchWorker::collectLocalMessages(string folderId, IndexSet * uids, Search
     }
 }
 
+void SearchWorker::emitFailure(string searchId, uint64_t gen, string error) {
+    // A search cancelled or superseded before it failed is one the client has left.
+    if (superseded(gen)) {
+        return;
+    }
+    emit({{"id", searchId}, {"accountId", account->id()}, {"done", true}, {"error", error}});
+}
+
 void SearchWorker::emit(const json & result) {
     SharedDeltaStream()->emit(DeltaStreamItem(DELTA_TYPE_PERSIST, "ProcessSearchResult", {result}), 0);
 }
@@ -347,7 +397,7 @@ IMAPSearchExpression * SearchWorker::expressionForCriteria(const json & criteria
     if (op == "subject") return IMAPSearchExpression::searchSubject(criteriaString(criteria, 1));
     if (op == "text") return IMAPSearchExpression::searchContent(criteriaString(criteria, 1));
     if (op == "body") return IMAPSearchExpression::searchBody(criteriaString(criteria, 1));
-    if (op == "header") return IMAPSearchExpression::searchHeader(criteriaString(criteria, 1), criteriaString(criteria, 2));
+    if (op == "header") return IMAPSearchExpression::searchHeader(headerFieldName(criteria, 1), criteriaString(criteria, 2));
     if (op == "unread") return IMAPSearchExpression::searchUnread();
     if (op == "read") return IMAPSearchExpression::searchRead();
     if (op == "flagged") return IMAPSearchExpression::searchFlagged();

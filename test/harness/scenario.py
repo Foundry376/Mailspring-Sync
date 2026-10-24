@@ -605,6 +605,9 @@ class ScenarioRun:
         if op == "search_without_id":
             self.ms.send({"type": "search-remote", "criteria": ["all"]})
             return None
+        if op == "send":   # a packet exactly as given, for requests the client would never form
+            self.ms.send(dict(arg))
+            return None
         raise ScenarioFailure(f"unknown client op {op!r}")
 
     def _search(self, arg: dict) -> str:

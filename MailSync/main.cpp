@@ -1000,7 +1000,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             }
 
             if (type == "search-remote-cancel" && searchWorker) {
-                searchWorker->cancel(packet.value("searchId", ""));
+                searchWorker->cancel(SearchWorker::searchIdOf(packet));
             }
 
             if (type == "test-crash") {
