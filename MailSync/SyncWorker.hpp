@@ -138,6 +138,8 @@ private:
     time_t maxAgeForBodySync(Folder & folder);
     bool shouldCacheBodiesInFolder(Folder & folder);
     bool syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteStatus);
+    vector<shared_ptr<Message>> reserveMissingBodies(const vector<string> & ids);
+    void syncReservedMessageBodies(vector<shared_ptr<Message>> & reserved, Folder & folder);
     void syncMessageBody(Message * message, Folder * preferredFolder);
 };
 

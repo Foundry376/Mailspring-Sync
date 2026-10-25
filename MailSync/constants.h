@@ -53,6 +53,12 @@ static string MAILSPRING_FOLDER_PREFIX_V2 = "Mailspring";
 // How long after a send a later copy in Sent is taken to be the server's late copy of it.
 #define SENT_COPY_CLEANUP_WINDOW    (30 * 60)
 
+// How much of each message's text ThreadSearch.body holds, in UTF-16 code units as mailcore
+// counts them. Existing databases also hold text indexed at SEARCH_BODY_LEGACY_LENGTH, which
+// MailProcessor::appendToThreadSearchContent extends in place when the body is fetched again.
+#define SEARCH_BODY_MAX_LENGTH      15000
+#define SEARCH_BODY_LEGACY_LENGTH   5000
+
 // Microsoft Graph documents a 4 MB request limit. A message is uploaded as base64 MIME, so
 // attachments are moved out of it until it fits and added to the draft one request each: in
 // one POST below 3 MB, otherwise through an upload session, whose chunks must be multiples of

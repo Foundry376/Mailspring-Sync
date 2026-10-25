@@ -1,0 +1,27 @@
+name: search-index-legacy-length
+description: >
+  A database whose index holds a long message's text cut at 5,000 characters, as engines
+  with that limit wrote it. When the body is fetched again the entry is extended to
+  SEARCH_BODY_MAX_LENGTH in place, not added a second time.
+source: constants.h SEARCH_BODY_LEGACY_LENGTH
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 1, body_lines: 1200}}   # 16 characters per line
+steps:
+  - wait: quiescent
+  - restart:
+      before:
+        - db.sql:
+            - UPDATE ThreadSearch SET body = ' ' || substr((SELECT value FROM MessageBody WHERE value IS NOT NULL), 1, 5000)
+  - wait: quiescent
+  - assert:
+      local_search: {pad00700: []}
+  - client.need_bodies: {messages: {mailbox: INBOX, uids: [1]}}
+  - wait: {log: "Fetching body for message", timeout: 30}
+  - wait: {quiescent: true}
+expect:
+  local_search:
+    pad00010: [Message 1]
+    pad00700: [Message 1]
+  running: true

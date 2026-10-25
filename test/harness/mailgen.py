@@ -43,6 +43,7 @@ def message(
     message_id: Optional[str] = None,
     age_days: Optional[float] = None,   # push the Date back, e.g. beyond the body-prefetch window
     transfer_encoding: str = "7bit",    # or quoted-printable / base64 for a non-ASCII body
+    body_lines: int = 0,   # pad the default body with lines "pad00000 lorem" .. "pad{N-1:05d} lorem"
 ) -> bytes:
     """Message number n of a series. Deterministic for the same arguments."""
     name, addr = sender or SENDERS[n % len(SENDERS)]
@@ -51,7 +52,9 @@ def message(
         date = date - timedelta(days=age_days)
     subject = subject if subject is not None else f"Message {n}"
     mid = message_id or f"<harness-{n}-{hashlib.sha1(subject.encode()).hexdigest()[:8]}@{domain}>"
-    body = body if body is not None else f"This is the body of message {n}.\r\n\r\n-- \r\n{name}\r\n"
+    if body is None:
+        padding = "".join(f"pad{i:05d} lorem\r\n" for i in range(body_lines))
+        body = f"This is the body of message {n}.\r\n{padding}\r\n-- \r\n{name}\r\n"
     headers = [
         ("Return-Path", f"<{addr}>"),
         ("Delivered-To", to.split("<")[-1].rstrip(">") if "<" in to else to),

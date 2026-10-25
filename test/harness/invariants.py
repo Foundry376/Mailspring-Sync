@@ -7,6 +7,7 @@ The engine maintains several layers incrementally rather than recomputing them:
     Message snapshots   ->  Thread.data.folders / labels (_refs, _u), unread, starred
     Thread arrays       ->  ThreadCategory rows
     ThreadCategory rows ->  ThreadCounts
+    MessageBody rows    ->  ThreadSearch.body
 
 Each check recomputes one layer from the *stored* layer below it, so a bug surfaces once, at
 the layer that diverged, instead of cascading. `check(conn, skip)` returns human-readable
@@ -20,6 +21,7 @@ from .db import has_table
 
 UNREAD, STARRED, DRAFT = 1, 2, 4
 MAX_REPORTED_PER_CHECK = 12
+SEARCH_BODY_MAX_LENGTH = 15000   # constants.h, in UTF-16 code units
 
 
 # -- semantics the engine may tighten later; each lives in exactly one place ----------------
@@ -82,6 +84,9 @@ class _Snapshot:
 
         self.thread_counts = {r["categoryId"]: (r["unread"], r["total"])
                               for r in conn.execute("SELECT categoryId, unread, total FROM ThreadCounts")}
+
+        self.bodies = {r["id"]: r["value"] for r in conn.execute("SELECT id, value FROM MessageBody WHERE value IS NOT NULL")}
+        self.search = {r["content_id"]: r["body"] for r in conn.execute("SELECT content_id, body FROM ThreadSearch")}
 
     def folder_name(self, fid: str) -> str:
         return f"{self.paths.get(fid, '<no such folder>')} ({fid})"
@@ -275,6 +280,45 @@ def check_orphans(s: _Snapshot) -> list:
     return out
 
 
+def _indexed_text(body: str) -> str:
+    """The part of a message's text MailProcessor indexes: mailcore truncates UTF-16."""
+    units = body.encode("utf-16-le")[:2 * SEARCH_BODY_MAX_LENGTH]
+    return units.decode("utf-16-le", "ignore")
+
+
+def check_thread_search(s: _Snapshot) -> list:
+    """Every plaintext body the engine stored is in its thread's ThreadSearch.body, and its
+    opening words are there no more often than the thread's distinct stored texts contain
+    them: a body fetched again (a need-bodies request, both workers fetching new mail, text
+    indexed at an older length) must not be indexed again. HTML bodies are skipped, since
+    what is indexed for them is mailcore's flattening."""
+    texts = defaultdict(set)    # thread id -> {(message id, indexed text)}
+    for mid, value in s.bodies.items():
+        m = s.messages.get(mid)
+        if m is None or not m["data"].get("plaintext"):
+            continue
+        text = _indexed_text(value)
+        if text.strip():
+            texts[m["threadId"]].add((mid, text))
+    out = []
+    for tid, entries in texts.items():
+        indexed = s.search.get(tid)
+        if indexed is None:
+            out.append(f"{_thread(s, tid)} has no ThreadSearch row")
+            continue
+        distinct = {text for _, text in entries}
+        for mid, text in sorted(entries):
+            opening = text[:200]
+            found = indexed.count(opening)
+            allowed = sum(t.count(opening) for t in distinct)
+            if text not in indexed:
+                out.append(f"{_msg(s, mid)}: its body text is not in {_thread(s, tid)}'s ThreadSearch.body")
+            elif found > allowed:
+                out.append(f"{_msg(s, mid)}: its body text is in {_thread(s, tid)}'s ThreadSearch.body "
+                           f"{found} times, expected {allowed}")
+    return out
+
+
 CHECKS = {
     "message_snapshot": check_message_snapshot,
     "message_flags": check_message_flags,
@@ -282,6 +326,7 @@ CHECKS = {
     "thread_categories": check_thread_categories,
     "thread_counts": check_thread_counts,
     "orphans": check_orphans,
+    "thread_search": check_thread_search,
 }
 
 

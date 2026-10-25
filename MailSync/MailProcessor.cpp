@@ -117,6 +117,27 @@ bool placementIsCurrent(const optional<Placement> & p, const MessageAttributes &
     return p && MessageAttributesMatch(attributesOfPlacement(*p), reported);
 }
 
+/*
+ The thread's indexed body text with one message's text added, unless it is already there.
+ A message's body is fetched again after the cache purge (SyncWorker::cleanMessageCache), on
+ a need-bodies request, and by both workers when they race for new mail, so adding text
+ must be idempotent. Text indexed at SEARCH_BODY_LEGACY_LENGTH is extended in place.
+ */
+string threadSearchBodyWithText(const string & indexed, String * text) {
+    string chunk = text->substringToIndex(SEARCH_BODY_MAX_LENGTH)->UTF8Characters();
+    if (indexed.find(chunk) != string::npos) {
+        return indexed;
+    }
+    if (text->length() > SEARCH_BODY_LEGACY_LENGTH) {
+        string legacy = text->substringToIndex(SEARCH_BODY_LEGACY_LENGTH)->UTF8Characters();
+        size_t at = indexed.find(legacy);
+        if (at != string::npos) {
+            return string(indexed).replace(at, legacy.size(), chunk);
+        }
+    }
+    return indexed + " " + chunk;
+}
+
 } // namespace
 
 /*
@@ -759,7 +780,7 @@ void MailProcessor::appendToThreadSearchContent(Thread * thread, Message * messa
     }
     
     if (bodyToAppendOrNull != nullptr) {
-        body = body + " " + bodyToAppendOrNull->substringToIndex(5000)->UTF8Characters();
+        body = threadSearchBodyWithText(body, bodyToAppendOrNull);
     }
     
     if (thread->searchRowId()) {
