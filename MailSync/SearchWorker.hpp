@@ -54,6 +54,7 @@ class SearchWorker {
     bool hasPending = false;
     atomic<uint64_t> generation { 0 };
     bool connected = false;
+    time_t loginRejectedAt = 0;
     string activeSearchId;
 
 public:
@@ -77,6 +78,7 @@ private:
     bool superseded(uint64_t gen);
     void perform(const json & request, uint64_t gen);
     void connect();
+    void disconnect();
     vector<shared_ptr<Folder>> foldersToSearch(const json & request, bool gmail);
     void collectLocalMessages(string folderId, IndexSet * uids, SearchResults & results);
     json resultJSON(string searchId, SearchResults & results, size_t limit, const json & errors, bool done);

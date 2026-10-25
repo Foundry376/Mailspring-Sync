@@ -329,7 +329,6 @@ namespace mailcore {
         uint64_t mModSequenceValue;
         unsigned int mFolderMsgCount;
         uint32_t mFirstUnseenUid;
-        bool mYahooServer;
         bool mCoremailServer;
         bool mRamblerRuServer;
         bool mHermesServer;

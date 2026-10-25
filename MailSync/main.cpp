@@ -1018,6 +1018,11 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
 int main(int argc, const char * argv[]) {
     SetThreadName("main");
+    // A write to a connection the server has closed raises SIGPIPE on Linux, which kills the
+    // process: a LOGOUT sent after a rejected login once the server dropped the connection
+    // did exactly that (search-remote-failures). libetpan sets SO_NOSIGPIPE only where the
+    // socket option exists (connect.c), and the error path is EPIPE / a stream error.
+    signal(SIGPIPE, SIG_IGN);
 
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);

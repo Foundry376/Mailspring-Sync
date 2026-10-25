@@ -1,8 +1,12 @@
 name: search-remote-failures
 description: >
-  How `search-remote` behaves when things go wrong. A folder whose SEARCH the server refuses
-  is reported in `errors` and the other folders are still searched. A connection dropped
-  under a SEARCH is reopened once and the search completes. A newer request supersedes one
+  How `search-remote` behaves when things go wrong. A failed SEARCH is retried once on a
+  fresh connection, whatever the error: a BAD in mid-command can leave the stream out of
+  step with the server (Yahoo, live 2026-10-25), and a dropped idle connection looks the
+  same. A folder the server refuses twice is reported in `errors` and the other folders are
+  still searched. A rejected login is not retried for SEARCH_LOGIN_BACKOFF seconds (30 by
+  default): Yahoo rate-limits logins. The connection is closed after the rejection, since a
+  server closes an unauthenticated connection long before the retry. A newer request supersedes one
   still in flight: the older search stops at the next folder and never reports `done`. A
   connection idle past SEARCH_IDLE_DISCONNECT is closed and reopened by the next search. A
   server that drops the reconnect too fails the whole search with the connection error.
@@ -18,6 +22,7 @@ servers:
   - {fake: dovecot}
 env:
   SEARCH_IDLE_DISCONNECT: "3"
+  SEARCH_LOGIN_BACKOFF: "3"
 setup:
   - server.append: {mailbox: INBOX, messages: {subject: Inbox pineapple, message_id: "<inbox@search.test>"}}
   - server.append: {mailbox: Archive, messages: {subject: Archived pineapple, message_id: "<archive@search.test>"}}
@@ -26,6 +31,9 @@ steps:
   - server.reject: {at: {hook: before_command, command: "^UID SEARCH", mailbox: INBOX}, code: CANNOT, text: "Search failed"}
   - client.search: {criteria: [subject, pineapple]}
     as: refused
+  - server.desync: {at: {hook: before_command, command: "^UID SEARCH", mailbox: INBOX}}
+  - client.search: {criteria: [subject, pineapple]}
+    as: desynced
   - server.drop_connections: {at: {hook: before_command, command: "^UID SEARCH"}}
   - client.search: {criteria: [subject, pineapple]}
     as: dropped
@@ -38,6 +46,19 @@ steps:
   - wait: {seconds: 4}
   - wait: {log: "Search connection idle, disconnecting", timeout: 15}
   - wait: {seconds: 7}
+  - server.drop_connections: {at: {hook: before_command, command: "^LOGIN"}}
+  - client.search: {criteria: [subject, inbox]}
+    as: login_dropped
+  - client.search: {criteria: [subject, inbox]}
+    as: login_after_drop
+  - wait: {seconds: 4}
+  - wait: {log: "Search connection idle, disconnecting", timeout: 15}
+  - server.reject: {at: {hook: before_command, command: "^LOGIN"}, code: AUTHENTICATIONFAILED, text: "LOGIN Rate limit hit", close: true}
+  - client.search: {criteria: [subject, inbox]}
+    as: login_rejected
+  - client.search: {criteria: [subject, inbox]}
+    as: login_backoff
+  - wait: {seconds: 4}
   - client.search: {criteria: [subject, inbox]}
     as: after_idle
   - server.pause: {at: {hook: before_command, command: "^UID SEARCH", mailbox: INBOX, delay: 3}}
@@ -87,6 +108,12 @@ steps:
   - wait: {seconds: 1}
   - client.search_cancel: {of: cancelled_last_folder}
   - wait: {seconds: 8}
+  - server.reject: {at: {hook: before_command, command: "^UID SEARCH", mailbox: INBOX, every: true}, code: CANNOT, text: "Search failed"}
+  - client.search: {criteria: [subject, pineapple]}
+    as: refused_twice
+  - server.desync: {at: {hook: before_command, command: "^UID SEARCH", mailbox: INBOX, every: true}}
+  - client.search: {criteria: [subject, pineapple]}
+    as: desynced_twice
   - server.pause: {at: {hook: before_command, command: "^UID SEARCH", mailbox: Archive, delay: 3}}
   - server.drop_connections: {at: {hook: before_command, command: "^UID SEARCH", mailbox: Archive, every: true}}
   - client.search: {criteria: [subject, pineapple], folders: [Archive], wait: false}
@@ -100,7 +127,14 @@ steps:
   - wait: {seconds: 7}
 expect:
   search:
-    refused: {message_ids: ["<archive@search.test>"], folder_errors: 1}
+    refused: {message_ids: ["<inbox@search.test>", "<archive@search.test>"], folder_errors: 0}
+    refused_twice: {message_ids: ["<archive@search.test>"], folder_errors: 1}
+    desynced: {message_ids: ["<inbox@search.test>", "<archive@search.test>"], folder_errors: 0}
+    login_dropped: {error: ErrorConnection}
+    login_after_drop: {message_ids: ["<inbox@search.test>"]}
+    login_rejected: {error: ErrorAuthentication}
+    login_backoff: {error: ErrorAuthentication}
+    desynced_twice: {message_ids: ["<archive@search.test>"], folder_errors: 1}
     dropped: {message_ids: ["<inbox@search.test>", "<archive@search.test>"], folder_errors: 0}
     newer: {message_ids: ["<archive@search.test>"]}
     after_idle: {message_ids: ["<inbox@search.test>"]}
@@ -120,5 +154,7 @@ expect:
   search_not_done: [superseded, cancelled, running, queued, cancelled_last_folder, cancelled_then_error]
   no_search_without_id: {}
   log_count:
-    'Search connection idle, disconnecting': 5
+    'Search connection idle, disconnecting': 6
+    'Search login rejected': 1
+    'Search skipped: login rejected': 1
   running: true

@@ -413,7 +413,6 @@ void IMAPSession::init()
     mModSequenceValue = 0;
     mFolderMsgCount = 0;
     mFirstUnseenUid = 0;
-    mYahooServer = false;
     mCoremailServer = false;
     mRamblerRuServer = false;
     mHermesServer = false;
@@ -878,7 +877,6 @@ void IMAPSession::connectWithCurrentCompatibilityLevel(ErrorCode * pError)
     
     if (mImap->imap_response != NULL) {
         MC_SAFE_REPLACE_RETAIN(String, mWelcomeString, String::stringWithUTF8Characters(mImap->imap_response));
-        mYahooServer = (mWelcomeString->locationOfString(MCSTR("yahoo.com")) != -1);
         mCoremailServer = (mWelcomeString->locationOfString(MCSTR("Coremail System IMap Server Ready")) != -1);
 #ifdef LIBETPAN_HAS_MAILIMAP_163_WORKAROUND
         if (mCoremailServer)
@@ -3752,8 +3750,10 @@ bool IMAPSession::supportsFuzzySearch()
 bool IMAPSession::acceptsNonSynchronizingLiterals()
 {
     // LITERAL+, or LITERAL- for literals up to 4096 bytes (RFC 7888). Gmail has always been
-    // sent them here, whatever it advertises.
-    return mIsGmail || mailimap_has_extension(mImap, (char *)"LITERAL+") || mailimap_has_extension(mImap, (char *)"LITERAL-");
+    // sent them here, whatever it advertises. iCloud advertises XAPPLELITERAL in place of
+    // LITERAL+ and accepts {n+} literals in SEARCH (live, Mailspring-Sync #164, 2026-10-25).
+    return mIsGmail || mailimap_has_extension(mImap, (char *)"LITERAL+") || mailimap_has_extension(mImap, (char *)"LITERAL-")
+        || mailimap_has_extension(mImap, (char *)"XAPPLELITERAL");
 }
 
 IndexSet * IMAPSession::search(String * folder, IMAPSearchExpression * expression, ErrorCode * pError)
@@ -3766,11 +3766,11 @@ IndexSet * IMAPSession::search(String * folder, IMAPSearchExpression * expressio
 
     clist * result_list = NULL;
     
-    const char * charset = "utf-8";
-    if (mYahooServer) {
-        charset = NULL;
-    }
-    
+    // Yahoo answers BAD to any other spelling of the charset and then reads the literal that
+    // follows as a command of its own (live, Mailspring-Sync #164, 2026-10-25); without
+    // CHARSET it answers no results and no error.
+    const char * charset = "UTF-8";
+
     // A quoted string is 7-bit only (RFC 3501 4.3), so non-ASCII terms go as literals.
     int r;
     key = searchKeyFromSearchExpression(expression);

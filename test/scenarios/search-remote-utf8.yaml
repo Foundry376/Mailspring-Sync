@@ -2,7 +2,9 @@ name: search-remote-utf8
 description: >
   Non-ASCII search terms reach the server intact. A quoted string is 7-bit only (RFC 3501
   4.3), so the engine sends them as literals with CHARSET UTF-8 to servers that accept
-  non-synchronizing literals (LITERAL+ / LITERAL-, RFC 7888). The server matches decoded
+  non-synchronizing literals (LITERAL+ / LITERAL-, RFC 7888, or iCloud's XAPPLELITERAL).
+  CHARSET is spelled `UTF-8`: Yahoo answers BAD to `utf-8` and then reads the literal as a
+  command of its own (live, 2026-10-25). The server matches decoded
   content: a quoted-printable body and an RFC 2047 encoded subject. Whether "cafe" also
   finds "café" is the server's comparator (Dovecot and Cyrus fold diacritics, Cyrus via
   search_skipdiacrit), so no expectation here depends on it.
@@ -11,6 +13,7 @@ servers:
   - {fake: dovecot}
   - {fake: yahoo}
   - {fake: gmx}
+  - {fake: icloud}
   - {dovecot: qresync}
   - {cyrus: fastmail}
 setup:
@@ -27,7 +30,7 @@ steps:
     as: base64_body
   - client.search: {criteria: [subject, coffee]}
     as: ascii
-  - wait: {log: '(?i)UID SEARCH CHARSET UTF-8 TEXT \{\d+\+\}', timeout: 30}
+  - wait: {log: 'UID SEARCH CHARSET UTF-8 TEXT \{\d+\+\}', timeout: 30}
   - wait: {log: 'UID SEARCH SUBJECT coffee', timeout: 30}
 expect:
   search:
@@ -37,4 +40,5 @@ expect:
     ascii: {message_ids: ["<plain@search.test>"]}
   log_absent:
     - '(?i)UID SEARCH CHARSET UTF-8 TEXT "'
+    - 'CHARSET utf-8'
   running: true

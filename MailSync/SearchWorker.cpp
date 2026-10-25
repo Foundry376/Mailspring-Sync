@@ -12,6 +12,7 @@
 #include "DeltaStream.hpp"
 #include "MailUtils.hpp"
 #include "SyncException.hpp"
+#include "XOAuth2TokenManager.hpp"
 #include "constants.h"
 
 #include <algorithm>
@@ -19,13 +20,24 @@
 
 #define SEARCH_DEFAULT_LIMIT 1000
 #define SEARCH_IDLE_DISCONNECT_SEC 300
+#define SEARCH_LOGIN_BACKOFF_SEC 30
 #define SEARCH_UID_BATCH 500
 
+static int secondsSetting(const char * env, int fallback) {
+    int value = atoi(MailUtils::getEnvUTF8(env).c_str());
+    return value > 0 ? value : fallback;
+}
+
 static int idleDisconnectSeconds() {
-    static const int seconds = [] {
-        int value = atoi(MailUtils::getEnvUTF8("SEARCH_IDLE_DISCONNECT").c_str());
-        return value > 0 ? value : SEARCH_IDLE_DISCONNECT_SEC;
-    }();
+    static const int seconds = secondsSetting("SEARCH_IDLE_DISCONNECT", SEARCH_IDLE_DISCONNECT_SEC);
+    return seconds;
+}
+
+// Yahoo rate-limits logins (`NO [LIMIT] LOGIN Rate limit hit`, live 2026-10-25), and each
+// search would otherwise try again at once. 30 s is the sync workers' own minimum wait after
+// a rejected login (LOGIN_REJECTED_MIN_WAIT).
+static int loginBackoffSeconds() {
+    static const int seconds = secondsSetting("SEARCH_LOGIN_BACKOFF", SEARCH_LOGIN_BACKOFF_SEC);
     return seconds;
 }
 
@@ -149,8 +161,7 @@ void SearchWorker::run() {
                     // Connections count against per-account limits (Gmail: 15 email
                     // clients at a time), so an idle search connection is given back.
                     logger->info("Search connection idle, disconnecting");
-                    session.disconnect();
-                    connected = false;
+                    disconnect();
                 }
                 continue;
             }
@@ -176,6 +187,12 @@ void SearchWorker::run() {
 }
 
 void SearchWorker::connect() {
+    time_t sinceRejected = time(0) - loginRejectedAt;
+    if (sinceRejected < loginBackoffSeconds()) {
+        logger->warn("Search skipped: login rejected {}s ago, retrying after {}s", sinceRejected, loginBackoffSeconds());
+        throw SyncException(ErrorCode::ErrorAuthentication, "search login backoff");
+    }
+
     // For XOAuth2 accounts this may refresh the access token over HTTP.
     MailUtils::configureSessionForAccount(session, account);
 
@@ -186,9 +203,23 @@ void SearchWorker::connect() {
     }
     session.loginIfNeeded(&err);
     if (err != ErrorCode::ErrorNone) {
+        if (err == ErrorCode::ErrorAuthentication) {
+            loginRejectedAt = time(0);
+            logger->warn("Search login rejected, not retrying for {}s", loginBackoffSeconds());
+            // The sync workers fetch a fresh token after a rejection too (#163).
+            if (account->refreshToken() != "") {
+                SharedXOAuth2TokenManager()->invalidateTokenForAccount(account);
+            }
+        }
+        disconnect();
         throw SyncException(err, "search loginIfNeeded");
     }
     connected = true;
+}
+
+void SearchWorker::disconnect() {
+    session.disconnect();
+    connected = false;
 }
 
 void SearchWorker::perform(const json & request, uint64_t gen) {
@@ -217,11 +248,11 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
     } else {
         expression = expressionForCriteria(request.at("criteria"));
         // libetpan's SEARCH cannot send a synchronizing literal, the only standard way to send
-        // a non-ASCII term to a server without LITERAL+ or LITERAL- (RFC 3501 4.3).
+        // a non-ASCII term to a server without LITERAL+, LITERAL- or XAPPLELITERAL (RFC 3501 4.3).
         string terms = request["criteria"].dump();
         bool ascii = all_of(terms.begin(), terms.end(), [](char c) { return (unsigned char)c < 0x80; });
         if (!ascii && !session.acceptsNonSynchronizingLiterals()) {
-            throw std::invalid_argument("non-ASCII search terms need a server with LITERAL+ or LITERAL-");
+            throw std::invalid_argument("non-ASCII search terms need a server that accepts non-synchronizing literals");
         }
         if (fuzzy) {
             expression = IMAPSearchExpression::searchFuzzy(expression);
@@ -244,16 +275,21 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
         auto started = chrono::steady_clock::now();
         ErrorCode err = ErrorCode::ErrorNone;
         IndexSet * uids = session.search(AS_MCSTR(folder->path()), expression, &err);
-        if (err == ErrorCode::ErrorConnection) {
-            // A connection held between searches may have been dropped by the server
-            // while idle; one reconnect distinguishes that from a server that is down.
+        if (err != ErrorCode::ErrorNone) {
+            // A failed SEARCH is retried once on a fresh connection, whatever the error. A
+            // BAD in mid-command can leave the stream out of step with the server: Yahoo
+            // then answered every later command on the connection BAD (live, 2026-10-25).
+            // A connection the server dropped while idle fails the same way, and one
+            // reconnect distinguishes either from a query the server refuses.
+            logger->info("Search {} in {} failed: {}, retrying on a fresh connection", searchId, folder->path(), ErrorCodeToTypeMap[err]);
+            disconnect();
             connect();
             err = ErrorCode::ErrorNone;
             uids = session.search(AS_MCSTR(folder->path()), expression, &err);
         }
         if (err != ErrorCode::ErrorNone) {
+            disconnect();
             if (err == ErrorCode::ErrorConnection) {
-                connected = false;
                 throw SyncException(err, "search " + folder->path());
             }
             logger->warn("Search {} in {} failed: {}", searchId, folder->path(), ErrorCodeToTypeMap[err]);
@@ -363,7 +399,7 @@ void SearchWorker::emitFailure(string searchId, uint64_t gen, string error) {
 }
 
 void SearchWorker::emit(const json & result) {
-    SharedDeltaStream()->emit(DeltaStreamItem(DELTA_TYPE_PERSIST, "ProcessSearchResult", {result}), 0);
+    SharedDeltaStream()->sendSearchResult(result);
 }
 
 IMAPSearchExpression * SearchWorker::expressionForCriteria(const json & criteria) {

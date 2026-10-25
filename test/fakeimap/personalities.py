@@ -212,10 +212,12 @@ icloud = _register(Personality(
     description="iCloud: advertises CONDSTORE+QRESYNC; the engine disables QRESYNC by hostname "
                 "(imap.mail.me.com). The malformed-VANISHED behaviour itself is NOT modelled: no "
                 "transcript exists. Use this personality to exercise the hostname gate only.",
-    source="Mailspring-Sync PR #91 / 65f24b4; developer.apple.com/forums/thread/694251. NEEDS-RECORDING.",
+    source="Mailspring-Sync PR #91 / 65f24b4; developer.apple.com/forums/thread/694251. NEEDS-RECORDING. "
+           "XAPPLELITERAL from a live probe (Mailspring-Sync #164 review, 2026-10-25): iCloud advertises it "
+           "in place of LITERAL+ and accepts {n+} non-synchronizing literals in SEARCH.",
     preauth_capabilities="IMAP4rev1 XAPPLEPUSHSERVICE SASL-IR ID ENABLE IDLE AUTH=PLAIN AUTH=ATOKEN AUTH=XOAUTH2",
-    postauth_capabilities="IMAP4rev1 XAPPLEPUSHSERVICE SASL-IR ID ENABLE IDLE UIDPLUS NAMESPACE CHILDREN "
-                          "CONDSTORE QRESYNC MOVE SPECIAL-USE",
+    postauth_capabilities="IMAP4rev1 XAPPLEPUSHSERVICE XAPPLELITERAL SASL-IR ID ENABLE IDLE UIDPLUS NAMESPACE "
+                          "CHILDREN CONDSTORE QRESYNC MOVE SPECIAL-USE",
     greeting="[ ... ] iCloud IMAP ready",
     mailboxes=[("INBOX", []), ("Drafts", ["\\Drafts"]), ("Sent Messages", ["\\Sent"]),
                ("Deleted Messages", ["\\Trash"]), ("Junk", ["\\Junk"]), ("Archive", ["\\Archive"])],
@@ -268,6 +270,10 @@ yahoo = _register(Personality(
                           "SPECIAL-USE MESSAGELIMIT=1000 PARTIAL APPENDLIMIT=41697280",
     greeting="Welcome! IMAP Server up and ready to accept your request",
     quirks={
+        "search-charset-utf8-exact": "UID SEARCH CHARSET utf-8 ... is answered BAD [CLIENTBUG] UID SEARCH "
+                                     "Command arguments invalid, and the literal that follows is read as a "
+                                     "command of its own; CHARSET UTF-8 is accepted (live probe, "
+                                     "Mailspring-Sync #164 review, 2026-10-25)",
         "copyuid-permuted": "COPYUID lists ascending source and destination ranges while the UIDs "
                             "assigned are a permutation of the destination range; 2 of 18 pairs "
                             "correct across 4 multi-message moves, single-message moves correct "

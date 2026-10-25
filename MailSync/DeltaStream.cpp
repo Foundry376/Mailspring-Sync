@@ -213,6 +213,10 @@ void DeltaStream::sendIdentityRefreshNeeded() {
     emit(DeltaStreamItem("persist", "ProcessIdentityRefreshNeeded", {}), 0);
 }
 
+void DeltaStream::sendSearchResult(json result) {
+    emit(DeltaStreamItem("persist", "ProcessSearchResult", {result}), 0);
+}
+
 void DeltaStream::beginConnectionError(string accountId) {
     connectionError = true;
     vector<json> items {};

@@ -502,8 +502,10 @@ class ScenarioRun:
                 self._note(f"hook {hook} {spec or ''} fired on session {session.sid} "
                            f"({'foreground' if session.has_idled else 'background'}, {session.selected} selected): "
                            f"server.{op} {json.dumps(arg)}")
-                if op == "reject":
-                    session.reject_next = (arg.get("code"), arg.get("text", "Command failed."))
+                if op == "reject":   # `close: true` ends the session after the NO, as a server does after a rejected login
+                    session.reject_next = (arg.get("code"), arg.get("text", "Command failed."), bool(arg.get("close")))
+                elif op == "desync":
+                    session.desynced = True
                 else:
                     self._server_op(op, arg)
                 if delay:
@@ -548,6 +550,8 @@ class ScenarioRun:
             pass  # with `at` + `delay`: holds one reply without changing the server
         elif op == "reject":
             pass  # only meaningful with `at` on the fake, which answers the hooked command NO
+        elif op == "desync":
+            pass  # only meaningful with `at` on the fake: that session answers every further command BAD
         elif op == "smtp_hold":
             self._smtp().hold()
         elif op == "smtp_release":

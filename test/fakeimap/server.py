@@ -136,7 +136,8 @@ class Session(socketserver.StreamRequestHandler):
         self.idling = False
         self.has_idled = False
         self.commands: list = []
-        self.reject_next: Optional[tuple] = None  # (code, text): answer the next command NO, set by a hook
+        self.reject_next: Optional[tuple] = None  # (code, text, close): answer the next command NO, set by a hook
+        self.desynced = False  # set by a hook: this and every later command is answered BAD, like a stream out of step
         self.pending: list = []              # StoreEvents not yet reported
         self.recent_uids: set = set()        # \Recent messages this session claimed
         self.sent_vanished = False           # a VANISHED went out during the current command
@@ -306,11 +307,16 @@ class Session(socketserver.StreamRequestHandler):
             uid_mode = True
         self.commands.append(cmd)
         self.srv.fire("before_command", self, cmd, args.rest())
+        if self.desynced:
+            self.send(tag + b" BAD [CLIENTBUG] Command is not a valid IMAP command")
+            return True
         if self.reject_next is not None:
             # Only for commands without literals: the arguments are never read.
-            code, text = self.reject_next
+            code, text, close = self.reject_next
             self.reject_next = None
             self.no(tag, text, code=code)
+            if close:   # a server that closes the connection after the NO (e.g. a rejected login)
+                self.closed = True
             return True
         handler = getattr(self, "cmd_" + cmd.replace(" ", "_").replace(".", "_").lower(), None)
         if handler is None:
@@ -775,6 +781,10 @@ class Session(socketserver.StreamRequestHandler):
             keys.append(args.token())
         if self.p.has("search-badcharset") and any(isinstance(k, str) and k.upper() == "CHARSET" for k in keys):
             self.no(tag, "The specified charset is not supported.", code="BADCHARSET (US-ASCII)")
+            return
+        if self.p.has("search-charset-utf8-exact") and any(
+                isinstance(k, str) and k.upper() == "CHARSET" and keys[i + 1] != "UTF-8" for i, k in enumerate(keys[:-1])):
+            self.send(tag + b" BAD [CLIENTBUG] UID SEARCH Command arguments invalid")
             return
         with self.store.lock:
             pos = {u: i + 1 for i, u in enumerate(self.view)}
