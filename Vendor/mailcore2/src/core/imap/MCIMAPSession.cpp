@@ -2167,16 +2167,40 @@ void IMAPSession::findUIDsOfRecentHeaderMessageID(String * folder, String * head
         return;
     }
     
-    int min = lastFolderMessageCount() > 15 ? (lastFolderMessageCount() - 15) : 0;
-    set->addRange(RangeMake(min, lastFolderMessageCount() - min));
-    Array * lastFew = fetchMessagesByNumber(folder, IMAPMessagesRequestKindHeaders, set, nullptr, &err);
+    // Sequence numbers start at 1: a range starting at 0 is sent as "*:N", which is only
+    // message N, so in a folder of 15 messages or fewer only the newest one was checked.
+    unsigned int count = lastFolderMessageCount();
+    if (count == 0) {
+        return;
+    }
+    unsigned int min = count > 15 ? (count - 15) : 1;
+    set->addRange(RangeMake(min, count - min));
+
+    // Outlook.com (smtp-mail.outlook.com) replaces the Message-ID of submitted mail with one of
+    // its own (<...@...PROD.OUTLOOK.COM>) and keeps the client's in X-Microsoft-Original-Message-ID,
+    // so the copy it files in Sent can only be matched on that header.
+    String * originalMessageIDHeader = MCSTR("X-Microsoft-Original-Message-ID");
+    Array * lastFew = fetchMessagesByNumberWithExtraHeaders(folder, IMAPMessagesRequestKindHeaders, set, nullptr,
+                                                            Array::arrayWithObject(originalMessageIDHeader), &err);
     if (err != ErrorNone) {
         return;
     }
-    
+
     for (int ii = 0; ii < lastFew->count(); ii ++) {
         auto msg = (IMAPMessage *)lastFew->objectAtIndex(ii);
         if (msg->header()->messageID()->isEqual(headerMessageID)) {
+            uids->addIndex(msg->uid());
+            continue;
+        }
+        String * original = msg->header()->extraHeaderValueForName(originalMessageIDHeader);
+        if (original == NULL) {
+            continue;
+        }
+        original = original->stripWhitespace();
+        if (original->hasPrefix(MCSTR("<")) && original->hasSuffix(MCSTR(">")) && original->length() > 2) {
+            original = original->substringWithRange(RangeMake(1, original->length() - 2));
+        }
+        if (original->isEqual(headerMessageID)) {
             uids->addIndex(msg->uid());
         }
     }

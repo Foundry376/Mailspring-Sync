@@ -1,0 +1,40 @@
+name: sent-copy-outlook-com-rewritten-id-multisend
+description: >
+  A tracked send to two recipients on Outlook.com is two SMTP submissions; the server files a
+  copy of each, with its own Message-ID and the client's in X-Microsoft-Original-Message-ID,
+  and each copy carries that recipient's tracking pixel. The engine must find and delete
+  both, keeping only the untracked copy it appends.
+source: "live.fr account, Mailspring 1.26.0, 2026-10-22: tracked sends left one server copy per recipient (with the recipient's open-tracking pixel) beside the engine's own copy"
+servers:
+  - {fake: outlook, smtp: true, smtp_sent_copy: "Sent Items", smtp_sent_copy_delay: 0.5, smtp_rewrite_message_id: true}
+mailboxes:
+  INBOX: {messages: 3}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "sent-1@example.test"
+        subject: "Tracked send"
+        body: "<p>Hi</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "bob", email: "bob@example.net"}, {name: "carol", email: "carol@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: {self: "<p>Hi</p>", "bob@example.net": "<p>Hi<img src=\"https://t.example/bob@example.net\"></p>", "carol@example.net": "<p>Hi<img src=\"https://t.example/carol@example.net\"></p>"}
+    as: send1
+  - wait: {task: send1, timeout: 90}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  smtp: {count: 2}
+  server_counts: {Sent Items: 1}
+  counts: {Sent Items: 1}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true
