@@ -8,10 +8,70 @@
 #include <time.h>
 #include <iomanip>
 #include <sstream>
+#include <memory>
+#include <vector>
+#include <cstdint>
+#include <mutex>
 
 using namespace std;
 
 typedef enum { YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, WEEK } TimeUnit;
+
+/** A STANDARD or DAYLIGHT sub-component of a VTIMEZONE, as written. */
+struct TimeZoneObservance {
+	string DtStart, RRule, OffsetFrom, OffsetTo;
+	vector<string> RDates;
+};
+
+/*
+ The rules of a named zone. A wall clock that two offsets both give (a clock set back) is read
+ in the first, and one that no offset gives (a clock set forward) in the offset in force before
+ the gap (RFC 5545 section 3.3.5).
+*/
+class TimeZone {
+public:
+	virtual ~TimeZone() {}
+	/** The offset a wall-clock time is read in, or false when the rules can't be evaluated. */
+	virtual bool OffsetForWallClock(int64_t Wall, int &Offset) const = 0;
+};
+
+/*
+ A VTIMEZONE (RFC 5545 section 3.6.5). Each observance's offset takes effect at its DTSTART and
+ at every RRULE and RDATE onset, all wall-clock times read in the offset being left.
+*/
+class VTimeZone : public TimeZone {
+public:
+	vector<TimeZoneObservance> Observances;
+
+	bool OffsetForWallClock(int64_t Wall, int &Offset) const override;
+
+private:
+	struct Change { int64_t At; int From, To; }; // At is UTC seconds
+	bool ChangesThrough(int LastYear, vector<Change> &Changes) const;
+	bool AddChanges(const TimeZoneObservance &Observance, int LastYear, vector<Change> &Changes) const;
+};
+
+/*
+ A zone in the operating system's time zone database: ICU's on Linux and Windows, CoreFoundation's
+ on macOS. The system keeps its table current, which is why a zone found here outranks the
+ VTIMEZONE an object carries (see ICalendar::AttachTimeZone).
+*/
+class SystemTimeZone : public TimeZone {
+public:
+	/** The zone of an IANA name, or of a Windows name where ICU maps it; null when the system
+	    has no such zone. A zone is opened once and shared. */
+	static shared_ptr<const TimeZone> Named(const string &TzId);
+	~SystemTimeZone();
+
+	bool OffsetForWallClock(int64_t Wall, int &Offset) const override;
+
+private:
+	explicit SystemTimeZone(void *Handle) : Handle(Handle) {}
+	bool OffsetAt(int64_t Utc, int &Offset) const;
+
+	void *Handle; // a UCalendar, or a CFTimeZoneRef on macOS
+	mutable mutex Lock; // a UCalendar is positioned before it is read, so one reader at a time
+};
 
 class Date {
 private:
@@ -36,12 +96,15 @@ public:
     /*
      An iCalendar DATE-TIME is one of three things (RFC 5545 section 3.3.5): UTC when it ends
      in "Z", a wall-clock time in a named zone when the property carries TZID, or floating.
-     Only UTC is unambiguous here, so only UTC uses timegm(); the other two resolve against
-     the local zone, which is correct for a floating time and for a TZID matching this
-     machine. tm_isdst is -1 so the C library determines daylight saving rather than assuming
-     standard time, which is an hour out for half the year.
+     A zoned time is read through the zone ICalendar::AttachTimeZone found for its TZID. A
+     floating time, a DATE, and a TZID no zone was found for resolve against the local zone;
+     tm_isdst is -1 so the C library determines daylight saving.
     */
     int toUnix() {
+        int Offset;
+        if (WithTime && !IsUTC && Zone && Zone->OffsetForWallClock(WallClockSeconds(), Offset)) {
+            return (int)(WallClockSeconds() - Offset);
+        }
         struct tm timeinfo {};
         memset(&timeinfo, 0, sizeof(struct tm));
         char Temp[16];
@@ -94,6 +157,9 @@ public:
 	bool operator >(const Date &OtherDate) const { return (Compare(OtherDate) > 0); }
 	bool operator ==(const Date &OtherDate) const { return (Compare(OtherDate) == 0); }
 	DatePart operator [](TimeUnit PartName);
+
+	/** The fields as seconds since 1970-01-01T00:00:00, ignoring any zone. */
+	int64_t WallClockSeconds() const;
 	
 	unsigned long Difference(Date &OtherDate, TimeUnit Unit, bool RoundUp = true) const;
 	void SetToNow();
@@ -105,13 +171,17 @@ public:
 		Data[HOUR] = Data[MINUTE] = Data[SECOND] = 0;
 		WithTime = false;
 		IsUTC = false;
+		TzId.clear();
+		Zone.reset();
 	}
 	
 	bool WithTime;
 	/** True when the value was written in UTC, i.e. ended in "Z". */
 	bool IsUTC;
-	/** The property's TZID parameter; empty for a UTC, floating or DATE value. */
+	/** The property's TZID parameter (empty for a UTC, floating or DATE value), and the zone
+	    ICalendar::AttachTimeZone found for it. */
 	string TzId;
+	shared_ptr<const TimeZone> Zone;
 };
 
 class Date::DatePart {
