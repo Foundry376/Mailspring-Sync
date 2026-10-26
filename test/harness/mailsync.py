@@ -290,6 +290,10 @@ class MailsyncProcess:
         client does when the user clicks Sync Mail."""
         self.send({"type": "wake-workers"})
 
+    def sync_calendar(self):
+        """Runs a calendar pass now, as MailsyncBridge does when the user refreshes the calendar."""
+        self.send({"type": "sync-calendar"})
+
     def queue_task(self, task: dict) -> str:
         """Queue a task the way Actions.queueTask does. `task` needs __cls and the fields
         that class's performLocal/performRemote read; id/accountId/status are filled in."""

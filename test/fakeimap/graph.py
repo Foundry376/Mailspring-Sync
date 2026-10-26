@@ -13,6 +13,11 @@ immutable id is kept when the draft moves to Sent Items
 (https://learn.microsoft.com/en-us/graph/outlook-immutable-id). A message is not readable
 between /send and the moment its Sent Items copy exists (the real service shows it in
 Outbox; the engine only cares whether it has reached Sent Items).
+
+Calendars are listed from /me/calendars, paged by `@odata.nextLink`
+(https://learn.microsoft.com/en-us/graph/api/user-list-calendars). Calendar and mail scopes
+are consented and tokened separately: a token for one is refused by the other's routes with
+403, as Graph answers a token missing the permission a request needs.
 """
 import base64
 import email
@@ -29,6 +34,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 UPLOAD_CHUNK_MULTIPLE = 320 * 1024
 GRAPH_SCOPE = "https://graph.microsoft.com/"
+CALENDARS_SCOPE = GRAPH_SCOPE + "Calendars."
 MAIL_SCOPE = "https://outlook.office.com/"
 SENT_ITEMS_ID = "AQMkAGSentItems="
 DRAFTS_ID = "AQMkAGDrafts="
@@ -147,18 +153,23 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(404, "ResourceNotFound", f"no route for {path}")
         if len(body) > MAX_REQUEST_BYTES:
             return self._error(413, "RequestEntityTooLarge", "The request is larger than 4 MB.")
-        auth = self.headers.get("Authorization") or ""
-        if auth[len("Bearer "):] not in srv.graph_tokens:
+        route = path[len("/v1.0/me/"):]
+        token = (self.headers.get("Authorization") or "")[len("Bearer "):]
+        calendar_route = route == "calendars" or route.startswith("calendars/")
+        if token not in (srv.calendar_tokens if calendar_route else srv.graph_tokens):
+            if token in srv.calendar_tokens or token in srv.graph_tokens:
+                return self._error(403, "ErrorAccessDenied", "Access is denied. Check credentials and try again.")
             return self._error(401, "InvalidAuthenticationToken", "Access token is empty or invalid.")
         if self.headers.get("Prefer") != 'IdType="ImmutableId"':
             return self._error(400, "HarnessError", "every request must ask for immutable ids")
-        route = path[len("/v1.0/me/"):]
         failure = srv.failure_for(route, self.command)
         if failure:
             headers = {"Retry-After": str(failure["retry_after"])} if "retry_after" in failure else None
             return self._reply(failure.get("status", 500), {"error": {"code": failure.get("code", "ErrorInternalServerError"),
                                "message": failure.get("message", "Injected failure")}}, headers)
 
+        if route == "calendars" and self.command == "GET":
+            return self._calendars()
         if route == "mailFolders/sentitems" and self.command == "GET":
             return self._reply(200, {"id": SENT_ITEMS_ID})
         if route == "messages" and self.command == "POST":
@@ -209,6 +220,14 @@ class _Handler(BaseHTTPRequestHandler):
             srv.token_scopes.append(scope)
         if form.get("grant_type") != "refresh_token" or form.get("refresh_token") != srv.refresh_token:
             return self._reply(400, {"error": "invalid_grant", "error_description": "AADSTS70000: The refresh token is invalid."})
+        if CALENDARS_SCOPE in scope:
+            if not srv.calendars_consented:
+                return self._reply(400, {"error": "invalid_grant", "error_description":
+                                         "AADSTS65001: The user or administrator has not consented to use the application."})
+            token = f"calendar-token-{len(srv.token_scopes)}"
+            srv.calendar_tokens.add(token)
+            return self._reply(200, {"token_type": "Bearer", "scope": scope, "expires_in": 3599,
+                                     "access_token": token, "refresh_token": srv.refresh_token})
         if GRAPH_SCOPE in scope and srv.drop_graph_token:
             self.close_connection = True   # no response at all: curl reports CURLE_GOT_NOTHING
             self.connection.shutdown(2)
@@ -227,6 +246,17 @@ class _Handler(BaseHTTPRequestHandler):
             srv.mail_tokens.add(token)
         return self._reply(200, {"token_type": "Bearer", "scope": scope, "expires_in": 3599,
                                  "access_token": token, "refresh_token": srv.refresh_token})
+
+    def _calendars(self):
+        srv: "FakeGraphServer" = self.server.owner
+        skip = int(parse_qs(urlparse(self.path).query).get("$skip", ["0"])[0])
+        with srv.lock:
+            calendars = list(srv.calendars)
+        size = srv.calendars_page_size or max(len(calendars), 1)
+        body = {"value": calendars[skip:skip + size]}
+        if skip + size < len(calendars):
+            body["@odata.nextLink"] = f"{srv.url}/me/calendars?$skip={skip + size}"
+        return self._reply(200, body)
 
     def _create(self, body: bytes):
         srv: "FakeGraphServer" = self.server.owner
@@ -302,15 +332,19 @@ class FakeGraphServer:
     def __init__(self, host="127.0.0.1", port=0, refresh_token="refresh-token", graph_consented=True,
                  sent_copy=None, sent_copy_delay: float = 0, failures: Optional[list] = None, deliver_to=None,
                  consent_refusals: int = 0, mailbox: Optional[str] = None, aliases=(),
-                 drop_graph_token: bool = False):
+                 drop_graph_token: bool = False, calendars: Optional[list] = None,
+                 calendars_consented: bool = True, calendars_page_size: int = 0):
         """sent_copy: optional (Store, mailbox) every sent message's copy is appended to, as
         Exchange files it in Sent Items. sent_copy_delay: seconds between /send and that copy.
-        graph_consented: whether the refresh token may be exchanged for Graph scopes (an
+        graph_consented: whether the refresh token may be exchanged for Graph mail scopes (an
         account authorized before Mail.Send was requested may not).
-        drop_graph_token: close the connection on Graph token requests without answering, as
-        when the machine goes offline mid-send.
-        consent_refusals: refuse the first N Graph token requests with AADSTS65001 anyway, as
-        Azure AD does for a few seconds while a consent the user just gave replicates.
+        drop_graph_token: close the connection on Graph mail token requests without answering,
+        as when the machine goes offline mid-send.
+        consent_refusals: refuse the first N Graph mail token requests with AADSTS65001 anyway,
+        as Azure AD does for a few seconds while a consent the user just gave replicates.
+        calendars: the Graph calendar resources /me/calendars lists, `calendars_page_size` to a
+        page (0: all on one). calendars_consented: whether the refresh token may be exchanged
+        for the calendar scopes, which Mailspring has asked for since 2020.
         mailbox / aliases: the mailbox's primary address and the aliases it may send as. A
         MIME draft whose From is any other address gets the primary address instead, a PATCH
         of `from` sets it, and /send refuses an address outside these with ErrorSendAsDenied
@@ -331,8 +365,12 @@ class FakeGraphServer:
         self.sent_copy_delay = sent_copy_delay
         self.deliver_to = deliver_to
         self.failures = [dict(f) for f in (failures or [])]
+        self.calendars = [dict(c) for c in (calendars or [])]
+        self.calendars_consented = calendars_consented
+        self.calendars_page_size = calendars_page_size
         self.mail_tokens: set = set()
-        self.graph_tokens: set = set()
+        self.graph_tokens: set = set()   # Graph mail scopes
+        self.calendar_tokens: set = set()
         self.token_scopes: list = []
         self.messages: dict = {}   # graph id -> GraphMessage, drafts and filed copies
         self.sent: list = []
@@ -345,6 +383,10 @@ class FakeGraphServer:
 
     def log(self, method, path, status):
         self.transcript.append((time.time(), method, path, status))
+
+    def set_calendars(self, calendars: list):
+        with self.lock:
+            self.calendars = [dict(c) for c in calendars]
 
     def failure_for(self, route: str, method: str) -> Optional[dict]:
         with self.lock:

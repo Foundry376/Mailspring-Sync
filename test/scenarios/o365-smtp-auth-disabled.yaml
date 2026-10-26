@@ -36,7 +36,7 @@ steps:
 expect:
   task_error: {send1: smtp-auth-disabled}
   smtp: {count: 0}
-  graph: {count: 0, graph_token_requests: 0}
+  graph: {count: 0, graph_mail_token_requests: 0}
   server_counts: {Sent Items: 0}
   db_matches_server: {}
   running: true

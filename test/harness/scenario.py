@@ -549,8 +549,16 @@ class ScenarioRun:
             self._smtp().hold()
         elif op == "smtp_release":
             self._note(f"released {self._smtp().release()} held SMTP deliveries")
+        elif op == "graph_calendars":
+            self._graph().set_calendars(arg["calendars"])
         else:
             raise ScenarioFailure(f"unknown server op {op!r}")
+
+    def _graph(self):
+        graph = getattr(self.server, "graph", None)
+        if graph is None:
+            raise ScenarioFailure("this step needs Graph: add `graph: true` to the server entry")
+        return graph
 
     def _smtp(self):
         smtp = getattr(self.server, "smtp", None)
@@ -561,6 +569,9 @@ class ScenarioRun:
     def _client_step(self, op: str, arg: dict):
         if op == "wake":
             self.ms.wake()
+            return
+        if op == "sync_calendar":
+            self.ms.sync_calendar()
             return
         if op == "task":
             task = dict(arg)
@@ -881,8 +892,8 @@ class ScenarioRun:
         """What the fake Graph server sent: `count`; per message `recipients`, `headers` and
         `attachments` (file names, wherever they ended up); `drafts` unsent drafts left on the
         server; `upload_sessions` attachments that went through an upload session;
-        `graph_token_requests` refreshes that asked for Graph scopes; `max_request_bytes` the
-        largest request body the engine sent."""
+        `graph_mail_token_requests` / `graph_calendar_token_requests` refreshes that asked for
+        Graph mail / calendar scopes; `max_request_bytes` the largest request body the engine sent."""
         graph = getattr(self.server, "graph", None)
         if graph is None:
             return ["scenario expects Graph but the server has no `graph: true`"]
@@ -906,10 +917,14 @@ class ScenarioRun:
             out.append(f"expected {arg['drafts']} unsent Graph drafts, found {len(graph.drafts())}")
         if "upload_sessions" in arg and len(graph.uploads) != arg["upload_sessions"]:
             out.append(f"expected {arg['upload_sessions']} upload sessions, saw {len(graph.uploads)}")
-        if "graph_token_requests" in arg:
-            got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com" in scope)
-            if got != arg["graph_token_requests"]:
-                out.append(f"expected {arg['graph_token_requests']} Graph token requests, saw {got}")
+        if "graph_mail_token_requests" in arg:
+            got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com/Mail." in scope)
+            if got != arg["graph_mail_token_requests"]:
+                out.append(f"expected {arg['graph_mail_token_requests']} Graph mail token requests, saw {got}")
+        if "graph_calendar_token_requests" in arg:
+            got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com/Calendars." in scope)
+            if got != arg["graph_calendar_token_requests"]:
+                out.append(f"expected {arg['graph_calendar_token_requests']} Graph calendar token requests, saw {got}")
         if "max_request_bytes" in arg:
             largest = max((r["bytes"] for r in graph.requests), default=0)
             if largest > arg["max_request_bytes"]:
@@ -1011,6 +1026,22 @@ class ScenarioRun:
                                    f"rulesReady={bool(m.get('rulesReady'))} body={'body' in m} "
                                    f"fullSyncComplete={bool(m.get('fullSyncComplete'))} "
                                    f"metadata={[e.get('pluginId') for e in m.get('metadata') or []]} v={m.get('v')}")
+        return out
+
+    def expect_calendars(self, arg: dict) -> list:
+        """Calendar rows, by name, and no others: `{name: {key: value}}` checks keys of the
+        row's JSON (`path`, `color`, `read_only`, `owner`)."""
+        with self.ms.db() as c:
+            rows = [json.loads(r[0]) for r in c.execute("SELECT data FROM Calendar").fetchall()]
+        by_name = {row.get("name"): row for row in rows}
+        out = []
+        if sorted(by_name) != sorted(arg):
+            out.append(f"calendars {sorted(by_name)}, expected {sorted(arg)}")
+        for name, want in arg.items():
+            row = by_name.get(name)
+            for key, value in ((want or {}).items() if row else []):
+                if row.get(key) != value:
+                    out.append(f"calendar {name!r}: {key} {row.get(key)!r}, expected {value!r}")
         return out
 
     def expect_contacts(self, arg: dict) -> list:

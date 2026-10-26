@@ -20,7 +20,9 @@ class FakeServer(Server):
                  smtp_auth_response: Optional[str] = None, graph: bool = False, graph_send: bool = True,
                  graph_consented: bool = True, graph_consent_refusals: int = 0,
                  graph_aliases: Optional[list] = None, graph_drop_token: bool = False, graph_sent_copy: Optional[str] = "Sent Items",
-                 graph_sent_copy_delay: float = 0, graph_failures: Optional[list] = None, **kw):
+                 graph_sent_copy_delay: float = 0, graph_failures: Optional[list] = None,
+                 graph_calendars: Optional[list] = None, graph_calendars_consented: bool = True,
+                 graph_calendars_page_size: int = 0, graph_shared_mailbox_owner: Optional[str] = None, **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
@@ -37,12 +39,16 @@ class FakeServer(Server):
         # `graph: true` makes the account a Microsoft OAuth account: IMAP and SMTP take the
         # fake's mail-scoped access tokens, and with `graph_send` (the default) mail goes out
         # through the fake Graph API, which files its Sent Items copy in `graph_sent_copy`.
+        # `graph_shared_mailbox_owner` makes it a shared mailbox signed in as that address.
         self.graph_send = graph and graph_send
+        self.graph_shared_mailbox_owner = graph_shared_mailbox_owner
         self.graph = FakeGraphServer(graph_consented=graph_consented, consent_refusals=graph_consent_refusals,
                                      mailbox=email, aliases=graph_aliases or [], drop_graph_token=graph_drop_token,
                                      sent_copy=(self.store, graph_sent_copy) if graph_sent_copy else None,
                                      sent_copy_delay=graph_sent_copy_delay, failures=graph_failures,
-                                     deliver_to=(self.store, "INBOX", email)) if graph else None
+                                     deliver_to=(self.store, "INBOX", email), calendars=graph_calendars,
+                                     calendars_consented=graph_calendars_consented,
+                                     calendars_page_size=graph_calendars_page_size) if graph else None
         if self.graph:
             self.imap.oauth_tokens = self.graph.mail_tokens
             if self.smtp:
@@ -71,11 +77,15 @@ class FakeServer(Server):
             kw["smtp_host"], kw["smtp_port"] = "127.0.0.1", self.smtp.port
         if self.graph:
             kw["provider"] = "office365"
+            # Microsoft onboarding uses the address as both usernames; XOAUTH2 checks only the token.
+            kw["username"] = self.email
             kw["extra_settings"] = {
                 "refresh_client_id": "harness-client-id",
                 "refresh_token": self.graph.refresh_token,
                 "graph_send": self.graph_send,
             }
+            if self.graph_shared_mailbox_owner:
+                kw["extra_settings"]["smtp_username"] = self.graph_shared_mailbox_owner
         return kw
 
     def engine_env(self) -> dict:
