@@ -356,6 +356,10 @@ struct mailmime_fields * mailmime_fields_new(clist * fld_list)
 
 void mailmime_fields_free(struct mailmime_fields * fields)
 {
+  /* mailmime_fields_parse leaves its result NULL when the headers hold no MIME
+     fields, and mailmime_parse_with_default frees that result on its error paths. */
+  if (fields == NULL)
+    return;
   clist_foreach(fields->fld_list, (clist_func) mailmime_field_free, NULL);
   clist_free(fields->fld_list);
   free(fields);
