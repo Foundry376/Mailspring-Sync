@@ -253,6 +253,32 @@ def probe_idle(rig: Rig):
     return out
 
 
+def probe_idle_pending(rig: Rig):
+    """Updates already pending when IDLE starts arrive in the same segment as `+ idling`, so a
+    client that reads only the continuation line holds them in its buffer, not on the socket
+    (libetpan's mailstream_wait_idle). [HIGHESTMODSEQ] is dropped as in probe_idle."""
+    import time
+    out = {}
+    rig.b.cmd("SELECT INBOX")
+    for label, uid in (("plain", 3), ("qresync", 5)):
+        c = RawImap(rig.server.host, rig.server.port)
+        c.cmd("LOGIN test pass")
+        if label == "qresync":
+            c.cmd("ENABLE QRESYNC")
+        c.cmd("SELECT INBOX")
+        rig.b.cmd(f"UID STORE {uid} +FLAGS.SILENT (\\Deleted)")
+        rig.b.cmd(f"UID EXPUNGE {uid}")
+        time.sleep(0.5)
+        c.n += 1
+        c.idle_tag = f"a{c.n:03d}".encode()
+        c.sock.sendall(c.idle_tag + b" IDLE\r\n")
+        first = c.sock.recv(65536)
+        out[f"idle_pending_{label}"] = [normalize(l) for l in first.split(b"\r\n") if l and b"[HIGHESTMODSEQ" not in l]
+        c.idle_done()
+        c.close()
+    return out
+
+
 def _idle_lines(lines) -> list:
     keep = []
     for l in lines:
@@ -285,4 +311,4 @@ def probe_stale_fetch(rig: Rig):
 
 
 PROBES = [probe_session_setup, probe_list_status, probe_select_fetch, probe_search_keys, probe_store, probe_bulk_store_modseq, probe_changedsince,
-          probe_copy_move_append, probe_idle, probe_stale_fetch]
+          probe_copy_move_append, probe_idle, probe_idle_pending, probe_stale_fetch]
