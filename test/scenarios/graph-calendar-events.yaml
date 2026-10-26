@@ -2,9 +2,10 @@ name: graph-calendar-events
 description: >
   A Microsoft calendar's events become Event rows holding the iCalendar the client reads: each
   event is read in its own zone, a series with its edited occurrence (a row of its own) and its
-  cancelled date (an EXDATE). An event outside the sync window gets no row, one in a custom zone
-  Graph cannot convert to is read in UTC, and one Graph refuses to return is skipped without
-  stopping the rest.
+  cancelled date (an EXDATE). An event outside the sync window gets no row, while a series lasts
+  until its recurrence ends: one that began before the window is kept, one that ended before it
+  is not. One in a custom zone Graph cannot convert to is read in UTC, and one Graph refuses to
+  return is skipped without stopping the rest.
 source: "https://learn.microsoft.com/en-us/graph/api/calendar-list-events and event-get (Prefer: outlook.timezone, $expand=exceptionOccurrences)"
 env:
   CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
@@ -73,6 +74,32 @@ servers:
               isAllDay: false
               showAs: busy
               lastModifiedDateTime: "2026-10-02T12:00:00Z"
+        - id: "AAMkEvOneOnOne="
+          changeKey: "ck-one-on-one-1"
+          iCalUId: "uid-one-on-one"
+          type: seriesMaster
+          subject: One on one
+          start: {dateTime: "2024-03-04T10:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2024-03-04T10:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2024-03-01T12:00:00Z"
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [monday], firstDayOfWeek: sunday}
+            range: {type: noEnd, startDate: "2024-03-04", recurrenceTimeZone: Pacific Standard Time}
+        - id: "AAMkEvOldSeries="
+          changeKey: "ck-old-series-1"
+          iCalUId: "uid-old-series"
+          type: seriesMaster
+          subject: Old series
+          start: {dateTime: "2024-01-08T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2024-01-08T09:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2024-01-01T12:00:00Z"
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [monday], firstDayOfWeek: sunday}
+            range: {type: endDate, startDate: "2024-01-08", endDate: "2024-06-24", recurrenceTimeZone: Pacific Standard Time}
         - id: "AAMkEvKickoff="
           changeKey: "ck-kickoff-1"
           iCalUId: "uid-kickoff"
@@ -124,6 +151,8 @@ expect:
       etag: "ck-planning-1"
       ics_has: ["DTSTART;TZID=Pacific Standard Time:20261022T090000", "SUMMARY:Planning", "DESCRIPTION:Agenda"]
     "uid-kickoff|": {} # inside the window CALENDAR_SYNC_NOW pins, before today's
+    "uid-one-on-one|":
+      ics_has: ["RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU"]
     "uid-offsite|":
       ics_has: ["DTSTART;VALUE=DATE:20261106", "DTEND;VALUE=DATE:20261107", "TRANSP:TRANSPARENT"]
     "uid-standup|":
