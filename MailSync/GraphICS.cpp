@@ -22,15 +22,6 @@
 #define timegm _mkgmtime
 #endif
 
-static const json & child(const json & object, const string & key) {
-    static const json none = json::object();
-    return object.is_object() && object.count(key) && object[key].is_object() ? object[key] : none;
-}
-
-static bool flag(const json & object, const string & key) {
-    return object.is_object() && object.count(key) && object[key].is_boolean() && object[key].get<bool>();
-}
-
 // RFC 5545 section 3.3.11.
 static string escapeText(const string & text) {
     string out;
@@ -107,10 +98,6 @@ static string dateTimeProperty(const string & name, const json & dateTimeTimeZon
                         JSONString(dateTimeTimeZone, "timeZone"), allDay);
 }
 
-static int number(const json & object, const string & key) {
-    return object.is_object() && object.count(key) && object[key].is_number_integer() ? object[key].get<int>() : 0;
-}
-
 static const map<string, string> WEEKDAYS = {
     {"sunday", "SU"}, {"monday", "MO"}, {"tuesday", "TU"}, {"wednesday", "WE"},
     {"thursday", "TH"}, {"friday", "FR"}, {"saturday", "SA"},
@@ -133,8 +120,8 @@ static const time_t UNTIL_MARGIN = 2 * 60 * 60;
 
 // Graph's patternedRecurrence as an RRULE (https://learn.microsoft.com/en-us/graph/api/resources/patternedrecurrence).
 static string rruleLine(const json & recurrence, const json & start, bool allDay, time_t utcOffset) {
-    const json & pattern = child(recurrence, "pattern");
-    const json & range = child(recurrence, "range");
+    const json & pattern = JSONObject(recurrence, "pattern");
+    const json & range = JSONObject(recurrence, "range");
     string type = JSONString(pattern, "type");
     bool monthly = type == "absoluteMonthly" || type == "relativeMonthly";
     bool yearly = type == "absoluteYearly" || type == "relativeYearly";
@@ -145,33 +132,30 @@ static string rruleLine(const json & recurrence, const json & start, bool allDay
     if (rule == "") {
         return "";
     }
-    if (number(pattern, "interval") > 1) {
-        rule += ";INTERVAL=" + to_string(number(pattern, "interval"));
+    if (JSONInt(pattern, "interval") > 1) {
+        rule += ";INTERVAL=" + to_string(JSONInt(pattern, "interval"));
     }
     if (yearly) {
-        rule += ";BYMONTH=" + to_string(number(pattern, "month"));
+        rule += ";BYMONTH=" + to_string(JSONInt(pattern, "month"));
     }
     if (type == "absoluteMonthly" || type == "absoluteYearly") {
-        rule += byMonthDay(number(pattern, "dayOfMonth"), yearly ? number(pattern, "month") : 0);
+        rule += byMonthDay(JSONInt(pattern, "dayOfMonth"), yearly ? JSONInt(pattern, "month") : 0);
     }
 
     if (type == "weekly" || relative) {
-        string days;
-        size_t dayCount = 0;
-        if (pattern.count("daysOfWeek") && pattern["daysOfWeek"].is_array()) {
-            for (const auto & day : pattern["daysOfWeek"]) {
-                auto it = WEEKDAYS.find(day.is_string() ? day.get<string>() : "");
-                if (it != WEEKDAYS.end()) {
-                    days += (dayCount++ ? "," : "") + it->second;
-                }
+        vector<string> days;
+        for (const auto & day : JSONArray(pattern, "daysOfWeek")) {
+            auto it = WEEKDAYS.find(day.is_string() ? day.get<string>() : "");
+            if (it != WEEKDAYS.end()) {
+                days.push_back(it->second);
             }
         }
         auto position = SET_POSITIONS.find(JSONString(pattern, "index"));
         string setPosition = position != SET_POSITIONS.end() ? position->second : "1";
-        if (relative && dayCount == 1) {
-            rule += ";BYDAY=" + setPosition + days;
+        if (relative && days.size() == 1) {
+            rule += ";BYDAY=" + setPosition + days.front();
         } else {
-            rule += ";BYDAY=" + days + (relative ? ";BYSETPOS=" + setPosition : "");
+            rule += ";BYDAY=" + stringJoin(days, ",") + (relative ? ";BYSETPOS=" + setPosition : "");
         }
     }
     if (type == "weekly") {
@@ -183,7 +167,7 @@ static string rruleLine(const json & recurrence, const json & start, bool allDay
 
     string rangeType = JSONString(range, "type");
     if (rangeType == "numbered") {
-        rule += ";COUNT=" + to_string(number(range, "numberOfOccurrences"));
+        rule += ";COUNT=" + to_string(JSONInt(range, "numberOfOccurrences"));
     } else if (rangeType == "endDate") {
         // endDate is the inclusive last local date; a DATE-TIME UNTIL must be UTC (RFC 5545 section 3.3.10).
         time_t endDate = secondsAsUTC(JSONString(range, "endDate"));
@@ -232,51 +216,49 @@ static string participant(const string & property, const string & params, const 
 
 static void appendVEvent(string & ics, const json & event, const string & uid, const string & mailboxAddress,
                          const vector<string> & recurrenceLines) {
-    bool allDay = flag(event, "isAllDay");
+    bool allDay = JSONBool(event, "isAllDay");
     appendLine(ics, "BEGIN:VEVENT");
     appendLine(ics, "UID:" + uid);
     appendLine(ics, "DTSTAMP:" + basicDateTime(JSONString(event, "lastModifiedDateTime")) + "Z");
-    appendLine(ics, dateTimeProperty("DTSTART", child(event, "start"), allDay));
-    appendLine(ics, dateTimeProperty("DTEND", child(event, "end"), allDay));
+    appendLine(ics, dateTimeProperty("DTSTART", JSONObject(event, "start"), allDay));
+    appendLine(ics, dateTimeProperty("DTEND", JSONObject(event, "end"), allDay));
     for (const auto & line : recurrenceLines) {
         appendLine(ics, line);
     }
     appendLine(ics, "SUMMARY:" + escapeText(JSONString(event, "subject")));
 
-    string location = JSONString(child(event, "location"), "displayName");
+    string location = JSONString(JSONObject(event, "location"), "displayName");
     if (location != "") {
         appendLine(ics, "LOCATION:" + escapeText(location));
     }
-    string description = JSONString(child(event, "body"), "content");
+    string description = JSONString(JSONObject(event, "body"), "content");
     if (description != "") {
         appendLine(ics, "DESCRIPTION:" + escapeText(description));
     }
 
-    appendLine(ics, string("STATUS:") + (flag(event, "isCancelled") ? "CANCELLED" : "CONFIRMED"));
+    appendLine(ics, string("STATUS:") + (JSONBool(event, "isCancelled") ? "CANCELLED" : "CONFIRMED"));
     appendLine(ics, string("TRANSP:") + (JSONString(event, "showAs") == "free" ? "TRANSPARENT" : "OPAQUE"));
 
-    const json & organizer = child(child(event, "organizer"), "emailAddress");
+    const json & organizer = JSONObject(JSONObject(event, "organizer"), "emailAddress");
     if (JSONString(organizer, "address") != "") {
         appendLine(ics, participant("ORGANIZER", "", organizer));
     }
 
     // The mailbox's own entry in `attendees` can lag behind its answer; responseStatus doesn't.
-    string myResponse = JSONString(child(event, "responseStatus"), "response");
-    if (event.count("attendees") && event["attendees"].is_array()) {
-        for (const auto & attendee : event["attendees"]) {
-            const json & emailAddress = child(attendee, "emailAddress");
-            string address = JSONString(emailAddress, "address");
-            if (address == "") {
-                continue;
-            }
-            bool mine = myResponse != "" && equalsIgnoreCase(address, mailboxAddress);
-            string response = mine ? myResponse : JSONString(child(attendee, "status"), "response");
-            string type = JSONString(attendee, "type");
-            string role = type == "resource" ? ";CUTYPE=RESOURCE;ROLE=NON-PARTICIPANT"
-                        : type == "optional" ? ";ROLE=OPT-PARTICIPANT"
-                        : ";ROLE=REQ-PARTICIPANT";
-            appendLine(ics, participant("ATTENDEE", role + ";PARTSTAT=" + partstatFor(response), emailAddress));
+    string myResponse = JSONString(JSONObject(event, "responseStatus"), "response");
+    for (const auto & attendee : JSONArray(event, "attendees")) {
+        const json & emailAddress = JSONObject(attendee, "emailAddress");
+        string address = JSONString(emailAddress, "address");
+        if (address == "") {
+            continue;
         }
+        bool mine = myResponse != "" && equalsIgnoreCase(address, mailboxAddress);
+        string response = mine ? myResponse : JSONString(JSONObject(attendee, "status"), "response");
+        string type = JSONString(attendee, "type");
+        string role = type == "resource" ? ";CUTYPE=RESOURCE;ROLE=NON-PARTICIPANT"
+                    : type == "optional" ? ";ROLE=OPT-PARTICIPANT"
+                    : ";ROLE=REQ-PARTICIPANT";
+        appendLine(ics, participant("ATTENDEE", role + ";PARTSTAT=" + partstatFor(response), emailAddress));
     }
     appendLine(ics, "END:VEVENT");
 }
@@ -284,22 +266,20 @@ static void appendVEvent(string & ics, const json & event, const string & uid, c
 string GraphICS::icsForEvent(const json & event, const string & mailboxAddress, const string & startUTC) {
     // Occurrences carry their own iCalUId; the series shares the master's.
     string uid = JSONString(event, "iCalUId");
-    bool allDay = flag(event, "isAllDay");
-    const json & start = child(event, "start");
+    bool allDay = JSONBool(event, "isAllDay");
+    const json & start = JSONObject(event, "start");
     time_t utcOffset = secondsAsUTC(JSONString(start, "dateTime")) - secondsAsUTC(startUTC);
 
     vector<string> seriesLines;
-    const json & recurrence = child(event, "recurrence");
+    const json & recurrence = JSONObject(event, "recurrence");
     if (!recurrence.empty()) {
         string rrule = rruleLine(recurrence, start, allDay, utcOffset);
         if (rrule != "") {
             seriesLines.push_back(rrule);
         }
-        if (event.count("cancelledOccurrences") && event["cancelledOccurrences"].is_array()) {
-            for (const auto & occurrenceId : event["cancelledOccurrences"]) {
-                if (occurrenceId.is_string()) {
-                    seriesLines.push_back(exdateLine(occurrenceId.get<string>(), start, allDay));
-                }
+        for (const auto & occurrenceId : JSONArray(event, "cancelledOccurrences")) {
+            if (occurrenceId.is_string()) {
+                seriesLines.push_back(exdateLine(occurrenceId.get<string>(), start, allDay));
             }
         }
     }
@@ -309,10 +289,8 @@ string GraphICS::icsForEvent(const json & event, const string & mailboxAddress, 
     appendLine(ics, "VERSION:2.0");
     appendLine(ics, "PRODID:-//Mailspring//Microsoft Graph//EN");
     appendVEvent(ics, event, uid, mailboxAddress, seriesLines);
-    if (event.count("exceptionOccurrences") && event["exceptionOccurrences"].is_array()) {
-        for (const auto & exception : event["exceptionOccurrences"]) {
-            appendVEvent(ics, exception, uid, mailboxAddress, {recurrenceIdLine(exception, allDay, utcOffset)});
-        }
+    for (const auto & exception : JSONArray(event, "exceptionOccurrences")) {
+        appendVEvent(ics, exception, uid, mailboxAddress, {recurrenceIdLine(exception, allDay, utcOffset)});
     }
     appendLine(ics, "END:VCALENDAR");
     return ics;

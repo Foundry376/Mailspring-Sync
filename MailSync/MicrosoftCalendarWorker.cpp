@@ -58,7 +58,7 @@ void MicrosoftCalendarWorker::run() {
 void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const string & id, const string & path, const json & remote) {
     string name = JSONString(remote, "name");
     string color = JSONString(remote, "hexColor");
-    string owner = remote.count("owner") && remote["owner"].is_object() ? JSONString(remote["owner"], "address") : "";
+    string owner = JSONString(JSONObject(remote, "owner"), "address");
     string ownership = owner == "" ? "" : equalsIgnoreCase(owner, account->emailAddress()) ? "mine" : "other";
     // Read-only until event edits go through Graph: TaskProcessor writes events with DAVWorker.
     bool readOnly = true;
