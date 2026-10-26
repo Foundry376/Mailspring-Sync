@@ -1,0 +1,27 @@
+name: graph-calendar-events-batched
+description: >
+  Changed events are read 20 to a $batch request, each response matched to its request by id
+  (Graph answers out of order). A read Graph throttles inside a batch is retried after its
+  Retry-After, and the rest of the batch is not read again.
+source: "https://learn.microsoft.com/en-us/graph/json-batching (20 requests; responses in any order; 429 per request)"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_generated_events: 21
+    graph_failures:
+      - {route: "^events/AAMkEvGen05=$", method: GET, status: 429, code: TooManyRequests, times: 1, retry_after: 1}
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, canEdit: true, owner: {name: Harness Test, address: test@example.test}}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+expect:
+  event_count: 21
+  graph: {requests: {"/v1.0/\\$batch$": 3, "/me/events/AAMkEvGen05=": 2, "/me/events/AAMkEvGen06=": 1}}
+  log_present: ["Graph throttled 1 event reads"]
+  running: true

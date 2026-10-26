@@ -18,13 +18,20 @@
 #include "XOAuth2TokenManager.hpp"
 #include "strlib.h"
 
+#include <algorithm>
+#include <chrono>
 #include <set>
+#include <thread>
 
 static const string CALENDAR_FIELDS = "id,name,hexColor,canEdit,owner";
 static const string EVENT_INDEX_FIELDS = "id,changeKey,type,start,end,recurrence,originalStartTimeZone";
 static const string EVENT_FIELDS = "id,iCalUId,type,subject,body,start,end,isAllDay,isCancelled,showAs,location,"
                                    "organizer,attendees,responseStatus,lastModifiedDateTime,recurrence,originalStart";
 static const string SERIES_FIELDS = EVENT_FIELDS + ",cancelledOccurrences,exceptionOccurrences";
+
+// Graph JSON batching takes up to 20 requests (https://learn.microsoft.com/en-us/graph/json-batching).
+static const size_t GRAPH_BATCH_SIZE = 20;
+static const int GRAPH_BATCH_ATTEMPTS = 3;
 
 // "2026-10-22T09:00:00.0000000" as 20261022T090000, "2026-12-31" as 20261231.
 static string compact(const string & extended) {
@@ -132,38 +139,91 @@ void MicrosoftCalendarWorker::syncEvents(const string & calendarId, const string
         transaction.commit();
     }
 
-    size_t fetched = 0;
+    vector<json> changed {};
     for (auto & pair : remote) {
         auto it = localByHref.find(pair.first);
-        bool current = it != localByHref.end() && it->second.front()->etag() == JSONString(pair.second, "changeKey");
-        if (current) {
-            continue;
-        }
-        try {
-            json event = fetchEvent(pair.second, accessToken);
-            string startUTC = JSONString(JSONObject(pair.second, "start"), "dateTime");
-            string ics = GraphICS::icsForEvent(event, account->emailAddress(), startUTC);
-            ingestEvent(calendarId, pair.second, ics, it != localByHref.end() ? it->second : vector<shared_ptr<Event>>{});
-            fetched++;
-        } catch (SyncException & e) {
-            // One unreadable event keeps its rows and is retried next pass; the rest still sync.
-            if (!e.isRetryable() || e.isOffline()) {
-                throw;
-            }
-            logger->warn("-X Graph event {} could not be read: {}", pair.first, e.debuginfo);
+        if (it == localByHref.end() || it->second.front()->etag() != JSONString(pair.second, "changeKey")) {
+            changed.push_back(pair.second);
         }
     }
-    logger->info("- {} events in range, {} fetched, {} rows removed", remote.size(), fetched, removedCount);
+    size_t changedCount = changed.size(); // chunksOfVector empties `changed`
+    size_t fetched = 0;
+    for (auto & chunk : MailUtils::chunksOfVector(changed, GRAPH_BATCH_SIZE)) {
+        map<string, json> events = fetchEvents(chunk, accessToken);
+        for (auto & entry : chunk) {
+            string graphId = JSONString(entry, "id");
+            if (!events.count(graphId)) {
+                continue;
+            }
+            auto it = localByHref.find(graphId);
+            string startUTC = JSONString(JSONObject(entry, "start"), "dateTime");
+            string ics = GraphICS::icsForEvent(events[graphId], account->emailAddress(), startUTC);
+            ingestEvent(calendarId, entry, ics, it != localByHref.end() ? it->second : vector<shared_ptr<Event>>{});
+            fetched++;
+        }
+    }
+    logger->info("- {} events in range, {} of {} changed fetched, {} rows removed", remote.size(), fetched,
+                 changedCount, removedCount);
 }
 
-json MicrosoftCalendarWorker::fetchEvent(const json & entry, const string & accessToken) {
+// A $batch request reading one listed event. A batched request carries only its own headers, and
+// one value per header, so the preferences share one Prefer (RFC 7240 section 2).
+static json eventRequest(const json & entry, const string & requestId) {
     bool series = JSONString(entry, "type") == "seriesMaster";
-    string url = MicrosoftGraphURL() + "/me/events/" + URLEscape(JSONString(entry, "id")) + "?$select=" +
+    string url = "/me/events/" + URLEscape(JSONString(entry, "id")) + "?$select=" +
                  (series ? SERIES_FIELDS + "&$expand=exceptionOccurrences" : EVENT_FIELDS);
-    return graphGET(url, accessToken, {
-        "Prefer: outlook.timezone=\"" + zoneToReadIn(entry) + "\"",
-        "Prefer: outlook.body-content-type=\"text\"",
-    });
+    string prefer = "IdType=\"ImmutableId\", outlook.timezone=\"" + zoneToReadIn(entry) +
+                    "\", outlook.body-content-type=\"text\"";
+    return {{"id", requestId}, {"method", "GET"}, {"url", url}, {"headers", {{"Prefer", prefer}}}};
+}
+
+// The listed events read in full, by Graph id. An event Graph fails to return is left out, so it
+// keeps its rows and is read again next pass; one it throttles is retried after Retry-After.
+map<string, json> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entries, const string & accessToken) {
+    map<string, json> events {};
+    vector<json> pending = entries;
+    for (int attempt = 0; attempt < GRAPH_BATCH_ATTEMPTS && !pending.empty(); attempt++) {
+        json requests = json::array();
+        for (size_t i = 0; i < pending.size(); i++) {
+            requests.push_back(eventRequest(pending[i], to_string(i)));
+        }
+        string url = MicrosoftGraphURL() + "/$batch";
+        GraphResponse resp = PerformGraphRequest("POST", url, accessToken, json{{"requests", requests}}.dump());
+        if (!resp.ok()) {
+            throwForGraphResponse(url, resp);
+        }
+
+        vector<json> throttled {};
+        long wait = 1;
+        for (const auto & response : JSONArray(resp.body, "responses")) {
+            size_t index = (size_t)atoi(JSONString(response, "id").c_str());
+            if (index >= pending.size()) {
+                continue;
+            }
+            const json & entry = pending[index];
+            string graphId = JSONString(entry, "id");
+            long status = JSONInt(response, "status");
+            if (status >= 200 && status <= 299) {
+                events[graphId] = JSONObject(response, "body");
+            } else if (status == 429 || status == 503) {
+                throttled.push_back(entry);
+                wait = (std::max)(wait, (long)ParseRetryAfter(JSONString(JSONObject(response, "headers"), "Retry-After")));
+            } else if (status == 401 || status == 403) {
+                throw SyncException("Invalid Response Code: " + to_string(status), url + " RETURNED for " + graphId, false);
+            } else {
+                logger->warn("-X Graph event {} could not be read: HTTP {}", graphId, status);
+            }
+        }
+        pending = throttled;
+        if (!pending.empty() && attempt + 1 < GRAPH_BATCH_ATTEMPTS) {
+            logger->info("-- Graph throttled {} event reads, retrying in {}s", pending.size(), (std::min)(wait, 30L));
+            std::this_thread::sleep_for(std::chrono::seconds((std::min)(wait, 30L)));
+        }
+    }
+    for (auto & entry : pending) {
+        logger->warn("-X Graph event {} could not be read: still throttled", JSONString(entry, "id"));
+    }
+    return events;
 }
 
 // One row per VEVENT, keyed by UID and RECURRENCE-ID; rows of the event no longer in its ICS go.
@@ -246,12 +306,16 @@ void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const s
 }
 
 // Keyed like ValidateRequestResp's errors, so runCalContactsSyncWorker stops on a 401 or 403.
-json MicrosoftCalendarWorker::graphGET(const string & url, const string & accessToken, const vector<string> & headers) {
-    GraphResponse resp = PerformGraphRequest("GET", url, accessToken, "", "application/json", headers);
+void MicrosoftCalendarWorker::throwForGraphResponse(const string & url, const GraphResponse & resp) {
+    bool retryable = resp.status != 401 && resp.status != 403;
+    throw SyncException("Invalid Response Code: " + to_string(resp.status),
+                        url + " RETURNED " + GraphErrorDescription(resp), retryable);
+}
+
+json MicrosoftCalendarWorker::graphGET(const string & url, const string & accessToken) {
+    GraphResponse resp = PerformGraphRequest("GET", url, accessToken);
     if (!resp.ok()) {
-        bool retryable = resp.status != 401 && resp.status != 403;
-        throw SyncException("Invalid Response Code: " + to_string(resp.status),
-                            url + " RETURNED " + GraphErrorDescription(resp), retryable);
+        throwForGraphResponse(url, resp);
     }
     return resp.body;
 }
