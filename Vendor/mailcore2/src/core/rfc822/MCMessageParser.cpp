@@ -63,7 +63,12 @@ void MessageParser::setBytes(char * dataBytes, unsigned int dataLength)
     
     msg = data_message_init(dataBytes, dataLength);
     mailmessage_get_bodystructure(msg, &mime);
-    mMainPart = (AbstractPart *) Attachment::attachmentsWithMIME(msg->msg_mime)->retain();
+    // msg_mime is NULL when mailmime_parse fails, e.g. past libetpan's MIME nesting limit.
+    if (msg->msg_mime == NULL) {
+        mMainPart = (AbstractPart *) Attachment::attachmentWithText(MCSTR(""))->retain();
+    } else {
+        mMainPart = (AbstractPart *) Attachment::attachmentsWithMIME(msg->msg_mime)->retain();
+    }
     mMainPart->applyUniquePartID();
     
     size_t cur_token = 0;
