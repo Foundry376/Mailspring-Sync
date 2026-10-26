@@ -70,8 +70,6 @@ public:
 
     DAVWorker(shared_ptr<Account> account);
     
-    void run();
-    
     shared_ptr<ContactBook> resolveAddressBook();
     string resolveCalendarHomeURL();
 

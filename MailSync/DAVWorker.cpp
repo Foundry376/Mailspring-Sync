@@ -309,11 +309,6 @@ DAVWorker::DAVWorker(shared_ptr<Account> account) :
     xmlInitParser();
 }
 
-void DAVWorker::run() {
-    runContacts();
-    runCalendars();
-}
-
 void DAVWorker::runContacts() {
     if (account->provider() == "gmail") {
         // Gmail sync uses a separate GoogleContactsWorker

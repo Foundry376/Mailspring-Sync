@@ -12,6 +12,7 @@
 #include <algorithm>
 #include "Account.hpp"
 #include "MailUtils.hpp"
+#include "strlib.h"
 #include "Thread.hpp"
 #include "Message.hpp"
 
@@ -169,6 +170,15 @@ bool Account::createHelperFolders() {
 bool Account::sendsViaGraph() {
     json & s = _data["settings"];
     return s.count("graph_send") && s["graph_send"].is_boolean() && s["graph_send"].get<bool>();
+}
+
+// A shared mailbox signs in as its owner (smtp_username), so Graph's /me would be the owner's
+// calendars rather than the mailbox's.
+bool Account::syncsCalendarsViaGraph() {
+    if (provider() != "office365" && provider() != "outlook") {
+        return false;
+    }
+    return SMTPUsername() == "" || equalsIgnoreCase(SMTPUsername(), emailAddress());
 }
 
 string Account::constructorName() {

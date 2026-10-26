@@ -20,6 +20,7 @@
 		4348E5D21F55E7AB004CFB15 /* XOAuth2TokenManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5D11F55E7AB004CFB15 /* XOAuth2TokenManager.cpp */; };
 		4348E5DC1F560FAC004CFB15 /* MailStoreTransaction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */; };
 		43A1C0B02E9E10010000A001 /* Placement.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A1C0B12E9E10010000A002 /* Placement.cpp */; };
+		43B7C1A02F9C00010000C001 /* MicrosoftCalendarWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B7C1A12F9C00010000C002 /* MicrosoftCalendarWorker.cpp */; };
 		43617D841F3D4DDA00DB566D /* libMailCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43617D731F3D4D4300DB566D /* libMailCore.a */; };
 		436489341EF2E905007816EC /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489331EF2E905007816EC /* main.cpp */; };
 		436489581EF2E94B007816EC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489571EF2E94B007816EC /* Security.framework */; };
@@ -184,6 +185,8 @@
 		4348E5DD1F560FDF004CFB15 /* MailStoreTransaction.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MailStoreTransaction.hpp; sourceTree = "<group>"; };
 		43A1C0B12E9E10010000A002 /* Placement.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Placement.cpp; sourceTree = "<group>"; };
 		43A1C0B22E9E10010000A003 /* Placement.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Placement.hpp; sourceTree = "<group>"; };
+		43B7C1A12F9C00010000C002 /* MicrosoftCalendarWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MicrosoftCalendarWorker.cpp; sourceTree = "<group>"; };
+		43B7C1A22F9C00010000C003 /* MicrosoftCalendarWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MicrosoftCalendarWorker.hpp; sourceTree = "<group>"; };
 		4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = SPDLogExtensions.hpp; sourceTree = "<group>"; };
 		4349AAD62E77874500512188 /* CODE_SIGN_STYLE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = CODE_SIGN_STYLE.txt; sourceTree = "<group>"; };
 		43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = mailcore2.xcodeproj; path = "Vendor/mailcore2/build-mac/mailcore2.xcodeproj"; sourceTree = "<group>"; };
@@ -390,6 +393,8 @@
 				43C127D3234AB218004DDDC4 /* DAVUtils.cpp */,
 				4385C98B233AA6FD00E5A357 /* GoogleContactsWorker.hpp */,
 				4385C98C233AA6FE00E5A357 /* GoogleContactsWorker.cpp */,
+				43B7C1A22F9C00010000C003 /* MicrosoftCalendarWorker.hpp */,
+				43B7C1A12F9C00010000C002 /* MicrosoftCalendarWorker.cpp */,
 				4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */,
 				432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */,
 				432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */,
@@ -732,6 +737,7 @@
 				4364898C1EF2F905007816EC /* Statement.cpp in Sources */,
 				43A687EB220EB40F000D75CC /* date.cpp in Sources */,
 				4385C98D233AA6FE00E5A357 /* GoogleContactsWorker.cpp in Sources */,
+				43B7C1A02F9C00010000C001 /* MicrosoftCalendarWorker.cpp in Sources */,
 				432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */,
 				4364898B1EF2F905007816EC /* Exception.cpp in Sources */,
 				4364898D1EF2F905007816EC /* Transaction.cpp in Sources */,

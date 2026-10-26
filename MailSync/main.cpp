@@ -38,6 +38,7 @@
 #include "MetadataExpirationWorker.hpp"
 #include "DAVWorker.hpp"
 #include "GoogleContactsWorker.hpp"
+#include "MicrosoftCalendarWorker.hpp"
 #include "SyncException.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
@@ -62,6 +63,7 @@ shared_ptr<SyncWorker> bgWorker = nullptr;
 shared_ptr<SyncWorker> fgWorker = nullptr;
 shared_ptr<DAVWorker> davWorker = nullptr;
 shared_ptr<GoogleContactsWorker> contactsWorker = nullptr;
+shared_ptr<MicrosoftCalendarWorker> microsoftCalendarWorker = nullptr;
 
 shared_ptr<MetadataWorker> metadataWorker = nullptr;
 shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
@@ -324,7 +326,10 @@ void runCalContactsSyncWorker() {
                 if (contactsWorker) {
                     contactsWorker->run();
                 }
-                davWorker->run();
+                davWorker->runContacts();
+            }
+            if (microsoftCalendarWorker) {
+                microsoftCalendarWorker->run();
             } else {
                 davWorker->runCalendars();
             }
@@ -940,7 +945,11 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                             // Calendars only: contact sync spends a separate, scarcer API
                             // quota and has no ctag early-out, so it keeps its own cadence
                             // rather than riding every manual calendar refresh.
-                            DAVWorker(account).runCalendars();
+                            if (account->syncsCalendarsViaGraph()) {
+                                MicrosoftCalendarWorker(account).run();
+                            } else {
+                                DAVWorker(account).runCalendars();
+                            }
                         } catch (...) {
                             // A refresh failing must not take the process down; the periodic
                             // worker retries on its own schedule.
@@ -1160,6 +1169,9 @@ string exectuablePath = argv[0];
             SetThreadName("calContacts");
             if (account->provider() == "gmail") {
                 contactsWorker = make_shared<GoogleContactsWorker>(account);
+            }
+            if (account->syncsCalendarsViaGraph()) {
+                microsoftCalendarWorker = make_shared<MicrosoftCalendarWorker>(account);
             }
             davWorker = make_shared<DAVWorker>(account);
             runCalContactsSyncWorker();

@@ -1,0 +1,20 @@
+name: graph-calendars-shared-mailbox
+description: >
+  An Office 365 shared mailbox signs in as its owner (smtp_username), so Graph's /me is the
+  owner's mailbox. Its calendars must not come from /me/calendars, or the owner's calendars
+  would appear under the shared account: it stays on the CalDAV path and never asks for a
+  Graph calendar token.
+source: "Mailspring-Sync #116 (shared mailboxes: IMAP as the mailbox, SMTP AUTH as the owner)"
+servers:
+  - {fake: outlook, graph: true, graph_send: false, graph_shared_mailbox_owner: owner@example.test,
+     graph_calendars: [{id: "AAMkADOwner=", name: Calendar, canEdit: true,
+                        owner: {name: Owner, address: owner@example.test}}]}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Performing CalDAV calendar home-set discovery", timeout: 90}
+  - wait: quiescent
+expect:
+  calendars: {}
+  graph: {graph_calendar_token_requests: 0}
+  running: true

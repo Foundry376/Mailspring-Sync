@@ -60,6 +60,7 @@ public:
     string SMTPVerification();
     bool createHelperFolders();
     bool sendsViaGraph();
+    bool syncsCalendarsViaGraph();
 
     string tableName();
     string constructorName();
