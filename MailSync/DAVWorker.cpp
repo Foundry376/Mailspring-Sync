@@ -1601,17 +1601,9 @@ void DAVWorker::runCalendars() {
                 continue;
             }
             auto calendar = local[id];
-            auto events = store->findAll<Event>(Query().equal("calendarId", id));
-            {
-                MailStoreTransaction transaction{store, "pruneCalendar"};
-                for (auto & event : events) {
-                    store->remove(event.get());
-                }
-                store->remove(calendar.get());
-                transaction.commit();
-            }
+            size_t removed = store->removeCalendarAndEvents(calendar.get());
             logger->info("Removed calendar '{}' and its {} events; the server no longer lists it",
-                         calendar->name(), events.size());
+                         calendar->name(), removed);
         }
     }
 }

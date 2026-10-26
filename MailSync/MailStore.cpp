@@ -15,6 +15,7 @@
 #include "SyncException.hpp"
 #include "constants.h"
 
+#include "Calendar.hpp"
 #include "Event.hpp"
 #include "icalendar.h"
 #include "Folder.hpp"
@@ -824,6 +825,18 @@ void MailStore::remove(MailModel * model) {
 
     DeltaStreamItem delta {DELTA_TYPE_UNPERSIST, model};
     _emit(delta);
+}
+
+size_t MailStore::removeCalendarAndEvents(Calendar * calendar) {
+    assertCorrectThread();
+    auto events = findAll<Event>(Query().equal("calendarId", calendar->id()));
+    MailStoreTransaction transaction{this, "removeCalendarAndEvents"};
+    for (auto & event : events) {
+        remove(event.get());
+    }
+    remove(calendar);
+    transaction.commit();
+    return events.size();
 }
 
 

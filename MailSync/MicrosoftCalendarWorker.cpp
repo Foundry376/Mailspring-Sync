@@ -9,8 +9,6 @@
 //
 
 #include "MicrosoftCalendarWorker.hpp"
-#include "Event.hpp"
-#include "MailStoreTransaction.hpp"
 #include "MailUtils.hpp"
 #include "NetworkRequestUtils.hpp"
 #include "SyncException.hpp"
@@ -49,7 +47,9 @@ void MicrosoftCalendarWorker::run() {
 
     for (auto & pair : local) {
         if (!listedIds.count(pair.first)) {
-            removeCalendar(pair.second);
+            size_t removed = store->removeCalendarAndEvents(pair.second.get());
+            logger->info("Removed calendar '{}' and its {} events; Graph no longer lists it",
+                         pair.second->name(), removed);
         }
     }
     logger->info("Microsoft calendar sync complete: {} calendars", listedIds.size());
@@ -97,20 +97,6 @@ void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const s
     if (changed) {
         store->save(local.get());
     }
-}
-
-void MicrosoftCalendarWorker::removeCalendar(shared_ptr<Calendar> calendar) {
-    auto events = store->findAll<Event>(Query().equal("calendarId", calendar->id()));
-    {
-        MailStoreTransaction transaction{store.get(), "removeCalendar"};
-        for (auto & event : events) {
-            store->remove(event.get());
-        }
-        store->remove(calendar.get());
-        transaction.commit();
-    }
-    logger->info("Removed calendar '{}' and its {} events; Graph no longer lists it",
-                 calendar->name(), events.size());
 }
 
 // Keyed like ValidateRequestResp's errors, so runCalContactsSyncWorker stops on a 401 or 403.
