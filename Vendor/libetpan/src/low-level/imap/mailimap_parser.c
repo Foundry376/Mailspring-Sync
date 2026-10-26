@@ -1803,6 +1803,11 @@ static int mailimap_body_parse(mailstream * fd, MMAPString * buffer, struct mail
   int r;
   int res;
 
+  /* Bound both recursive BODY grammars, including MESSAGE/RFC822 bodies. */
+  if (parser_ctx->body_parse_depth >= 100)
+    return MAILIMAP_ERROR_PARSE;
+  parser_ctx->body_parse_depth++;
+
   cur_token = * indx;
 
   body_type_1part = NULL;
@@ -1850,6 +1855,7 @@ static int mailimap_body_parse(mailstream * fd, MMAPString * buffer, struct mail
   * result = body;
   * indx = cur_token;
   
+  parser_ctx->body_parse_depth--;
   return MAILIMAP_NO_ERROR;
 
  free:
@@ -1858,6 +1864,7 @@ static int mailimap_body_parse(mailstream * fd, MMAPString * buffer, struct mail
   if (body_type_mpart)
     mailimap_body_type_mpart_free(body_type_mpart);
  err:
+  parser_ctx->body_parse_depth--;
   return res;
 }
 
@@ -1953,6 +1960,11 @@ mailimap_body_extension_parse(mailstream * fd, MMAPString * buffer, struct maili
   int r;
   int res;
 
+  /* Bound both recursive BODY grammars, including MESSAGE/RFC822 bodies. */
+  if (parser_ctx->body_parse_depth >= 100)
+    return MAILIMAP_ERROR_PARSE;
+  parser_ctx->body_parse_depth++;
+
   cur_token = * indx;
 
   nstring = NULL;
@@ -1997,6 +2009,7 @@ mailimap_body_extension_parse(mailstream * fd, MMAPString * buffer, struct maili
   * result = body_extension;
   * indx = cur_token;
 
+  parser_ctx->body_parse_depth--;
   return MAILIMAP_NO_ERROR;
 
  free:
@@ -2009,6 +2022,7 @@ mailimap_body_extension_parse(mailstream * fd, MMAPString * buffer, struct maili
     clist_free(body_extension_list);
   }
  err:
+  parser_ctx->body_parse_depth--;
   return res;
 }
 
@@ -6082,6 +6096,10 @@ static int is_list_wildcards(char ch)
 */
 
 #define MAX_READ_PROGRESS 65536
+/* Upstream caps literals at 64 MiB, but whole-message fetches can legitimately exceed that
+   (Exchange accepts 150 MB). 1 GiB still stops a {4294967295} literal from wrapping the
+   buffer size on 32-bit Windows builds. */
+#define MAILIMAP_LITERAL_SIZE_MAX (1024U * 1024U * 1024U)
 
 static int mailimap_literal_parse_progress(mailstream * fd, MMAPString * buffer, struct mailimap_parser_context * parser_ctx,
                                            size_t * indx, char ** result,
@@ -6149,6 +6167,11 @@ static int mailimap_literal_parse_progress(mailstream * fd, MMAPString * buffer,
 	}
   else if (r != MAILIMAP_NO_ERROR) {
     res = r;
+    goto err;
+  }
+
+  if (number > MAILIMAP_LITERAL_SIZE_MAX) {
+    res = MAILIMAP_ERROR_PARSE;
     goto err;
   }
 
@@ -6250,7 +6273,7 @@ static int mailimap_literal_parse_progress(mailstream * fd, MMAPString * buffer,
         }
       }
 
-      if (read_bytes == -1) {
+      if (read_bytes <= 0) {
         res = MAILIMAP_ERROR_STREAM;
         goto free_literal;
       }
@@ -10174,8 +10197,10 @@ mailimap_resp_text_code_permanentflags_parse(mailstream * fd,
   return MAILIMAP_NO_ERROR;
 
  free:
-  clist_foreach(flaglist, (clist_func) mailimap_flag_perm_free, NULL);
-  clist_free(flaglist);
+  if (flaglist != NULL) {
+    clist_foreach(flaglist, (clist_func) mailimap_flag_perm_free, NULL);
+    clist_free(flaglist);
+  }
  err:
   return res;
 }
@@ -10555,7 +10580,7 @@ mailimap_section_parse(mailstream * fd, MMAPString * buffer, struct mailimap_par
   r = mailimap_cbracket_parse(fd, buffer, parser_ctx, &cur_token);
   if (r != MAILIMAP_NO_ERROR) {
     res = r;
-    goto err;
+    goto free;
   }
 
   if (section_spec == NULL)
@@ -10574,7 +10599,8 @@ mailimap_section_parse(mailstream * fd, MMAPString * buffer, struct mailimap_par
   return MAILIMAP_NO_ERROR;
 
  free:
-  mailimap_section_spec_free(section_spec);
+  if (section_spec != NULL)
+    mailimap_section_spec_free(section_spec);
  err:
   return res;
 }
@@ -11422,4 +11448,3 @@ static int has_crlf(MMAPString * buffer, size_t index)
   }
   return 0;
 }
-
