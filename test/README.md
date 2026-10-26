@@ -340,6 +340,7 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | search-index-legacy-length | text indexed at 5 000 characters is extended in place when the body is fetched again | fake |
 | search-index-body-fetched-again | a body fetched again (need-bodies, moved into INBOX) is indexed once | fake ×2, dovecot |
 | body-fetch-connection-dropped | a connection lost mid-batch releases the body fetches not yet attempted | fake |
+| body-fetch-interrupted-by-quit | a quit (SIGTERM) mid-batch: the next launch releases the body fetches not yet attempted | fake ×2 |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up

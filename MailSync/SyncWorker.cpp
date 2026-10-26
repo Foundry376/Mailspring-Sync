@@ -1606,8 +1606,9 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
  Returns the messages among `ids` that have no MessageBody row, in the order given, after
  inserting an empty one for each. The re-check and insert share a transaction, so the empty
  row reserves the message for this worker and the other cannot fetch it at the same time.
- The row also means each message is fetched once: otherwise a persistent ErrorFetch or crash
- for a single message can cause the account to stay "syncing" forever.
+ syncReservedMessageBodies stamps the row's fetchedAt just before the fetch, and an attempted
+ row is kept if the fetch fails, so each message is fetched once: otherwise a persistent
+ ErrorFetch or crash for a single message can cause the account to stay "syncing" forever.
  */
 vector<shared_ptr<Message>> SyncWorker::reserveMissingBodies(const vector<string> & ids) {
     vector<shared_ptr<Message>> results{};
@@ -1653,7 +1654,11 @@ vector<shared_ptr<Message>> SyncWorker::reserveMissingBodies(const vector<string
  fetches them, while the one that failed keeps its reservation like any other failed fetch.
  */
 void SyncWorker::syncReservedMessageBodies(vector<shared_ptr<Message>> & reserved, Folder & folder) {
+    SQLite::Statement markAttempted(store->db(), "UPDATE MessageBody SET fetchedAt = datetime('now') WHERE id = ? AND value IS NULL");
     for (size_t ii = 0; ii < reserved.size(); ii++) {
+        markAttempted.bind(1, reserved[ii]->id());
+        markAttempted.exec();
+        markAttempted.reset();
         try {
             syncMessageBody(reserved[ii].get(), &folder);
         } catch (...) {
@@ -1669,6 +1674,20 @@ void SyncWorker::syncReservedMessageBodies(vector<shared_ptr<Message>> & reserve
             }
             throw;
         }
+    }
+}
+
+/*
+ Releases the body reservations a previous run made and never attempted, because the process
+ was stopped mid-batch: the client quits mailsync with SIGTERM. Call it before either worker
+ fetches bodies.
+ */
+void SyncWorker::releaseUnattemptedBodyFetches() {
+    SQLite::Statement release(store->db(), "DELETE FROM MessageBody WHERE value IS NULL AND fetchedAt IS NULL AND id IN (SELECT id FROM Message WHERE accountId = ?)");
+    release.bind(1, account->id());
+    int released = release.exec();
+    if (released > 0) {
+        logger->info("Released {} body fetches left reserved by the previous run.", released);
     }
 }
 
