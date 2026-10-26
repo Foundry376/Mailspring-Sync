@@ -3104,6 +3104,82 @@ Data * IMAPSession::fetchMessageByNumber(String * folder, uint32_t number,
     return fetchMessage(folder, false, number, progressCallback, pError);
 }
 
+HashMap * IMAPSession::fetchMessagesRawByUID(String * folder, IndexSet * uids,
+                                             IMAPProgressCallback * progressCallback, ErrorCode * pError)
+{
+    struct mailimap_section * section;
+    struct mailimap_fetch_att * fetch_att;
+    struct mailimap_fetch_type * fetch_type;
+    struct mailimap_set * set;
+    clist * fetch_result;
+    clistiter * iter;
+    int r;
+
+    selectIfNeeded(folder, pError);
+    if (* pError != ErrorNone)
+        return NULL;
+
+    mProgressItemsCount = 0;
+    mProgressCallback = progressCallback;
+
+    section = mailimap_section_new(NULL);
+    fetch_att = mailimap_fetch_att_new_body_peek_section(section);
+    fetch_type = mailimap_fetch_type_new_fetch_att(fetch_att);
+    set = setFromIndexSet(uids);
+    r = mailimap_uid_fetch(mImap, set, fetch_type, &fetch_result);
+    mailimap_set_free(set);
+    mailimap_fetch_type_free(fetch_type);
+    mProgressCallback = NULL;
+
+    if (r == MAILIMAP_ERROR_STREAM) {
+        mShouldDisconnect = true;
+        * pError = ErrorConnection;
+        return NULL;
+    }
+    else if (r == MAILIMAP_ERROR_PARSE) {
+        mShouldDisconnect = true;
+        * pError = ErrorParse;
+        return NULL;
+    }
+    else if (hasError(r)) {
+        * pError = ErrorFetch;
+        return NULL;
+    }
+
+    HashMap * result = HashMap::hashMap();
+    for (iter = clist_begin(fetch_result) ; iter != NULL ; iter = clist_next(iter)) {
+        struct mailimap_msg_att * msg_att = (struct mailimap_msg_att *) clist_content(iter);
+        uint32_t uid = 0;
+        char * text = NULL;
+        size_t text_length = 0;
+        clistiter * cur;
+        // A UID FETCH response always carries UID (RFC 3501 6.4.8); the body section is the
+        // part this fetch asked for.
+        for (cur = clist_begin(msg_att->att_list) ; cur != NULL ; cur = clist_next(cur)) {
+            struct mailimap_msg_att_item * item = (struct mailimap_msg_att_item *) clist_content(cur);
+            if (item->att_type != MAILIMAP_MSG_ATT_ITEM_STATIC) {
+                continue;
+            }
+            struct mailimap_msg_att_static * att_static = item->att_data.att_static;
+            if (att_static->att_type == MAILIMAP_MSG_ATT_UID) {
+                uid = att_static->att_data.att_uid;
+            }
+            else if (att_static->att_type == MAILIMAP_MSG_ATT_BODY_SECTION) {
+                text = att_static->att_data.att_body_section->sec_body_part;
+                text_length = att_static->att_data.att_body_section->sec_length;
+            }
+        }
+        if (uid == 0 || text == NULL) {
+            continue;
+        }
+        result->setObjectForKey(Value::valueWithUnsignedIntValue(uid), Data::dataWithBytes(text, (unsigned int) text_length));
+    }
+    mailimap_fetch_list_free(fetch_result);
+
+    * pError = ErrorNone;
+    return result;
+}
+
 Data * IMAPSession::fetchMessage(String * folder, bool identifier_is_uid, uint32_t identifier,
                                  IMAPProgressCallback * progressCallback, ErrorCode * pError)
 {

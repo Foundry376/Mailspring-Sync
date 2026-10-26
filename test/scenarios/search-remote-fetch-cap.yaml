@@ -1,0 +1,24 @@
+name: search-remote-fetch-cap
+description: >
+  `fetchLimit` caps the candidates at the newest matched messages: with five matches and a
+  limit of two, the two newest are downloaded and the older three are left alone.
+source: "MailSync/SearchWorker.cpp (candidatesToFetch)"
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 5, age_days: 120}}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [subject, Message], fetchLimit: 2}
+    as: capped
+  - wait: {log: 'Search search-\S+: fetched 2 message\(s\) .* 2 of 2 stored', timeout: 30}
+expect:
+  search:
+    capped: {candidates: 2, fetched: 2, skipped: 0, phase: done}
+  log_count:
+    'sent \d+ UID FETCH 4:5 BODY\.PEEK\[\]': 1
+  local_search:
+    '"body of message 5"': [Message 5]
+    '"body of message 4"': [Message 4]
+    '"body of message 1"': []
+  running: true

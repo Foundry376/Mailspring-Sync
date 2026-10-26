@@ -1,0 +1,35 @@
+name: search-remote-fetch-superseded
+description: >
+  A newer search arriving while the first is still downloading bodies stops the first
+  between batches: it fetches no further batch, never reports done, and the body it stored
+  stays, so the second search counts it as stored and fetches the other two. Batches of one
+  message, with the server holding the first body fetch for three seconds so the second
+  request lands mid-fetch.
+source: "MailSync/SearchWorker.cpp (fetchCandidates, superseded)"
+servers:
+  - {fake: dovecot}
+env:
+  SEARCH_FETCH_BATCH_MESSAGES: "1"
+mailboxes:
+  INBOX: {messages: {count: 3, age_days: 120}}
+steps:
+  - wait: quiescent
+  - server.pause: {at: {hook: before_fetch_body, delay: 3}}
+  - client.search: {criteria: [subject, Message], fetchLimit: 100, wait: false}
+    as: first
+  - wait: {log: 'Search search-\S+: 3 candidate\(s\), 0 stored, 3 to fetch', timeout: 30}
+  - client.search: {criteria: [subject, Message], fetchLimit: 100}
+    as: second
+  - wait: {log: 'Search search-\d+-1: fetched 1 message\(s\) .* 3 of 3 stored', timeout: 30}
+expect:
+  search_not_done: [first]
+  search:
+    second: {candidates: 3, fetched: 3, skipped: 0, phase: done}
+  log_count:
+    'Search search-\S+ superseded': 1
+    'Search search-\d+-0: fetched 1 message\(s\)': 1
+    'Search search-\d+-1: fetched 1 message\(s\)': 2
+    'Search search-\d+-1: 3 candidate\(s\), 1 stored, 2 to fetch': 1
+  local_search:
+    '"body of message 3"': [Message 3]
+  running: true

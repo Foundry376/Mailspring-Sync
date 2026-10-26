@@ -1,0 +1,20 @@
+name: search-remote-fetch-dropped-twice
+description: >
+  The connection drops on every body fetch. The search reconnects once and, when the
+  retried fetch drops too, fails with a connection error rather than reconnecting again.
+source: "MailSync/SearchWorker.cpp (fetchCandidates)"
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 3, age_days: 120}}
+steps:
+  - wait: quiescent
+  - server.drop_connections: {at: {hook: before_fetch_body, every: true}}
+  - client.search: {criteria: [subject, Message], fetchLimit: 100}
+    as: fetch
+expect:
+  search:
+    fetch: {error: ErrorConnection}
+  log_count:
+    'Search search-\S+: connection lost fetching from INBOX, reconnecting': 1
+  running: true

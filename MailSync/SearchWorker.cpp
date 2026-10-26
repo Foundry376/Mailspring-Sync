@@ -14,22 +14,27 @@
 #include "SyncException.hpp"
 #include "XOAuth2TokenManager.hpp"
 #include "constants.h"
+#include "Message.hpp"
 
 #include <algorithm>
 #include <chrono>
+#include <map>
 
 #define SEARCH_DEFAULT_LIMIT 1000
 #define SEARCH_IDLE_DISCONNECT_SEC 300
 #define SEARCH_LOGIN_BACKOFF_SEC 30
 #define SEARCH_UID_BATCH 500
+#define SEARCH_FETCH_BATCH_MESSAGES 20
+#define SEARCH_FETCH_BATCH_BYTES (20 * 1024 * 1024)
+#define SEARCH_FETCH_MAX_MESSAGE_BYTES (25 * 1024 * 1024)
 
-static int secondsSetting(const char * env, int fallback) {
+static int positiveSetting(const char * env, int fallback) {
     int value = atoi(MailUtils::getEnvUTF8(env).c_str());
     return value > 0 ? value : fallback;
 }
 
 static int idleDisconnectSeconds() {
-    static const int seconds = secondsSetting("SEARCH_IDLE_DISCONNECT", SEARCH_IDLE_DISCONNECT_SEC);
+    static const int seconds = positiveSetting("SEARCH_IDLE_DISCONNECT", SEARCH_IDLE_DISCONNECT_SEC);
     return seconds;
 }
 
@@ -37,8 +42,25 @@ static int idleDisconnectSeconds() {
 // search would otherwise try again at once. 30 s is the sync workers' own minimum wait after
 // a rejected login (LOGIN_REJECTED_MIN_WAIT).
 static int loginBackoffSeconds() {
-    static const int seconds = secondsSetting("SEARCH_LOGIN_BACKOFF", SEARCH_LOGIN_BACKOFF_SEC);
+    static const int seconds = positiveSetting("SEARCH_LOGIN_BACKOFF", SEARCH_LOGIN_BACKOFF_SEC);
     return seconds;
+}
+
+// The fetch knobs are overridable so a scenario can drive several batches through a
+// handful of messages.
+static size_t fetchBatchMessages() {
+    static const size_t n = positiveSetting("SEARCH_FETCH_BATCH_MESSAGES", SEARCH_FETCH_BATCH_MESSAGES);
+    return n;
+}
+
+static size_t fetchBatchBytes() {
+    static const size_t n = positiveSetting("SEARCH_FETCH_BATCH_BYTES", SEARCH_FETCH_BATCH_BYTES);
+    return n;
+}
+
+static size_t fetchMaxMessageBytes() {
+    static const size_t n = positiveSetting("SEARCH_FETCH_MAX_MESSAGE_BYTES", SEARCH_FETCH_MAX_MESSAGE_BYTES);
+    return n;
 }
 
 static bool isControl(unsigned char c) {
@@ -101,12 +123,14 @@ static time_t criteriaDate(const json & criteria) {
 SearchWorker::SearchWorker(shared_ptr<Account> account) :
     account(account),
     store(nullptr),
+    processor(nullptr),
     session(IMAPSession()),
     logger(spdlog::get("logger"))
 {
 }
 
 SearchWorker::~SearchWorker() {
+    delete processor;
     delete store;
 }
 
@@ -148,6 +172,7 @@ bool SearchWorker::superseded(uint64_t gen) {
 void SearchWorker::run() {
     // MailStore is bound to the thread that creates it.
     store = new MailStore();
+    processor = new MailProcessor(account, store);
 
     while (true) {
         json request;
@@ -232,6 +257,15 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
         limit = request["limit"].get<size_t>();
     }
     string gmailRaw = request.value("gmailRaw", "");
+    // Bodies are downloaded only when the client asks: a client that sends no fetchLimit
+    // gets the matched threads alone, as before.
+    size_t fetchLimit = 0;
+    if (request.count("fetchLimit")) {
+        if (!request["fetchLimit"].is_number_unsigned()) {
+            throw std::invalid_argument("search fetchLimit must be a non-negative integer");
+        }
+        fetchLimit = request["fetchLimit"].get<size_t>();
+    }
 
     auto connectStarted = chrono::steady_clock::now();
     connect();
@@ -265,6 +299,7 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
 
     SearchResults results;
     json errors = json::array();
+    FetchProgress progress;
 
     // A failed SEARCH is retried once per search on a fresh connection: a BAD can leave the
     // stream out of step with the server (Yahoo). A failure after that ends the search, since
@@ -318,17 +353,257 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
             logger->info("Search {} superseded", searchId);
             return;
         }
-        emit(resultJSON(searchId, results, limit, errors, false));
+        emit(resultJSON(searchId, results, limit, errors, "searching", progress, false));
     }
 
     if (superseded(gen)) {
         logger->info("Search {} superseded", searchId);
         return;
     }
-    emit(resultJSON(searchId, results, limit, errors, true));
+    if (fetchLimit > 0) {
+        vector<SearchMatch> candidates = candidatesToFetch(results, fetchLimit, progress);
+        logger->info("Search {}: {} candidate(s), {} stored, {} to fetch", searchId, progress.candidates, progress.fetched, candidates.size());
+        emit(resultJSON(searchId, results, limit, errors, "fetching", progress, false));
+        fetchCandidates(searchId, gen, candidates, results, limit, errors, progress);
+        if (superseded(gen)) {
+            logger->info("Search {} superseded", searchId);
+            return;
+        }
+    }
+    emit(resultJSON(searchId, results, limit, errors, "done", progress, true));
 }
 
-json SearchWorker::resultJSON(string searchId, SearchResults & results, size_t limit, const json & errors, bool done) {
+/*
+ The newest `fetchLimit` matched messages, one entry per message (a message in several
+ folders is fetched from the first copy the search found); resultJSON has already put the
+ matches newest first for the search-phase result. Those whose body is already stored count
+ as fetched at once; the rest are returned for downloading. A MessageBody row with no value
+ is a reservation another worker made, or a fetch that failed: the search fetches it anyway,
+ since REPLACE INTO leaves one row either way.
+ */
+vector<SearchMatch> SearchWorker::candidatesToFetch(SearchResults & results, size_t fetchLimit, FetchProgress & progress) {
+    vector<SearchMatch> candidates;
+    set<string> seen;
+    for (auto & match : results.matches) {
+        if (candidates.size() >= fetchLimit) {
+            break;
+        }
+        if (seen.insert(match.messageId).second) {
+            candidates.push_back(match);
+        }
+    }
+    progress.candidates = candidates.size();
+
+    set<string> stored;
+    for (size_t start = 0; start < candidates.size(); start += SEARCH_UID_BATCH) {
+        size_t end = min(start + SEARCH_UID_BATCH, candidates.size());
+        SQLite::Statement query(store->db(), "SELECT id FROM MessageBody WHERE value IS NOT NULL AND id IN (" + MailUtils::qmarks(end - start) + ")");
+        for (size_t i = start; i < end; i++) {
+            query.bind((int)(1 + i - start), candidates[i].messageId);
+        }
+        while (query.executeStep()) {
+            stored.insert(query.getColumn(0).getString());
+        }
+    }
+    vector<SearchMatch> toFetch;
+    for (auto & candidate : candidates) {
+        if (stored.count(candidate.messageId)) {
+            progress.fetched++;
+        } else {
+            toFetch.push_back(candidate);
+        }
+    }
+    return toFetch;
+}
+
+/*
+ Downloads the candidates' bodies folder by folder, a batch of messages per UID FETCH, and
+ stores each through MailProcessor::retrievedMessageBody, the path the sync workers use: the
+ body, its attachments and the search index land exactly as if the user had opened the
+ thread. Progress is emitted after every batch so the client can re-run its local query.
+ */
+void SearchWorker::fetchCandidates(string searchId, uint64_t gen, vector<SearchMatch> candidates, SearchResults & results,
+                                   size_t limit, json & errors, FetchProgress & progress) {
+    map<string, vector<SearchMatch>> byFolder;
+    for (auto & candidate : candidates) {
+        byFolder[candidate.folderId].push_back(candidate);
+    }
+
+    // A dropped connection is reconnected once per search; a second drop fails the search.
+    bool reconnected = false;
+
+    for (auto & entry : byFolder) {
+        auto folder = store->find<Folder>(Query().equal("id", entry.first));
+        if (folder == nullptr) {
+            progress.skipped += entry.second.size();
+            continue;
+        }
+        String path(AS_MCSTR(folder->path()));
+        auto & matches = entry.second;
+        sort(matches.begin(), matches.end(), [](const SearchMatch & a, const SearchMatch & b) { return a.uid < b.uid; });
+
+        // One RFC822.SIZE fetch for the folder sizes the batches and finds messages over the
+        // limit before any body is transferred.
+        map<uint32_t, uint32_t> sizes;
+        {
+            AutoreleasePool pool;
+            IndexSet * all = IndexSet::indexSet();
+            for (auto & match : matches) {
+                all->addIndex(match.uid);
+            }
+            ErrorCode err = ErrorCode::ErrorNone;
+            if (!connected) {
+                connect();
+            }
+            Array * headers = session.fetchMessagesByUID(&path, IMAPMessagesRequestKindSize, all, nullptr, &err);
+            if (err == ErrorCode::ErrorConnection && !reconnected) {
+                logger->info("Search {}: connection lost sizing {}, reconnecting", searchId, folder->path());
+                reconnected = true;
+                disconnect();
+                connect();
+                err = ErrorCode::ErrorNone;
+                headers = session.fetchMessagesByUID(&path, IMAPMessagesRequestKindSize, all, nullptr, &err);
+            }
+            if (err == ErrorCode::ErrorConnection) {
+                disconnect();
+                throw SyncException(err, "search fetch sizes " + folder->path());
+            }
+            if (err != ErrorCode::ErrorNone || headers == nullptr) {
+                logger->warn("Search {}: sizing {} failed: {}, skipping its {} candidate(s)", searchId, folder->path(), ErrorCodeToTypeMap[err], matches.size());
+                errors.push_back({{"folderId", folder->id()}, {"error", ErrorCodeToTypeMap[err]}});
+                progress.skipped += matches.size();
+                continue;
+            }
+            for (unsigned int i = 0; i < headers->count(); i++) {
+                IMAPMessage * header = (IMAPMessage *)headers->objectAtIndex(i);
+                sizes[header->uid()] = header->size();
+            }
+        }
+
+        vector<SearchMatch> batch;
+        size_t batchBytes = 0;
+        auto flush = [&]() {
+            if (batch.empty()) {
+                return;
+            }
+            AutoreleasePool pool;
+            IndexSet * uids = IndexSet::indexSet();
+            for (auto & match : batch) {
+                uids->addIndex(match.uid);
+            }
+            auto started = chrono::steady_clock::now();
+            ErrorCode err = ErrorCode::ErrorNone;
+            if (!connected) {
+                connect();
+            }
+            HashMap * raw = session.fetchMessagesRawByUID(&path, uids, nullptr, &err);
+            if (err == ErrorCode::ErrorConnection && !reconnected) {
+                logger->info("Search {}: connection lost fetching from {}, reconnecting", searchId, folder->path());
+                reconnected = true;
+                disconnect();
+                connect();
+                err = ErrorCode::ErrorNone;
+                raw = session.fetchMessagesRawByUID(&path, uids, nullptr, &err);
+            }
+            if (err == ErrorCode::ErrorConnection) {
+                disconnect();
+                throw SyncException(err, "search fetch " + folder->path());
+            }
+            if (err != ErrorCode::ErrorNone || raw == nullptr) {
+                logger->warn("Search {}: fetching {} message(s) from {} failed: {}", searchId, batch.size(), folder->path(), ErrorCodeToTypeMap[err]);
+                errors.push_back({{"folderId", folder->id()}, {"error", ErrorCodeToTypeMap[err]}});
+                progress.skipped += batch.size();
+            } else {
+                for (auto & match : batch) {
+                    Data * data = (Data *)raw->objectForKey(Value::valueWithUnsignedIntValue(match.uid));
+                    // A UID the server left out was expunged since the last scan; the message
+                    // may still have a copy elsewhere.
+                    bool stored = data ? storeFetchedBody(match, data) : fetchFromAnotherCopy(match);
+                    if (stored) {
+                        progress.fetched++;
+                    } else {
+                        progress.skipped++;
+                    }
+                }
+            }
+            logger->info("Search {}: fetched {} message(s) ({} bytes) from {} in {}ms, {} of {} stored", searchId, batch.size(), batchBytes, folder->path(),
+                chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - started).count(), progress.fetched, progress.candidates);
+            batch.clear();
+            batchBytes = 0;
+        };
+
+        for (auto & match : matches) {
+            if (superseded(gen)) {
+                return;
+            }
+            // A UID the size fetch left out is gone from the server; it rides along in the
+            // batch, where the body fetch leaves it out too and its other copies are tried.
+            uint32_t size = sizes.count(match.uid) ? sizes[match.uid] : 0;
+            if (size > fetchMaxMessageBytes()) {
+                logger->info("Search {}: message {} is {} bytes, over the {} byte limit, skipped", searchId, match.messageId, size, fetchMaxMessageBytes());
+                progress.skipped++;
+                continue;
+            }
+            if (!batch.empty() && (batch.size() >= fetchBatchMessages() || batchBytes + size > fetchBatchBytes())) {
+                flush();
+                emit(resultJSON(searchId, results, limit, errors, "fetching", progress, false));
+            }
+            batch.push_back(match);
+            batchBytes += size;
+        }
+        flush();
+        if (superseded(gen)) {
+            return;
+        }
+        emit(resultJSON(searchId, results, limit, errors, "fetching", progress, false));
+    }
+}
+
+bool SearchWorker::storeFetchedBody(const SearchMatch & match, Data * data) {
+    auto message = store->find<Message>(Query().equal("id", match.messageId));
+    if (message == nullptr) {
+        logger->info("Search: message {} was removed before its body was stored", match.messageId);
+        return false;
+    }
+    MessageParser * parser = MessageParser::messageParserWithData(data);
+    if (parser == nullptr) {
+        logger->error("Search: MessageParser::messageParserWithData returned null for message {} ({} UID {})", match.messageId, match.folderId, match.uid);
+        return false;
+    }
+    processor->retrievedMessageBody(message.get(), parser);
+    return true;
+}
+
+/*
+ The copy the search found is gone from the server, and the foreground connection, which
+ saw the expunge, has already dropped that placement: fetch whichever copies remain, one at
+ a time, the way SyncWorker::syncMessageBody does.
+ */
+bool SearchWorker::fetchFromAnotherCopy(const SearchMatch & match) {
+    auto message = store->find<Message>(Query().equal("id", match.messageId));
+    if (message == nullptr) {
+        return false;
+    }
+    for (auto & copy : store->fetchableCopiesOfMessage(*message, nullptr)) {
+        AutoreleasePool pool;
+        ErrorCode err = ErrorCode::ErrorNone;
+        String path(AS_MCSTR(copy.folder->path()));
+        Data * data = session.fetchMessageByUID(&path, copy.uid, nullptr, &err);
+        if (err == ErrorCode::ErrorConnection) {
+            disconnect();
+            throw SyncException(err, "search fetch copy " + copy.folder->path());
+        }
+        if (err != ErrorCode::ErrorNone || data == nullptr) {
+            continue;
+        }
+        return storeFetchedBody(match, data);
+    }
+    logger->info("Search: no copy of message {} could be fetched", match.messageId);
+    return false;
+}
+
+json SearchWorker::resultJSON(string searchId, SearchResults & results, size_t limit, const json & errors,
+                              string phase, const FetchProgress & progress, bool done) {
     // The newest `limit` threads by message date, the order the thread list shows them in,
     // whichever folder each match came from.
     stable_sort(results.matches.begin(), results.matches.end(), [](const SearchMatch & a, const SearchMatch & b) {
@@ -341,7 +616,8 @@ json SearchWorker::resultJSON(string searchId, SearchResults & results, size_t l
             threadIds.push_back(match.threadId);
         }
     }
-    return {{"id", searchId}, {"accountId", account->id()}, {"done", done}, {"threadIds", threadIds}, {"errors", errors}};
+    return {{"id", searchId}, {"accountId", account->id()}, {"done", done}, {"phase", phase}, {"threadIds", threadIds}, {"errors", errors},
+            {"candidates", progress.candidates}, {"fetched", progress.fetched}, {"skipped", progress.skipped}};
 }
 
 vector<shared_ptr<Folder>> SearchWorker::foldersToSearch(const json & request, bool gmail) {
@@ -390,7 +666,7 @@ void SearchWorker::collectLocalMessages(string folderId, IndexSet * uids, Search
             placeholders += (i == start) ? "?" : ",?";
         }
         SQLite::Statement query(store->db(),
-            "SELECT Message.threadId, Message.date FROM MessageFolder "
+            "SELECT Message.threadId, Message.date, Message.id, MessageFolder.remoteUID FROM MessageFolder "
             "INNER JOIN Message ON Message.id = MessageFolder.messageId "
             "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID IN (" + placeholders + ")");
         query.bind(1, account->id());
@@ -399,7 +675,7 @@ void SearchWorker::collectLocalMessages(string folderId, IndexSet * uids, Search
             query.bind((int)(3 + i - start), (long long)all[i]);
         }
         while (query.executeStep()) {
-            results.matches.push_back({query.getColumn(0).getString(), query.getColumn(1).getDouble()});
+            results.matches.push_back({query.getColumn(0).getString(), query.getColumn(1).getDouble(), query.getColumn(2).getString(), folderId, (uint32_t)query.getColumn(3).getInt64()});
         }
     }
 }

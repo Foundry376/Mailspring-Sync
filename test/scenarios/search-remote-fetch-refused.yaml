@@ -1,0 +1,19 @@
+name: search-remote-fetch-refused
+description: >
+  The server refuses a body fetch with NO. That batch's candidates are counted as skipped,
+  the folder is recorded in `errors`, and the search still finishes.
+source: "MailSync/SearchWorker.cpp (fetchCandidates)"
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 3, age_days: 120}}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH [0-9:,]+ BODY\\.PEEK"}, code: SERVERBUG, text: "Fetch failed"}
+  - client.search: {criteria: [subject, Message], fetchLimit: 100}
+    as: fetch
+  - wait: {log: 'Search search-\S+: fetching 3 message\(s\) from INBOX failed', timeout: 30}
+expect:
+  search:
+    fetch: {candidates: 3, fetched: 0, skipped: 3, phase: done, folder_errors: 1}
+  running: true

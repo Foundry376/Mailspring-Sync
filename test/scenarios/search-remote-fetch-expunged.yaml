@@ -1,0 +1,28 @@
+name: search-remote-fetch-expunged
+description: >
+  Candidates expunged between the search and the body fetch come back with no FETCH data
+  for their UIDs: the server reports the expunge on the sizing fetch, the command before.
+  The engine fetches a message's copy in another folder instead, and a message with no
+  other copy is counted as skipped, not fetched.
+source: "MailSync/SearchWorker.cpp (fetchFromAnotherCopy); SyncWorker::syncMessageBody"
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 2, age_days: 120}}
+steps:
+  - wait: quiescent
+  - server.copy: {mailbox: INBOX, uids: [1], to: Archive}
+  - sync: pass
+  - wait: {counts: {INBOX: 2, Archive: 1}, timeout: 30}
+  - server.expunge: {mailbox: INBOX, uids: [1, 2], at: {hook: before_command, command: "^UID FETCH [0-9:,]+ \\(UID RFC822\\.SIZE\\)", mailbox: INBOX}}
+  - client.search: {criteria: [subject, Message], folders: [INBOX], fetchLimit: 100}
+    as: fetch
+  - wait: {log: 'Search: no copy of message \S+ could be fetched', timeout: 30}
+expect:
+  search:
+    fetch: {candidates: 2, fetched: 1, skipped: 1, phase: done}
+  log_present:
+    - 'Search: no copy of message \S+ could be fetched'
+  local_search:
+    '"body of message 1"': [Message 1]
+  running: true
