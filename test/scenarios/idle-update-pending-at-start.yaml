@@ -18,6 +18,10 @@ steps:
   - client.task: {__cls: ChangeStarredTask, messages: {mailbox: INBOX, uids: [3]}, starred: true}
     as: star
   - wait: {task: star, timeout: 30}
+  # Not quiescence: the foreground reports idle just before the IDLE whose hook makes the
+  # expunge. The timeout stays well inside the background's 120 s sleep, whose next pass
+  # would find the expunge anyway.
+  - wait: {counts: {INBOX: 7}, timeout: 10}
   - wait: {quiescent: true}
 expect:
   server_counts: {INBOX: 7}
