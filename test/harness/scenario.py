@@ -551,6 +551,8 @@ class ScenarioRun:
             self._note(f"released {self._smtp().release()} held SMTP deliveries")
         elif op == "graph_calendars":
             self._graph().set_calendars(arg["calendars"])
+        elif op == "graph_failures":
+            self._graph().set_failures(arg["failures"])
         else:
             raise ScenarioFailure(f"unknown server op {op!r}")
 
@@ -893,7 +895,8 @@ class ScenarioRun:
         `attachments` (file names, wherever they ended up); `drafts` unsent drafts left on the
         server; `upload_sessions` attachments that went through an upload session;
         `graph_mail_token_requests` / `graph_calendar_token_requests` refreshes that asked for
-        Graph mail / calendar scopes; `max_request_bytes` the largest request body the engine sent."""
+        Graph mail / calendar scopes; `requests: {regex: n}` requests whose path matches;
+        `max_request_bytes` the largest request body the engine sent."""
         graph = getattr(self.server, "graph", None)
         if graph is None:
             return ["scenario expects Graph but the server has no `graph: true`"]
@@ -925,6 +928,10 @@ class ScenarioRun:
             got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com/Calendars." in scope)
             if got != arg["graph_calendar_token_requests"]:
                 out.append(f"expected {arg['graph_calendar_token_requests']} Graph calendar token requests, saw {got}")
+        for pattern, want in (arg.get("requests") or {}).items():
+            got = sum(1 for r in graph.requests if re.search(pattern, r["path"]))
+            if got != want:
+                out.append(f"expected {want} Graph requests matching /{pattern}/, saw {got}")
         if "max_request_bytes" in arg:
             largest = max((r["bytes"] for r in graph.requests), default=0)
             if largest > arg["max_request_bytes"]:
@@ -1035,8 +1042,9 @@ class ScenarioRun:
             rows = [json.loads(r[0]) for r in c.execute("SELECT data FROM Calendar").fetchall()]
         by_name = {row.get("name"): row for row in rows}
         out = []
-        if sorted(by_name) != sorted(arg):
-            out.append(f"calendars {sorted(by_name)}, expected {sorted(arg)}")
+        names = sorted(row.get("name") for row in rows)
+        if names != sorted(arg):
+            out.append(f"calendars {names}, expected {sorted(arg)}")
         for name, want in arg.items():
             row = by_name.get(name)
             for key, value in ((want or {}).items() if row else []):

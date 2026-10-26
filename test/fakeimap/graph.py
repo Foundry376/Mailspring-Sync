@@ -388,6 +388,10 @@ class FakeGraphServer:
         with self.lock:
             self.calendars = [dict(c) for c in calendars]
 
+    def set_failures(self, failures: list):
+        with self.lock:
+            self.failures = [dict(f) for f in failures]
+
     def failure_for(self, route: str, method: str) -> Optional[dict]:
         with self.lock:
             for f in self.failures:

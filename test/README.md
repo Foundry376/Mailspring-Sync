@@ -96,7 +96,7 @@ Steps:
 | `client.undo_task: {of: label}` | queue the undo of a completed task from its stored data, as `UndoRedoStore` does: for a `ChangeFolderTask` the engine-written `undoPlacements` become `restorePlacements` and the original destination its `sourceFolderIds` |
 | `client.need_bodies`, `client.wake`, `client.sync_calendar` | the other stdin commands (`sync_calendar` runs a calendar pass now, as the calendar's refresh does) |
 | `server.smtp_hold` / `server.smtp_release` | queue self-addressed SMTP deliveries, then deliver them, so the INBOX copy of a sent message arrives after the Sent copy; `smtp_release` takes `at:` like any server step (`rules-ready-inbox-copy-first`) |
-| `server.graph_calendars: {calendars: [...]}` | replace the calendars the fake Graph server lists (`graph-calendars`) |
+| `server.graph_calendars: {calendars: [...]}`, `server.graph_failures: {failures: [...]}` | replace the calendars the fake Graph server lists, or its injected errors (`graph-calendars-*`) |
 | `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
 | `db.sql: [statements]` | write the stopped engine's database (only under `restart: {before: [...]}`), to reproduce a stored state whose producing path is unknown; every derived layer must be written consistently |
 | `restart: {binary: path, before: [steps]}` | stop and relaunch on the same database, optionally with another build; `before:` runs steps while the engine is stopped (server state it did not watch happen) |
@@ -134,7 +134,7 @@ last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], 
 [regex]}` (runs `--mode test`, the client's account-add check, and compares its JSON),
 `task_error: {label: key or null or {key, debuginfo: regex}}` (how a labelled task finished), `graph: {count, messages:
 [{recipients, headers, attachments}], drafts, upload_sessions, graph_mail_token_requests,
-graph_calendar_token_requests, max_request_bytes}` (what the fake Graph server sent and still holds), `unchanged_since:
+graph_calendar_token_requests, requests: {regex: n}, max_request_bytes}` (what the fake Graph server sent and still holds), `unchanged_since:
 snapshot`, `running`, `exit`. Any
 expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,
 and reported as XPASS once it starts passing.

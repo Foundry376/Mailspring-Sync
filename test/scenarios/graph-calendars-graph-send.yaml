@@ -1,0 +1,43 @@
+name: graph-calendars-graph-send
+description: >
+  An account that sends through Graph holds a Graph mail token and a Graph calendar token at
+  once. Each is cached under its own audience: after a send, the calendar pass must not reuse
+  the mail token (Graph refuses it with 403), and the send must not reuse the calendar token.
+source: "Microsoft issues one access token per resource and scope set (Microsoft identity platform)"
+servers:
+  - fake: outlook
+    smtp: true
+    graph: true
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, hexColor: "#FF8C00", canEdit: true,
+         owner: {name: Harness Test, address: test@example.test}}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "graph-calendars-1@example.test"
+        subject: "Agenda"
+        body: "<p>Agenda attached</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 90}
+  - client.sync_calendar: {}
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+expect:
+  task_error: {send1: null}
+  calendars:
+    Calendar: {path: "AAMkADefault=", owner: mine}
+  graph: {count: 1, graph_mail_token_requests: 1, graph_calendar_token_requests: 1}
+  running: true

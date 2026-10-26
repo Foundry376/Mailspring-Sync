@@ -145,6 +145,8 @@ int main() {
                  {"emailAddress", {{"name", "Room 4"}, {"address", "room4@example.com"}}}},
                 {{"type", "required"}, {"status", {{"response", "none"}}},
                  {"emailAddress", {{"name", "Me"}, {"address", "ME@example.test"}}}},
+                {{"type", "required"}, {"status", {{"response", "organizer"}}},
+                 {"emailAddress", {{"name", "Pat Lee"}, {"address", "pat@example.com"}}}},
             })},
         }), ME, START_UTC);
         expectLine(ics, "ORGANIZER;CN=Pat Lee:mailto:pat@example.com", "organizer");
@@ -156,9 +158,11 @@ int main() {
                    "resource");
         expectLine(ics, "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=DECLINED;CN=Me:mailto:ME@example.test",
                    "own answer from responseStatus");
+        expectLine(ics, "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Pat Lee:mailto:pat@example.com",
+                   "organizer listed among attendees");
         ICalendar cal(ics);
         if (!cal.Events.empty()) {
-            expect(cal.Events.front()->Attendees.size() == 5, "parsed attendees",
+            expect(cal.Events.front()->Attendees.size() == 6, "parsed attendees",
                    to_string(cal.Events.front()->Attendees.size()));
         }
     }
@@ -184,6 +188,7 @@ int main() {
         }), ME, START_UTC);
         expectLine(ics, "SUMMARY:Budget\\, Q4\\; draft \\\\ v2", "SUMMARY escaped");
         expectLine(ics, "DESCRIPTION:Agenda:\\n1. Numbers\\n" + notes, "DESCRIPTION escaped, on one line");
+        expectLine(ics, "LOCATION:Room 4\\, Building 2", "LOCATION escaped");
         ICalendar cal(ics);
         if (!cal.Events.empty()) {
             expectEqual(cal.Events.front()->Description, "Agenda:\\n1. Numbers\\n" + notes, "parsed DESCRIPTION intact");
@@ -290,6 +295,39 @@ int main() {
         string ics = GraphICS::icsForEvent(master, ME, "2027-01-04T08:00:00.0000000");
         expectLine(ics, "RECURRENCE-ID;VALUE=DATE:20270405", "all-day override on its own date across daylight saving");
         expectLine(ics, "EXDATE;VALUE=DATE:20270412", "all-day cancelled date");
+    }
+    {
+        // East of UTC an all-day occurrence's local midnight falls on the previous UTC day. Tokyo
+        // (UTC+9) is a fixed offset; Auckland moves from UTC+12 to UTC+13 after the series starts.
+        json tokyo = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}},
+                                     {"firstDayOfWeek", "sunday"}}),
+                            {{"isAllDay", true},
+                             {"start", {{"dateTime", "2027-01-04T00:00:00.0000000"}, {"timeZone", "Tokyo Standard Time"}}},
+                             {"end", {{"dateTime", "2027-01-05T00:00:00.0000000"}, {"timeZone", "Tokyo Standard Time"}}},
+                             {"exceptionOccurrences", json::array({event({
+                                 {"type", "exception"},
+                                 {"isAllDay", true},
+                                 {"originalStart", "2027-04-04T15:00:00Z"},
+                                 {"start", {{"dateTime", "2027-04-05T00:00:00.0000000"}, {"timeZone", "Tokyo Standard Time"}}},
+                                 {"end", {{"dateTime", "2027-04-06T00:00:00.0000000"}, {"timeZone", "Tokyo Standard Time"}}},
+                             })})}});
+        expectLine(GraphICS::icsForEvent(tokyo, ME, "2027-01-03T15:00:00.0000000"),
+                   "RECURRENCE-ID;VALUE=DATE:20270405", "all-day override east of UTC");
+
+        json auckland = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}},
+                                        {"firstDayOfWeek", "sunday"}}),
+                               {{"isAllDay", true},
+                                {"start", {{"dateTime", "2026-07-06T00:00:00.0000000"}, {"timeZone", "New Zealand Standard Time"}}},
+                                {"end", {{"dateTime", "2026-07-07T00:00:00.0000000"}, {"timeZone", "New Zealand Standard Time"}}},
+                                {"exceptionOccurrences", json::array({event({
+                                    {"type", "exception"},
+                                    {"isAllDay", true},
+                                    {"originalStart", "2027-01-31T11:00:00Z"},
+                                    {"start", {{"dateTime", "2027-02-01T00:00:00.0000000"}, {"timeZone", "New Zealand Standard Time"}}},
+                                    {"end", {{"dateTime", "2027-02-02T00:00:00.0000000"}, {"timeZone", "New Zealand Standard Time"}}},
+                                })})}});
+        expectLine(GraphICS::icsForEvent(auckland, ME, "2026-07-05T12:00:00.0000000"),
+                   "RECURRENCE-ID;VALUE=DATE:20270201", "all-day override east of UTC across daylight saving");
     }
 
     if (failures) {
