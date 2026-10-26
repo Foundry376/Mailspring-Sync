@@ -130,7 +130,7 @@ mailboxes that delta must list, `fetched` whether it is the delta that fetched t
 `folder_roles: {path: role}`, `contacts: {mail: {email: name}, carddav: {id: {email, name}}}`
 (Contact rows and the ContactSearch content autocomplete matches), `calendars: {name: {path,
 color, read_only, owner}}` (Calendar rows by name, and no others), `events: {"icsuid|rid": {href,
-etag, ics_has: [lines]}}` (Event rows by UID and RECURRENCE-ID, and no others), `connection_error: {reported: true, cleared: true}`
+etag, ics_has: [lines]}}` (Event rows by UID and RECURRENCE-ID, and no others), `event_count: n`, `connection_error: {reported: true, cleared: true}`
 (the ProcessState stream behind the client's offline state), `migrate_output: regex` (the
 last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], log_absent:
 [regex]}` (runs `--mode test`, the client's account-add check, and compares its JSON),
@@ -432,7 +432,9 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   [{route, method, status, code, message, times, retry_after}]` injects errors (`graph-send-*`).
   `/me/calendars` lists `graph_calendars: [Graph calendar resources]`, `graph_calendars_page_size`
   to a page, and each calendar's events come from `graph_events: {calendar id: [events in their own
-  zone]}` (`graph_events_page_size` to a page), listed in UTC and read back in the zone asked for; the calendar scopes take their own token, refused only with
+  zone]}` (`graph_events_page_size` to a page; `graph_generated_events: n` adds n one-off events to
+  the first calendar), listed in UTC and read back in the zone asked for, one at a time or 20 per
+  `$batch`; the calendar scopes take their own token, refused only with
   `graph_calendars_consented: false`, and `graph_shared_mailbox_owner: address` makes the
   account a shared mailbox signed in as that address (`graph-calendars-*`). The
   engine reaches it through `MS_GRAPH_URL` and `MS_OAUTH_TOKEN_URL`, which the server adds to

@@ -1,6 +1,7 @@
 """The in-process fake server behind the Server interface."""
 import re
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -9,6 +10,20 @@ from fakeimap import FakeImapServer, Store  # noqa: E402
 from fakeimap.smtp import FakeSmtpServer  # noqa: E402
 from fakeimap.graph import FakeGraphServer  # noqa: E402
 from .base import Server
+
+
+def _generated_events(count: int) -> list:
+    """`count` one-off daily events from 2026-10-16, for scenarios about how many are read at once."""
+    events = []
+    for i in range(1, count + 1):
+        day = (date(2026, 10, 15) + timedelta(days=i)).isoformat()
+        events.append({"id": f"AAMkEvGen{i:02d}=", "changeKey": f"ck-gen-{i}", "iCalUId": f"uid-gen-{i:02d}",
+                       "type": "singleInstance", "subject": f"Generated {i}", "isAllDay": False,
+                       "start": {"dateTime": f"{day}T09:00:00.0000000", "timeZone": "Pacific Standard Time"},
+                       "end": {"dateTime": f"{day}T09:30:00.0000000", "timeZone": "Pacific Standard Time"},
+                       "originalStartTimeZone": "Pacific Standard Time",
+                       "lastModifiedDateTime": "2026-10-01T12:00:00Z"})
+    return events
 
 
 class FakeServer(Server):
@@ -23,7 +38,8 @@ class FakeServer(Server):
                  graph_sent_copy_delay: float = 0, graph_failures: Optional[list] = None,
                  graph_calendars: Optional[list] = None, graph_calendars_consented: bool = True,
                  graph_calendars_page_size: int = 0, graph_shared_mailbox_owner: Optional[str] = None,
-                 graph_events: Optional[dict] = None, graph_events_page_size: int = 0, **kw):
+                 graph_events: Optional[dict] = None, graph_events_page_size: int = 0,
+                 graph_generated_events: int = 0, **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
@@ -51,6 +67,9 @@ class FakeServer(Server):
                                      calendars_consented=graph_calendars_consented,
                                      calendars_page_size=graph_calendars_page_size, events=graph_events,
                                      events_page_size=graph_events_page_size) if graph else None
+        if self.graph and graph_generated_events:
+            calendar_id = (graph_calendars or [{}])[0]["id"]
+            self.graph.events.setdefault(calendar_id, []).extend(_generated_events(graph_generated_events))
         if self.graph:
             self.imap.oauth_tokens = self.graph.mail_tokens
             if self.smtp:

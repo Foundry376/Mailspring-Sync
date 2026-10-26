@@ -20,6 +20,7 @@ import json
 import os
 import random
 import re
+from urllib.parse import unquote
 import shutil
 import socket
 import sqlite3
@@ -897,7 +898,7 @@ class ScenarioRun:
         `attachments` (file names, wherever they ended up); `drafts` unsent drafts left on the
         server; `upload_sessions` attachments that went through an upload session;
         `graph_mail_token_requests` / `graph_calendar_token_requests` refreshes that asked for
-        Graph mail / calendar scopes; `requests: {regex: n}` requests whose path matches;
+        Graph mail / calendar scopes; `requests: {regex: n}` requests whose unescaped path matches;
         `max_request_bytes` the largest request body the engine sent."""
         graph = getattr(self.server, "graph", None)
         if graph is None:
@@ -931,7 +932,7 @@ class ScenarioRun:
             if got != arg["graph_calendar_token_requests"]:
                 out.append(f"expected {arg['graph_calendar_token_requests']} Graph calendar token requests, saw {got}")
         for pattern, want in (arg.get("requests") or {}).items():
-            got = sum(1 for r in graph.requests if re.search(pattern, r["path"]))
+            got = sum(1 for r in graph.requests if re.search(pattern, unquote(r["path"])))
             if got != want:
                 out.append(f"expected {want} Graph requests matching /{pattern}/, saw {got}")
         if "max_request_bytes" in arg:
@@ -1077,6 +1078,12 @@ class ScenarioRun:
                 if row.get(k) != v:
                     out.append(f"event {key}: {k} {row.get(k)!r}, expected {v!r}")
         return out
+
+    def expect_event_count(self, arg) -> list:
+        """How many Event rows the engine holds."""
+        with self.ms.db() as c:
+            got = c.execute("SELECT count(*) FROM Event").fetchone()[0]
+        return [] if got == arg else [f"expected {arg} Event rows, found {got}"]
 
     def expect_contacts(self, arg: dict) -> list:
         """Contact rows. `mail: {email: name}` checks found-in-mail contacts by email (`null`:

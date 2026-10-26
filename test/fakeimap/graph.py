@@ -18,7 +18,8 @@ Calendars are listed from /me/calendars, paged by `@odata.nextLink`
 (https://learn.microsoft.com/en-us/graph/api/user-list-calendars). A calendar's events are listed
 in UTC, single instances and series masters only (calendar-list-events); one event is read in the
 zone `Prefer: outlook.timezone` names, with a text body only when asked for one, and a series'
-cancelledOccurrences / exceptionOccurrences only when selected and expanded (event-get). Calendar and mail scopes
+cancelledOccurrences / exceptionOccurrences only when selected and expanded (event-get). $batch
+runs up to 20 requests and answers them out of order (json-batching). Calendar and mail scopes
 are consented and tokened separately: a token for one is refused by the other's routes with
 403, as Graph answers a token missing the permission a request needs.
 """
@@ -26,6 +27,7 @@ import base64
 import email
 import email.policy
 import json
+from email.message import Message
 import re
 import threading
 import time
@@ -122,11 +124,16 @@ class GraphMessage:
 
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    _captured: Optional[list] = None   # set while a $batch runs one of its requests
 
     def log_message(self, fmt, *args):
         pass
 
     def _reply(self, status: int, body=None, headers: Optional[dict] = None):
+        if self._captured is not None:
+            self._captured.append((status, body, headers))
+            self.server.owner.log(self.command, self.path, status)
+            return
         payload = b"" if body is None else json.dumps(body).encode()
         self.send_response(status)
         if body is not None:
@@ -160,9 +167,19 @@ class _Handler(BaseHTTPRequestHandler):
     def do_PATCH(self):
         self._dispatch()
 
+    def _preferences(self) -> dict:
+        """Every Prefer header's preferences, whether sent one per header or comma-separated."""
+        out = {}
+        for header in self.headers.get_all("Prefer") or []:
+            for m in re.finditer(r'([\w.-]+)\s*=\s*(?:"([^"]*)"|([^,\s]*))', header):
+                out[m.group(1)] = m.group(2) if m.group(2) is not None else m.group(3)
+        return out
+
     def _dispatch(self):
+        self._route(self._body())
+
+    def _route(self, body: bytes):
         srv: "FakeGraphServer" = self.server.owner
-        body = self._body()
         path = urlparse(self.path).path
         with srv.lock:
             srv.requests.append({"method": self.command, "path": path, "bytes": len(body),
@@ -171,6 +188,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._token(body)
         if path.startswith("/upload/"):
             return self._upload(path[len("/upload/"):], body)
+        if path == "/v1.0/$batch" and self.command == "POST":
+            return self._batch(body)
         if not path.startswith("/v1.0/me/"):
             return self._error(404, "ResourceNotFound", f"no route for {path}")
         if len(body) > MAX_REQUEST_BYTES:
@@ -182,7 +201,7 @@ class _Handler(BaseHTTPRequestHandler):
             if token in srv.calendar_tokens or token in srv.graph_tokens:
                 return self._error(403, "ErrorAccessDenied", "Access is denied. Check credentials and try again.")
             return self._error(401, "InvalidAuthenticationToken", "Access token is empty or invalid.")
-        if self.headers.get("Prefer") != 'IdType="ImmutableId"':
+        if self._preferences().get("IdType") != "ImmutableId":
             return self._error(400, "HarnessError", "every request must ask for immutable ids")
         failure = srv.failure_for(unquote(route), self.command)
         if failure:
@@ -286,6 +305,30 @@ class _Handler(BaseHTTPRequestHandler):
             body["@odata.nextLink"] = f"{srv.url}/me/calendars?$skip={skip + size}"
         return self._reply(200, body)
 
+    def _batch(self, body: bytes):
+        """JSON batching: each request runs as if sent alone with the batch's Authorization, and
+        the responses come back out of order (https://learn.microsoft.com/en-us/graph/json-batching)."""
+        requests = json.loads(body or b"{}").get("requests", [])
+        if not 1 <= len(requests) <= 20:
+            return self._error(400, "BadRequest", "A batch holds 1 to 20 requests.")
+        outer = (self.path, self.command, self.headers)
+        responses = []
+        try:
+            for request in requests:
+                headers = Message()
+                headers["Authorization"] = outer[2].get("Authorization") or ""
+                for name, value in (request.get("headers") or {}).items():
+                    headers[name] = value
+                self.path, self.command, self.headers = "/v1.0" + request["url"], request["method"], headers
+                self._captured = []
+                self._route(json.dumps(request["body"]).encode() if "body" in request else b"")
+                status, payload, reply_headers = self._captured[0]
+                responses.append({"id": request["id"], "status": status, "headers": reply_headers or {}, "body": payload})
+        finally:
+            self.path, self.command, self.headers = outer
+            self._captured = None
+        return self._reply(200, {"responses": list(reversed(responses))})
+
     def _calendar_events(self, calendar_id: str):
         srv: "FakeGraphServer" = self.server.owner
         query = parse_qs(urlparse(self.path).query)
@@ -309,10 +352,7 @@ class _Handler(BaseHTTPRequestHandler):
         query = parse_qs(urlparse(self.path).query)
         select = query.get("$select", [""])[0]
         expand = query.get("$expand", [""])[0].split(",")
-        prefer = {}
-        for header in self.headers.get_all("Prefer") or []:
-            name, _, value = header.partition("=")
-            prefer[name.strip()] = value.strip().strip('"')
+        prefer = self._preferences()
         if prefer.get("outlook.body-content-type") != "text":
             return self._error(400, "HarnessError", "event details must ask for a text body")
         zone = prefer.get("outlook.timezone", "UTC")
