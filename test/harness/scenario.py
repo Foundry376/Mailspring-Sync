@@ -937,7 +937,7 @@ class ScenarioRun:
 
     def expect_unfetched_bodies(self, arg: dict) -> list:
         """{max: n}: at most n messages hold the empty MessageBody row that reserves a body
-        fetch (SyncWorker::reserveMissingBodies). A row left behind is never fetched again
+        fetch (SyncWorker::syncMessageBodies). A row left behind is never fetched again
         unless the client asks for that body."""
         with self.ms.db() as c:
             found = c.execute("SELECT COUNT(*) FROM MessageBody WHERE value IS NULL").fetchone()[0]

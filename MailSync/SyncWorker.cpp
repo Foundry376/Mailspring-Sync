@@ -667,18 +667,22 @@ bool SyncWorker::syncNow()
                         return a.uid > b.uid;
                     });
                     // The range also holds messages moved into the folder, whose bodies are
-                    // usually stored already, and the foreground worker may be fetching the
-                    // same new mail, so only bodies still missing are reserved and fetched.
-                    vector<string> ids{};
+                    // usually stored already.
+                    SQLite::Statement bodyStored(store->db(), "SELECT 1 FROM MessageBody WHERE id = ? AND value IS NOT NULL");
+                    int count = 0;
                     for (auto & entry : synced) {
                         if (!entry.message->isInInbox(store)) {
                             continue; // skip "all mail" that is not in inbox
                         }
-                        ids.push_back(entry.message->id());
-                        if (ids.size() == 30) { break; }
+                        bodyStored.bind(1, entry.message->id());
+                        bool stored = bodyStored.executeStep();
+                        bodyStored.reset();
+                        if (stored) {
+                            continue;
+                        }
+                        syncMessageBody(entry.message.get(), folder.get());
+                        if (count++ > 30) { break; }
                     }
-                    auto reserved = reserveMissingBodies(ids);
-                    syncReservedMessageBodies(reserved, *folder);
                 }
             }
             
@@ -1587,104 +1591,76 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         }
     }
     
-    results = reserveMissingBodies(ids);
+    SQLite::Statement stillMissing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.id IN (" + MailUtils::qmarks(ids.size()) + ") AND MessageBody.id IS NULL");
+    SQLite::Statement insertPlaceholder(store->db(), "INSERT OR IGNORE INTO MessageBody (id, value) VALUES (?, ?)");
 
-    // Incremented blindly before the fetches: it's fine if this sometimes fails to save, we
-    // recompute the value via COUNT(*) during cleanup.
+    {
+        MailStoreTransaction transaction { store, "syncMessageBodies" };
+
+        // Re-check, inside a transaction, that the messages found above still have no body.
+        // Inserting an empty body reserves them for this worker so the other one cannot
+        // fetch the same message at the same time.
+        int ii = 1;
+        for (auto id : ids) {
+            stillMissing.bind(ii++, id);
+        }
+        while (stillMissing.executeStep()) {
+            results.push_back(make_shared<Message>(stillMissing));
+        }
+        if (results.size() < ids.size()) {
+            logger->info("Body for {} messages already being fetched.", ids.size() - results.size());
+        }
+
+        for (auto result : results) {
+            // write a blank entry into the MessageBody table so we'll only try to fetch each
+            // message once. Otherwise a persistent ErrorFetch or crash for a single message
+            // can cause the account to stay "syncing" forever.
+            insertPlaceholder.bind(1, result->id());
+            insertPlaceholder.bind(2);
+            insertPlaceholder.exec();
+            insertPlaceholder.reset();
+        }
+
+        transaction.commit();
+    }
+
     json & ls = folder.localStatus();
     if (!ls.count(LS_BODIES_PRESENT) || !ls[LS_BODIES_PRESENT].is_number()) {
         ls[LS_BODIES_PRESENT] = 0;
     }
-    ls[LS_BODIES_PRESENT] = ls[LS_BODIES_PRESENT].get<long long>() + (long long)results.size();
-
-    syncReservedMessageBodies(results, folder);
-
-    return results.size() > 0;
-}
-
-/*
- Returns the messages among `ids` that have no MessageBody row, in the order given, after
- inserting an empty one for each. The re-check and insert share a transaction, so the empty
- row reserves the message for this worker and the other cannot fetch it at the same time.
- syncReservedMessageBodies stamps the row's fetchedAt just before the fetch, and an attempted
- row is kept if the fetch fails for any reason but a dropped connection, so each message is
- fetched once: otherwise a persistent ErrorFetch or crash for a single message can cause the
- account to stay "syncing" forever.
- */
-vector<shared_ptr<Message>> SyncWorker::reserveMissingBodies(const vector<string> & ids) {
-    vector<shared_ptr<Message>> results{};
-    if (ids.empty()) {
-        return results;
-    }
-    SQLite::Statement stillMissing(store->db(), "SELECT Message.* FROM Message LEFT JOIN MessageBody ON MessageBody.id = Message.id WHERE Message.id IN (" + MailUtils::qmarks(ids.size()) + ") AND MessageBody.id IS NULL");
-    SQLite::Statement insertPlaceholder(store->db(), "INSERT OR IGNORE INTO MessageBody (id, value) VALUES (?, ?)");
-
-    MailStoreTransaction transaction { store, "reserveMissingBodies" };
-    int ii = 1;
-    for (auto & id : ids) {
-        stillMissing.bind(ii++, id);
-    }
-    map<string, shared_ptr<Message>> missing{};
-    while (stillMissing.executeStep()) {
-        auto msg = make_shared<Message>(stillMissing);
-        missing[msg->id()] = msg;
-    }
-    for (auto & id : ids) {
-        auto it = missing.find(id);
-        if (it != missing.end()) {
-            results.push_back(it->second);
-            missing.erase(it);
-        }
-    }
-    if (results.size() < ids.size()) {
-        logger->info("Body for {} messages already stored or being fetched.", ids.size() - results.size());
-    }
-    for (auto & result : results) {
-        insertPlaceholder.bind(1, result->id());
-        insertPlaceholder.bind(2);
-        insertPlaceholder.exec();
-        insertPlaceholder.reset();
-    }
-    transaction.commit();
-    return results;
-}
-
-/*
- Fetches the bodies reserved by reserveMissingBodies. A thrown error (typically the connection
- dropping) ends the batch: the reservations not yet attempted are released so a later pass
- fetches them, while the one that failed keeps its reservation like any other failed fetch.
- */
-void SyncWorker::syncReservedMessageBodies(vector<shared_ptr<Message>> & reserved, Folder & folder) {
-    auto releaseFrom = [&](size_t first) {
-        size_t remaining = reserved.size() - first;
-        if (remaining == 0) {
-            return;
-        }
-        SQLite::Statement release(store->db(), "DELETE FROM MessageBody WHERE value IS NULL AND id IN (" + MailUtils::qmarks(remaining) + ")");
-        int jj = 1;
-        for (size_t kk = first; kk < reserved.size(); kk++) {
-            release.bind(jj++, reserved[kk]->id());
-        }
-        release.exec();
-        logger->info("- Released {} body fetches after an error.", remaining);
-    };
-
+    
     SQLite::Statement markAttempted(store->db(), "UPDATE MessageBody SET fetchedAt = datetime('now') WHERE id = ? AND value IS NULL");
-    for (size_t ii = 0; ii < reserved.size(); ii++) {
-        markAttempted.bind(1, reserved[ii]->id());
+    for (size_t ii = 0; ii < results.size(); ii++) {
+        // increment local sync state - it's fine if this sometimes fails to save,
+        // we recompute the value via COUNT(*) during cleanup
+        ls[LS_BODIES_PRESENT] = ls[LS_BODIES_PRESENT].get<long long>() + 1;
+
+        // The stamp marks the reservation attempted, so releaseUnattemptedBodyFetches keeps it.
+        markAttempted.bind(1, results[ii]->id());
         markAttempted.exec();
         markAttempted.reset();
+
+        // attempt to fetch the message body from the copy in this folder
         try {
-            syncMessageBody(reserved[ii].get(), &folder);
-        } catch (SyncException & ex) {
-            // A dropped connection says nothing about the message in flight, so it is released too.
-            releaseFrom(ex.isOffline() ? ii : ii + 1);
-            throw;
+            syncMessageBody(results[ii].get(), &folder);
         } catch (...) {
-            releaseFrom(ii + 1);
+            // An error (typically the connection dropping) ends the batch. The reservations
+            // not yet attempted are released so a later pass fetches them.
+            size_t remaining = results.size() - ii - 1;
+            if (remaining > 0) {
+                SQLite::Statement release(store->db(), "DELETE FROM MessageBody WHERE value IS NULL AND id IN (" + MailUtils::qmarks(remaining) + ")");
+                int jj = 1;
+                for (size_t kk = ii + 1; kk < results.size(); kk++) {
+                    release.bind(jj++, results[kk]->id());
+                }
+                release.exec();
+                logger->info("- Released {} body fetches after an error.", remaining);
+            }
             throw;
         }
     }
+    
+    return results.size() > 0;
 }
 
 /*
