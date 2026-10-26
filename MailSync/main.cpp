@@ -880,10 +880,18 @@ int runInstallCheck() {
     return success ? 0 : 1;
 }
 
-// `count` stdin commands of this type have been handled, including the foreground interrupt
-// that picks up their remote work. See DeltaStream::emitWorkerState.
-static void emitCommandsHandled(const string & type, int count) {
-    SharedDeltaStream()->emitWorkerState("main", {{"handled", type}, {"count", count}, {"wake", MailUtils::workerWakeGeneration()}});
+// Reports that `count` stdin commands of this type have been handled, interrupting the
+// foreground first when it has remote work to pick up. That report is written under idleMtx,
+// so it precedes the foreground's next idle event. See DeltaStream::emitWorkerState.
+static void finishCommands(const string & type, int count, bool interruptForeground) {
+    auto emit = [&](bool interrupted) {
+        SharedDeltaStream()->emitWorkerState("main", {{"handled", type}, {"count", count}, {"interrupted", interrupted}, {"wake", MailUtils::workerWakeGeneration()}});
+    };
+    if (interruptForeground && fgWorker) {
+        fgWorker->idleInterrupt([&] { emit(true); });
+    } else {
+        emit(false);
+    }
 }
 
 void runListenOnMainThread(shared_ptr<Account> account) {
@@ -929,6 +937,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
         try {
             string type = packet.count("type") ? packet["type"].get<string>() : "";
+            bool interruptForeground = false;
 
             if (type == "queue-task") {
                 packet["task"]["v"] = 0;
@@ -948,11 +957,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                         // Cleared before the interrupt: a task whose local phase finishes after this
                         // point queues its own interrupt rather than relying on one already delivered.
                         queuedForegroundWake = false;
-                        int handedOff = tasksPerformedLocally;
-                        if (fgWorker) {
-                            fgWorker->idleInterrupt();
-                        }
-                        emitCommandsHandled("queue-task", handedOff);
+                        finishCommands("queue-task", tasksPerformedLocally, true);
                     }).detach();
                 }
             }
@@ -976,7 +981,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 // interrupt the foreground worker's IDLE call, because our network
                 // connection may have been reset and it'll sit for a while otherwise
                 // and wake-workers is called when waking from sleep
-                if (fgWorker) fgWorker->idleInterrupt();
+                interruptForeground = true;
             }
 
             if (type == "need-bodies") {
@@ -986,7 +991,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                     ids.push_back(id.get<string>());
                 }
                 if (fgWorker) fgWorker->idleQueueBodiesToSync(ids);
-                if (fgWorker) fgWorker->idleInterrupt();
+                interruptForeground = true;
             }
 
             if (type == "sync-calendar") {
@@ -1032,7 +1037,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 raise(SIGSEGV);
             }
             if (type != "" && type != "queue-task") {
-                emitCommandsHandled(type, ++handledCounts[type]);
+                finishCommands(type, ++handledCounts[type], interruptForeground);
             }
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();

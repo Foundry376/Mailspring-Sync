@@ -13,6 +13,8 @@ process is quiescent when all of these hold at once:
   - the background worker's last event is "sleeping", after a pass that started at or after
     the latest wake-workers
   - the foreground worker's last event is "idle", and came after the latest handled command
+    that interrupted it (queue-task, wake-workers, need-bodies; search-remote, cancel-task
+    and sync-calendar leave IDLE alone)
   - every Folder's localStatus has busy == false and syncedMinUID <= 1 (initial sync done)
 
 A worker that went to sleep after a retryable error would otherwise sleep for 120s, so the
@@ -168,7 +170,7 @@ class ProcessState:
     last_delta_t: float = 0.0
     workers: dict = field(default_factory=dict)        # background / foreground -> WorkerState
     handled: dict = field(default_factory=dict)        # stdin command type -> how many the engine handled
-    handled_seq: int = -1                              # seq of the latest handled command
+    handled_seq: int = -1                              # seq of the latest command that interrupted the foreground
     wake: int = 0                                      # latest wake generation the engine reported
     worker_seq: int = 0
     worker_event_at: float = 0.0                       # time.time() of the latest worker-state line
@@ -383,7 +385,8 @@ class MailsyncProcess:
             st.wake = max(st.wake, int(d.get("wake", 0)))
             if d["worker"] == "main":
                 st.handled[d["handled"]] = max(st.handled.get(d["handled"], 0), int(d["count"]))
-                st.handled_seq = st.worker_seq
+                if d.get("interrupted"):
+                    st.handled_seq = st.worker_seq
             else:
                 st.workers[d["worker"]] = WorkerState(st.worker_seq, d["state"], bool(d.get("error")), int(d.get("wake", 0)))
 

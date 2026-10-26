@@ -98,7 +98,7 @@ void SyncWorker::disconnect()
     session.disconnect();
 }
 
-void SyncWorker::idleInterrupt()
+void SyncWorker::idleInterrupt(const std::function<void()> & whileLocked)
 {
     // called on main / random threads to interrupt idle
     // do not call functions from here to avoid accidentally running on two threads!
@@ -106,6 +106,9 @@ void SyncWorker::idleInterrupt()
     idleShouldReloop = true;
     session.interruptIdle();
     idleCv.notify_one();
+    if (whileLocked) {
+        whileLocked();
+    }
 }
 
 void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {

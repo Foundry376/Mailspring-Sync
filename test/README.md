@@ -161,7 +161,7 @@ log and buffered deltas (`DeltaStream::emitWorkerState`): the background worker 
 sleep, the foreground worker on entering and leaving IDLE, and the main thread once a stdin
 command is handled. The engine is quiescent when it has handled every command the harness
 sent, the background is asleep after a pass that started after the latest `wake-workers`, the
-foreground is in IDLE since the latest command, and every Folder's `localStatus.busy` is false
+foreground is in IDLE since the latest command that interrupted it, and every Folder's `localStatus.busy` is false
 with `syncedMinUID <= 1`. A wait for it typically returns within 50 ms of the engine going
 idle. A worker asleep after a retryable error (a dropped connection, `NO` to LIST) would
 retry in 120 s; the wait sends `wake-workers` instead, as the client does when it comes back

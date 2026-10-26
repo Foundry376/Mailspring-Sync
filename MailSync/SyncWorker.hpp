@@ -15,6 +15,7 @@
 #include <stdio.h>
 
 #include <atomic>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <set>
@@ -70,7 +71,8 @@ public:
 
 public:
     
-    void idleInterrupt();
+    // `whileLocked` runs under idleMtx, so whatever it emits precedes the next idle event.
+    void idleInterrupt(const std::function<void()> & whileLocked = nullptr);
     void idleQueueBodiesToSync(vector<string> & ids);
     void idleCycleIteration();
 
