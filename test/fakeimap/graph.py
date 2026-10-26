@@ -17,7 +17,8 @@ Outbox; the engine only cares whether it has reached Sent Items).
 Calendars are listed from /me/calendars, paged by `@odata.nextLink`
 (https://learn.microsoft.com/en-us/graph/api/user-list-calendars). A calendar's events are listed
 in UTC, single instances and series masters only (calendar-list-events); one event is read in the
-zone `Prefer: outlook.timezone` names, with a text body only when asked for one, and a series'
+zone `Prefer: outlook.timezone` names (originalStart too, with that zone's offset, though the reference
+says UTC: observed on an Outlook.com account), with a text body only when asked for one, and a series'
 cancelledOccurrences / exceptionOccurrences only when selected and expanded (event-get). $batch
 runs up to 20 requests and answers them out of order (json-batching). Calendar and mail scopes
 are consented and tokened separately: a token for one is refused by the other's routes with
@@ -51,6 +52,12 @@ SENT_ITEMS_ID = "AQMkAGSentItems="
 # The Windows zone names Graph writes, for the zones the scenarios use.
 WINDOWS_ZONES = {"UTC": "UTC", "Pacific Standard Time": "America/Los_Angeles", "Tokyo Standard Time": "Asia/Tokyo",
                  "New Zealand Standard Time": "Pacific/Auckland", "W. Europe Standard Time": "Europe/Berlin"}
+
+
+def _offset_in_zone(value: str, zone: str) -> str:
+    """A DateTimeOffset ("2026-10-19T16:00:00Z") written in `zone` with its offset."""
+    instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return instant.astimezone(ZoneInfo(WINDOWS_ZONES[zone])).isoformat(timespec="seconds")
 
 
 def _in_zone(value: dict, zone: str) -> dict:
@@ -377,7 +384,10 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
 
         def moved(e: dict) -> dict:
-            return {**e, "start": _in_zone(e["start"], zone), "end": _in_zone(e["end"], zone)}
+            out = {**e, "start": _in_zone(e["start"], zone), "end": _in_zone(e["end"], zone)}
+            if "originalStart" in e:
+                out["originalStart"] = _offset_in_zone(e["originalStart"], zone)
+            return out
         event = moved(event)
         if "exceptionOccurrences" in event:
             event["exceptionOccurrences"] = [moved(x) for x in event["exceptionOccurrences"]]
