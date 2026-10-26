@@ -916,7 +916,7 @@ static int wait_read(mailstream_low * s)
   WSAEventSelect(ssl_data->fd, event, FD_READ | FD_CLOSE);
   FD_SET(event, &fds_read);
   r = WaitForMultipleObjects(fds_read.fd_count, fds_read.fd_array, FALSE, timeout.tv_sec * 1000 + timeout.tv_usec / 1000);
-  if (WAIT_TIMEOUT == r) {
+  if ((DWORD) r - WAIT_OBJECT_0 >= fds_read.fd_count) {
     WSAEventSelect(ssl_data->fd, event, 0);
     CloseHandle(event);
     return -1;
@@ -1076,7 +1076,7 @@ static int wait_write(mailstream_low * s)
   WSAEventSelect(ssl_data->fd, event, FD_WRITE | FD_CLOSE);
   FD_SET(event, &fds_read);
   r = WaitForMultipleObjects(fds_read.fd_count, fds_read.fd_array, FALSE, timeout.tv_sec * 1000 + timeout.tv_usec / 1000);
-  if (r < 0) {
+  if ((DWORD) r - WAIT_OBJECT_0 >= fds_read.fd_count) {
 		WSAEventSelect(ssl_data->fd, event, 0);
 		CloseHandle(event);
     return -1;
