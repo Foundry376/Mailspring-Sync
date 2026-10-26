@@ -74,13 +74,11 @@ MicrosoftCalendarWorker::MicrosoftCalendarWorker(shared_ptr<Account> account) :
 }
 
 void MicrosoftCalendarWorker::run() {
-    string accessToken = SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraphCalendars).accessToken;
-
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
     set<string> listedIds {};
     vector<pair<string, string>> listed {}; // id, path
 
-    paginateGraphCollection(MicrosoftGraphURL() + "/me/calendars?$select=" + CALENDAR_FIELDS, accessToken, [&](json & page) {
+    paginateGraphCollection(MicrosoftGraphURL() + "/me/calendars?$select=" + CALENDAR_FIELDS, [&](json & page) {
         for (const auto & remote : page["value"]) {
             string path = JSONString(remote, "id");
             string id = MailUtils::idForCalendar(account->id(), path);
@@ -102,16 +100,16 @@ void MicrosoftCalendarWorker::run() {
         }
     }
     for (auto & calendar : listed) {
-        syncEvents(calendar.first, calendar.second, accessToken);
+        syncEvents(calendar.first, calendar.second);
     }
     logger->info("Microsoft calendar sync complete: {} calendars", listedIds.size());
 }
 
-void MicrosoftCalendarWorker::syncEvents(const string & calendarId, const string & path, const string & accessToken) {
+void MicrosoftCalendarWorker::syncEvents(const string & calendarId, const string & path) {
     auto range = getCalendarSyncRange();
     map<string, json> remote {}; // Graph id -> listed event
     string url = MicrosoftGraphURL() + "/me/calendars/" + URLEscape(path) + "/events?$select=" + EVENT_INDEX_FIELDS + "&$top=200";
-    paginateGraphCollection(url, accessToken, [&](json & page) {
+    paginateGraphCollection(url, [&](json & page) {
         for (const auto & entry : page["value"]) {
             if (inSyncWindow(entry, range)) {
                 remote[JSONString(entry, "id")] = entry;
@@ -149,7 +147,7 @@ void MicrosoftCalendarWorker::syncEvents(const string & calendarId, const string
     size_t changedCount = changed.size(); // chunksOfVector empties `changed`
     size_t fetched = 0;
     for (auto & chunk : MailUtils::chunksOfVector(changed, GRAPH_BATCH_SIZE)) {
-        map<string, json> events = fetchEvents(chunk, accessToken);
+        map<string, json> events = fetchEvents(chunk);
         for (auto & entry : chunk) {
             string graphId = JSONString(entry, "id");
             if (!events.count(graphId)) {
@@ -179,7 +177,7 @@ static json eventRequest(const json & entry, const string & requestId) {
 
 // The listed events read in full, by Graph id. An event Graph fails to return is left out, so it
 // keeps its rows and is read again next pass; one it throttles is retried after Retry-After.
-map<string, json> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entries, const string & accessToken) {
+map<string, json> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entries) {
     map<string, json> events {};
     vector<json> pending = entries;
     for (int attempt = 0; attempt < GRAPH_BATCH_ATTEMPTS && !pending.empty(); attempt++) {
@@ -188,7 +186,7 @@ map<string, json> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entr
             requests.push_back(eventRequest(pending[i], to_string(i)));
         }
         string url = MicrosoftGraphURL() + "/$batch";
-        GraphResponse resp = PerformGraphRequest("POST", url, accessToken, json{{"requests", requests}}.dump());
+        GraphResponse resp = PerformGraphRequest("POST", url, accessToken(), json{{"requests", requests}}.dump());
         if (!resp.ok()) {
             throwForGraphResponse(url, resp);
         }
@@ -312,18 +310,23 @@ void MicrosoftCalendarWorker::throwForGraphResponse(const string & url, const Gr
                         url + " RETURNED " + GraphErrorDescription(resp), retryable);
 }
 
-json MicrosoftCalendarWorker::graphGET(const string & url, const string & accessToken) {
-    GraphResponse resp = PerformGraphRequest("GET", url, accessToken);
+// Asked for per request: a pass can outlast the token it began with, which is renewed only near expiry.
+string MicrosoftCalendarWorker::accessToken() {
+    return SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraphCalendars).accessToken;
+}
+
+json MicrosoftCalendarWorker::graphGET(const string & url) {
+    GraphResponse resp = PerformGraphRequest("GET", url, accessToken());
     if (!resp.ok()) {
         throwForGraphResponse(url, resp);
     }
     return resp.body;
 }
 
-void MicrosoftCalendarWorker::paginateGraphCollection(const string & url, const string & accessToken, std::function<void(json &)> yieldPage) {
+void MicrosoftCalendarWorker::paginateGraphCollection(const string & url, std::function<void(json &)> yieldPage) {
     string next = url;
     while (next != "") {
-        json page = graphGET(next, accessToken);
+        json page = graphGET(next);
         if (!page.count("value") || !page["value"].is_array()) {
             throw SyncException("invalid-graph-resp", next + " returned no value array", true);
         }
