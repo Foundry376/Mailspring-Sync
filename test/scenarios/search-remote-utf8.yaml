@@ -1,0 +1,44 @@
+name: search-remote-utf8
+description: >
+  Non-ASCII search terms reach the server intact. A quoted string is 7-bit only (RFC 3501
+  4.3), so the engine sends them as literals with CHARSET UTF-8 to servers that accept
+  non-synchronizing literals (LITERAL+ / LITERAL-, RFC 7888, or iCloud's XAPPLELITERAL).
+  CHARSET is spelled `UTF-8`: Yahoo answers BAD to `utf-8` and then reads the literal as a
+  command of its own (live, 2026-10-25). The server matches decoded
+  content: a quoted-printable body and an RFC 2047 encoded subject. Whether "cafe" also
+  finds "café" is the server's comparator (Dovecot and Cyrus fold diacritics, Cyrus via
+  search_skipdiacrit), so no expectation here depends on it.
+source: "MailSync/SearchWorker.cpp; Vendor/mailcore2 IMAPSession::search; RFC 3501 4.3 and 6.4.4, RFC 7888"
+servers:
+  - {fake: dovecot}
+  - {fake: yahoo}
+  - {fake: gmx}
+  - {fake: icloud}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: "=?UTF-8?Q?Caf=C3=A9_plans?=", body: "Dessert will be crème brûlée.", transfer_encoding: quoted-printable, message_id: "<cafe@search.test>"}}
+  - server.append: {mailbox: INBOX, messages: {subject: Greetings from Munich, body: "Bis bald in München.", transfer_encoding: base64, message_id: "<munich@search.test>"}}
+  - server.append: {mailbox: INBOX, messages: {subject: Plain coffee, body: "Coffee only.", message_id: "<plain@search.test>"}}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [text, brûlée]}
+    as: body_utf8
+  - client.search: {criteria: [subject, café]}
+    as: subject_encoded_word
+  - client.search: {criteria: [body, münchen]}
+    as: base64_body
+  - client.search: {criteria: [subject, coffee]}
+    as: ascii
+  - wait: {log: 'UID SEARCH CHARSET UTF-8 TEXT \{\d+\+\}', timeout: 30}
+  - wait: {log: 'UID SEARCH SUBJECT coffee', timeout: 30}
+expect:
+  search:
+    body_utf8: {message_ids: ["<cafe@search.test>"], folder_errors: 0}
+    subject_encoded_word: {message_ids: ["<cafe@search.test>"], folder_errors: 0}
+    base64_body: {message_ids: ["<munich@search.test>"], folder_errors: 0}
+    ascii: {message_ids: ["<plain@search.test>"]}
+  log_absent:
+    - '(?i)UID SEARCH CHARSET UTF-8 TEXT "'
+    - 'CHARSET utf-8'
+  running: true

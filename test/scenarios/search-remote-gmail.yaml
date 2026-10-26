@@ -1,0 +1,43 @@
+name: search-remote-gmail
+description: >
+  On a server advertising X-GM-EXT-1, a request carrying `gmailRaw` runs it verbatim as
+  X-GM-RAW, which Gmail interprets exactly as its web search box. By default only All Mail
+  (\All) is searched: it excludes Spam and Trash, as Gmail's own search does without
+  in:anywhere. A request naming Trash searches Trash. Criteria still apply without gmailRaw.
+  The fake's X-GM-RAW matches a label name only; Gmail's query language is proven live.
+source: "MailSync/SearchWorker.cpp; https://developers.google.com/workspace/gmail/imap/imap-extensions#extension_of_the_search_command_x-gm-raw"
+servers:
+  - {fake: gmail}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: Project kickoff, message_id: "<kickoff@search.test>"}}
+  - server.append: {mailbox: INBOX, messages: {subject: Lunch plans, message_id: "<lunch@search.test>"}}
+  - server.labels: {mailbox: INBOX, uids: [1], add: ["Work"]}
+  - server.append: {mailbox: "[Gmail]/Trash", messages: {subject: Old project notes, message_id: "<trash@search.test>"}}
+  - server.labels: {mailbox: "[Gmail]/Trash", uids: [1], add: ["Work"]}
+steps:
+  - wait: quiescent
+  - client.search: {gmailRaw: Work}
+    as: raw
+  - client.search: {gmailRaw: Work, folders: ["[Gmail]/Trash"]}
+    as: raw_in_trash
+  - client.search: {criteria: [subject, lunch]}
+    as: criteria
+  - client.search: {gmailRaw: "Work\nA997 DELETE \"[Gmail]/Trash\""}
+    as: raw_with_lf
+  - client.search: {gmailRaw: "@repeat:a:1025"}
+    as: raw_too_long
+  - wait: {log: '(?i)UID SEARCH (CHARSET UTF-8 )?X-GM-RAW Work', timeout: 30}
+  - wait: {log: 'Search search-\S+: 1 folder\(s\), criteria', timeout: 30}
+expect:
+  search:
+    raw: {message_ids: ["<kickoff@search.test>"], folder_errors: 0}
+    raw_in_trash: {message_ids: ["<trash@search.test>"]}
+    criteria: {message_ids: ["<lunch@search.test>"]}
+    raw_too_long: {error: "search term is longer than 1024 bytes"}
+    raw_with_lf: {error: "search term holds a control character"}
+  server_has:
+    "[Gmail]/Trash": ["<trash@search.test>"]
+  log_count:
+    'Search search-\S+: 1 folder\(s\), X-GM-RAW': 2
+    'Search search-\S+: 1 folder\(s\), criteria': 1
+  running: true

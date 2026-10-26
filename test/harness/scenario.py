@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+from datetime import datetime, timedelta
 
 from . import db as dbmod
 from . import invariants
@@ -501,8 +502,10 @@ class ScenarioRun:
                 self._note(f"hook {hook} {spec or ''} fired on session {session.sid} "
                            f"({'foreground' if session.has_idled else 'background'}, {session.selected} selected): "
                            f"server.{op} {json.dumps(arg)}")
-                if op == "reject":
-                    session.reject_next = (arg.get("code"), arg.get("text", "Command failed."))
+                if op == "reject":   # `close: true` ends the session after the NO, as a server does after a rejected login
+                    session.reject_next = (arg.get("code"), arg.get("text", "Command failed."), bool(arg.get("close")))
+                elif op == "desync":
+                    session.desynced = True
                 else:
                     self._server_op(op, arg)
                 if delay:
@@ -541,10 +544,14 @@ class ScenarioRun:
             s.set_uidnext(arg["mailbox"], int(arg["value"]))
         elif op == "drop_connections":
             s.drop_connections()
+        elif op == "index":
+            s.index()
         elif op == "pause":
             pass  # with `at` + `delay`: holds one reply without changing the server
         elif op == "reject":
             pass  # only meaningful with `at` on the fake, which answers the hooked command NO
+        elif op == "desync":
+            pass  # only meaningful with `at` on the fake: that session answers every further command BAD
         elif op == "smtp_hold":
             self._smtp().hold()
         elif op == "smtp_release":
@@ -593,7 +600,58 @@ class ScenarioRun:
         if op == "need_bodies":
             self.ms.need_bodies(self._resolve_messages(arg["messages"]))
             return
+        if op == "search":
+            return self._search(arg)
+        if op == "search_cancel":   # {of: label} or {searchId: id}
+            search_id = self.labels[arg["of"]] if "of" in arg else arg["searchId"]
+            self.ms.send({"type": "search-remote-cancel", "searchId": search_id})
+            return None
+        if op == "search_without_id":
+            self.ms.send({"type": "search-remote", "criteria": ["all"]})
+            return None
+        if op == "send":   # a packet exactly as given, for requests the client would never form
+            self.ms.send(dict(arg))
+            return None
         raise ScenarioFailure(f"unknown client op {op!r}")
+
+    def _search(self, arg: dict) -> str:
+        """`search-remote` on stdin, as the client sends it for a submitted query: `criteria`
+        and `gmailRaw` pass through, `folders` (scenario paths) become `folderIds`. Waits for
+        the final ProcessSearchResult unless `wait: false`; returns the search id for `expect: search`."""
+        search_id = f"search-{int(time.time() * 1000)}-{len(self.labels)}"
+        packet = {"type": "search-remote", "searchId": search_id}
+        for key in ("criteria", "gmailRaw", "limit"):
+            if key in arg:
+                packet[key] = arg[key]
+        for key in ("criteria", "gmailRaw"):
+            if key in packet:
+                packet[key] = self._resolve_search_dates(packet[key])
+        if "folders" in arg:
+            packet["folderIds"] = [self._folder_json(p)["id"] for p in arg["folders"]]
+        self.ms.send(packet)
+        if arg.get("wait", True):
+            self.ms.wait_for(lambda: self._search_result(search_id) is not None,
+                             float(arg.get("timeout", 60)), f"search {search_id} to finish")
+        return search_id
+
+    def _resolve_search_dates(self, criteria):
+        """`@today`, `@today-3`, `@today+1` -> YYYY-MM-DD in the engine's local zone, because a
+        server stamps APPENDed mail with the time it arrived; `@repeat:a:1025` -> "aaa..."."""
+        if isinstance(criteria, list):
+            return [self._resolve_search_dates(c) for c in criteria]
+        if isinstance(criteria, str) and criteria.startswith("@repeat:"):   # @repeat:<text>:<count>
+            _, text, count = criteria.split(":")
+            return text * int(count)
+        m = re.match(r"^@today([+-]\d+)?$", criteria) if isinstance(criteria, str) else None
+        if not m:
+            return criteria
+        return (datetime.now() + timedelta(days=int(m.group(1) or 0))).strftime("%Y-%m-%d")
+
+    def _search_result(self, search_id: str, done: bool = True):
+        """The last ProcessSearchResult the engine emitted for this search (the final one when `done`)."""
+        found = [m for d in self.ms.deltas("ProcessSearchResult") for m in d.models
+                 if m.get("id") == search_id and (m.get("done") or not done)]
+        return found[-1] if found else None
 
     def _attachment_file(self, spec: dict) -> dict:
         """A draft attachment given as {filename, bytes, contentType?, contentId?}: write that
@@ -1095,6 +1153,48 @@ class ScenarioRun:
         if arg.get("cleared") and (not states or states[-1] is not False):
             out.append(f"expected the connection error to be cleared, ProcessState deltas were {states}")
         return out
+
+    def expect_search(self, arg: dict) -> list:
+        """{label: {message_ids: [Message-ID headers], error, folder_errors}}: the final
+        ProcessSearchResult for the search labelled `label` holds exactly those messages' threads."""
+        out = []
+        for label, want in arg.items():
+            got = self._search_result(self.labels[label])
+            if got is None:
+                out.append(f"search {label}: no final ProcessSearchResult")
+                continue
+            if got.get("error") != want.get("error"):
+                out.append(f"search {label}: error {got.get('error')!r}, expected {want.get('error')!r}")
+            if "message_ids" in want:
+                # The engine answers with threads; every scenario message is its own thread,
+                # so the expected threads are those of the named messages.
+                wanted = [h.strip("<>") for h in want["message_ids"]]
+                with self.ms.db() as c:
+                    rows = c.execute("SELECT headerMessageId, threadId FROM Message").fetchall()
+                thread_of = {(r["headerMessageId"] or "").strip("<>"): r["threadId"] for r in rows}
+                missing = [h for h in wanted if h not in thread_of]
+                if missing:
+                    out.append(f"search {label}: messages {missing} are not in the engine's database")
+                expected = sorted({thread_of[h] for h in wanted if h in thread_of})
+                got_threads = got.get("threadIds", [])
+                if len(set(got_threads)) != len(got_threads):
+                    out.append(f"search {label}: threadIds repeat: {got_threads}")
+                if sorted(set(got_threads)) != expected:
+                    names = {v: k for k, v in thread_of.items()}
+                    out.append(f"search {label}: matched {sorted(names.get(t, t) for t in got_threads)}, expected {sorted(wanted)}")
+            if "folder_errors" in want and len(got.get("errors", [])) != want["folder_errors"]:
+                out.append(f"search {label}: folder errors {got.get('errors')}, expected {want['folder_errors']}")
+        return out
+
+    def expect_no_search_without_id(self, arg) -> list:
+        """A request without a searchId is never answered: no ProcessSearchResult has an empty id."""
+        stray = [m for d in self.ms.deltas("ProcessSearchResult") for m in d.models if not m.get("id")]
+        return [f"cancel produced results {stray}"] if stray else []
+
+    def expect_search_not_done(self, labels) -> list:
+        """[label, ...]: those searches were superseded, so the engine never finished them."""
+        return [f"search {label} reported done: {self._search_result(self.labels[label])}"
+                for label in labels if self._search_result(self.labels[label]) is not None]
 
     def expect_deltas(self, arg: dict) -> list:
         out = []

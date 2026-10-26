@@ -10,6 +10,8 @@ incremented by every flag change, append, and expunge; expunged UIDs are remembe
 with the modseq at which they vanished so VANISHED (EARLIER) can be answered.
 """
 import email
+import email.errors
+import email.header
 import email.policy
 import email.utils
 import threading
@@ -46,6 +48,27 @@ class Message:
     def header(self, name: str) -> Optional[str]:
         v = self.parsed.get(name)
         return None if v is None else str(v).replace("\r\n", "").replace("\n", "")
+
+    def decoded_header(self, name: str) -> str:
+        """The header with RFC 2047 encoded words decoded, which is what SEARCH matches."""
+        v = self.header(name)
+        if v is None:
+            return ""
+        try:
+            return str(email.header.make_header(email.header.decode_header(v)))
+        except (email.errors.HeaderParseError, LookupError, UnicodeDecodeError):
+            return v
+
+    def decoded_body(self) -> str:
+        """The text parts with their transfer encoding and charset undone, as servers search
+        them (RFC 3501 6.4.4: matching is on the decoded content)."""
+        out = []
+        for part in self.parsed.walk():
+            if part.get_content_maintype() != "text":
+                continue
+            payload = part.get_payload(decode=True) or b""
+            out.append(payload.decode(part.get_content_charset() or "utf-8", "replace"))
+        return "\n".join(out)
 
     @property
     def message_id(self) -> str:

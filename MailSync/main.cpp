@@ -38,6 +38,7 @@
 #include "MetadataExpirationWorker.hpp"
 #include "DAVWorker.hpp"
 #include "GoogleContactsWorker.hpp"
+#include "SearchWorker.hpp"
 #include "SyncException.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
@@ -62,6 +63,7 @@ shared_ptr<SyncWorker> bgWorker = nullptr;
 shared_ptr<SyncWorker> fgWorker = nullptr;
 shared_ptr<DAVWorker> davWorker = nullptr;
 shared_ptr<GoogleContactsWorker> contactsWorker = nullptr;
+shared_ptr<SearchWorker> searchWorker = nullptr;
 
 shared_ptr<MetadataWorker> metadataWorker = nullptr;
 shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
@@ -986,6 +988,21 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 }
             }
 
+            if (type == "search-remote") {
+                if (!searchWorker) {
+                    searchWorker = make_shared<SearchWorker>(account);
+                    std::thread([]() {
+                        SetThreadName("search");
+                        searchWorker->run();
+                    }).detach();
+                }
+                searchWorker->enqueue(packet);
+            }
+
+            if (type == "search-remote-cancel" && searchWorker) {
+                searchWorker->cancel(SearchWorker::searchIdOf(packet));
+            }
+
             if (type == "test-crash") {
                 throw SyncException("test", "triggered via cin", false);
             }
@@ -1001,6 +1018,14 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
 int main(int argc, const char * argv[]) {
     SetThreadName("main");
+#ifndef _WIN32
+    // A write to a connection the server has closed raises SIGPIPE on Linux, which kills the
+    // process: a LOGOUT sent after a rejected login once the server dropped the connection
+    // did exactly that (search-remote-failures). libetpan sets SO_NOSIGPIPE only where the
+    // socket option exists (connect.c), and the error path is EPIPE / a stream error.
+    // Windows has no SIGPIPE: a send on a closed socket fails with an error code.
+    signal(SIGPIPE, SIG_IGN);
+#endif
 
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);

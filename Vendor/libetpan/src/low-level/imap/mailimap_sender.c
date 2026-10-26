@@ -2067,6 +2067,9 @@ static int mailimap_search_key_need_to_send_charset(struct mailimap_search_key *
     case MAILIMAP_SEARCH_KEY_NOT:
       return mailimap_search_key_need_to_send_charset(key->sk_data.sk_not);
       
+    case MAILIMAP_SEARCH_KEY_FUZZY:
+      return mailimap_search_key_need_to_send_charset(key->sk_data.sk_fuzzy);
+      
     case MAILIMAP_SEARCH_KEY_OR:
       return mailimap_search_key_need_to_send_charset(key->sk_data.sk_or.sk_or1) ||
       mailimap_search_key_need_to_send_charset(key->sk_data.sk_or.sk_or2);
@@ -2535,6 +2538,18 @@ static int search_key_send(mailstream * fd,
       if (r != MAILIMAP_NO_ERROR)
         return r;
       r = search_key_send(fd, key->sk_data.sk_not, literalplus_enabled, 0);
+      if (r != MAILIMAP_NO_ERROR)
+        return r;
+      return MAILIMAP_NO_ERROR;
+      
+    case MAILIMAP_SEARCH_KEY_FUZZY:
+      r = mailimap_token_send(fd, "FUZZY");
+      if (r != MAILIMAP_NO_ERROR)
+        return r;
+      r = mailimap_space_send(fd);
+      if (r != MAILIMAP_NO_ERROR)
+        return r;
+      r = search_key_send(fd, key->sk_data.sk_fuzzy, literalplus_enabled, 0);
       if (r != MAILIMAP_NO_ERROR)
         return r;
       return MAILIMAP_NO_ERROR;

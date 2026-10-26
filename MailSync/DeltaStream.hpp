@@ -75,6 +75,7 @@ public:
     
     void sendUpdatedSecrets(Account * account);
     void sendIdentityRefreshNeeded();
+    void sendSearchResult(json result);
 
     void beginConnectionError(string accountId);
     void endConnectionError(string accountId);

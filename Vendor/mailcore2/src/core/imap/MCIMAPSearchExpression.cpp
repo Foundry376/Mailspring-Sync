@@ -376,6 +376,14 @@ IMAPSearchExpression * IMAPSearchExpression::searchNot(IMAPSearchExpression * no
     return (IMAPSearchExpression *) expr->autorelease();
 }
 
+IMAPSearchExpression * IMAPSearchExpression::searchFuzzy(IMAPSearchExpression * fuzzyExpr)
+{
+    IMAPSearchExpression * expr = new IMAPSearchExpression();
+    expr->mKind = IMAPSearchKindFuzzy;
+    MC_SAFE_REPLACE_RETAIN(IMAPSearchExpression, expr->mLeftExpression, fuzzyExpr);
+    return (IMAPSearchExpression *) expr->autorelease();
+}
+
 IMAPSearchKind IMAPSearchExpression::kind()
 {
     return mKind;

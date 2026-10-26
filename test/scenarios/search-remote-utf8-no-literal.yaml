@@ -1,0 +1,27 @@
+name: search-remote-utf8-no-literal
+description: >
+  A quoted string is 7-bit only (RFC 3501 4.3), and libetpan's SEARCH cannot send the
+  synchronizing literal a server without LITERAL+ or LITERAL- would need for a non-ASCII term
+  (Thunderbird sends one: nsMsgSearchAdapter::EncodeImapValue). So such a server is never sent
+  a non-ASCII search: the request fails and the client keeps its local results. ASCII
+  searches run as everywhere else. iCloud is not such a server: its XAPPLELITERAL stands
+  for LITERAL+ (search-remote-utf8).
+source: "MailSync/SearchWorker.cpp; Vendor/mailcore2 IMAPSession::acceptsNonSynchronizingLiterals; RFC 3501 4.3, RFC 7888"
+servers:
+  - {fake: courier}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: "=?UTF-8?Q?Caf=C3=A9_plans?=", body: "Dessert will be crème brûlée.", transfer_encoding: quoted-printable, message_id: "<cafe@search.test>"}}
+  - server.append: {mailbox: INBOX, messages: {subject: Plain coffee, body: "Coffee only.", message_id: "<plain@search.test>"}}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [text, brûlée]}
+    as: body_utf8
+  - client.search: {criteria: [subject, coffee]}
+    as: ascii
+expect:
+  search:
+    body_utf8: {error: "non-ASCII search terms need a server that accepts non-synchronizing literals"}
+    ascii: {message_ids: ["<plain@search.test>"], folder_errors: 0}
+  log_absent:
+    - '(?i)UID SEARCH CHARSET UTF-8'
+  running: true
