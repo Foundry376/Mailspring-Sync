@@ -201,6 +201,9 @@ outlook = _register(Personality(
         "sent-items-duplicate-copies": "Exchange auto-saves a sent message, racing the client's own APPEND, "
                                        "leaving 2-4 byte-identical copies at adjacent UIDs "
                                        "(observed 2026-09-19, docs/message-placements-plan.md)",
+        "search-badcharset": "SEARCH CHARSET utf-8 is refused with NO [BADCHARSET (US-ASCII)] The specified "
+                             "charset is not supported. (outlook.office365.com transcript in php-imap#128, "
+                             "2016-05-23; UTF8=ACCEPT is still absent from 2026 CAPABILITY captures)",
     },
 ))
 
@@ -209,10 +212,12 @@ icloud = _register(Personality(
     description="iCloud: advertises CONDSTORE+QRESYNC; the engine disables QRESYNC by hostname "
                 "(imap.mail.me.com). The malformed-VANISHED behaviour itself is NOT modelled: no "
                 "transcript exists. Use this personality to exercise the hostname gate only.",
-    source="Mailspring-Sync PR #91 / 65f24b4; developer.apple.com/forums/thread/694251. NEEDS-RECORDING.",
+    source="Mailspring-Sync PR #91 / 65f24b4; developer.apple.com/forums/thread/694251. NEEDS-RECORDING. "
+           "XAPPLELITERAL from a live probe (Mailspring-Sync #164 review, 2026-10-25): iCloud advertises it "
+           "in place of LITERAL+ and accepts {n+} non-synchronizing literals in SEARCH.",
     preauth_capabilities="IMAP4rev1 XAPPLEPUSHSERVICE SASL-IR ID ENABLE IDLE AUTH=PLAIN AUTH=ATOKEN AUTH=XOAUTH2",
-    postauth_capabilities="IMAP4rev1 XAPPLEPUSHSERVICE SASL-IR ID ENABLE IDLE UIDPLUS NAMESPACE CHILDREN "
-                          "CONDSTORE QRESYNC MOVE SPECIAL-USE",
+    postauth_capabilities="IMAP4rev1 XAPPLEPUSHSERVICE XAPPLELITERAL SASL-IR ID ENABLE IDLE UIDPLUS NAMESPACE "
+                          "CHILDREN CONDSTORE QRESYNC MOVE SPECIAL-USE",
     greeting="[ ... ] iCloud IMAP ready",
     mailboxes=[("INBOX", []), ("Drafts", ["\\Drafts"]), ("Sent Messages", ["\\Sent"]),
                ("Deleted Messages", ["\\Trash"]), ("Junk", ["\\Junk"]), ("Archive", ["\\Archive"])],
@@ -265,12 +270,61 @@ yahoo = _register(Personality(
                           "SPECIAL-USE MESSAGELIMIT=1000 PARTIAL APPENDLIMIT=41697280",
     greeting="Welcome! IMAP Server up and ready to accept your request",
     quirks={
+        "search-charset-utf8-exact": "UID SEARCH CHARSET utf-8 ... is answered BAD [CLIENTBUG] UID SEARCH "
+                                     "Command arguments invalid, and the literal that follows is read as a "
+                                     "command of its own; CHARSET UTF-8 is accepted (live probe, "
+                                     "Mailspring-Sync #164 review, 2026-10-25)",
         "copyuid-permuted": "COPYUID lists ascending source and destination ranges while the UIDs "
                             "assigned are a permutation of the destination range; 2 of 18 pairs "
                             "correct across 4 multi-message moves, single-message moves correct "
                             "(live Yahoo account, observed 2026-09-24; RFC 4315 §3). "
                             "Modelled as a rotation, which also applies to UID COPY (unverified on Yahoo).",
     },
+))
+
+gmx = _register(Personality(
+    name="gmx",
+    description="GMX / web.de (imap.gmx.net): LITERAL- rather than LITERAL+ (RFC 7888), so "
+                "non-synchronizing literals of at most 4096 bytes; no CONDSTORE, so the deep-scan "
+                "branch. Post-login capabilities are assumed to be the pre-login list without AUTH=.",
+    source="Greeting and CAPABILITY from imap.gmx.net:993, recorded 2026-10-22 (pre-login). "
+           "NEEDS-RECORDING: post-login CAPABILITY.",
+    preauth_capabilities="IMAP4rev1 CHILDREN ENABLE ID IDLE LIST-EXTENDED LIST-STATUS LITERAL- MOVE NAMESPACE "
+                         "SASL-IR SORT SPECIAL-USE THREAD=ORDEREDSUBJECT UIDPLUS UNSELECT WITHIN AUTH=LOGIN AUTH=PLAIN",
+    postauth_capabilities="IMAP4rev1 CHILDREN ENABLE ID IDLE LIST-EXTENDED LIST-STATUS LITERAL- MOVE NAMESPACE "
+                          "SASL-IR SORT SPECIAL-USE THREAD=ORDEREDSUBJECT UIDPLUS UNSELECT WITHIN",
+    greeting="IMAP server ready H migmx109 32.4",
+))
+
+cyrus = _register(Personality(
+    name="cyrus",
+    description="Cyrus IMAP 3.6 with search_engine: xapian, the server and index Fastmail runs "
+                "(fastmail.com/blog/email-search-system): SEARCH=FUZZY is advertised, and only a FUZZY "
+                "search reads the index while a plain SEARCH scans every message (imapd.conf "
+                "search_fuzzy_always). This fake matches a FUZZY key exactly; stemming and the index "
+                "are left to the real cyrus: xapian server kind.",
+    source="Recorded from the harness's Cyrus 3.6.1-Debian-3.6.1-4+deb12u5 image with search_engine: "
+           "xapian on 2026-10-22 (greeting, pre- and post-login CAPABILITY)",
+    preauth_capabilities=(
+        "IMAP4rev1 LITERAL+ ID ENABLE ACL ANNOTATE-EXPERIMENT-1 BINARY CATENATE CHILDREN CONDSTORE "
+        "CREATE-SPECIAL-USE ESEARCH ESORT LIST-EXTENDED LIST-MYRIGHTS LIST-STATUS MAILBOX-REFERRALS "
+        "METADATA MOVE MULTIAPPEND NAMESPACE OBJECTID PREVIEW QRESYNC QUOTA RIGHTS=kxten SAVEDATE "
+        "SEARCH=FUZZY SORT SORT=DISPLAY SPECIAL-USE STATUS=SIZE THREAD=ORDEREDSUBJECT THREAD=REFERENCES "
+        "UIDPLUS UNSELECT URLAUTH URLAUTH=BINARY WITHIN DIGEST=SHA1 LIST-METADATA NO_ATOMIC_RENAME SCAN "
+        "SORT=MODSEQ SORT=UID THREAD=REFS X-CREATEDMODSEQ X-REPLICATION X-SIEVE-MAILBOX XLIST XMOVE "
+        "AUTH=PLAIN AUTH=LOGIN SASL-IR XCONVERSATIONS COMPRESS=DEFLATE X-QUOTA=STORAGE X-QUOTA=MESSAGE "
+        "X-QUOTA=X-ANNOTATION-STORAGE X-QUOTA=X-NUM-FOLDERS IDLE APPENDLIMIT=4294967295"),
+    postauth_capabilities=(
+        "IMAP4rev1 LITERAL+ ID ENABLE ACL ANNOTATE-EXPERIMENT-1 BINARY CATENATE CHILDREN CONDSTORE "
+        "CREATE-SPECIAL-USE ESEARCH ESORT LIST-EXTENDED LIST-MYRIGHTS LIST-STATUS MAILBOX-REFERRALS "
+        "METADATA MOVE MULTIAPPEND NAMESPACE OBJECTID PREVIEW QRESYNC QUOTA RIGHTS=kxten SAVEDATE "
+        "SEARCH=FUZZY SORT SORT=DISPLAY SPECIAL-USE STATUS=SIZE THREAD=ORDEREDSUBJECT THREAD=REFERENCES "
+        "UIDPLUS UNSELECT URLAUTH URLAUTH=BINARY WITHIN DIGEST=SHA1 LIST-METADATA NO_ATOMIC_RENAME SCAN "
+        "SORT=MODSEQ SORT=UID THREAD=REFS X-CREATEDMODSEQ X-REPLICATION X-SIEVE-MAILBOX XLIST XMOVE "
+        "LOGINDISABLED XCONVERSATIONS COMPRESS=DEFLATE X-QUOTA=STORAGE X-QUOTA=MESSAGE "
+        "X-QUOTA=X-ANNOTATION-STORAGE X-QUOTA=X-NUM-FOLDERS IDLE APPENDLIMIT=4294967295"),
+    greeting="harness Cyrus IMAP 3.6.1-Debian-3.6.1-4+deb12u5 server ready",
+    id_response='("name" "Cyrus")',
 ))
 
 cyrus_vanished = _register(Personality(

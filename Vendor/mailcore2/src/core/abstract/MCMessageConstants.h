@@ -209,6 +209,7 @@ namespace mailcore {
         IMAPSearchKindOr,
         IMAPSearchKindAnd,
         IMAPSearchKindNot,
+        IMAPSearchKindFuzzy,
     };
     
     enum ErrorCode {

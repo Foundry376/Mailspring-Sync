@@ -31,6 +31,7 @@ from typing import Optional
 from urllib.parse import unquote
 
 import yaml
+from datetime import datetime, timedelta
 
 from . import db as dbmod
 from . import invariants
@@ -250,6 +251,7 @@ class ScenarioRun:
             kw.update(self.sc["account"])
         account = account_json(**kw)
         self.ms = MailsyncProcess(account, self.work, binary=self._initial_binary(), verbose=True, env=self._engine_env())
+        self.ms.note = self._note
 
     def _engine_env(self) -> dict:
         """A scenario's top-level `env:` is added to the engine's environment, for the knobs the
@@ -407,6 +409,7 @@ class ScenarioRun:
         # started on. Relative paths resolve against test/, like the top-level `binary:`.
         binary = self._binary_path(arg["binary"]) if arg.get("binary") else self.binary
         self.ms = MailsyncProcess(account, self.work, binary=binary, verbose=True, env=self._engine_env())
+        self.ms.note = self._note
         self.ms.start()
         self._note(f"mailsync {self.ms.binary.resolve().name} restarted; migrate said: {self.ms.migrate_output}")
         if arg.get("wait", True):
@@ -502,8 +505,10 @@ class ScenarioRun:
                 self._note(f"hook {hook} {spec or ''} fired on session {session.sid} "
                            f"({'foreground' if session.has_idled else 'background'}, {session.selected} selected): "
                            f"server.{op} {json.dumps(arg)}")
-                if op == "reject":
-                    session.reject_next = (arg.get("code"), arg.get("text", "Command failed."))
+                if op == "reject":   # `close: true` ends the session after the NO, as a server does after a rejected login
+                    session.reject_next = (arg.get("code"), arg.get("text", "Command failed."), bool(arg.get("close")))
+                elif op == "desync":
+                    session.desynced = True
                 else:
                     self._server_op(op, arg)
                 if delay:
@@ -542,10 +547,14 @@ class ScenarioRun:
             s.set_uidnext(arg["mailbox"], int(arg["value"]))
         elif op == "drop_connections":
             s.drop_connections()
+        elif op == "index":
+            s.index()
         elif op == "pause":
             pass  # with `at` + `delay`: holds one reply without changing the server
         elif op == "reject":
             pass  # only meaningful with `at` on the fake, which answers the hooked command NO
+        elif op == "desync":
+            pass  # only meaningful with `at` on the fake: that session answers every further command BAD
         elif op == "smtp_hold":
             self._smtp().hold()
         elif op == "smtp_release":
@@ -609,7 +618,58 @@ class ScenarioRun:
         if op == "need_bodies":
             self.ms.need_bodies(self._resolve_messages(arg["messages"]))
             return
+        if op == "search":
+            return self._search(arg)
+        if op == "search_cancel":   # {of: label} or {searchId: id}
+            search_id = self.labels[arg["of"]] if "of" in arg else arg["searchId"]
+            self.ms.send({"type": "search-remote-cancel", "searchId": search_id})
+            return None
+        if op == "search_without_id":
+            self.ms.send({"type": "search-remote", "criteria": ["all"]})
+            return None
+        if op == "send":   # a packet exactly as given, for requests the client would never form
+            self.ms.send(dict(arg))
+            return None
         raise ScenarioFailure(f"unknown client op {op!r}")
+
+    def _search(self, arg: dict) -> str:
+        """`search-remote` on stdin, as the client sends it for a submitted query: `criteria`
+        and `gmailRaw` pass through, `folders` (scenario paths) become `folderIds`. Waits for
+        the final ProcessSearchResult unless `wait: false`; returns the search id for `expect: search`."""
+        search_id = f"search-{int(time.time() * 1000)}-{len(self.labels)}"
+        packet = {"type": "search-remote", "searchId": search_id}
+        for key in ("criteria", "gmailRaw", "limit"):
+            if key in arg:
+                packet[key] = arg[key]
+        for key in ("criteria", "gmailRaw"):
+            if key in packet:
+                packet[key] = self._resolve_search_dates(packet[key])
+        if "folders" in arg:
+            packet["folderIds"] = [self._folder_json(p)["id"] for p in arg["folders"]]
+        self.ms.send(packet)
+        if arg.get("wait", True):
+            self.ms.wait_for(lambda: self._search_result(search_id) is not None,
+                             float(arg.get("timeout", 60)), f"search {search_id} to finish")
+        return search_id
+
+    def _resolve_search_dates(self, criteria):
+        """`@today`, `@today-3`, `@today+1` -> YYYY-MM-DD in the engine's local zone, because a
+        server stamps APPENDed mail with the time it arrived; `@repeat:a:1025` -> "aaa..."."""
+        if isinstance(criteria, list):
+            return [self._resolve_search_dates(c) for c in criteria]
+        if isinstance(criteria, str) and criteria.startswith("@repeat:"):   # @repeat:<text>:<count>
+            _, text, count = criteria.split(":")
+            return text * int(count)
+        m = re.match(r"^@today([+-]\d+)?$", criteria) if isinstance(criteria, str) else None
+        if not m:
+            return criteria
+        return (datetime.now() + timedelta(days=int(m.group(1) or 0))).strftime("%Y-%m-%d")
+
+    def _search_result(self, search_id: str, done: bool = True):
+        """The last ProcessSearchResult the engine emitted for this search (the final one when `done`)."""
+        found = [m for d in self.ms.deltas("ProcessSearchResult") for m in d.models
+                 if m.get("id") == search_id and (m.get("done") or not done)]
+        return found[-1] if found else None
 
     def _attachment_file(self, spec: dict) -> dict:
         """A draft attachment given as {filename, bytes, contentType?, contentId?}: write that
@@ -865,6 +925,55 @@ class ScenarioRun:
                                     f"expected {sorted(want['flags'])}")
         return problems
 
+    def expect_bodies(self, arg: dict) -> list:
+        """{mailbox: {Message-ID: {contains: [...], lacks: [...]}}}: every server copy of that
+        message in that mailbox, and the body the engine stored for it, contain and lack those
+        strings - what tells the sender's copy of a tracked message from the recipients' (fake
+        servers only)."""
+        store = getattr(self.server, "store", None)
+        if store is None:
+            return ["bodies needs a fake server"]
+        out = []
+        for mb, messages in arg.items():
+            box = store.get(mb)
+            for mid, want in messages.items():
+                mid = normalize_message_id(mid)
+                copies = [m for m in (box.messages if box else []) if normalize_message_id(m.message_id) == mid]
+                if not copies:
+                    out.append(f"server has no {mid} in {mb}")
+                with self.ms.db() as c:
+                    row = c.execute("SELECT b.value FROM Message m JOIN MessageBody b ON b.id = m.id "
+                                    "WHERE m.headerMessageId = ?", (mid,)).fetchone()
+                if row is None:
+                    out.append(f"no stored body for {mid}")
+                texts = [(f"{mb} UID {m.uid}", m.raw.decode("utf-8", "replace")) for m in copies]
+                texts += [("stored body", row[0] or "")] if row else []
+                for where, text in texts:
+                    out += [f"{mid} {where} lacks {s!r}" for s in want.get("contains", []) if s not in text]
+                    out += [f"{mid} {where} contains {s!r}" for s in want.get("lacks", []) if s in text]
+        return out
+
+    def expect_unfetched_bodies(self, arg: dict) -> list:
+        """{max: n}: at most n messages hold the empty MessageBody row that reserves a body
+        fetch (SyncWorker::syncMessageBodies). A row left behind is never fetched again
+        unless the client asks for that body."""
+        with self.ms.db() as c:
+            found = c.execute("SELECT COUNT(*) FROM MessageBody WHERE value IS NULL").fetchone()[0]
+        return [f"{found} unfetched bodies, expected at most {arg['max']}"] if found > arg["max"] else []
+
+    def expect_local_search(self, arg: dict) -> list:
+        """{FTS5 query: [thread subjects]}: the threads a local search finds, matched against
+        ThreadSearch as the client's search-query-backend-local does."""
+        out = []
+        with self.ms.db() as c:
+            for query, want in arg.items():
+                found = sorted(r[0] for r in c.execute(
+                    "SELECT Thread.subject FROM ThreadSearch JOIN Thread ON Thread.id = ThreadSearch.content_id "
+                    "WHERE ThreadSearch MATCH ?", (query,)))
+                if found != sorted(want):
+                    out.append(f"local search {query!r} found {found}, expected {sorted(want)}")
+        return out
+
     def expect_unchanged_since(self, arg) -> list:
         name = arg if isinstance(arg, str) else arg["snapshot"]
         with self.ms.db() as c:
@@ -894,11 +1003,13 @@ class ScenarioRun:
         return out
 
     def expect_graph(self, arg: dict) -> list:
-        """What the fake Graph server sent: `count`; per message `recipients`, `headers` and
-        `attachments` (file names, wherever they ended up); `drafts` unsent drafts left on the
+        """What the fake Graph server sent: `count`; per message `recipients` (To, Cc and the
+        draft's bccRecipients), `headers` (null for one that must be absent), `body_contains` /
+        `body_lacks` strings and `attachments` (file names, wherever they ended up); `drafts` unsent drafts left on the
         server; `upload_sessions` attachments that went through an upload session;
         `graph_mail_token_requests` / `graph_calendar_token_requests` refreshes that asked for
-        Graph mail / calendar scopes; `requests: {regex: n}` requests whose unescaped path matches;
+        Graph mail / calendar scopes; `distinct_tokens` two path regexes whose requests used
+        different access tokens; `requests: {regex: n}` requests whose unescaped path matches;
         `max_request_bytes` the largest request body the engine sent."""
         graph = getattr(self.server, "graph", None)
         if graph is None:
@@ -917,6 +1028,9 @@ class ScenarioRun:
             for h, v in (want.get("headers") or {}).items():
                 if m.header(h) != v:
                     out.append(f"Graph message {i} header {h} = {m.header(h)!r}, expected {v!r}")
+            sent_mime = m.mime.decode("utf-8", "replace")
+            out += [f"Graph message {i} lacks {s!r}" for s in want.get("body_contains", []) if s not in sent_mime]
+            out += [f"Graph message {i} contains {s!r}" for s in want.get("body_lacks", []) if s in sent_mime]
             if "attachments" in want and m.attachment_names() != sorted(want["attachments"]):
                 out.append(f"Graph message {i} attachments {m.attachment_names()} != {sorted(want['attachments'])}")
         if "drafts" in arg and len(graph.drafts()) != arg["drafts"]:
@@ -935,6 +1049,14 @@ class ScenarioRun:
             got = sum(1 for r in graph.requests if re.search(pattern, unquote(r["path"])))
             if got != want:
                 out.append(f"expected {want} Graph requests matching /{pattern}/, saw {got}")
+        if "distinct_tokens" in arg:
+            # [regex, regex]: the requests matching each path regex were made with different tokens
+            def tokens(rx):
+                return {r["headers"].get("authorization") for r in graph.requests
+                        if r["method"] != "GET" and re.search(rx, r["path"])}
+            first, second = (tokens(rx) for rx in arg["distinct_tokens"])
+            if not first or not second or first & second:
+                out.append(f"expected different tokens for {arg['distinct_tokens']}, saw {first} and {second}")
         if "max_request_bytes" in arg:
             largest = max((r["bytes"] for r in graph.requests), default=0)
             if largest > arg["max_request_bytes"]:
@@ -1126,6 +1248,48 @@ class ScenarioRun:
         if arg.get("cleared") and (not states or states[-1] is not False):
             out.append(f"expected the connection error to be cleared, ProcessState deltas were {states}")
         return out
+
+    def expect_search(self, arg: dict) -> list:
+        """{label: {message_ids: [Message-ID headers], error, folder_errors}}: the final
+        ProcessSearchResult for the search labelled `label` holds exactly those messages' threads."""
+        out = []
+        for label, want in arg.items():
+            got = self._search_result(self.labels[label])
+            if got is None:
+                out.append(f"search {label}: no final ProcessSearchResult")
+                continue
+            if got.get("error") != want.get("error"):
+                out.append(f"search {label}: error {got.get('error')!r}, expected {want.get('error')!r}")
+            if "message_ids" in want:
+                # The engine answers with threads; every scenario message is its own thread,
+                # so the expected threads are those of the named messages.
+                wanted = [h.strip("<>") for h in want["message_ids"]]
+                with self.ms.db() as c:
+                    rows = c.execute("SELECT headerMessageId, threadId FROM Message").fetchall()
+                thread_of = {(r["headerMessageId"] or "").strip("<>"): r["threadId"] for r in rows}
+                missing = [h for h in wanted if h not in thread_of]
+                if missing:
+                    out.append(f"search {label}: messages {missing} are not in the engine's database")
+                expected = sorted({thread_of[h] for h in wanted if h in thread_of})
+                got_threads = got.get("threadIds", [])
+                if len(set(got_threads)) != len(got_threads):
+                    out.append(f"search {label}: threadIds repeat: {got_threads}")
+                if sorted(set(got_threads)) != expected:
+                    names = {v: k for k, v in thread_of.items()}
+                    out.append(f"search {label}: matched {sorted(names.get(t, t) for t in got_threads)}, expected {sorted(wanted)}")
+            if "folder_errors" in want and len(got.get("errors", [])) != want["folder_errors"]:
+                out.append(f"search {label}: folder errors {got.get('errors')}, expected {want['folder_errors']}")
+        return out
+
+    def expect_no_search_without_id(self, arg) -> list:
+        """A request without a searchId is never answered: no ProcessSearchResult has an empty id."""
+        stray = [m for d in self.ms.deltas("ProcessSearchResult") for m in d.models if not m.get("id")]
+        return [f"cancel produced results {stray}"] if stray else []
+
+    def expect_search_not_done(self, labels) -> list:
+        """[label, ...]: those searches were superseded, so the engine never finished them."""
+        return [f"search {label} reported done: {self._search_result(self.labels[label])}"
+                for label in labels if self._search_result(self.labels[label]) is not None]
 
     def expect_deltas(self, arg: dict) -> list:
         out = []

@@ -342,6 +342,17 @@ vector<string> MailUtils::roles() {
     return {"all", "sent", "drafts", "spam", "important", "starred", "archive", "inbox", "trash", "snoozed"};
 }
 
+// An \All mailbox (role "all") is a *duplicate view* of messages that also live in Inbox /
+// Sent / Archive - ProtonMail Bridge's "All Mail" is the common case - so it is neither synced
+// nor searched (#137). Gmail is the one provider where All Mail is the *primary* message store,
+// synced alongside spam/trash with the rest derived from X-GM-LABELS. The containerFolder
+// clause keeps a Bridge build that does not advertise SPECIAL-USE (leaving "All Mail" without
+// a role) on the same rule.
+bool MailUtils::isDuplicateAllMail(Account * account, Folder * folder, bool isGmail) {
+    return (!isGmail && folder->role() == "all") ||
+           (account->containerFolder() != "" && folder->path() == "All Mail");
+}
+
 string MailUtils::roleForFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
     string role = MailUtils::roleForFolderViaFlags(mainPrefix, folder);
     if (role == "") {
@@ -605,6 +616,24 @@ string MailUtils::idForDraftHeaderMessageId(string accountId, string headerMessa
     return toBase58(hash.data(), 30);
 }
 
+/*
+ The rowid of a model's ContactSearch or EventSearch row. FTS5 can only look a row up by rowid
+ or MATCH (the content_id column is UNINDEXED, so `WHERE content_id = ?` reads the whole table),
+ and the model's own rowid is no substitute because VACUUM renumbers it. Deriving the rowid from
+ the id means it never has to be stored. Two ids sharing one of 2^63 values is not a concern at
+ address-book scale; if it happened, INSERT OR REPLACE would leave one of them unsearchable.
+ */
+long long MailUtils::searchRowIdForId(const string & id)
+{
+    vector<unsigned char> hash(32);
+    picosha2::hash256(id.begin(), id.end(), hash.begin(), hash.end());
+    uint64_t value = 0;
+    for (int i = 0; i < 8; i++) {
+        value = (value << 8) | hash[i];
+    }
+    return (long long)(value & INT64_MAX);
+}
+
 #define SCHEMA_1_START_DATE 1518652800 // 2/15/2018
 
 static int _baseIDSchemaVersion = 0;
@@ -814,7 +843,29 @@ static string _tlsRejectionReason(mailcore::String * tlsErrorDescription) {
     return reason;
 }
 
-string MailUtils::tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed) {
+string MailUtils::certificateSHA256(Data * der) {
+    const unsigned char * bytes = (const unsigned char *) der->bytes();
+    return picosha2::hash256_hex_string(bytes, bytes + der->length());
+}
+
+static string _certificateFingerprintAdvice(Array * chain, String * acceptedSHA256) {
+    if (chain == nullptr || chain->count() == 0) {
+        return "";
+    }
+    string presented = MailUtils::certificateSHA256((Data *) chain->objectAtIndex(0));
+    string accepted = acceptedSHA256 != nullptr ? acceptedSHA256->lowercaseString()->UTF8Characters() : "";
+    string advice = "The server presented the certificate with SHA-256 fingerprint " + presented;
+    if (accepted != "" && accepted != presented) {
+        advice += ", not the certificate accepted for this account (" + accepted +
+                  "). The server's certificate has changed since it was accepted. ";
+    } else {
+        advice += ". ";
+    }
+    return advice;
+}
+
+static string _tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed,
+                                Array * certificateChain, String * acceptedCertificateSHA256) {
     string reason = _tlsRejectionReason(tlsErrorDescription);
 
     // A certificate rejection carries no TLS reason string: mailcore runs checkCertificate()
@@ -832,17 +883,18 @@ string MailUtils::tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * t
     if (err == mailcore::ErrorCertificate) {
         string advice = "Mailspring could not verify this server's certificate";
         advice += reason.empty() ? string(". ") : " (" + reason + "). ";
-        advice += "If it is self-signed or issued by a private certificate authority, install it in "
-                  "your operating system's trust store (Keychain Access on macOS, the Windows "
-                  "certificate store, or the system CA directory on Linux) and reconnect - on macOS "
-                  "it must also meet Apple's current requirements for TLS server certificates. "
-                  "\"Allow insecure SSL\" does not bypass certificate validation.";
+        advice += _certificateFingerprintAdvice(certificateChain, acceptedCertificateSHA256);
+        advice += "Reconnect the account to review the certificate and accept it. If it is self-signed "
+                  "or issued by a private certificate authority, you can instead install it in your "
+                  "operating system's trust store (Keychain Access on macOS, the Windows certificate "
+                  "store, or the system CA directory on Linux) - on macOS it must also meet Apple's "
+                  "current requirements for TLS server certificates.";
         return advice;
     }
 
     // Otherwise only speak up when negotiating the connection is what failed, and only when
-    // OpenSSL said why. Anything later - authentication above all - has its own cause, and a
-    // handshake reason recorded during a successful fallback would be a red herring.
+    // OpenSSL said why. Anything later - authentication above all - has its own cause. A
+    // successful connect() clears the reason, so a dropped connection afterwards has none.
     if (err != mailcore::ErrorConnection &&
         err != mailcore::ErrorTLSNotAvailable &&
         err != mailcore::ErrorStartTLSNotAvailable) {
@@ -859,6 +911,16 @@ string MailUtils::tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * t
         advice += " Enabling \"Allow insecure SSL\" in this account's settings may allow Mailspring to connect.";
     }
     return advice;
+}
+
+string MailUtils::tlsFailureAdvice(mailcore::ErrorCode err, IMAPSession & session) {
+    return _tlsFailureAdvice(err, session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed(),
+                             session.lastCertificateChain(), session.acceptedCertificateSHA256());
+}
+
+string MailUtils::tlsFailureAdvice(mailcore::ErrorCode err, SMTPSession & session) {
+    return _tlsFailureAdvice(err, session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed(),
+                             session.lastCertificateChain(), session.acceptedCertificateSHA256());
 }
 
 void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Account> account) {
@@ -890,17 +952,18 @@ void MailUtils::configureSessionForAccount(IMAPSession &session, shared_ptr<Acco
     } else {
         session.setConnectionType(ConnectionType::ConnectionTypeClear);
     }
-    // Certificate validation stays enabled for every account, including this one: a
-    // self-signed certificate or a private internal CA belongs in the operating system
-    // trust store, which is where mailcore's check already looks (SecTrustEvaluate on
-    // macOS, the CryptoAPI chain engine on Windows, the OpenSSL CA paths on Linux), so the
-    // trust store is the allowlist and validation never has to be turned off. This option
-    // only lowers the OpenSSL handshake security level to 0, for undersized DH groups and
-    // legacy protocol versions. It does not weaken certificate validation, and on macOS and
-    // Windows it cannot reach it at all, because SecTrust and CryptoAPI are independent of
-    // OpenSSL. tlsFailureAdvice explains the rest to the user.
+    // Certificate validation stays enabled for every account: mailcore checks the chain
+    // against the operating system trust store (SecTrust on macOS, the CryptoAPI chain
+    // engine on Windows, the OpenSSL CA paths on Linux) and the hostname against its
+    // subjectAltNames. A certificate that fails is still used when it is exactly the one
+    // the user reviewed and accepted, such as ProtonMail Bridge's self-signed certificate.
+    // "Allow insecure SSL" only lowers the OpenSSL handshake security level to 0, for
+    // undersized DH groups and legacy protocol versions, and never weakens validation.
     if (account->IMAPAllowInsecureSSL()) {
         session.setObsoleteTLSAllowed(true);
+    }
+    if (account->IMAPCertificateSHA256() != "") {
+        session.setAcceptedCertificateSHA256(AS_MCSTR(account->IMAPCertificateSHA256()));
     }
 
     // iCloud's QRESYNC implementation has known issues: it returns malformed VANISHED
@@ -940,10 +1003,12 @@ void MailUtils::configureSessionForAccount(SMTPSession & session, shared_ptr<Acc
     } else {
         session.setConnectionType(ConnectionType::ConnectionTypeClear);
     }
-    // Certificate validation stays enabled here too; a self-signed certificate or private
-    // CA belongs in the operating system trust store. See the IMAP overload above.
+    // See the IMAP overload above.
     if (account->SMTPAllowInsecureSSL()) {
         session.setObsoleteTLSAllowed(true);
+    }
+    if (account->SMTPCertificateSHA256() != "") {
+        session.setAcceptedCertificateSHA256(AS_MCSTR(account->SMTPCertificateSHA256()));
     }
 
     if (_verboseLogging) {
@@ -973,18 +1038,29 @@ IMAPMessagesRequestKind MailUtils::messagesRequestKindFor(IndexSet * capabilitie
 
 std::mutex workerSleepMtx;
 std::condition_variable workerSleepCV;
+uint64_t workerWakes = 0;
+
+uint64_t MailUtils::workerWakeGeneration() {
+    lock_guard<mutex> lck(workerSleepMtx);
+    return workerWakes;
+}
 
 void MailUtils::sleepWorkerUntilWakeOrSec(int sec) {
+    sleepWorkerUntilWakeOrSec(sec, workerWakeGeneration());
+}
+
+void MailUtils::sleepWorkerUntilWakeOrSec(int sec, uint64_t sinceWake) {
     auto desiredTime = std::chrono::system_clock::now();
     desiredTime += chrono::milliseconds(sec * 1000);
     unique_lock<mutex> lck(workerSleepMtx);
-    workerSleepCV.wait_until(lck, desiredTime);
+    workerSleepCV.wait_until(lck, desiredTime, [&] { return workerWakes != sinceWake; });
 }
 
 void MailUtils::wakeAllWorkers() {
     // wake sync workers that sleep between cycles
     {
         lock_guard<mutex> lck(workerSleepMtx);
+        workerWakes += 1;
         workerSleepCV.notify_all();
     }
     

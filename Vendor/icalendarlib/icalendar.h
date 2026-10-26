@@ -37,6 +37,15 @@ private:
 			Temp.resize(Length-1);
 		return Temp;
 	}
+	// A parameter's value as written, or "" when the property doesn't carry it.
+	string GetParameter(const string &Line, const string &Name) const {
+		string Params = Line.substr(0, Line.find_first_of(':'));
+		size_t Start = Params.find(";" + Name + "=");
+		if (Start == string::npos)
+			return "";
+		Start += Name.length() + 2;
+		return Params.substr(Start, Params.find(';', Start) - Start);
+	}
 	string GetSubProperty(const string &Line, const char *SubProperty) const {
 		size_t Pos = Line.find(SubProperty);
 		if (Pos == string::npos)

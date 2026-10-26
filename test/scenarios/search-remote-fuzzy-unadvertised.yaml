@@ -1,0 +1,23 @@
+name: search-remote-fuzzy-unadvertised
+description: >
+  A Fastmail account on a server that does not advertise SEARCH=FUZZY is sent a plain
+  SEARCH: FUZZY is an extension (RFC 6203), and only the capability says the server
+  takes it.
+source: "MailSync/SearchWorker.cpp; RFC 6203 section 7"
+servers:
+  - {fake: dovecot}
+account: {provider: fastmail}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: Kubernetes rollout, body: "Stale pods.", message_id: "<rollout@search.test>"}}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [text, rollout]}
+    as: text
+expect:
+  search:
+    text: {message_ids: ["<rollout@search.test>"], folder_errors: 0}
+  log_present:
+    - 'UID SEARCH TEXT rollout'
+  log_absent:
+    - 'UID SEARCH FUZZY'
+  running: true

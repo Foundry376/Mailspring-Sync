@@ -123,6 +123,12 @@ bool Account::IMAPAllowInsecureSSL() {
     return _data["settings"]["imap_allow_insecure_ssl"].get<bool>();
 }
 
+// SHA-256 of a certificate the user reviewed and accepted although it failed validation.
+string Account::IMAPCertificateSHA256() {
+    json & s = _data["settings"];
+    return s.count("imap_certificate_sha256") && s["imap_certificate_sha256"].is_string() ? s["imap_certificate_sha256"].get<string>() : "";
+}
+
 bool Account::isICloud() {
     return IMAPHost().find("imap.mail.me.com") != string::npos;
 }
@@ -156,6 +162,11 @@ string Account::SMTPSecurity() {
 
 bool Account::SMTPAllowInsecureSSL() {
     return _data["settings"]["smtp_allow_insecure_ssl"].get<bool>();
+}
+
+string Account::SMTPCertificateSHA256() {
+    json & s = _data["settings"];
+    return s.count("smtp_certificate_sha256") && s["smtp_certificate_sha256"].is_string() ? s["smtp_certificate_sha256"].get<string>() : "";
 }
 
 string Account::SMTPVerification() {

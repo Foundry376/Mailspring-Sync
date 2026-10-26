@@ -28,7 +28,7 @@ Start with `docs/adding-scenarios.md` if you are here to add a test, and
 ```bash
 pip install -r test/requirements.txt   # pytest, pytest-xdist, pyyaml
 sudo apt install libsasl2-modules      # SASL PLAIN/LOGIN plugins: every SMTP send fails without them
-python3 -m pytest test                 # everything, 16 cases at a time: ~6 min
+python3 -m pytest test                 # everything, 16 cases at a time: ~2.5 min
 python3 -m pytest test --servers fake -k qresync       # narrow by server kind / name
 python3 -m pytest test -n 0 -k baseline-initial-sync   # serially, for debugging
 python3 test/run.py test/scenarios/qresync-bulk-expunge-during-idle.yaml --server dovecot:qresync --keep
@@ -38,7 +38,7 @@ python3 test/conformance/compare.py -v                  # fake vs Dovecot, full 
 Server kinds are `fake` (in-process) and, with Docker, `dovecot` and `cyrus`; their images
 are built once at session start and re-tagged whenever `servers/<kind>/` changes. The log
 prints a line when a case starts and `[gwN] [ 42%] PASSED|FAILED <case>` when it ends; a run
-is stuck only if no line appears for ~3 min (the slowest case takes ~140 s). The run ends
+is stuck only if no line appears for ~2 min (the slowest case, modseq-truncation on Cyrus, takes ~80 s). The run ends
 with a "scenarios needing attention" section: every FAILED / XFAIL / XPASS case, its reason
 and its artifacts directory.
 
@@ -136,7 +136,9 @@ last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], 
 [regex]}` (runs `--mode test`, the client's account-add check, and compares its JSON),
 `task_error: {label: key or null or {key, debuginfo: regex}}` (how a labelled task finished), `graph: {count, messages:
 [{recipients, headers, attachments}], drafts, upload_sessions, graph_mail_token_requests,
-graph_calendar_token_requests, requests: {regex: n}, max_request_bytes}` (what the fake Graph server sent and still holds), `unchanged_since:
+graph_calendar_token_requests, distinct_tokens, requests: {regex: n}, max_request_bytes}` (what the fake Graph server sent and still holds), `local_search: {FTS5 query:
+[thread subjects]}` (the threads a local search finds in `ThreadSearch`),
+`unfetched_bodies: {max: n}` (empty `MessageBody` rows reserving a fetch), `unchanged_since:
 snapshot`, `running`, `exit`. Any
 expectation may carry `xfail: reason` for a known engine bug: it is recorded, not failed,
 and reported as XPASS once it starts passing.
@@ -148,18 +150,28 @@ it starts: `message_snapshot` (`Message.folders` / `labels` from `MessageFolder`
 `message_flags` (message unread / starred / draft from its rows, JSON vs indexed columns),
 `thread_refcounts` (thread folder and label `_refs` / `_u`, unread / starred, inAllMail from
 its messages' snapshots), `thread_categories` (`ThreadCategory` from the thread's arrays),
-`thread_counts` (`ThreadCounts` from `ThreadCategory`) and `orphans` (`MessageOrphan` lists
-exactly the messages with no `MessageFolder` row, which is how the end-of-pass sweep finds them).
+`thread_counts` (`ThreadCounts` from `ThreadCategory`), `orphans` (`MessageOrphan` lists
+exactly the messages with no `MessageFolder` row, which is how the end-of-pass sweep finds them)
+and `thread_search` (each stored plaintext body is in its thread's `ThreadSearch.body`, its
+opening words no more often than the thread's stored texts contain them).
 A scenario that trips one because of a known engine bug says so rather than skipping it
 silently: `expect: {invariants: {skip: [thread_counts]}}` with a comment naming the bug,
 `invariants: {xfail: reason}`, or `invariants: false` to disable all of them. They also work
 mid-scenario as `assert: {invariants: {}}`.
 
-**Quiescence** is inferred, since the engine has no "done" signal: every Folder's
-`localStatus.busy` is false and `syncedMinUID <= 1`; the background thread's last log line
-is `Sync loop complete.` and older than the settle window (it loops without sleeping while
-there is more to do); the foreground thread's last IMAP command is `IDLE`; and no delta has
-arrived within the settle window.
+**Quiescence** is signalled. The harness launches the engine with `WORKER_STATE_EVENTS=1`,
+which makes it write `{"type":"worker-state", ...}` lines to stdout, each after flushing its
+log and buffered deltas (`DeltaStream::emitWorkerState`): the background worker before every
+sleep, the foreground worker on entering and leaving IDLE, and the main thread once a stdin
+command is handled. The engine is quiescent when it has handled every command the harness
+sent, the background is asleep after a pass that started after the latest `wake-workers`, the
+foreground is in IDLE since the latest command that interrupted it, and every Folder's `localStatus.busy` is false
+with `syncedMinUID <= 1`. A wait for it typically returns within 50 ms of the engine going
+idle. A worker asleep after a retryable error (a dropped connection, `NO` to LIST) would
+retry in 120 s; the wait sends `wake-workers` instead, as the client does when it comes back
+online, and notes it in the report. The ab/ baselines predate the events and are still judged
+by inference from the log (`Sync loop complete.` older than a 2 s settle window, last
+foreground command `IDLE`, no recent deltas), which costs ~3 s per wait.
 
 **The oracle.** `harness/db.py` is the only code that knows the engine's schema. It turns
 `Message.remoteFolderId/remoteUID` (or `MessageFolder` rows, once they exist) into
@@ -182,8 +194,8 @@ A flaw in the fake would become a "must support" condition on the engine, so the
    `conformance/probes.py` sends every exchange mailsync performs (session setup, LIST /
    STATUS, SELECT / EXAMINE, header and body FETCH shapes, CHANGEDSINCE with and without
    VANISHED, STORE incl. `.SILENT`, COPY / MOVE / APPEND, EXPUNGE, CREATE / RENAME / DELETE,
-   and what an idling session is told) to both servers from identically populated state and
-   diffs the normalized responses. 56 comparisons currently match exactly; a difference is a
+   what an idling session is told, and which updates arrive with `+ idling`) to both servers from identically populated state and
+   diffs the normalized responses. 71 comparisons currently match exactly; a difference is a
    failing test unless it is listed in `ALLOWED_DIFFERENCES` with a reason. Run it after any
    change to `fakeimap/`.
 2. **Every deviation from that baseline is a named quirk on a `Personality`** in
@@ -336,6 +348,12 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | list-refused-transiently | O365 `NO Server Unavailable` to LIST: offline and retried, not a crash | fake |
 | contacts-from-sent-mail | found-in-mail contacts: junk display names stored as "", quotes stripped, a later real name fills a blank one and reaches ContactSearch | fake, dovecot |
 | migration-v13-repairs-contacts | V13 repairs junk mail-contact names and CardDAV rows (grouped `item1.EMAIL`, empty FN) from the stored vCard | fake (starts on `ab/mailsync-f7b0239`) |
+| search-index-long-body | the first SEARCH_BODY_MAX_LENGTH characters of a long body are searchable, the rest not | fake |
+| search-index-legacy-length | text indexed at 5 000 characters is extended in place when the body is fetched again | fake |
+| search-index-body-fetched-again | a body fetched again (need-bodies, moved into INBOX) is indexed once | fake ×2, dovecot |
+| body-fetch-connection-dropped | a connection lost mid-batch releases the body fetches not yet attempted | fake |
+| body-fetch-interrupted-by-quit | a quit (SIGTERM) mid-batch: the next launch releases the body fetches not yet attempted | fake ×2 |
+| idle-update-pending-at-start | an expunge pending when the foreground sends IDLE arrives with `+ idling` and is acted on at once | fake ×2 |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up

@@ -98,7 +98,7 @@ void SyncWorker::disconnect()
     session.disconnect();
 }
 
-void SyncWorker::idleInterrupt()
+void SyncWorker::idleInterrupt(const std::function<void()> & whileLocked)
 {
     // called on main / random threads to interrupt idle
     // do not call functions from here to avoid accidentally running on two threads!
@@ -106,6 +106,9 @@ void SyncWorker::idleInterrupt()
     idleShouldReloop = true;
     session.interruptIdle();
     idleCv.notify_one();
+    if (whileLocked) {
+        whileLocked();
+    }
 }
 
 void SyncWorker::idleQueueBodiesToSync(vector<string> & ids) {
@@ -172,7 +175,7 @@ void SyncWorker::idleCycleIteration()
     ErrorCode err = ErrorCode::ErrorNone;
     session.connectIfNeeded(&err);
     if (err != ErrorCode::ErrorNone) {
-        string advice = MailUtils::tlsFailureAdvice(err, session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed());
+        string advice = MailUtils::tlsFailureAdvice(err, session);
         if (advice != "") {
             logger->error("{}", advice);
             throw SyncException(err, "connectIfNeeded: " + advice);
@@ -311,11 +314,24 @@ void SyncWorker::idleCycleIteration()
         return;
     }
     if (session.setupIdle()) {
-        logger->info("Idling on folder {}", inbox->path());
+        {
+            // Checked again under idleMtx, after setupIdle: an idleInterrupt() either lands
+            // before the "idle" event (and we reloop) or interrupts the IDLE that follows it, so
+            // an "idle" event after a stdin command was handled means its remote work is done.
+            std::unique_lock<std::mutex> lck(idleMtx);
+            if (idleShouldReloop) {
+                idleShouldReloop = false;
+                session.unsetupIdle();
+                return;
+            }
+            logger->info("Idling on folder {}", inbox->path());
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "idle"}});
+        }
         String path = AS_MCSTR(inbox->path());
         session.idle(&path, 0, &err);
         session.unsetupIdle();
         logger->info("Idle exited with code {}", err);
+        SharedDeltaStream()->emitWorkerState("foreground", {{"state", "busy"}});
         idleExitedWithError = (err != ErrorCode::ErrorNone);
         
         // Ben Note: We don't throw these errors because Yandex (maybe others) abruptly and
@@ -325,7 +341,12 @@ void SyncWorker::idleCycleIteration()
     } else {
         logger->info("Connection does not support idling. Locking until more to do...");
         std::unique_lock<std::mutex> lck(idleMtx);
-        idleCv.wait(lck);
+        // The flag is left set for the next iteration to consume, as after an interrupted IDLE.
+        if (!idleShouldReloop) {
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "idle"}});
+            idleCv.wait(lck, [&] { return idleShouldReloop.load(); });
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "busy"}});
+        }
     }
 }
 
@@ -485,29 +506,11 @@ bool SyncWorker::syncNow()
             firstChunk = true;
         }
         
-        // Step 1.5: Should we skip this folder?
-        //
-        // An \All mailbox (role "all") is a *duplicate view* of messages that also live
-        // in Inbox / Sent / Archive - ProtonMail Bridge's "All Mail" is the common case.
-        // Syncing the extra copy as a placement would double header traffic and rows, file
-        // every thread under "Archive" (the [archive, all] role group), and a delete from
-        // All Mail on Bridge is a delete everywhere. Skip the folder; it is still created so
-        // the client can archive into it. (#137)
-        //
-        // Gmail is the one provider where All Mail is the *primary* message store rather
-        // than a duplicate view: there we sync only all/spam/trash and derive the rest
-        // from X-GM-LABELS, so it must keep syncing.
-        //
-        // Note: this used to be keyed on `containerFolder() != "" && path == "All Mail"`,
-        // which only held for ProtonMail accounts that the client had tagged with a
-        // container folder. Accounts that reach the engine without one (any @proton.me
-        // or custom-domain Bridge account, since the client's provider table only lists
-        // protonmail.com / protonmail.ch / pm.me) fell through and hit the bug.
-        // The legacy `containerFolder` clause is kept so that a Bridge build which does
-        // not advertise SPECIAL-USE (leaving "All Mail" without a role) keeps the exact
-        // behaviour it has today.
-        bool isDuplicateAllMail = (!isGmail && folder->role() == "all") ||
-                                  (account->containerFolder() != "" && folder->path() == "All Mail");
+        // Step 1.5: Should we skip this folder? Syncing a duplicate \All view as a placement
+        // would double header traffic and rows, file every thread under "Archive" (the
+        // [archive, all] role group), and a delete from All Mail on Bridge is a delete
+        // everywhere. The folder is still created so the client can archive into it.
+        bool isDuplicateAllMail = MailUtils::isDuplicateAllMail(account.get(), folder.get(), isGmail);
 
         if (isDuplicateAllMail) {
             logger->info("SyncNow: skipped duplicate \\All folder {}", folder->path());
@@ -684,10 +687,19 @@ bool SyncWorker::syncNow()
                     std::sort(synced.begin(), synced.end(), [](const SyncedMessage & a, const SyncedMessage & b) {
                         return a.uid > b.uid;
                     });
+                    // The range also holds messages moved into the folder, whose bodies are
+                    // usually stored already.
+                    SQLite::Statement bodyStored(store->db(), "SELECT 1 FROM MessageBody WHERE id = ? AND value IS NOT NULL");
                     int count = 0;
                     for (auto & entry : synced) {
                         if (!entry.message->isInInbox(store)) {
                             continue; // skip "all mail" that is not in inbox
+                        }
+                        bodyStored.bind(1, entry.message->id());
+                        bool stored = bodyStored.executeStep();
+                        bodyStored.reset();
+                        if (stored) {
+                            continue;
                         }
                         syncMessageBody(entry.message.get(), folder.get());
                         if (count++ > 30) { break; }
@@ -874,6 +886,11 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         throw SyncException(ErrorCode::ErrorConnection, "syncFoldersAndLabels - fetchAllFolders refused");
     }
     if (err) {
+        // The background pass connects here first, so this is where a rejected certificate shows.
+        string advice = MailUtils::tlsFailureAdvice(err, session);
+        if (advice != "") {
+            logger->error("{}", advice);
+        }
         throw SyncException(err, "syncFoldersAndLabels - fetchAllFolders");
     }
 
@@ -1495,7 +1512,7 @@ void SyncWorker::cleanMessageCache(Folder & folder) {
     purge.bind(3, (double)(time(0) - maxAgeForBodySync(folder)));
     int purged = purge.exec();
     logger->info("-- {} message bodies deleted from local cache.", purged);
-    // TODO BG: Remove them from the search index and remove attachments
+    // Note: their text stays in ThreadSearch so search still finds them. TODO BG: remove attachments
 
     // update messages body stats
     folder.localStatus()[LS_BODIES_PRESENT] = countBodiesDownloaded(folder);
@@ -1633,16 +1650,52 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
         ls[LS_BODIES_PRESENT] = 0;
     }
     
-    for (auto result : results) {
+    SQLite::Statement markAttempted(store->db(), "UPDATE MessageBody SET fetchedAt = datetime('now') WHERE id = ? AND value IS NULL");
+    for (size_t ii = 0; ii < results.size(); ii++) {
         // increment local sync state - it's fine if this sometimes fails to save,
         // we recompute the value via COUNT(*) during cleanup
         ls[LS_BODIES_PRESENT] = ls[LS_BODIES_PRESENT].get<long long>() + 1;
 
+        // The stamp marks the reservation attempted, so releaseUnattemptedBodyFetches keeps it.
+        markAttempted.bind(1, results[ii]->id());
+        markAttempted.exec();
+        markAttempted.reset();
+
         // attempt to fetch the message body from the copy in this folder
-        syncMessageBody(result.get(), &folder);
+        try {
+            syncMessageBody(results[ii].get(), &folder);
+        } catch (...) {
+            // An error (typically the connection dropping) ends the batch. The reservations
+            // not yet attempted are released so a later pass fetches them.
+            size_t remaining = results.size() - ii - 1;
+            if (remaining > 0) {
+                SQLite::Statement release(store->db(), "DELETE FROM MessageBody WHERE value IS NULL AND id IN (" + MailUtils::qmarks(remaining) + ")");
+                int jj = 1;
+                for (size_t kk = ii + 1; kk < results.size(); kk++) {
+                    release.bind(jj++, results[kk]->id());
+                }
+                release.exec();
+                logger->info("- Released {} body fetches after an error.", remaining);
+            }
+            throw;
+        }
     }
     
     return results.size() > 0;
+}
+
+/*
+ Releases the body reservations a previous run made and never attempted, because the process
+ was stopped mid-batch: the client quits mailsync with SIGTERM. Call it before either worker
+ fetches bodies.
+ */
+void SyncWorker::releaseUnattemptedBodyFetches() {
+    SQLite::Statement release(store->db(), "DELETE FROM MessageBody WHERE value IS NULL AND fetchedAt IS NULL AND id IN (SELECT id FROM Message WHERE accountId = ?)");
+    release.bind(1, account->id());
+    int released = release.exec();
+    if (released > 0) {
+        logger->info("Released {} body fetches left reserved by the previous run.", released);
+    }
 }
 
 /*

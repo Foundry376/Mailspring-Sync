@@ -1,0 +1,39 @@
+name: sent-copy-outlook-com-rewritten-id
+description: >
+  Outlook.com replaces the Message-ID of a submitted message with its own and keeps the
+  client's in X-Microsoft-Original-Message-ID, then files that copy in Sent Items. The engine
+  must recognise it as the copy of the message it sent and not APPEND a second one.
+source: "live.fr account, Mailspring 1.26.0, 2026-10-22: every send left two copies in Sent Items, the server's carrying Message-ID <...@GVAP278MB732740.CHEP278.PROD.OUTLOOK.COM> and the client's id in X-Microsoft-Original-Message-ID, filed within ~1 s of the SMTP 250"
+servers:
+  - {fake: outlook, smtp: true, smtp_sent_copy: "Sent Items", smtp_sent_copy_delay: 0.5, smtp_rewrite_message_id: true}
+mailboxes:
+  INBOX: {messages: 3}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "sent-1@example.test"
+        subject: "Hello Bob"
+        body: "<p>Hi Bob</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  smtp: {count: 1}
+  server_counts: {Sent Items: 1}
+  counts: {Sent Items: 1}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

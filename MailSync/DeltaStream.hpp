@@ -59,6 +59,8 @@ class DeltaStream  {
     std::mutex bufferFlushMtx;
     std::condition_variable bufferFlushCv;
 
+    void _flushBufferLocked();
+
 public:
     DeltaStream();
     ~DeltaStream();
@@ -75,9 +77,12 @@ public:
     
     void sendUpdatedSecrets(Account * account);
     void sendIdentityRefreshNeeded();
+    void sendSearchResult(json result);
 
     void beginConnectionError(string accountId);
     void endConnectionError(string accountId);
+
+    void emitWorkerState(string worker, json state);
 };
 
 

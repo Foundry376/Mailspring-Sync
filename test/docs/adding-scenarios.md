@@ -200,15 +200,21 @@ Engine interface
   `queue_task()` fills them in. A `null` where the engine expects a string aborts the whole
   process (`catch (...) { abort(); }` in the stdin loop) - it looks like a crash, but it is
   your JSON. Drafts additionally need `aid`, `v`, `date` inside `draft`.
-- **`--verbose` is required** for foreground-idle detection (it reads `sent N IDLE` from the
-  log) and for the IMAP transcript you will want anyway. It rotates the log every 5 MB; the
-  tailer follows `.log.1`.
+- **`--verbose` is required** for the IMAP transcript you will want anyway (and for
+  foreground-idle detection on the ab/ baselines, which reads `sent N IDLE` from the log). It
+  rotates the log every 5 MB; the tailer follows `.log.1`.
 - **Skipped folders never clear `busy`** (the `\All` mailbox): use `quiescence:
   {ignore_busy: [...]}` in the scenario or the wait never ends.
-- **There is no "sync finished" signal.** Quiescence is inferred (README). If a wait times
-  out, `describe()` in the report says which condition was unmet
-  (`waiting because: ...`); usually it is a folder left busy or the background worker looping.
-- The background worker sleeps 120 s between passes; `sync: pass` sends `wake-workers`.
+- **Quiescence comes from the engine's worker-state events** (README). If a wait times out,
+  `describe()` in the report says which condition was unmet (`waiting because: ...`) and
+  shows the last event from each worker; usually it is a folder left busy or the background
+  worker looping. A wait returns as soon as the engine is idle, so it does not cover a server
+  change the engine has not been told about yet (see Timing). Nor does it cover work the
+  engine runs on its own threads: `search-remote` and `sync-calendar` count as handled once
+  dispatched, so wait on their result (`search:` does by default) or a log line.
+- The background worker sleeps 120 s between passes, and after a retryable error; `sync:
+  pass` sends `wake-workers`, and every quiescence wait re-sends it to a worker that went to
+  sleep after an error, so a scenario never waits out the retry interval.
   Deep/shallow/gap scans are gated on `lastDeep`/`lastShallow` timestamps; `force_scans`
   backdates them in the DB (the stopgap until the engine reads intervals from the environment).
 - On Gmail, the engine detects Gmail by the `X-GM-EXT-1` capability, not by `provider`, so

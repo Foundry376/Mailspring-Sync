@@ -1,0 +1,24 @@
+name: search-remote-all-mail
+description: >
+  On a non-Gmail server an RFC 6154 \All mailbox (ProtonMail Bridge's "All Mail") is a
+  duplicate view the engine does not sync (#137), so it holds no placements to map results
+  onto. `search-remote` skips it, as it skips Spam and Trash, and finds each message in its
+  own folder, once.
+source: "MailSync/SearchWorker.cpp foldersToSearch; MailUtils::isDuplicateAllMail; RFC 6154 section 2"
+servers:
+  - {fake: proton-bridge}
+  - {dovecot: proton-like}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: Filed once, message_id: "<filed@search.test>"}}
+  - server.duplicate: {mailbox: INBOX, uids: [1], to: "All Mail"}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [subject, filed]}
+    as: filed
+  - wait: {log: 'Search search-\S+ in INBOX: 1 match', timeout: 30}
+expect:
+  search:
+    filed: {message_ids: ["<filed@search.test>"], folder_errors: 0}
+  log_absent:
+    - 'Search search-\S+ in All Mail'
+  running: true

@@ -1,0 +1,44 @@
+name: search-remote-fuzzy
+description: >
+  A server that advertises SEARCH=FUZZY (RFC 6203) is sent the whole condition under one
+  FUZZY key. Cyrus, which Fastmail runs, answers a plain SEARCH by scanning every message
+  and reads its Xapian index only under FUZZY (imapd.conf search_fuzzy_always: "clients
+  have to explicitly use the FUZZY search key"), measured on the harness's Cyrus 3.6 on
+  2026-10-22. FUZZY precedes a parenthesised list, OR and NOT, and flags, dates and sizes
+  under it match exactly (RFC 6203 section 5), so one key covers any criteria. The results
+  here are the same whether the server matches by substring (the fake) or by stem (Cyrus).
+source: "MailSync/SearchWorker.cpp; Vendor/mailcore2 IMAPSession::supportsFuzzySearch; RFC 6203 sections 5 and 7"
+servers:
+  - {fake: cyrus}
+  - {cyrus: xapian}
+account: {provider: fastmail}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: Kubernetes rollout, body: "We finished searching the cluster for stale pods.", message_id: "<rollout@search.test>"}}
+  - server.append: {mailbox: INBOX, messages: {subject: Weekly rollouts, body: "The rollouts were searched twice and nothing stale was found.", message_id: "<weekly@search.test>"}}
+  - server.append: {mailbox: INBOX, flags: [], messages: {subject: Lunch, body: "Lunch is at noon.", message_id: "<lunch@search.test>"}}
+  - server.index
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [text, rollout]}
+    as: text
+  - client.search: {criteria: [and, [text, stale], [not, [subject, weekly]]]}
+    as: composite
+  - client.search: {criteria: [or, [subject, lunch], [subject, kubernetes]]}
+    as: either
+  - client.search: {criteria: [and, [unread], [text, lunch]]}
+    as: unread_lunch
+  - client.search: {criteria: [and, [read], [text, lunch]]}
+    as: read_lunch
+expect:
+  search:
+    text: {message_ids: ["<rollout@search.test>", "<weekly@search.test>"], folder_errors: 0}
+    composite: {message_ids: ["<rollout@search.test>"], folder_errors: 0}
+    either: {message_ids: ["<rollout@search.test>", "<lunch@search.test>"], folder_errors: 0}
+    unread_lunch: {message_ids: ["<lunch@search.test>"], folder_errors: 0}
+    read_lunch: {message_ids: [], folder_errors: 0}
+  log_present:
+    - 'FUZZY criteria'
+    - 'UID SEARCH FUZZY TEXT rollout'
+    - 'UID SEARCH FUZZY \(TEXT stale NOT SUBJECT weekly\)'
+    - 'UID SEARCH FUZZY OR SUBJECT lunch SUBJECT kubernetes'
+  running: true

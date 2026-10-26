@@ -1,6 +1,7 @@
 """The in-process fake server behind the Server interface."""
 import re
 import sys
+import threading
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
@@ -32,10 +33,13 @@ class FakeServer(Server):
     def __init__(self, personality: str = "dovecot", log_path: Optional[str] = None, smtp: bool = False,
                  email: str = "test@example.test", reject_non_fqdn_helo: bool = False,
                  smtp_sent_copy: Optional[str] = None, smtp_sent_copy_delay: float = 0,
+                 smtp_rewrite_message_id: bool = False,
                  smtp_auth_response: Optional[str] = None, graph: bool = False, graph_send: bool = True,
                  graph_consented: bool = True, graph_consent_refusals: int = 0,
                  graph_aliases: Optional[list] = None, graph_drop_token: bool = False, graph_sent_copy: Optional[str] = "Sent Items",
                  graph_sent_copy_delay: float = 0, graph_failures: Optional[list] = None,
+                 graph_honors_delete_after_submit: bool = True, graph_token_lifetime: int = 3599,
+                 graph_drop_token_after: Optional[int] = None,
                  graph_calendars: Optional[list] = None, graph_calendars_consented: bool = True,
                  graph_calendars_page_size: int = 0, graph_shared_mailbox_owner: Optional[str] = None,
                  graph_events: Optional[dict] = None, graph_events_page_size: int = 0,
@@ -47,15 +51,19 @@ class FakeServer(Server):
         self.email = email
         # Mail the user sends to themself is delivered back into INBOX, as a real MTA would.
         # `smtp_sent_copy` names a mailbox every submitted message is filed into as well
-        # (Gmail's submission service saves sent mail under \Sent by itself).
+        # (Gmail's submission service saves sent mail under \Sent by itself);
+        # `smtp_rewrite_message_id` replaces the Message-ID of what the server files and
+        # delivers, as Outlook.com does.
         self.smtp = FakeSmtpServer(credentials=(self.username, self.password), reject_non_fqdn_helo=reject_non_fqdn_helo,
                                    deliver_to=(self.store, "INBOX", email),
                                    sent_copy=(self.store, smtp_sent_copy) if smtp_sent_copy else None,
                                    sent_copy_delay=smtp_sent_copy_delay,
+                                   rewrite_message_id=smtp_rewrite_message_id,
                                    auth_response=smtp_auth_response) if smtp else None
         # `graph: true` makes the account a Microsoft OAuth account: IMAP and SMTP take the
         # fake's mail-scoped access tokens, and with `graph_send` (the default) mail goes out
-        # through the fake Graph API, which files its Sent Items copy in `graph_sent_copy`.
+        # through the fake Graph API, which files its Sent Items copy in `graph_sent_copy` unless
+        # the draft is marked delete-after-submit and `graph_honors_delete_after_submit` (default).
         # `graph_shared_mailbox_owner` makes it a shared mailbox signed in as that address, and
         # `graph_provider: outlook` an Outlook.com account rather than Office 365.
         self.graph_send = graph and graph_send
@@ -65,6 +73,8 @@ class FakeServer(Server):
                                      mailbox=email, aliases=graph_aliases or [], drop_graph_token=graph_drop_token,
                                      sent_copy=(self.store, graph_sent_copy) if graph_sent_copy else None,
                                      sent_copy_delay=graph_sent_copy_delay, failures=graph_failures,
+                                     honors_delete_after_submit=graph_honors_delete_after_submit,
+                                     token_lifetime=graph_token_lifetime, drop_graph_token_after=graph_drop_token_after,
                                      deliver_to=(self.store, "INBOX", email), calendars=graph_calendars,
                                      calendars_consented=graph_calendars_consented,
                                      calendars_page_size=graph_calendars_page_size, events=graph_events,
@@ -195,6 +205,9 @@ class FakeServer(Server):
         (one that never has), `command` a regex on the command line (e.g. "UID FETCH 1:\\*")
         for before/after_command, `mailbox` the session's selected mailbox."""
         rx = re.compile(command) if command else None
+        # A once-hook is removed only after fn returns, and fn may hold its session (`delay`),
+        # so another session's matching occasion must not run it again meanwhile.
+        claim = threading.Lock()
 
         def wrapped(sess, a, b):
             if session == "foreground" and not sess.has_idled:
@@ -209,6 +222,8 @@ class FakeServer(Server):
                     line += " " + b.decode("utf-8", "replace").strip()
                 if not rx.search(line):
                     return False
+            if once and not claim.acquire(blocking=False):
+                return False
             fn(sess)
             return True
         self.imap.add_hook(hook, wrapped, once=once)

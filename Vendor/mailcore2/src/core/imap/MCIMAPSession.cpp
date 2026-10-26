@@ -385,6 +385,8 @@ void IMAPSession::init()
     mObsoleteTLSAllowed = false;
     mTLSCompatibilityLevel = MAILSTREAM_SSL_COMPAT_DEFAULT;
     mLastTLSErrorDescription = NULL;
+    mAcceptedCertificateSHA256 = NULL;
+    mLastCertificateChain = NULL;
     mVoIPEnabled = true;
     mDelimiter = 0;
     
@@ -411,7 +413,6 @@ void IMAPSession::init()
     mModSequenceValue = 0;
     mFolderMsgCount = 0;
     mFirstUnseenUid = 0;
-    mYahooServer = false;
     mCoremailServer = false;
     mRamblerRuServer = false;
     mHermesServer = false;
@@ -456,6 +457,8 @@ IMAPSession::~IMAPSession()
     MC_SAFE_RELEASE(mDefaultNamespace);
     MC_SAFE_RELEASE(mCurrentFolder);
     MC_SAFE_RELEASE(mLastTLSErrorDescription);
+    MC_SAFE_RELEASE(mAcceptedCertificateSHA256);
+    MC_SAFE_RELEASE(mLastCertificateChain);
     pthread_mutex_destroy(&mIdleLock);
     pthread_mutex_destroy(&mConnectionLoggerLock);
 }
@@ -596,11 +599,29 @@ static bool hasError(int errorCode)
             (errorCode != MAILIMAP_NO_ERROR_NON_AUTHENTICATED));
 }
 
+void IMAPSession::setAcceptedCertificateSHA256(String * sha256)
+{
+    MC_SAFE_REPLACE_COPY(String, mAcceptedCertificateSHA256, sha256);
+}
+
+String * IMAPSession::acceptedCertificateSHA256()
+{
+    return mAcceptedCertificateSHA256;
+}
+
+Array * IMAPSession::lastCertificateChain()
+{
+    return mLastCertificateChain;
+}
+
 bool IMAPSession::checkCertificate()
 {
+    MC_SAFE_REPLACE_RETAIN(Array, mLastCertificateChain, mailcore::certificateChain(mImap->imap_stream));
     if (!isCheckCertificateEnabled())
         return true;
-    return mailcore::checkCertificate(mImap->imap_stream, hostname());
+    if (mailcore::checkCertificate(mImap->imap_stream, hostname()))
+        return true;
+    return mailcore::isAcceptedCertificate(mLastCertificateChain, mAcceptedCertificateSHA256);
 }
 
 void IMAPSession::body_progress(size_t current, size_t maximum, void * context)
@@ -721,6 +742,7 @@ void IMAPSession::unsetup()
 void IMAPSession::connect(ErrorCode * pError)
 {
     MC_SAFE_RELEASE(mLastTLSErrorDescription);
+    MC_SAFE_RELEASE(mLastCertificateChain);
 
     if (mConnectionType == ConnectionTypeClear) {
         mTLSCompatibilityLevel = MAILSTREAM_SSL_COMPAT_DEFAULT;
@@ -744,6 +766,8 @@ void IMAPSession::connect(ErrorCode * pError)
                 MCLog("%s uses outdated encryption, connected at TLS compatibility level %i",
                       MCUTF8(mHostname), level);
             }
+            // A rejection at a weaker level isn't why anything later on this connection fails.
+            MC_SAFE_RELEASE(mLastTLSErrorDescription);
             return;
         }
 
@@ -853,7 +877,6 @@ void IMAPSession::connectWithCurrentCompatibilityLevel(ErrorCode * pError)
     
     if (mImap->imap_response != NULL) {
         MC_SAFE_REPLACE_RETAIN(String, mWelcomeString, String::stringWithUTF8Characters(mImap->imap_response));
-        mYahooServer = (mWelcomeString->locationOfString(MCSTR("yahoo.com")) != -1);
         mCoremailServer = (mWelcomeString->locationOfString(MCSTR("Coremail System IMap Server Ready")) != -1);
 #ifdef LIBETPAN_HAS_MAILIMAP_163_WORKAROUND
         if (mCoremailServer)
@@ -2142,16 +2165,40 @@ void IMAPSession::findUIDsOfRecentHeaderMessageID(String * folder, String * head
         return;
     }
     
-    int min = lastFolderMessageCount() > 15 ? (lastFolderMessageCount() - 15) : 0;
-    set->addRange(RangeMake(min, lastFolderMessageCount() - min));
-    Array * lastFew = fetchMessagesByNumber(folder, IMAPMessagesRequestKindHeaders, set, nullptr, &err);
+    // Sequence numbers start at 1: a range starting at 0 is sent as "*:N", which is only
+    // message N, so in a folder of 15 messages or fewer only the newest one was checked.
+    unsigned int count = lastFolderMessageCount();
+    if (count == 0) {
+        return;
+    }
+    unsigned int min = count > 15 ? (count - 15) : 1;
+    set->addRange(RangeMake(min, count - min));
+
+    // Outlook.com (smtp-mail.outlook.com) replaces the Message-ID of submitted mail with one of
+    // its own (<...@...PROD.OUTLOOK.COM>) and keeps the client's in X-Microsoft-Original-Message-ID,
+    // so the copy it files in Sent can only be matched on that header.
+    String * originalMessageIDHeader = MCSTR("X-Microsoft-Original-Message-ID");
+    Array * lastFew = fetchMessagesByNumberWithExtraHeaders(folder, IMAPMessagesRequestKindHeaders, set, nullptr,
+                                                            Array::arrayWithObject(originalMessageIDHeader), &err);
     if (err != ErrorNone) {
         return;
     }
-    
+
     for (int ii = 0; ii < lastFew->count(); ii ++) {
         auto msg = (IMAPMessage *)lastFew->objectAtIndex(ii);
         if (msg->header()->messageID()->isEqual(headerMessageID)) {
+            uids->addIndex(msg->uid());
+            continue;
+        }
+        String * original = msg->header()->extraHeaderValueForName(originalMessageIDHeader);
+        if (original == NULL) {
+            continue;
+        }
+        original = original->stripWhitespace();
+        if (original->hasPrefix(MCSTR("<")) && original->hasSuffix(MCSTR(">")) && original->length() > 2) {
+            original = original->substringWithRange(RangeMake(1, original->length() - 2));
+        }
+        if (original->isEqual(headerMessageID)) {
             uids->addIndex(msg->uid());
         }
     }
@@ -3684,11 +3731,29 @@ static struct mailimap_search_key * searchKeyFromSearchExpression(IMAPSearchExpr
         {
             return mailimap_search_key_new_not(searchKeyFromSearchExpression(expression->leftExpression()));
         }
+        case IMAPSearchKindFuzzy:
+        {
+            return mailimap_search_key_new_fuzzy(searchKeyFromSearchExpression(expression->leftExpression()));
+        }
 
         default:
         MCAssert(0);
         return NULL;
     }
+}
+
+bool IMAPSession::supportsFuzzySearch()
+{
+    return mailimap_has_extension(mImap, (char *)"SEARCH=FUZZY");
+}
+
+bool IMAPSession::acceptsNonSynchronizingLiterals()
+{
+    // LITERAL+, or LITERAL- for literals up to 4096 bytes (RFC 7888). Gmail has always been
+    // sent them here, whatever it advertises. iCloud advertises XAPPLELITERAL in place of
+    // LITERAL+ and accepts {n+} literals in SEARCH (live, Mailspring-Sync #164, 2026-10-25).
+    return mIsGmail || mailimap_has_extension(mImap, (char *)"LITERAL+") || mailimap_has_extension(mImap, (char *)"LITERAL-")
+        || mailimap_has_extension(mImap, (char *)"XAPPLELITERAL");
 }
 
 IndexSet * IMAPSession::search(String * folder, IMAPSearchExpression * expression, ErrorCode * pError)
@@ -3701,14 +3766,15 @@ IndexSet * IMAPSession::search(String * folder, IMAPSearchExpression * expressio
 
     clist * result_list = NULL;
     
-    const char * charset = "utf-8";
-    if (mYahooServer) {
-        charset = NULL;
-    }
-    
+    // Yahoo answers BAD to any other spelling of the charset and then reads the literal that
+    // follows as a command of its own (live, Mailspring-Sync #164, 2026-10-25); without
+    // CHARSET it answers no results and no error.
+    const char * charset = "UTF-8";
+
+    // A quoted string is 7-bit only (RFC 3501 4.3), so non-ASCII terms go as literals.
     int r;
     key = searchKeyFromSearchExpression(expression);
-    if (mIsGmail) {
+    if (acceptsNonSynchronizingLiterals()) {
         r = mailimap_uid_search_literalplus(mImap, charset, key, &result_list);
     }
     else {

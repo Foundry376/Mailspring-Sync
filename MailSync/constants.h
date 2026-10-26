@@ -53,6 +53,12 @@ static string MAILSPRING_FOLDER_PREFIX_V2 = "Mailspring";
 // How long after a send a later copy in Sent is taken to be the server's late copy of it.
 #define SENT_COPY_CLEANUP_WINDOW    (30 * 60)
 
+// How much of each message's text ThreadSearch.body holds, in UTF-16 code units as mailcore
+// counts them. Existing databases also hold text indexed at SEARCH_BODY_LEGACY_LENGTH, which
+// MailProcessor::appendToThreadSearchContent extends in place when the body is fetched again.
+#define SEARCH_BODY_MAX_LENGTH      15000
+#define SEARCH_BODY_LEGACY_LENGTH   5000
+
 // Microsoft Graph documents a 4 MB request limit. A message is uploaded as base64 MIME, so
 // attachments are moved out of it until it fits and added to the draft one request each: in
 // one POST below 3 MB, otherwise through an upload session, whose chunks must be multiples of
@@ -77,6 +83,7 @@ static vector<string> ACCOUNT_RESET_QUERIES = {
     "DELETE FROM `ThreadReference` WHERE `accountId` = ?",
     "DELETE FROM `Thread` WHERE `accountId` = ?",
     "DELETE FROM `File` WHERE `accountId` = ?",
+    "DELETE FROM `EventSearch` WHERE `content_id` IN (SELECT id FROM `Event` WHERE `accountId` = ?)",
     "DELETE FROM `Event` WHERE `accountId` = ?",
     "DELETE FROM `Label` WHERE `accountId` = ?",
     "DELETE FROM `MessageBody` WHERE `id` IN (SELECT id FROM `Message` WHERE `accountId` = ?)",
@@ -155,7 +162,7 @@ static vector<string> V1_SETUP_QUERIES = {
         "threadId VARCHAR(42),"
         "accountId VARCHAR(8),"
         "headerMessageId VARCHAR(255),"
-        "PRIMARY KEY (threadId, accountId, headerMessageId))",
+        "PRIMARY KEY (accountId, headerMessageId, threadId)) WITHOUT ROWID",
                                                 
     "CREATE TABLE IF NOT EXISTS ThreadCategory ("
         "id VARCHAR(40),"
@@ -166,7 +173,6 @@ static vector<string> V1_SETUP_QUERIES = {
         "lastMessageSentTimestamp DATETIME,"
         "PRIMARY KEY (id, value))",
     
-    "CREATE INDEX IF NOT EXISTS `ThreadCategory_id` ON `ThreadCategory` (`id` ASC)",
     "CREATE UNIQUE INDEX IF NOT EXISTS `ThreadCategory_val_id` ON `ThreadCategory` (`value` ASC, `id` ASC)",
     "CREATE INDEX IF NOT EXISTS ThreadListCategoryIndex ON `ThreadCategory` (lastMessageReceivedTimestamp DESC, value, inAllMail, unread, id)",
     "CREATE INDEX IF NOT EXISTS ThreadListCategorySentIndex ON `ThreadCategory` (lastMessageSentTimestamp DESC, value, inAllMail, unread, id)",
@@ -205,7 +211,6 @@ static vector<string> V1_SETUP_QUERIES = {
     "CREATE TABLE IF NOT EXISTS `DetatchedPluginMetadata` (objectId VARCHAR(40), objectType VARCHAR(15), accountId VARCHAR(8), pluginId VARCHAR(40), value BLOB, version INTEGER, PRIMARY KEY (`objectId`, `accountId`, `pluginId`))",
 
     "CREATE TABLE IF NOT EXISTS `MessageBody` (id VARCHAR(40) PRIMARY KEY, `value` TEXT)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS MessageBodyIndex ON MessageBody(id)",
     
     "CREATE TABLE IF NOT EXISTS `Contact` (id VARCHAR(40) PRIMARY KEY, data BLOB, accountId VARCHAR(8), email TEXT, version INTEGER, refs INTEGER DEFAULT 0)",
     "CREATE INDEX IF NOT EXISTS ContactEmailIndex ON Contact(email)",
@@ -357,6 +362,35 @@ static vector<string> V10_INDEX_QUERIES = {
     // Drives the body-sync queries newest-first with a correlated placement check
     // (SyncWorker::syncMessageBodies).
     "CREATE INDEX IF NOT EXISTS MessageListDateIndex ON Message (accountId, date DESC)",
+};
+
+// V14 upgrade of an existing database (a fresh one gets these shapes from V1).
+// - ThreadReference is keyed for its one lookup, MailProcessor's "which thread holds any of
+//   these Message-IDs in this account". Keyed by threadId first, that lookup read every row.
+// - ThreadReference becomes WITHOUT ROWID: its primary key was a second b-tree holding every
+//   column again (61 MB -> 33 MB for 253k references). ThreadCategory stays a rowid table:
+//   the client's thread lists find rows through ThreadCategory_val_id, and fetching each row
+//   by its text primary key instead of a rowid made the unified Inbox query twice as slow.
+// - ThreadCategory_id and MessageBodyIndex duplicated their table's primary key.
+// - ContactSearch and EventSearch are rebuilt by MailStore::_rekeySearchTable under rowids
+//   derived from the model id (MailUtils::searchRowIdForId); these are their V1 definitions.
+// ThreadReference rows are copied in key order so its new b-tree is written sequentially.
+static vector<string> V14_UPGRADE_QUERIES = {
+    "CREATE TABLE ThreadReference_v14 ("
+        "threadId VARCHAR(42),"
+        "accountId VARCHAR(8),"
+        "headerMessageId VARCHAR(255),"
+        "PRIMARY KEY (accountId, headerMessageId, threadId)) WITHOUT ROWID",
+    "INSERT OR IGNORE INTO ThreadReference_v14 (threadId, accountId, headerMessageId) "
+    "SELECT threadId, accountId, headerMessageId FROM ThreadReference ORDER BY accountId, headerMessageId, threadId",
+    "DROP TABLE ThreadReference",
+    "ALTER TABLE ThreadReference_v14 RENAME TO ThreadReference",
+
+    "DROP INDEX IF EXISTS `ThreadCategory_id`",
+    "DROP INDEX IF EXISTS MessageBodyIndex",
+
+    "CREATE VIRTUAL TABLE ContactSearch_v14 USING fts5(tokenize = 'porter unicode61', content_id UNINDEXED, content)",
+    "CREATE VIRTUAL TABLE EventSearch_v14 USING fts5(tokenize = 'porter unicode61', content_id UNINDEXED, title, description, location, participants)",
 };
 
 static map<string, string> COMMON_FOLDER_NAMES = {

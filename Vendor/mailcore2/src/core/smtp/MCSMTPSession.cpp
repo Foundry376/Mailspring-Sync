@@ -46,6 +46,8 @@ void SMTPSession::init()
     mObsoleteTLSAllowed = false;
     mTLSCompatibilityLevel = MAILSTREAM_SSL_COMPAT_DEFAULT;
     mLastTLSErrorDescription = NULL;
+    mAcceptedCertificateSHA256 = NULL;
+    mLastCertificateChain = NULL;
     mUseHeloIPEnabled = false;
     mShouldDisconnect = false;
     mSendingCancelled = false;
@@ -82,6 +84,8 @@ SMTPSession::~SMTPSession()
     MC_SAFE_RELEASE(mPassword);
     MC_SAFE_RELEASE(mOAuth2Token);
     MC_SAFE_RELEASE(mLastTLSErrorDescription);
+    MC_SAFE_RELEASE(mAcceptedCertificateSHA256);
+    MC_SAFE_RELEASE(mLastCertificateChain);
 }
 
 void SMTPSession::setHostname(String * hostname)
@@ -201,11 +205,29 @@ int SMTPSession::tlsCompatibilityLevel()
     return mTLSCompatibilityLevel;
 }
 
+void SMTPSession::setAcceptedCertificateSHA256(String * sha256)
+{
+    MC_SAFE_REPLACE_COPY(String, mAcceptedCertificateSHA256, sha256);
+}
+
+String * SMTPSession::acceptedCertificateSHA256()
+{
+    return mAcceptedCertificateSHA256;
+}
+
+Array * SMTPSession::lastCertificateChain()
+{
+    return mLastCertificateChain;
+}
+
 bool SMTPSession::checkCertificate()
 {
+    MC_SAFE_REPLACE_RETAIN(Array, mLastCertificateChain, mailcore::certificateChain(mSmtp->stream));
     if (!isCheckCertificateEnabled())
         return true;
-    return mailcore::checkCertificate(mSmtp->stream, hostname());
+    if (mailcore::checkCertificate(mSmtp->stream, hostname()))
+        return true;
+    return mailcore::isAcceptedCertificate(mLastCertificateChain, mAcceptedCertificateSHA256);
 }
 
 void SMTPSession::setSendingCancelled(bool isCancelled) {
@@ -350,6 +372,7 @@ void SMTPSession::connectIfNeeded(ErrorCode * pError)
 void SMTPSession::connect(ErrorCode * pError)
 {
     MC_SAFE_RELEASE(mLastTLSErrorDescription);
+    MC_SAFE_RELEASE(mLastCertificateChain);
 
     if (mConnectionType == ConnectionTypeClear) {
         mTLSCompatibilityLevel = MAILSTREAM_SSL_COMPAT_DEFAULT;
@@ -370,6 +393,8 @@ void SMTPSession::connect(ErrorCode * pError)
                 MCLog("%s uses outdated encryption, connected at TLS compatibility level %i",
                       MCUTF8(mHostname), level);
             }
+            // See IMAPSession::connect.
+            MC_SAFE_RELEASE(mLastTLSErrorDescription);
             return;
         }
 

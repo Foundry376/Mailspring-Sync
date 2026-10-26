@@ -113,9 +113,16 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA main.page_size = 4096").exec();
     SQLite::Statement(_db, "PRAGMA main.cache_size = 10000").exec();
     SQLite::Statement(_db, "PRAGMA main.synchronous = NORMAL").exec();
+
+    // A checkpoint rewinds the WAL but leaves the file at its peak size, and with the client
+    // and every account's process connected it is rarely deleted. A VACUUM in resetForAccount
+    // or a large migration grows it to roughly the size of the database. The limit truncates
+    // it on the next rewind; it is well above the ~4 MB the default 1000-page autocheckpoint
+    // leaves.
+    SQLite::Statement(_db, "PRAGMA journal_size_limit = 67108864").executeStep();
 }
 
-static int CURRENT_VERSION = 13;
+static int CURRENT_VERSION = 14;
 static string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 30 * 24 * 60 * 60; // 30 days
 
@@ -268,6 +275,9 @@ void MailStore::migrate() {
     if (version < 13) {
         _migrateToV13();
     }
+    if (version < 14) {
+        _migrateToV14(version == 0);
+    }
 
     // Update the version flag. Note that we don't want to go from v3 back to v2
     // if the user re-opens an older version of the app.
@@ -290,6 +300,13 @@ void MailStore::migrate() {
         saveKeyValue(VACUUM_TIME_KEY, to_string(time(0)));
         
         try {
+            // FTS5 accumulates segments and tombstones as rows are rewritten, and ThreadSearch
+            // rows are rewritten on every new message and category change. 'optimize' merges
+            // them into one segment (99 MB -> 39 MB, 1.5 s, on a 235k-message database) and the
+            // VACUUM then returns the freed pages.
+            for (string table : {"ThreadSearch", "ContactSearch", "EventSearch"}) {
+                SQLite::Statement(_db, "INSERT INTO " + table + "(" + table + ") VALUES('optimize')").exec();
+            }
             SQLite::Statement(_db, "VACUUM").exec();
         } catch (std::exception & ex) {
             // Vacuuming can fail if we run out of disk space and isn't mandatory,
@@ -483,6 +500,80 @@ void MailStore::_migrateToV13() {
         cout << "\nMigration V13: " << repaired << " contacts repaired";
         cout.flush();
     }
+}
+
+/*
+ Copies each model's search row into <table>_v14 under the rowid MailUtils::searchRowIdForId
+ gives its id, then replaces the table with the copy. Rows whose model is gone are dropped,
+ and where an id has several rows the newest (highest rowid) wins. resetForAccount deleted an
+ account's events but not their EventSearch rows, so a re-synced account's events were indexed
+ twice: one real database held 1,609 rows for 785 events of one account, plus 281 orphans.
+ */
+int MailStore::_rekeySearchTable(const string & table, const string & modelTable, const vector<string> & columns) {
+    string columnList = "";
+    for (auto & column : columns) {
+        columnList += ", " + column;
+    }
+    {
+        SQLite::Statement rows(_db, "SELECT content_id" + columnList + " FROM " + table +
+            " WHERE content_id IN (SELECT id FROM " + modelTable + ") ORDER BY rowid");
+        SQLite::Statement insert(_db, "INSERT OR REPLACE INTO " + table + "_v14 (rowid, content_id" + columnList +
+            ") VALUES (" + MailUtils::qmarks(columns.size() + 2) + ")");
+        while (rows.executeStep()) {
+            string id = rows.getColumn(0).getString();
+            insert.bind(1, MailUtils::searchRowIdForId(id));
+            insert.bind(2, id);
+            for (int i = 0; i < columns.size(); i++) {
+                insert.bind(i + 3, rows.getColumn(i + 1).getString());
+            }
+            insert.exec();
+            insert.reset();
+        }
+    }
+    SQLite::Statement(_db, "DROP TABLE " + table).exec();
+    SQLite::Statement(_db, "ALTER TABLE " + table + "_v14 RENAME TO " + table).exec();
+    SQLite::Statement count(_db, "SELECT COUNT(*) FROM " + table);
+    count.executeStep();
+    return count.getColumn(0).getInt();
+}
+
+/*
+ V14 rebuilds ThreadReference, drops two redundant indexes and rekeys the contact and event
+ search tables (see V14_UPGRADE_QUERIES). One transaction, as in V10, so an interrupted run
+ leaves the old tables and user_version for the next launch to retry. A fresh database already
+ has the final shapes from V1 and empty search tables.
+ */
+void MailStore::_migrateToV14(bool freshDatabase) {
+    if (freshDatabase) {
+        return;
+    }
+
+    // The client watches for this line and shows its progress window.
+    cout << "\nRunning Migration";
+    cout.flush();
+
+    SQLite::Statement(_db, "BEGIN IMMEDIATE TRANSACTION").exec();
+    int contacts = 0;
+    int events = 0;
+    try {
+        for (string sql : V14_UPGRADE_QUERIES) {
+            SQLite::Statement(_db, sql).exec();
+        }
+        contacts = _rekeySearchTable("ContactSearch", "Contact", {"content"});
+        events = _rekeySearchTable("EventSearch", "Event", {"title", "description", "location", "participants"});
+        SQLite::Statement(_db, "PRAGMA user_version = 14").exec();
+        SQLite::Statement(_db, "COMMIT").exec();
+    } catch (...) {
+        try {
+            SQLite::Statement(_db, "ROLLBACK").exec();
+        } catch (...) {
+            // The failure that got us here is the one worth reporting.
+        }
+        throw;
+    }
+
+    cout << "\nMigration V14: " << contacts << " contacts and " << events << " events indexed by id";
+    cout.flush();
 }
 
 void MailStore::assertCorrectThread() {

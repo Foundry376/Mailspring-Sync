@@ -39,6 +39,7 @@
 #include "DAVWorker.hpp"
 #include "GoogleContactsWorker.hpp"
 #include "MicrosoftCalendarWorker.hpp"
+#include "SearchWorker.hpp"
 #include "SyncException.hpp"
 #include "Task.hpp"
 #include "TaskProcessor.hpp"
@@ -64,6 +65,7 @@ shared_ptr<SyncWorker> fgWorker = nullptr;
 shared_ptr<DAVWorker> davWorker = nullptr;
 shared_ptr<GoogleContactsWorker> contactsWorker = nullptr;
 shared_ptr<MicrosoftCalendarWorker> microsoftCalendarWorker = nullptr;
+shared_ptr<SearchWorker> searchWorker = nullptr;
 
 shared_ptr<MetadataWorker> metadataWorker = nullptr;
 shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
@@ -201,6 +203,7 @@ static void sleepBeforeRetryingLogin(int delay) {
 void runForegroundSyncWorker() {
     LoginRejections loginRejections;
     while(true) {
+        uint64_t wake = MailUtils::workerWakeGeneration();
         try {
             fgWorker->configure();
             fgWorker->idleCycleIteration();
@@ -219,7 +222,9 @@ void runForegroundSyncWorker() {
                 SharedDeltaStream()->beginConnectionError(fgWorker->account->id());
             }
             spdlog::get("logger")->info("--sleeping");
-            MailUtils::sleepWorkerUntilWakeOrSec(120);
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "sleeping"}, {"error", true}});
+            MailUtils::sleepWorkerUntilWakeOrSec(120, wake);
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "busy"}});
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();
             abort();
@@ -236,6 +241,9 @@ void runBackgroundSyncWorker() {
     MailUtils::sleepWorkerUntilWakeOrSec(bgWorker->account->startDelay());
 
     while(true) {
+        uint64_t wake = MailUtils::workerWakeGeneration();
+        bool failed = false;
+        SharedDeltaStream()->emitWorkerState("background", {{"state", "running"}, {"wake", wake}});
         try {
             bgWorker->configure();
             
@@ -247,6 +255,8 @@ void runBackgroundSyncWorker() {
             }
 
             if (!started) {
+                // Before the foreground worker, which also fetches bodies, starts below.
+                bgWorker->releaseUnattemptedBodyFetches();
                 bgWorker->syncFoldersAndLabels();
                 SharedDeltaStream()->endConnectionError(bgWorker->account->id());
 
@@ -286,11 +296,13 @@ void runBackgroundSyncWorker() {
                 SharedDeltaStream()->beginConnectionError(bgWorker->account->id());
             }
             spdlog::get("logger")->info("--sleeping");
+            failed = true;
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();
             abort();
         }
-        MailUtils::sleepWorkerUntilWakeOrSec(120);
+        SharedDeltaStream()->emitWorkerState("background", {{"state", "sleeping"}, {"wake", wake}, {"error", failed}});
+        MailUtils::sleepWorkerUntilWakeOrSec(120, wake);
     }
 }
 
@@ -369,6 +381,19 @@ void runCalContactsSyncWorker() {
 }
 
 
+// A certificate that failed validation, for the client to show the user. Accepting it stores
+// `sha256` in the account's settings as <service>_certificate_sha256.
+static json _rejectedCertificate(string service, string host, unsigned int port, Array * chain) {
+    json certificate = {{"service", service}, {"host", host}, {"port", port}, {"sha256", ""}, {"chain", json::array()}};
+    for (unsigned int i = 0; chain != nullptr && i < chain->count(); i ++) {
+        certificate["chain"].push_back(((Data *) chain->objectAtIndex(i))->base64String()->UTF8Characters());
+    }
+    if (chain != nullptr && chain->count() > 0) {
+        certificate["sha256"] = MailUtils::certificateSHA256((Data *) chain->objectAtIndex(0));
+    }
+    return certificate;
+}
+
 int runTestAuth(shared_ptr<Account> account, string & errorService) {
     AutoreleasePool pool;
 
@@ -385,6 +410,7 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
     ErrorCode err = ErrorNone;
     Address * from = Address::addressWithMailbox(AS_MCSTR(account->emailAddress()));
     string tlsAdvice = "";
+    json certificates = json::array();
     string containerFolderPath = account->containerFolder();
     string mainPrefix = "";
     
@@ -396,9 +422,24 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
     session.setConnectionLogger(&alogger);
     session.connect(&err);
     if (err != ErrorNone) {
-        tlsAdvice = MailUtils::tlsFailureAdvice(err, session.lastTLSErrorDescription(), session.isObsoleteTLSAllowed());
+        tlsAdvice = MailUtils::tlsFailureAdvice(err, session);
         if (tlsAdvice != "") {
             alogger.log("\n\n" + tlsAdvice + "\n");
+        }
+        if (err == ErrorCertificate) {
+            certificates.push_back(_rejectedCertificate("imap", account->IMAPHost(), account->IMAPPort(), session.lastCertificateChain()));
+            // Check SMTP's certificate too, so the user reviews both at once. connect() stops
+            // after the certificate check and EHLO, before any credentials are sent.
+            if (!account->sendsViaGraph()) {
+                ErrorCode smtpErr = ErrorNone;
+                alogger.log("\n\n----------SMTP CERTIFICATE----------\n");
+                MailUtils::configureSessionForAccount(smtp, account);
+                smtp.setConnectionLogger(&alogger);
+                smtp.connect(&smtpErr);
+                if (smtpErr == ErrorCertificate) {
+                    certificates.push_back(_rejectedCertificate("smtp", account->SMTPHost(), account->SMTPPort(), smtp.lastCertificateChain()));
+                }
+            }
         }
         goto done;
     }
@@ -477,9 +518,12 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
         smtp.checkAccount(from, &err);
     }
     if (err != ErrorNone) {
-        tlsAdvice = MailUtils::tlsFailureAdvice(err, smtp.lastTLSErrorDescription(), smtp.isObsoleteTLSAllowed());
+        tlsAdvice = MailUtils::tlsFailureAdvice(err, smtp);
         if (tlsAdvice != "") {
             alogger.log("\n\n" + tlsAdvice + "\n");
+        }
+        if (err == ErrorCertificate) {
+            certificates.push_back(_rejectedCertificate("smtp", account->SMTPHost(), account->SMTPPort(), smtp.lastCertificateChain()));
         }
         alogger.log("\n\nSASL_PATH: " + MailUtils::getEnvUTF8("SASL_PATH"));
 
@@ -514,6 +558,9 @@ done:
         resp["error"] = ErrorCodeToTypeMap.count(err) ? ErrorCodeToTypeMap[err] : "Unknown";
         if (tlsAdvice != "") {
             resp["error_advice"] = tlsAdvice;
+        }
+        if (!certificates.empty()) {
+            resp["certificates"] = certificates;
         }
         cout << resp.dump();
         return 1;
@@ -839,6 +886,20 @@ int runInstallCheck() {
     return success ? 0 : 1;
 }
 
+// Reports that `count` stdin commands of this type have been handled, interrupting the
+// foreground first when it has remote work to pick up. That report is written under idleMtx,
+// so it precedes the foreground's next idle event. See DeltaStream::emitWorkerState.
+static void finishCommands(const string & type, int count, bool interruptForeground) {
+    auto emit = [&](bool interrupted) {
+        SharedDeltaStream()->emitWorkerState("main", {{"handled", type}, {"count", count}, {"interrupted", interrupted}, {"wake", MailUtils::workerWakeGeneration()}});
+    };
+    if (interruptForeground && fgWorker) {
+        fgWorker->idleInterrupt([&] { emit(true); });
+    } else {
+        emit(false);
+    }
+}
+
 void runListenOnMainThread(shared_ptr<Account> account) {
     MailStore store;
     TaskProcessor processor{account, &store, nullptr};
@@ -846,6 +907,8 @@ void runListenOnMainThread(shared_ptr<Account> account) {
     store.setStreamDelay(5);
 
     time_t lostCINAt = 0;
+    map<string, int> handledCounts;
+    static atomic<int> tasksPerformedLocally { 0 };
 
     processor.cleanupTasksAfterLaunch();
     
@@ -880,11 +943,13 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
         try {
             string type = packet.count("type") ? packet["type"].get<string>() : "";
+            bool interruptForeground = false;
 
             if (type == "queue-task") {
                 packet["task"]["v"] = 0;
                 Task task{packet["task"]};
                 processor.performLocal(&task);
+                tasksPerformedLocally += 1;
         
                 // interrupt the foreground sync worker to do the remote part of the task. We wait a short time
                 // because we want tasks queued back to back to run ASAP and not fight for locks with remote
@@ -895,10 +960,10 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 if (queuedForegroundWake.compare_exchange_strong(expected, true)) {
                     std::thread([]() {
                         std::this_thread::sleep_for(chrono::milliseconds(300));
-                        if (fgWorker) {
-                            fgWorker->idleInterrupt();
-                        }
+                        // Cleared before the interrupt: a task whose local phase finishes after this
+                        // point queues its own interrupt rather than relying on one already delivered.
                         queuedForegroundWake = false;
+                        finishCommands("queue-task", tasksPerformedLocally, true);
                     }).detach();
                 }
             }
@@ -922,7 +987,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 // interrupt the foreground worker's IDLE call, because our network
                 // connection may have been reset and it'll sit for a while otherwise
                 // and wake-workers is called when waking from sleep
-                if (fgWorker) fgWorker->idleInterrupt();
+                interruptForeground = true;
             }
 
             if (type == "need-bodies") {
@@ -932,7 +997,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                     ids.push_back(id.get<string>());
                 }
                 if (fgWorker) fgWorker->idleQueueBodiesToSync(ids);
-                if (fgWorker) fgWorker->idleInterrupt();
+                interruptForeground = true;
             }
 
             if (type == "sync-calendar") {
@@ -960,11 +1025,29 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 }
             }
 
+            if (type == "search-remote") {
+                if (!searchWorker) {
+                    searchWorker = make_shared<SearchWorker>(account);
+                    std::thread([]() {
+                        SetThreadName("search");
+                        searchWorker->run();
+                    }).detach();
+                }
+                searchWorker->enqueue(packet);
+            }
+
+            if (type == "search-remote-cancel" && searchWorker) {
+                searchWorker->cancel(SearchWorker::searchIdOf(packet));
+            }
+
             if (type == "test-crash") {
                 throw SyncException("test", "triggered via cin", false);
             }
             if (type == "test-segfault") {
                 raise(SIGSEGV);
+            }
+            if (type != "" && type != "queue-task") {
+                finishCommands(type, ++handledCounts[type], interruptForeground);
             }
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();
@@ -975,6 +1058,14 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
 int main(int argc, const char * argv[]) {
     SetThreadName("main");
+#ifndef _WIN32
+    // A write to a connection the server has closed raises SIGPIPE on Linux, which kills the
+    // process: a LOGOUT sent after a rejected login once the server dropped the connection
+    // did exactly that (search-remote-failures). libetpan sets SO_NOSIGPIPE only where the
+    // socket option exists (connect.c), and the error path is EPIPE / a stream error.
+    // Windows has no SIGPIPE: a send on a closed socket fails with an error code.
+    signal(SIGPIPE, SIG_IGN);
+#endif
 
     // indicate we use cout, not stdout
     std::cout.sync_with_stdio(false);

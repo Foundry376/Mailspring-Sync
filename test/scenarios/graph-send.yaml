@@ -1,10 +1,12 @@
 name: graph-send
 description: >
-  An Office 365 account that consented to Graph Mail.Send sends a message to a colleague and
-  one to themself. Both go out through Microsoft Graph (a MIME draft, then /send), never over
-  SMTP. Exchange files each sent copy in Sent Items; the engine must find that copy, attach the
-  draft's metadata to it and never APPEND one of its own. Graph throttles the first draft
-  creation, which the engine retries after Retry-After.
+  An Office 365 account that consented to Graph Mail.Send sends a tracked message to two
+  colleagues and a Bcc, and one to themself. Both go out through Microsoft Graph (a MIME draft,
+  then /send), never over SMTP. The Bcc reaches Graph as the draft's bccRecipients, never as a
+  header recipients could read. The draft is marked delete-after-submit, so Exchange files no
+  Sent Items copy: the engine APPENDs one with the sender's `self` body, without the tracking
+  pixel recipients got, stores that body, and attaches the draft's metadata to it. Graph
+  throttles the first draft creation, which the engine retries after Retry-After.
 source: "Exchange Online disables SMTP AUTH for new tenants (https://aka.ms/smtp_auth_disabled); Graph sendMail / immutable ids (https://learn.microsoft.com/en-us/graph/outlook-immutable-id)"
 servers:
   - fake: outlook
@@ -21,18 +23,18 @@ steps:
       draft:
         hMsgId: "graph-1@example.test"
         subject: "Hello Bob"
-        body: "<p>Hi Bob</p>"
+        body: "<p>Hi Bob<img src=\"https://tracker.example/o/PIXEL1.png\"></p>"
         plaintext: false
         from: [{name: "Harness Test", email: "test@example.test"}]
         to: [{name: "Bob Builder", email: "bob@example.net"}]
         cc: [{name: "Carol", email: "carol@example.net"}]
-        bcc: []
+        bcc: [{name: "Dave", email: "dave@example.net"}]
         replyTo: []
         files: []
         rthMsgId: "original@example.net"
         fwdMsgId: ""
         metadata: [{pluginId: "open-tracking", v: 1, value: {uid: "graph-1@example.test"}}]
-      perRecipientBodies: null
+      perRecipientBodies: {self: "<p>Hi Bob</p>"}
     as: send1
   - wait: {task: send1, timeout: 90}
   - client.task:
@@ -62,14 +64,18 @@ expect:
     count: 2
     drafts: 0
     messages:
-      - recipients: ["bob@example.net", "carol@example.net"]
-        headers: {Subject: "Hello Bob", Message-ID: "<graph-1@example.test>", In-Reply-To: "<original@example.net>"}
+      - recipients: ["bob@example.net", "carol@example.net", "dave@example.net"]
+        headers: {Subject: "Hello Bob", Message-ID: "<graph-1@example.test>", In-Reply-To: "<original@example.net>", Bcc: null}
+        body_contains: ["PIXEL1"]
       - recipients: ["test@example.test"]
         headers: {Subject: "Note to self"}
   server_counts: {Sent Items: 2, INBOX: 4}
   counts: {Sent Items: 2}
-  log_present: ["Graph returned 429, retrying in 2s", "Found the sent copy Exchange filed in Sent Items", "Queueing task to attach open-tracking draft metadata"]
-  log_absent: ["Placing a new message", "Sending a single message body"]
+  bodies:
+    Sent Items:
+      graph-1@example.test: {contains: ["Hi Bob"], lacks: ["PIXEL1"]}
+  log_present: ["Graph returned 429, retrying in 2s", "Placing a new message with `self` body", "Queueing task to attach open-tracking draft metadata"]
+  log_absent: ["Sending a single message body"]
   db_matches_server: {}
   stable: {passes: 2}
   running: true

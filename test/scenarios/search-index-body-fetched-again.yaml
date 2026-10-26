@@ -1,0 +1,28 @@
+name: search-index-body-fetched-again
+description: >
+  The client asks again for bodies the engine has already stored, and another client moves a
+  message whose body is stored into INBOX, where the new-mail path fetches bodies. Each
+  message's text must be in its thread's ThreadSearch row once (the thread_search invariant),
+  however many times its body is fetched.
+source: MailProcessor::appendToThreadSearchContent; duplicated ThreadSearch.body text in a dev database
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 5}
+  Archive: {messages: 3}
+steps:
+  - wait: quiescent
+  - client.need_bodies: {messages: {mailbox: INBOX, uids: [1, 2]}}
+  - wait: {log: "Fetching body for message", timeout: 30}
+  - wait: {quiescent: true}
+  - server.move: {mailbox: Archive, uids: [1], to: INBOX}
+  - wait: {quiescent: true}
+  - force_scans: {}
+expect:
+  db_matches_server: {}
+  counts: {INBOX: 6, Archive: 2}
+  local_search:
+    '"body of message 1"': [Message 1]
+  running: true

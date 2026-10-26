@@ -23,6 +23,7 @@
 class File;
 class Label;
 class Account;
+class Folder;
 class Message;
 class Query;
 
@@ -64,6 +65,7 @@ public:
 
     static vector<string> roles();
     static string roleForFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
+    static bool isDuplicateAllMail(Account * account, Folder * folder, bool isGmail);
     static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
 
@@ -76,6 +78,7 @@ public:
     static string idForFolder(string accountId, string folderPath);
     static string idForFile(Message * message, Attachment * attachment);
     static string idForDraftHeaderMessageId(string accountId, string headerMessageId);
+    static long long searchRowIdForId(const string & id);
     
     static shared_ptr<Label> labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> allLabels);
 
@@ -89,6 +92,10 @@ public:
     static void configureSessionForAccount(IMAPSession & session, shared_ptr<Account> account);
     static void configureSessionForAccount(SMTPSession & session, shared_ptr<Account> account);
 
+    // Lowercase hex SHA-256 of a DER certificate: the form the client stores an accepted
+    // certificate in, and the one mailcore compares when the certificate fails validation.
+    static string certificateSHA256(Data * der);
+
     // Explains a connection that failed during the TLS handshake, e.g. because
     // the server offers a DH group or certificate that OpenSSL rejects. When the
     // account has not enabled "Allow insecure SSL", the advice mentions it,
@@ -101,13 +108,22 @@ public:
     // bundles it with authentication - would otherwise blame outdated encryption
     // for a wrong password.
     //
-    // Pass the error from the call, session.lastTLSErrorDescription() and
-    // session.isObsoleteTLSAllowed().
-    static string tlsFailureAdvice(mailcore::ErrorCode err, mailcore::String * tlsErrorDescription, bool obsoleteTLSAllowed);
+    // A certificate rejection names the certificate the server presented, and says so when
+    // it is not the one the user accepted for the account, since that failure otherwise looks
+    // like any other connection error once the account is syncing.
+    //
+    // Pass the error from the call and the session that made it.
+    static string tlsFailureAdvice(mailcore::ErrorCode err, IMAPSession & session);
+    static string tlsFailureAdvice(mailcore::ErrorCode err, SMTPSession & session);
     
     static IMAPMessagesRequestKind messagesRequestKindFor(IndexSet * capabilities, bool heavyOrNeedToComputeIDs);
 
+    // Each wakeAllWorkers() advances the generation. A worker that reads it before a pass and
+    // sleeps with `sinceWake` returns at once if a wake arrived during the pass, which a bare
+    // notify would have delivered to nobody.
+    static uint64_t workerWakeGeneration();
     static void sleepWorkerUntilWakeOrSec(int sec);
+    static void sleepWorkerUntilWakeOrSec(int sec, uint64_t sinceWake);
     static void wakeAllWorkers();
 
     // Consumes `v`. Slices by index: erasing consumed elements from the front is

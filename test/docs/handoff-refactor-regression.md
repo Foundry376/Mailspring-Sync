@@ -166,12 +166,11 @@ taught new server behaviour without a conformance probe against Dovecot.
 You are the one editing the engine, so these are yours to land when convenient:
 
 - Environment overrides for the scan intervals (`DEEP_SCAN_INTERVAL`, `SHALLOW_SCAN_INTERVAL`,
-  `CONDSTORE_GAP_SCAN_INTERVAL`, `CACHE_CLEANUP_INTERVAL`, and the 120 s worker sleep in
-  `main.cpp`), e.g. `MAILSYNC_DEEP_SCAN_INTERVAL=1`. The harness currently backdates
+  `CONDSTORE_GAP_SCAN_INTERVAL`, `CACHE_CLEANUP_INTERVAL`), e.g.
+  `MAILSYNC_DEEP_SCAN_INTERVAL=1`. The harness currently backdates
   `lastDeep`/`lastShallow` in `Folder.localStatus` (`force_scans`) to trigger scans, which is
   a write to a database the engine owns. Once the variables exist, `force_scans` becomes
   "set env + wake".
-- Optionally `MAILSYNC_DISABLE_DAV=1` to keep CardDAV discovery out of test logs, and one
-  `logger->info("Sync quiescent")` when the foreground enters IDLE with no queued work.
+- Optionally `MAILSYNC_DISABLE_DAV=1` to keep CardDAV discovery out of test logs.
 - If `MessageFolder` columns change, update `_placements_from_join_table` in
   `test/harness/db.py` in the same commit; it is 20 lines.
