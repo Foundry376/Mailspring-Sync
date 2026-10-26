@@ -110,6 +110,41 @@ Excluded: <reason for exclusions>
 - Xcode 13+ build fixes (would conflict with local config)
 - Documentation updates
 
+## Review: Oct 2026
+
+Covered upstream through libetpan `13c00bd` (2026-10-23) and mailcore2 `e512ab51`
+(2026-09-27). libetpan was revived in May 2026 (1.10, 1.10.1) and its PR queue
+emptied; most of its ~240 commits are CI, packaging, or new ActiveSync/JMAP/Gmail/
+S/MIME/PGP layers we don't build. Start the next review from those SHAs.
+
+### Taken (libetpan)
+- IMAP parser: `68de795` (EOF spin in literals), `266d59f`, `13c00bd` + `ddf1d98`,
+  `1ea9481`, `7bb634c` (literal cap raised to 1 GiB)
+- IMAP behaviour: `1f52a62` (IDLE continuation, #393), `229bdac` (home.pl bare `\` flag)
+- IMF: `72e4825`, `2669d21`, `e5db7e7`, `28bcbc4`, `b64741f`, `f08af1a`, `f54f5de`
+- MIME: `3f14913`, `e6ca7d9` (depth limit raised to 64), `022ecfd`, `0e40abc`,
+  `b5d4b2c`, `28e2dc8`
+- Streams: `9637b6c`, the WAIT_TIMEOUT checks from `0e45e28`, `acfe80a` (ported)
+
+### Taken (mailcore2)
+- `htmlEncodedString` static buffer (from closed PR #2023; not fixed upstream)
+
+### Deliberately not taken
+- `be0520a`, `23fd6ae`, `c77bc94` (zero-byte writes): sockets are non-blocking, so 0
+  means "would block". `be0520a` caused upstream #468; `c77bc94` still has that bug.
+- `9c1c2b4`, `5273665`, `bcaf9c7`, `4020850` (MMAPString allocator): global change
+  that needed two regression fixes upstream, for small leaks.
+- `7a90eea` (skip malformed FETCH): skips to the first CRLF, which lands inside a
+  literal, and leaves the skipped UID to be deleted by the orphan sweep.
+- mailcore2 `03a19472` (IDLE teardown race): needs a cross-thread `disconnect()`,
+  which the engine never does.
+- `9d92e31` + `8efd727` (RFC 2231 decoding): deferred; MCAttachment would run the
+  already-decoded UTF-8 filename through charset detection again.
+- `4baa384` (SMTP LOGIN/PLAIN without SASL): compiled only without `USE_SASL`; worth
+  wiring into MCSMTPSession separately to drop the Cyrus plugin dependency.
+- PR #427 (FD_SETSIZE check, reverted in 3457ac5): Windows SOCKETs are handle
+  values, usually above FD_SETSIZE (64), so the check rejected valid sockets.
+
 ## Notes
 
 - Always test builds after applying patches
