@@ -34,7 +34,7 @@ class MicrosoftCalendarWorker {
     json graphGET(const string & url, const string & accessToken);
     void paginateGraphCollection(const string & url, const string & accessToken, std::function<void(json &)> yieldPage);
 
-    void upsertCalendar(shared_ptr<Calendar> local, const string & id, const json & remote);
+    void upsertCalendar(shared_ptr<Calendar> local, const string & id, const string & path, const json & remote);
 
 public:
     MicrosoftCalendarWorker(shared_ptr<Account> account);

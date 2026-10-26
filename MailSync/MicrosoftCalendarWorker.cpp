@@ -35,13 +35,13 @@ void MicrosoftCalendarWorker::run() {
     paginateGraphCollection(MicrosoftGraphURL() + "/me/calendars?$select=" + CALENDAR_FIELDS, accessToken, [&](json & page) {
         for (const auto & remote : page["value"]) {
             string path = JSONString(remote, "id");
-            if (path == "") {
+            string id = MailUtils::idForCalendar(account->id(), path);
+            // $skip paging repeats a calendar that shifted between page fetches.
+            if (!listedIds.insert(id).second) {
                 continue;
             }
-            string id = MailUtils::idForCalendar(account->id(), path);
-            listedIds.insert(id);
             auto it = local.find(id);
-            upsertCalendar(it != local.end() ? it->second : nullptr, id, remote);
+            upsertCalendar(it != local.end() ? it->second : nullptr, id, path, remote);
         }
     });
 
@@ -55,7 +55,7 @@ void MicrosoftCalendarWorker::run() {
     logger->info("Microsoft calendar sync complete: {} calendars", listedIds.size());
 }
 
-void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const string & id, const json & remote) {
+void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const string & id, const string & path, const json & remote) {
     string name = JSONString(remote, "name");
     string color = JSONString(remote, "hexColor");
     string owner = remote.count("owner") && remote["owner"].is_object() ? JSONString(remote["owner"], "address") : "";
@@ -65,7 +65,7 @@ void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const s
 
     if (!local) {
         Calendar calendar(id, account->id());
-        calendar.setPath(JSONString(remote, "id"));
+        calendar.setPath(path);
         calendar.setName(name);
         if (color != "") {
             calendar.setColor(color);
@@ -82,9 +82,10 @@ void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const s
         local->setName(name);
         changed = true;
     }
-    if (color != "" && local->color() != toLowerCase(color)) {
+    if (color != "") {
+        string before = local->color();
         local->setColor(color);
-        changed = true;
+        changed = changed || local->color() != before;
     }
     if (local->readOnly() != readOnly) {
         local->setReadOnly(readOnly);
@@ -114,6 +115,9 @@ void MicrosoftCalendarWorker::paginateGraphCollection(const string & url, const 
     string next = url;
     while (next != "") {
         json page = graphGET(next, accessToken);
+        if (!page.count("value") || !page["value"].is_array()) {
+            throw SyncException("invalid-graph-resp", next + " returned no value array", true);
+        }
         yieldPage(page);
         next = JSONString(page, "@odata.nextLink");
     }
