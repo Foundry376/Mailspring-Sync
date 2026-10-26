@@ -58,8 +58,7 @@ static string basicDateTime(const string & extended) {
            extended.substr(11, 2) + extended.substr(14, 2) + extended.substr(17, 2);
 }
 
-// A Graph date-time or date ("2026-10-22T09:00:00.0000000", "2026-12-31") read as UTC.
-static time_t secondsAsUTC(const string & extended) {
+time_t GraphICS::secondsAsUTC(const string & extended) {
     struct tm parts {};
     if (sscanf(extended.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &parts.tm_year, &parts.tm_mon, &parts.tm_mday,
                &parts.tm_hour, &parts.tm_min, &parts.tm_sec) < 3) {
@@ -73,7 +72,7 @@ static time_t secondsAsUTC(const string & extended) {
 // A Graph DateTimeOffset ("2026-11-02T12:00:00-06:00", "2026-10-19T16:00:00Z") as a UTC instant.
 // Graph writes originalStart in the zone Prefer: outlook.timezone names, though the reference says UTC.
 static time_t secondsOfDateTimeOffset(const string & value) {
-    time_t seconds = secondsAsUTC(value);
+    time_t seconds = GraphICS::secondsAsUTC(value);
     size_t sign = value.find_first_of("+-", 19);
     int hours = 0, minutes = 0;
     if (sign != string::npos && sscanf(value.c_str() + sign + 1, "%2d:%2d", &hours, &minutes) == 2) {
@@ -182,11 +181,11 @@ static string rruleLine(const json & recurrence, const json & start, bool allDay
         rule += ";COUNT=" + to_string(JSONInt(range, "numberOfOccurrences"));
     } else if (rangeType == "endDate") {
         // endDate is the inclusive last local date; a DATE-TIME UNTIL must be UTC (RFC 5545 section 3.3.10).
-        time_t endDate = secondsAsUTC(JSONString(range, "endDate"));
+        time_t endDate = GraphICS::secondsAsUTC(JSONString(range, "endDate"));
         if (allDay) {
             rule += ";UNTIL=" + formatUTC(endDate, "%Y%m%d");
         } else {
-            time_t timeOfDay = secondsAsUTC(JSONString(start, "dateTime")) % 86400;
+            time_t timeOfDay = GraphICS::secondsAsUTC(JSONString(start, "dateTime")) % 86400;
             rule += ";UNTIL=" + formatUTC(endDate + timeOfDay - utcOffset + UNTIL_MARGIN, "%Y%m%dT%H%M%SZ");
         }
     }
@@ -198,7 +197,7 @@ static string exdateLine(const string & occurrenceId, const json & start, bool a
     string date = occurrenceId.substr(occurrenceId.rfind('.') + 1);
     string startValue = basicDateTime(JSONString(start, "dateTime"));
     string timeOfDay = startValue.size() > 8 ? startValue.substr(8) : "";
-    return dateTimeLine("EXDATE", formatUTC(secondsAsUTC(date), "%Y%m%d") + timeOfDay,
+    return dateTimeLine("EXDATE", formatUTC(GraphICS::secondsAsUTC(date), "%Y%m%d") + timeOfDay,
                         JSONString(start, "timeZone"), allDay);
 }
 
@@ -280,7 +279,7 @@ string GraphICS::icsForEvent(const json & event, const string & mailboxAddress, 
     string uid = JSONString(event, "iCalUId");
     bool allDay = JSONBool(event, "isAllDay");
     const json & start = JSONObject(event, "start");
-    time_t utcOffset = secondsAsUTC(JSONString(start, "dateTime")) - secondsAsUTC(startUTC);
+    time_t utcOffset = GraphICS::secondsAsUTC(JSONString(start, "dateTime")) - GraphICS::secondsAsUTC(startUTC);
 
     vector<string> seriesLines;
     const json & recurrence = JSONObject(event, "recurrence");

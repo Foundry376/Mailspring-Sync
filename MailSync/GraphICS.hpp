@@ -11,6 +11,7 @@
 #ifndef GraphICS_hpp
 #define GraphICS_hpp
 
+#include <ctime>
 #include <string>
 #include "json.hpp"
 
@@ -24,6 +25,9 @@ public:
     // also with $select=cancelledOccurrences and $expand=exceptionOccurrences. `startUTC`: the
     // event's start as Graph lists it in UTC, which gives a series its UTC offset.
     static string icsForEvent(const json & event, const string & mailboxAddress, const string & startUTC);
+
+    // A Graph date-time or date ("2026-10-22T09:00:00.0000000", "2026-12-31") read as UTC.
+    static time_t secondsAsUTC(const string & extended);
 };
 
 #endif /* GraphICS_hpp */

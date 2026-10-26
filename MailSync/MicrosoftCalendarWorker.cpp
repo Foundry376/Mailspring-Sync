@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <set>
 #include <thread>
 
@@ -32,30 +33,17 @@ static const string SERIES_FIELDS = EVENT_FIELDS + ",cancelledOccurrences,except
 // Graph JSON batching takes up to 20 requests (https://learn.microsoft.com/en-us/graph/json-batching).
 static const size_t GRAPH_BATCH_SIZE = 20;
 
-// "2026-10-22T09:00:00.0000000" as 20261022T090000, "2026-12-31" as 20261231.
-static string compact(const string & extended) {
-    string out;
-    for (char c : extended.substr(0, 19)) {
-        if (c != '-' && c != ':') {
-            out += c;
-        }
-    }
-    return out;
-}
-
 // Whether a listed event (UTC) can have an occurrence in the sync window; a series runs to its
 // recurrence range's end.
 static bool inSyncWindow(const json & entry, const CalendarSyncRange & range) {
-    string windowStart = range.startStr.substr(0, 15);
-    string windowEnd = range.endStr.substr(0, 15);
-    string start = compact(JSONString(JSONObject(entry, "start"), "dateTime"));
-    string end = compact(JSONString(JSONObject(entry, "end"), "dateTime"));
+    time_t start = GraphICS::secondsAsUTC(JSONString(JSONObject(entry, "start"), "dateTime"));
+    time_t end = GraphICS::secondsAsUTC(JSONString(JSONObject(entry, "end"), "dateTime"));
     const json & seriesRange = JSONObject(JSONObject(entry, "recurrence"), "range");
     if (!seriesRange.empty()) {
-        end = JSONString(seriesRange, "type") == "endDate" ? compact(JSONString(seriesRange, "endDate")) + "T235959"
-                                                           : "99991231T235959";
+        end = JSONString(seriesRange, "type") == "endDate" ? GraphICS::secondsAsUTC(JSONString(seriesRange, "endDate")) + 86399
+                                                           : numeric_limits<time_t>::max();
     }
-    return start <= windowEnd && end >= windowStart;
+    return eventOverlapsRange(start, end, range);
 }
 
 // Graph refuses Prefer: outlook.timezone for custom zones ("tzone://Microsoft/Custom") and display
