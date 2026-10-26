@@ -33,3 +33,6 @@ expect:
   migrate_output: "Running Migration.*Migration V11: 2 threads recounted"
   db_matches_server: {labels: true}
   running: true
+  # eb246b6 can index the reply's body twice (both workers fetch it; fixed in #169), and the
+  # build under test leaves legacy duplicates in place, so thread_search would judge eb246b6.
+  invariants: {skip: [thread_search]}
