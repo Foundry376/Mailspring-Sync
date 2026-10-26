@@ -61,6 +61,11 @@ struct GraphResponse {
 // MS_GRAPH_URL replaces https://graph.microsoft.com/v1.0, for the test harness's fake Graph server.
 string MicrosoftGraphURL();
 
+// A throttled (429 or 503) Graph request is tried this many times, waiting out its Retry-After.
+const int GRAPH_REQUEST_ATTEMPTS = 3;
+// Seconds to wait before retrying a throttled Graph request: its Retry-After, kept to 1-30.
+long GraphRetryWait(long retryAfter);
+
 // One Graph request. Throws SyncException only when no HTTP response arrives; the caller
 // interprets the status. 429 and 503 are retried after Retry-After (at most twice), since
 // Graph returns them without processing the request. An empty accessToken sends neither

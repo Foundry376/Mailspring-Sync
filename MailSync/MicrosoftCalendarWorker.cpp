@@ -31,7 +31,6 @@ static const string SERIES_FIELDS = EVENT_FIELDS + ",cancelledOccurrences,except
 
 // Graph JSON batching takes up to 20 requests (https://learn.microsoft.com/en-us/graph/json-batching).
 static const size_t GRAPH_BATCH_SIZE = 20;
-static const int GRAPH_BATCH_ATTEMPTS = 3;
 
 // "2026-10-22T09:00:00.0000000" as 20261022T090000, "2026-12-31" as 20261231.
 static string compact(const string & extended) {
@@ -180,7 +179,7 @@ static json eventRequest(const json & entry, const string & requestId) {
 map<string, json> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entries) {
     map<string, json> events {};
     vector<json> pending = entries;
-    for (int attempt = 0; attempt < GRAPH_BATCH_ATTEMPTS && !pending.empty(); attempt++) {
+    for (int attempt = 0; attempt < GRAPH_REQUEST_ATTEMPTS && !pending.empty(); attempt++) {
         json requests = json::array();
         for (size_t i = 0; i < pending.size(); i++) {
             requests.push_back(eventRequest(pending[i], to_string(i)));
@@ -192,7 +191,7 @@ map<string, json> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entr
         }
 
         vector<json> throttled {};
-        long wait = 1;
+        long retryAfter = 0;
         for (const auto & response : JSONArray(resp.body, "responses")) {
             size_t index = (size_t)atoi(JSONString(response, "id").c_str());
             if (index >= pending.size()) {
@@ -205,15 +204,16 @@ map<string, json> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entr
                 events[graphId] = JSONObject(response, "body");
             } else if (status == 429 || status == 503) {
                 throttled.push_back(entry);
-                wait = (std::max)(wait, (long)ParseRetryAfter(JSONString(JSONObject(response, "headers"), "Retry-After")));
+                retryAfter = (std::max)(retryAfter, (long)ParseRetryAfter(JSONString(JSONObject(response, "headers"), "Retry-After")));
             } else {
                 logger->warn("-X Graph event {} could not be read: HTTP {}", graphId, status);
             }
         }
         pending = throttled;
-        if (!pending.empty() && attempt + 1 < GRAPH_BATCH_ATTEMPTS) {
-            logger->info("-- Graph throttled {} event reads, retrying in {}s", pending.size(), (std::min)(wait, 30L));
-            std::this_thread::sleep_for(std::chrono::seconds((std::min)(wait, 30L)));
+        if (!pending.empty() && attempt + 1 < GRAPH_REQUEST_ATTEMPTS) {
+            long wait = GraphRetryWait(retryAfter);
+            logger->info("-- Graph throttled {} event reads, retrying in {}s", pending.size(), wait);
+            std::this_thread::sleep_for(std::chrono::seconds(wait));
         }
     }
     for (auto & entry : pending) {
