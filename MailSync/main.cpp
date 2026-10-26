@@ -440,7 +440,7 @@ int runTestAuth(shared_ptr<Account> account, string & errorService) {
         XOAuth2Parts parts;
         for (int attempt = 0; ; attempt ++) {
             try {
-                parts = SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraph);
+                parts = SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraphMail);
                 break;
             } catch (SyncException & ex) {
                 // Azure AD can answer AADSTS65001 for a few seconds after the user granted the

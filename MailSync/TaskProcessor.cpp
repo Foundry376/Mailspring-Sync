@@ -2101,7 +2101,7 @@ static string _mcString(String * value, string fallback = "") {
 }
 
 static string _graphAccessToken(shared_ptr<Account> account) {
-    return SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraph).accessToken;
+    return SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraphMail).accessToken;
 }
 
 // Graph ids are base64 and may contain '/' and '+'.

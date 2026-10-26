@@ -89,10 +89,11 @@ XOAuth2TokenManager::~XOAuth2TokenManager() {
 
 static string labelForAudience(OAuthTokenAudience audience) {
     switch (audience) {
-        case OAuthTokenAudience::MicrosoftGraph: return "Graph";
+        case OAuthTokenAudience::Mail: return "";
+        case OAuthTokenAudience::MicrosoftGraphMail: return "Graph mail";
         case OAuthTokenAudience::MicrosoftGraphCalendars: return "Graph calendars";
-        default: return "";
     }
+    return "";
 }
 
 XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, OAuthTokenAudience audience) {

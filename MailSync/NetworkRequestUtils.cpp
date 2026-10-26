@@ -218,7 +218,7 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
         // workaround the fact that Microsoft's OAUTH flow allows you to authorize many scopes, but you
         // have to get a separate token for outlook (email + IMAP) and contacts / calendar / Microsoft Graph APIs
         // separately. The same refresh token will give you access tokens, but the access tokens are different.
-        if (audience == OAuthTokenAudience::MicrosoftGraph) {
+        if (audience == OAuthTokenAudience::MicrosoftGraphMail) {
             payload += "&scope=https%3A%2F%2Fgraph.microsoft.com%2FMail.ReadWrite%20https%3A%2F%2Fgraph.microsoft.com%2FMail.Send";
         } else if (audience == OAuthTokenAudience::MicrosoftGraphCalendars) {
             payload += "&scope=https%3A%2F%2Fgraph.microsoft.com%2FCalendars.ReadWrite%20https%3A%2F%2Fgraph.microsoft.com%2FCalendars.ReadWrite.Shared";
