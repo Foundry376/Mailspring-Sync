@@ -17,14 +17,12 @@
 using namespace nlohmann;
 using namespace std;
 
-// Microsoft Graph events as the iCalendar resources CalDAV serves, which is what Event rows
-// hold and the client reads. Graph has no iCalendar form of an event.
+// Microsoft Graph events as the iCalendar resources Event rows hold; Graph has no iCalendar form.
 class GraphICS {
 public:
-    // `event` as fetched in its own time zone (Prefer: outlook.timezone) with a text body, and
-    // for a series master with its cancelledOccurrences and expanded exceptionOccurrences.
-    // `startUTC` is the same event's start as Graph lists it in UTC, which gives a series' UTC
-    // offset. The attendee at `mailboxAddress` answers with the event's responseStatus.
+    // `event` fetched in its own zone (Prefer: outlook.timezone) with a text body; a series master
+    // also with $select=cancelledOccurrences and $expand=exceptionOccurrences. `startUTC`: the
+    // event's start as Graph lists it in UTC, which gives a series its UTC offset.
     static string icsForEvent(const json & event, const string & mailboxAddress, const string & startUTC);
 };
 

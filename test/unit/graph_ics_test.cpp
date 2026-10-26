@@ -221,9 +221,8 @@ int main() {
                     "RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=2TU", "second Tuesday of November");
     }
     {
-        // The series starts in daylight time (UTC-7) and ends after it (UTC-8): the last
-        // occurrence, 09:00 on Wednesday 2026-12-16, is 17:00 UTC. UNTIL taken at the start's
-        // offset alone would be 16:00 UTC and drop it.
+        // Starts in daylight time (UTC-7), ends in standard (UTC-8): the last occurrence, Wednesday
+        // 2026-12-16 09:00, is 17:00 UTC, which an UNTIL at the start's offset (16:00) would drop.
         json master = series(pattern({{"type", "weekly"}, {"interval", 2}, {"daysOfWeek", {"monday", "wednesday"}},
                                       {"firstDayOfWeek", "sunday"}},
                                      {{"type", "endDate"}, {"startDate", "2026-10-05"}, {"endDate", "2026-12-16"},
@@ -238,7 +237,6 @@ int main() {
         }
     }
     {
-        // An all-day series ends on a date.
         json master = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}},
                                       {"firstDayOfWeek", "sunday"}},
                                      {{"type", "endDate"}, {"startDate", "2026-10-05"}, {"endDate", "2026-12-28"}}),
@@ -249,8 +247,6 @@ int main() {
                     "RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU;UNTIL=20261228", "all-day UNTIL is a date");
     }
     {
-        // Edited occurrences become VEVENTs of the master's UID, keyed by their original start in
-        // UTC; cancelled ones become EXDATEs at the series' wall-clock start in its zone.
         json master = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}},
                                       {"firstDayOfWeek", "sunday"}}),
                              {{"cancelledOccurrences", {"OID.AAMkMaster=.2026-11-02"}},

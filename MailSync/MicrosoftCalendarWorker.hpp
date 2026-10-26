@@ -25,7 +25,6 @@
 using namespace nlohmann;
 using namespace std;
 
-// Syncs Outlook.com and Office 365 calendars through Microsoft Graph, which has no CalDAV.
 class MicrosoftCalendarWorker {
     unique_ptr<MailStore> store;
     shared_ptr<spdlog::logger> logger;

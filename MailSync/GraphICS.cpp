@@ -82,7 +82,6 @@ static string formatUTC(time_t seconds, const char * format) {
     return out;
 }
 
-// `value` (20261022T090000) as a DTSTART, DTEND or EXDATE line in `zone`, or its date when all-day.
 static string dateTimeLine(const string & name, const string & value, const string & zone, bool allDay) {
     if (allDay) {
         return name + ";VALUE=DATE:" + value.substr(0, 8);
@@ -244,7 +243,7 @@ static void appendVEvent(string & ics, const json & event, const string & uid, c
         appendLine(ics, participant("ORGANIZER", "", organizer));
     }
 
-    // The mailbox's own entry in `attendees` can lag behind its answer; responseStatus doesn't.
+    // responseStatus is the mailbox's own answer; its entry in `attendees` may not reflect it.
     string myResponse = JSONString(JSONObject(event, "responseStatus"), "response");
     for (const auto & attendee : JSONArray(event, "attendees")) {
         const json & emailAddress = JSONObject(attendee, "emailAddress");
