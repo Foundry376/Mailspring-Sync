@@ -199,9 +199,8 @@ class MailsyncProcess:
         env = dict(os.environ)
         env.update(
             CONFIG_DIR_PATH=str(self.config_dir),
-            # With --identity null the metadata worker exits immediately, and an unreachable
-            # DAV host lookup reads as offline, so discovery is skipped. The variable must
-            # still be set or main() bails.
+            # Unreachable: with --identity null the metadata worker exits at once, and DAV
+            # discovery reads the failed lookup as offline. main() bails if it is unset.
             IDENTITY_SERVER="http://127.0.0.1:9/unreachable",
         )
         env.update(self.extra_env)

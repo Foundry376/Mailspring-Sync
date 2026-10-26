@@ -70,7 +70,7 @@ class FakeServer(Server):
                                      calendars_page_size=graph_calendars_page_size, events=graph_events,
                                      events_page_size=graph_events_page_size) if graph else None
         if self.graph and graph_generated_events:
-            calendar_id = (graph_calendars or [{}])[0]["id"]
+            calendar_id = graph_calendars[0]["id"]
             self.graph.events.setdefault(calendar_id, []).extend(_generated_events(graph_generated_events))
         if self.graph:
             self.imap.oauth_tokens = self.graph.mail_tokens

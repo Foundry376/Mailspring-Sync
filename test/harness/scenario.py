@@ -20,7 +20,6 @@ import json
 import os
 import random
 import re
-from urllib.parse import unquote
 import shutil
 import socket
 import sqlite3
@@ -29,6 +28,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote
 
 import yaml
 

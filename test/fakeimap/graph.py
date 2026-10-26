@@ -32,13 +32,12 @@ import base64
 import email
 import email.policy
 import json
-from email.message import Message
 import re
 import threading
 import time
-from email.message import EmailMessage
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime
+from email.message import EmailMessage, Message
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo
@@ -49,6 +48,7 @@ GRAPH_SCOPE = "https://graph.microsoft.com/"
 CALENDARS_SCOPE = GRAPH_SCOPE + "Calendars."
 MAIL_SCOPE = "https://outlook.office.com/"
 SENT_ITEMS_ID = "AQMkAGSentItems="
+DRAFTS_ID = "AQMkAGDrafts="
 # The Windows zone names Graph writes, for the zones the scenarios use.
 WINDOWS_ZONES = {"UTC": "UTC", "Pacific Standard Time": "America/Los_Angeles", "Tokyo Standard Time": "Asia/Tokyo",
                  "New Zealand Standard Time": "Pacific/Auckland", "W. Europe Standard Time": "Europe/Berlin"}
@@ -72,7 +72,6 @@ def _in_zone(value: dict, zone: str) -> dict:
 def _selected(resource: dict, select: str) -> dict:
     fields = set(select.split(",")) if select else None
     return {k: v for k, v in resource.items() if fields is None or k in fields or k == "id"}
-DRAFTS_ID = "AQMkAGDrafts="
 
 
 def _with_from(mime: bytes, name: str, address: str) -> bytes:
