@@ -605,6 +605,24 @@ string MailUtils::idForDraftHeaderMessageId(string accountId, string headerMessa
     return toBase58(hash.data(), 30);
 }
 
+/*
+ The rowid of a model's ContactSearch or EventSearch row. FTS5 can only look a row up by rowid
+ or MATCH (the content_id column is UNINDEXED, so `WHERE content_id = ?` reads the whole table),
+ and the model's own rowid is no substitute because VACUUM renumbers it. Deriving the rowid from
+ the id means it never has to be stored. Two ids sharing one of 2^63 values is not a concern at
+ address-book scale; if it happened, INSERT OR REPLACE would leave one of them unsearchable.
+ */
+long long MailUtils::searchRowIdForId(const string & id)
+{
+    vector<unsigned char> hash(32);
+    picosha2::hash256(id.begin(), id.end(), hash.begin(), hash.end());
+    uint64_t value = 0;
+    for (int i = 0; i < 8; i++) {
+        value = (value << 8) | hash[i];
+    }
+    return (long long)(value & INT64_MAX);
+}
+
 #define SCHEMA_1_START_DATE 1518652800 // 2/15/2018
 
 static int _baseIDSchemaVersion = 0;
