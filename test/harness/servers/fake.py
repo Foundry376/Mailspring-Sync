@@ -112,7 +112,8 @@ class FakeServer(Server):
     def engine_env(self) -> dict:
         if not self.graph:
             return {}
-        return {"MS_GRAPH_URL": self.graph.url, "MS_OAUTH_TOKEN_URL": self.graph.token_url}
+        return {"MS_GRAPH_URL": self.graph.url, "MS_OAUTH_TOKEN_URL": self.graph.token_url,
+                "IDENTITY_SERVER": self.graph.identity_url}
 
     def sent_messages(self) -> list:
         return list(self.smtp.messages) if self.smtp else []

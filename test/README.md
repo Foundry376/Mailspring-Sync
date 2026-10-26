@@ -436,8 +436,10 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   the first calendar), listed in UTC and read back in the zone asked for, one at a time or 20 per
   `$batch`; the calendar scopes take their own token, refused only with
   `graph_calendars_consented: false`, and `graph_shared_mailbox_owner: address` makes the
-  account a shared mailbox signed in as that address (`graph-calendars-*`). The
-  engine reaches it through `MS_GRAPH_URL` and `MS_OAUTH_TOKEN_URL`, which the server adds to
+  account a shared mailbox signed in as that address (`graph-calendars-*`). It also answers
+  the identity server's DAV host lookup as production does for a Microsoft account, sending
+  CardDAV discovery to an Outlook on the web page that answers 401. The engine reaches it
+  through `MS_GRAPH_URL`, `MS_OAUTH_TOKEN_URL` and `IDENTITY_SERVER`, which the server adds to
   the engine's environment (`Server.engine_env`). A draft attachment written as `{filename,
   bytes, contentType, contentId}` is created on disk where the engine looks for it.
 - **Recording real providers.** `tools/record_personality.py HOST PORT USER --name NAME`

@@ -22,6 +22,10 @@ cancelledOccurrences / exceptionOccurrences only when selected and expanded (eve
 runs up to 20 requests and answers them out of order (json-batching). Calendar and mail scopes
 are consented and tokened separately: a token for one is refused by the other's routes with
 403, as Graph answers a token missing the permission a request needs.
+
+The server also stands in for the Mailspring identity server's DAV host lookup, which sends a
+Microsoft account's CardDAV discovery to Outlook on the web: its /owa/ answers 401, as observed
+on an Outlook.com account.
 """
 import base64
 import email
@@ -167,6 +171,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_PATCH(self):
         self._dispatch()
 
+    def do_PROPFIND(self):
+        self._dispatch()
+
     def _preferences(self) -> dict:
         """Every Prefer header's preferences, whether sent one per header or comma-separated."""
         out = {}
@@ -190,6 +197,12 @@ class _Handler(BaseHTTPRequestHandler):
             return self._upload(path[len("/upload/"):], body)
         if path == "/v1.0/$batch" and self.command == "POST":
             return self._batch(body)
+        if path == "/api/resolve-dav-hosts" and self.command == "POST":
+            return self._reply(200, {"carddavHost": f"127.0.0.1:{srv.port}"})
+        if path == "/.well-known/carddav":
+            return self._reply(301, headers={"Location": f"http://127.0.0.1:{srv.port}/owa/"})
+        if path == "/owa/":
+            return self._reply(401)
         if not path.startswith("/v1.0/me/"):
             return self._error(404, "ResourceNotFound", f"no route for {path}")
         if len(body) > MAX_REQUEST_BYTES:
@@ -534,6 +547,10 @@ class FakeGraphServer:
     @property
     def token_url(self) -> str:
         return f"http://127.0.0.1:{self.port}/token"
+
+    @property
+    def identity_url(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
 
     def drafts(self) -> list:
         return [m for m in self.messages.values() if m.sent_at is None]
