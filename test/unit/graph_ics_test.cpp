@@ -325,6 +325,37 @@ int main() {
         expectLine(GraphICS::icsForEvent(auckland, ME, "2026-07-05T12:00:00.0000000"),
                    "RECURRENCE-ID;VALUE=DATE:20270201", "all-day override east of UTC across daylight saving");
     }
+    {
+        // Graph writes originalStart in the zone it was asked for, with that zone's offset, as an
+        // Outlook.com account does: 12:00 Central on 2 November, after daylight saving ends, is 18:00 UTC.
+        json master = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}},
+                                      {"firstDayOfWeek", "sunday"}}, {{"type", "noEnd"}, {"startDate", "2026-10-19"}}),
+                             {{"start", {{"dateTime", "2026-10-19T12:00:00.0000000"}, {"timeZone", "Central Standard Time"}}},
+                              {"end", {{"dateTime", "2026-10-19T12:30:00.0000000"}, {"timeZone", "Central Standard Time"}}},
+                              {"exceptionOccurrences", json::array({event({
+                                  {"type", "exception"},
+                                  {"originalStart", "2026-11-02T12:00:00-06:00"},
+                                  {"start", {{"dateTime", "2026-11-02T13:00:00.0000000"}, {"timeZone", "Central Standard Time"}}},
+                                  {"end", {{"dateTime", "2026-11-02T13:30:00.0000000"}, {"timeZone", "Central Standard Time"}}},
+                              })})}});
+        expectLine(GraphICS::icsForEvent(master, ME, "2026-10-19T17:00:00.0000000"),
+                   "RECURRENCE-ID:20261102T180000Z", "override keyed by an original start written with its offset");
+
+        json auckland = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}},
+                                        {"firstDayOfWeek", "sunday"}}),
+                               {{"isAllDay", true},
+                                {"start", {{"dateTime", "2026-07-06T00:00:00.0000000"}, {"timeZone", "New Zealand Standard Time"}}},
+                                {"end", {{"dateTime", "2026-07-07T00:00:00.0000000"}, {"timeZone", "New Zealand Standard Time"}}},
+                                {"exceptionOccurrences", json::array({event({
+                                    {"type", "exception"},
+                                    {"isAllDay", true},
+                                    {"originalStart", "2027-02-01T00:00:00+13:00"},
+                                    {"start", {{"dateTime", "2027-02-01T00:00:00.0000000"}, {"timeZone", "New Zealand Standard Time"}}},
+                                    {"end", {{"dateTime", "2027-02-02T00:00:00.0000000"}, {"timeZone", "New Zealand Standard Time"}}},
+                                })})}});
+        expectLine(GraphICS::icsForEvent(auckland, ME, "2026-07-05T12:00:00.0000000"),
+                   "RECURRENCE-ID;VALUE=DATE:20270201", "all-day override whose original start carries its offset");
+    }
 
     if (failures) {
         cerr << failures << " failure(s)\n";

@@ -70,6 +70,19 @@ static time_t secondsAsUTC(const string & extended) {
     return timegm(&parts);
 }
 
+// A Graph DateTimeOffset ("2026-11-02T12:00:00-06:00", "2026-10-19T16:00:00Z") as a UTC instant.
+// Graph writes originalStart in the zone Prefer: outlook.timezone names, though the reference says UTC.
+static time_t secondsOfDateTimeOffset(const string & value) {
+    time_t seconds = secondsAsUTC(value);
+    size_t sign = value.find_first_of("+-", 19);
+    int hours = 0, minutes = 0;
+    if (sign != string::npos && sscanf(value.c_str() + sign + 1, "%2d:%2d", &hours, &minutes) == 2) {
+        time_t offset = hours * 3600 + minutes * 60;
+        seconds += value[sign] == '+' ? -offset : offset;
+    }
+    return seconds;
+}
+
 static string formatUTC(time_t seconds, const char * format) {
     struct tm parts {};
 #ifdef _MSC_VER
@@ -190,14 +203,14 @@ static string exdateLine(const string & occurrenceId, const json & start, bool a
 }
 
 static string recurrenceIdLine(const json & exception, bool allDay, time_t utcOffset) {
-    string originalStart = JSONString(exception, "originalStart");
+    time_t originalStart = secondsOfDateTimeOffset(JSONString(exception, "originalStart"));
     if (allDay) {
         // An all-day occurrence starts at local midnight: the nearest one absorbs a daylight-saving
         // change since the series' start.
-        time_t local = secondsAsUTC(originalStart) + utcOffset;
+        time_t local = originalStart + utcOffset;
         return "RECURRENCE-ID;VALUE=DATE:" + formatUTC((local + 43200) / 86400 * 86400, "%Y%m%d");
     }
-    return "RECURRENCE-ID:" + basicDateTime(originalStart) + "Z";
+    return "RECURRENCE-ID:" + formatUTC(originalStart, "%Y%m%dT%H%M%SZ");
 }
 
 static string partstatFor(const string & response) {
