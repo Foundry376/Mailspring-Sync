@@ -1020,18 +1020,29 @@ IMAPMessagesRequestKind MailUtils::messagesRequestKindFor(IndexSet * capabilitie
 
 std::mutex workerSleepMtx;
 std::condition_variable workerSleepCV;
+uint64_t workerWakes = 0;
+
+uint64_t MailUtils::workerWakeGeneration() {
+    lock_guard<mutex> lck(workerSleepMtx);
+    return workerWakes;
+}
 
 void MailUtils::sleepWorkerUntilWakeOrSec(int sec) {
+    sleepWorkerUntilWakeOrSec(sec, workerWakeGeneration());
+}
+
+void MailUtils::sleepWorkerUntilWakeOrSec(int sec, uint64_t sinceWake) {
     auto desiredTime = std::chrono::system_clock::now();
     desiredTime += chrono::milliseconds(sec * 1000);
     unique_lock<mutex> lck(workerSleepMtx);
-    workerSleepCV.wait_until(lck, desiredTime);
+    workerSleepCV.wait_until(lck, desiredTime, [&] { return workerWakes != sinceWake; });
 }
 
 void MailUtils::wakeAllWorkers() {
     // wake sync workers that sleep between cycles
     {
         lock_guard<mutex> lck(workerSleepMtx);
+        workerWakes += 1;
         workerSleepCV.notify_all();
     }
     

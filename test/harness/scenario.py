@@ -250,6 +250,7 @@ class ScenarioRun:
             kw.update(self.sc["account"])
         account = account_json(**kw)
         self.ms = MailsyncProcess(account, self.work, binary=self._initial_binary(), verbose=True, env=self._engine_env())
+        self.ms.note = self._note
 
     def _engine_env(self) -> dict:
         """A scenario's top-level `env:` is added to the engine's environment, for the knobs the
@@ -407,6 +408,7 @@ class ScenarioRun:
         # started on. Relative paths resolve against test/, like the top-level `binary:`.
         binary = self._binary_path(arg["binary"]) if arg.get("binary") else self.binary
         self.ms = MailsyncProcess(account, self.work, binary=binary, verbose=True, env=self._engine_env())
+        self.ms.note = self._note
         self.ms.start()
         self._note(f"mailsync {self.ms.binary.resolve().name} restarted; migrate said: {self.ms.migrate_output}")
         if arg.get("wait", True):

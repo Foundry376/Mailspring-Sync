@@ -201,6 +201,7 @@ static void sleepBeforeRetryingLogin(int delay) {
 void runForegroundSyncWorker() {
     LoginRejections loginRejections;
     while(true) {
+        uint64_t wake = MailUtils::workerWakeGeneration();
         try {
             fgWorker->configure();
             fgWorker->idleCycleIteration();
@@ -219,7 +220,9 @@ void runForegroundSyncWorker() {
                 SharedDeltaStream()->beginConnectionError(fgWorker->account->id());
             }
             spdlog::get("logger")->info("--sleeping");
-            MailUtils::sleepWorkerUntilWakeOrSec(120);
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "sleeping"}, {"error", true}});
+            MailUtils::sleepWorkerUntilWakeOrSec(120, wake);
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "busy"}});
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();
             abort();
@@ -236,6 +239,9 @@ void runBackgroundSyncWorker() {
     MailUtils::sleepWorkerUntilWakeOrSec(bgWorker->account->startDelay());
 
     while(true) {
+        uint64_t wake = MailUtils::workerWakeGeneration();
+        bool failed = false;
+        SharedDeltaStream()->emitWorkerState("background", {{"state", "running"}, {"wake", wake}});
         try {
             bgWorker->configure();
             
@@ -288,11 +294,13 @@ void runBackgroundSyncWorker() {
                 SharedDeltaStream()->beginConnectionError(bgWorker->account->id());
             }
             spdlog::get("logger")->info("--sleeping");
+            failed = true;
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();
             abort();
         }
-        MailUtils::sleepWorkerUntilWakeOrSec(120);
+        SharedDeltaStream()->emitWorkerState("background", {{"state", "sleeping"}, {"wake", wake}, {"error", failed}});
+        MailUtils::sleepWorkerUntilWakeOrSec(120, wake);
     }
 }
 
@@ -873,6 +881,20 @@ int runInstallCheck() {
     return success ? 0 : 1;
 }
 
+// Reports that `count` stdin commands of this type have been handled, interrupting the
+// foreground first when it has remote work to pick up. That report is written under idleMtx,
+// so it precedes the foreground's next idle event. See DeltaStream::emitWorkerState.
+static void finishCommands(const string & type, int count, bool interruptForeground) {
+    auto emit = [&](bool interrupted) {
+        SharedDeltaStream()->emitWorkerState("main", {{"handled", type}, {"count", count}, {"interrupted", interrupted}, {"wake", MailUtils::workerWakeGeneration()}});
+    };
+    if (interruptForeground && fgWorker) {
+        fgWorker->idleInterrupt([&] { emit(true); });
+    } else {
+        emit(false);
+    }
+}
+
 void runListenOnMainThread(shared_ptr<Account> account) {
     MailStore store;
     TaskProcessor processor{account, &store, nullptr};
@@ -880,6 +902,8 @@ void runListenOnMainThread(shared_ptr<Account> account) {
     store.setStreamDelay(5);
 
     time_t lostCINAt = 0;
+    map<string, int> handledCounts;
+    static atomic<int> tasksPerformedLocally { 0 };
 
     processor.cleanupTasksAfterLaunch();
     
@@ -914,11 +938,13 @@ void runListenOnMainThread(shared_ptr<Account> account) {
 
         try {
             string type = packet.count("type") ? packet["type"].get<string>() : "";
+            bool interruptForeground = false;
 
             if (type == "queue-task") {
                 packet["task"]["v"] = 0;
                 Task task{packet["task"]};
                 processor.performLocal(&task);
+                tasksPerformedLocally += 1;
         
                 // interrupt the foreground sync worker to do the remote part of the task. We wait a short time
                 // because we want tasks queued back to back to run ASAP and not fight for locks with remote
@@ -929,10 +955,10 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 if (queuedForegroundWake.compare_exchange_strong(expected, true)) {
                     std::thread([]() {
                         std::this_thread::sleep_for(chrono::milliseconds(300));
-                        if (fgWorker) {
-                            fgWorker->idleInterrupt();
-                        }
+                        // Cleared before the interrupt: a task whose local phase finishes after this
+                        // point queues its own interrupt rather than relying on one already delivered.
                         queuedForegroundWake = false;
+                        finishCommands("queue-task", tasksPerformedLocally, true);
                     }).detach();
                 }
             }
@@ -956,7 +982,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                 // interrupt the foreground worker's IDLE call, because our network
                 // connection may have been reset and it'll sit for a while otherwise
                 // and wake-workers is called when waking from sleep
-                if (fgWorker) fgWorker->idleInterrupt();
+                interruptForeground = true;
             }
 
             if (type == "need-bodies") {
@@ -966,7 +992,7 @@ void runListenOnMainThread(shared_ptr<Account> account) {
                     ids.push_back(id.get<string>());
                 }
                 if (fgWorker) fgWorker->idleQueueBodiesToSync(ids);
-                if (fgWorker) fgWorker->idleInterrupt();
+                interruptForeground = true;
             }
 
             if (type == "sync-calendar") {
@@ -1010,6 +1036,9 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             }
             if (type == "test-segfault") {
                 raise(SIGSEGV);
+            }
+            if (type != "" && type != "queue-task") {
+                finishCommands(type, ++handledCounts[type], interruptForeground);
             }
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();

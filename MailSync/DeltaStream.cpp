@@ -136,6 +136,10 @@ json DeltaStream::waitForJSON() {
 
 void DeltaStream::flushBuffer() {
     lock_guard<mutex> lock(bufferMtx);
+    _flushBufferLocked();
+}
+
+void DeltaStream::_flushBufferLocked() {
     for (const auto & it : buffer) {
         for (const auto & item : it.second) {
             cout << item.dump() + "\n";
@@ -231,4 +235,29 @@ void DeltaStream::endConnectionError(string accountId) {
         items.push_back({{"accountId", accountId}, {"id", accountId}, {"connectionError", connectionError}});
         emit(DeltaStreamItem("persist", "ProcessState", items), 0);
     }
+}
+
+/*
+ With WORKER_STATE_EVENTS=1 in the environment, writes {"type":"worker-state","worker":...}
+ lines to stdout when a worker sleeps, enters or leaves IDLE, or has handled a stdin command,
+ so the test harness knows the engine is done instead of inferring it from log timing. The log
+ and buffered deltas are flushed first: a reader that sees the event has seen everything the
+ worker did before it. The client never sets the variable.
+*/
+void DeltaStream::emitWorkerState(string worker, json state) {
+    static const bool enabled = [] {
+        const char * value = getenv("WORKER_STATE_EVENTS");
+        return value != nullptr && string(value) == "1";
+    }();
+    if (!enabled) {
+        return;
+    }
+    spdlog::get("logger")->flush();
+    state["type"] = "worker-state";
+    state["worker"] = worker;
+
+    lock_guard<mutex> lock(bufferMtx);
+    _flushBufferLocked();
+    cout << state.dump() + "\n";
+    cout << flush;
 }
