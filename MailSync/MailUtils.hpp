@@ -78,6 +78,7 @@ public:
     static string idForFolder(string accountId, string folderPath);
     static string idForFile(Message * message, Attachment * attachment);
     static string idForDraftHeaderMessageId(string accountId, string headerMessageId);
+    static long long searchRowIdForId(const string & id);
     
     static shared_ptr<Label> labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> allLabels);
 

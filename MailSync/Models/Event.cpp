@@ -207,29 +207,20 @@ void Event::afterSave(MailStore * store) {
         return;
     }
 
-    if (version() == 1) {
-        SQLite::Statement insert(store->db(), "INSERT INTO EventSearch (content_id, title, description, location, participants) VALUES (?, ?, ?, ?, ?)");
-        insert.bind(1, id());
-        insert.bind(2, _searchTitle);
-        insert.bind(3, _searchDescription);
-        insert.bind(4, _searchLocation);
-        insert.bind(5, _searchParticipants);
-        insert.exec();
-    } else {
-        SQLite::Statement update(store->db(), "UPDATE EventSearch SET title = ?, description = ?, location = ?, participants = ? WHERE content_id = ?");
-        update.bind(1, _searchTitle);
-        update.bind(2, _searchDescription);
-        update.bind(3, _searchLocation);
-        update.bind(4, _searchParticipants);
-        update.bind(5, id());
-        update.exec();
-    }
+    SQLite::Statement upsert(store->db(), "INSERT OR REPLACE INTO EventSearch (rowid, content_id, title, description, location, participants) VALUES (?, ?, ?, ?, ?, ?)");
+    upsert.bind(1, MailUtils::searchRowIdForId(id()));
+    upsert.bind(2, id());
+    upsert.bind(3, _searchTitle);
+    upsert.bind(4, _searchDescription);
+    upsert.bind(5, _searchLocation);
+    upsert.bind(6, _searchParticipants);
+    upsert.exec();
 }
 
 void Event::afterRemove(MailStore * store) {
     MailModel::afterRemove(store);
 
-    SQLite::Statement remove(store->db(), "DELETE FROM EventSearch WHERE content_id = ?");
-    remove.bind(1, id());
+    SQLite::Statement remove(store->db(), "DELETE FROM EventSearch WHERE rowid = ?");
+    remove.bind(1, MailUtils::searchRowIdForId(id()));
     remove.exec();
 }

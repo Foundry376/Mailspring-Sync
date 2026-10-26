@@ -290,6 +290,8 @@ private:
     void _migrateToV10(bool freshDatabase, const string & verb);
     void _migrateToV11(bool announce);
     void _migrateToV13();
+    void _migrateToV14(bool freshDatabase);
+    int _rekeySearchTable(const string & table, const string & modelTable, const vector<string> & columns);
     SQLite::Statement & _placementStatement(const string & key, const string & sql);
     template <typename... Binds>
     int _execPlacement(const string & key, const string & sql, const Binds &... binds);

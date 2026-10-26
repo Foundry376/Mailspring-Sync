@@ -176,24 +176,20 @@ void Contact::bindToQuery(SQLite::Statement * query) {
 void Contact::afterSave(MailStore * store) {
     MailModel::afterSave(store);
 
-    if (version() == 1) {
-        SQLite::Statement insert(store->db(), "INSERT INTO ContactSearch (content_id, content) VALUES (?, ?)");
-        insert.bind(1, id());
-        insert.bind(2, searchContent());
-        insert.exec();
-    } else if (source() != CONTACT_SOURCE_MAIL || _searchContentChanged) {
-        SQLite::Statement update(store->db(), "UPDATE ContactSearch SET content = ? WHERE content_id = ?");
-        update.bind(1, searchContent());
-        update.bind(2, id());
-        update.exec();
+    if (version() == 1 || source() != CONTACT_SOURCE_MAIL || _searchContentChanged) {
+        SQLite::Statement upsert(store->db(), "INSERT OR REPLACE INTO ContactSearch (rowid, content_id, content) VALUES (?, ?, ?)");
+        upsert.bind(1, MailUtils::searchRowIdForId(id()));
+        upsert.bind(2, id());
+        upsert.bind(3, searchContent());
+        upsert.exec();
     }
     _searchContentChanged = false;
 }
 
 void Contact::afterRemove(MailStore * store) {
     MailModel::afterRemove(store);
-    
-    SQLite::Statement update(store->db(), "DELETE FROM ContactSearch WHERE content_id = ?");
-    update.bind(1, id());
+
+    SQLite::Statement update(store->db(), "DELETE FROM ContactSearch WHERE rowid = ?");
+    update.bind(1, MailUtils::searchRowIdForId(id()));
     update.exec();
 }
