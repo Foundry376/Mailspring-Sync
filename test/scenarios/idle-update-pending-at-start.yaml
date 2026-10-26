@@ -1,0 +1,26 @@
+name: idle-update-pending-at-start
+description: >
+  Another client expunges a message while the foreground worker is between IDLEs (here,
+  running a star task), so the update is already pending when it sends IDLE. Dovecot writes
+  it in the same segment as `+ idling` (conformance probe_idle_pending), and libetpan reads
+  only the continuation line, leaving the update in its buffer where waiting on the socket
+  never sees it. The foreground must still act on it at once rather than when IDLE next
+  ends (up to 28 minutes later, or the next background pass).
+source: "libetpan mailstream_wait_idle; mailcore IMAPSession::idle"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+mailboxes:
+  INBOX: {messages: 8}
+steps:
+  - wait: quiescent
+  - server.expunge: {mailbox: INBOX, uids: [5], at: {hook: before_command, session: foreground, command: "^IDLE"}}
+  - client.task: {__cls: ChangeStarredTask, messages: {mailbox: INBOX, uids: [3]}, starred: true}
+    as: star
+  - wait: {task: star, timeout: 30}
+  - wait: {quiescent: true}
+expect:
+  server_counts: {INBOX: 7}
+  counts: {INBOX: 7}
+  db_matches_server: {flags: true}
+  running: true

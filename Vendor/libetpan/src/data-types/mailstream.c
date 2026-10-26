@@ -335,6 +335,11 @@ void mailstream_set_privacy(mailstream * s, int can_be_public)
 LIBETPAN_EXPORT
 int mailstream_wait_idle(mailstream * s, int max_idle_delay)
 {
+  /* Bytes already read off the socket do not wake the wait below. Dovecot writes the
+     updates pending when IDLE starts in the same segment as "+ idling", and mailimap_idle()
+     consumes only that line, so they would sit here until the next server write. */
+  if (s->read_buffer_len > 0)
+    return MAILSTREAM_IDLE_HASDATA;
   return mailstream_low_wait_idle(s->low, s->idle, max_idle_delay);
 }
 

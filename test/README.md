@@ -190,8 +190,8 @@ A flaw in the fake would become a "must support" condition on the engine, so the
    `conformance/probes.py` sends every exchange mailsync performs (session setup, LIST /
    STATUS, SELECT / EXAMINE, header and body FETCH shapes, CHANGEDSINCE with and without
    VANISHED, STORE incl. `.SILENT`, COPY / MOVE / APPEND, EXPUNGE, CREATE / RENAME / DELETE,
-   and what an idling session is told) to both servers from identically populated state and
-   diffs the normalized responses. 56 comparisons currently match exactly; a difference is a
+   what an idling session is told, and which updates arrive with `+ idling`) to both servers from identically populated state and
+   diffs the normalized responses. 71 comparisons currently match exactly; a difference is a
    failing test unless it is listed in `ALLOWED_DIFFERENCES` with a reason. Run it after any
    change to `fakeimap/`.
 2. **Every deviation from that baseline is a named quirk on a `Personality`** in
@@ -349,6 +349,7 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | search-index-body-fetched-again | a body fetched again (need-bodies, moved into INBOX) is indexed once | fake ×2, dovecot |
 | body-fetch-connection-dropped | a connection lost mid-batch releases the body fetches not yet attempted | fake |
 | body-fetch-interrupted-by-quit | a quit (SIGTERM) mid-batch: the next launch releases the body fetches not yet attempted | fake ×2 |
+| idle-update-pending-at-start | an expunge pending when the foreground sends IDLE arrives with `+ idling` and is acted on at once | fake ×2 |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up

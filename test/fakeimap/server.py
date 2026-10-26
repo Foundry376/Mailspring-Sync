@@ -143,6 +143,7 @@ class Session(socketserver.StreamRequestHandler):
         self.sent_vanished = False           # a VANISHED went out during the current command
         self.cv = threading.Condition()
         self.closed = False
+        self.corked = None                   # bytes held back to go out in one write; see cmd_idle
         self.store.add_listener(self._on_store_event)
         srv.sessions.append(self)
         srv.log(self.sid, "*", "connected")
@@ -156,6 +157,9 @@ class Session(socketserver.StreamRequestHandler):
     # -- io ---------------------------------------------------------------------------------
 
     def send_raw(self, data: bytes):
+        if self.corked is not None:
+            self.corked += data
+            return
         try:
             self.wfile.write(data)
             self.wfile.flush()
@@ -696,7 +700,13 @@ class Session(socketserver.StreamRequestHandler):
     def cmd_idle(self, tag, args):
         if not self.require_auth(tag):
             return
+        # Dovecot writes the updates already pending when IDLE starts in the same segment as
+        # the continuation (conformance probe_idle_pending).
+        self.corked = b""
         self.send(b"+ idling")
+        self.flush_events()
+        data, self.corked = self.corked, None
+        self.send_raw(data)
         self.idling = self.has_idled = True
         self.srv.fire("idle_start", self, None, None)
         try:
