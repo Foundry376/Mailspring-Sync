@@ -55,6 +55,7 @@
 #else
 #	include <netdb.h>
 #	include <netinet/in.h>
+#	include <netinet/tcp.h>
 #	include <sys/socket.h>
 #	ifdef HAVE_SYS_POLL_H
 #		include <sys/poll.h>
@@ -62,6 +63,33 @@
 #	include <unistd.h>
 #	include <arpa/inet.h>
 #endif
+
+/* Kernel keepalive probes turn a half-open connection (peer gone without RST/FIN after a
+   sleep/wake or network change) into a read/write error within ~75s instead of the full
+   stream timeout. Best-effort: a failing setsockopt does not abort the connection.
+   Upstream dinhvh/libetpan#465 (acfe80a). */
+#ifdef WIN32
+static void setup_tcp_keepalive(SOCKET s)
+#else
+static void setup_tcp_keepalive(int s)
+#endif
+{
+#ifdef SO_KEEPALIVE
+  int on = 1;
+  setsockopt(s, SOL_SOCKET, SO_KEEPALIVE, (const void *) &on, sizeof(on));
+#ifdef TCP_KEEPALIVE
+  { int v = 15; setsockopt(s, IPPROTO_TCP, TCP_KEEPALIVE, (const void *) &v, sizeof(v)); }
+#elif defined(TCP_KEEPIDLE)
+  { int v = 15; setsockopt(s, IPPROTO_TCP, TCP_KEEPIDLE, (const void *) &v, sizeof(v)); }
+#endif
+#ifdef TCP_KEEPINTVL
+  { int v = 15; setsockopt(s, IPPROTO_TCP, TCP_KEEPINTVL, (const void *) &v, sizeof(v)); }
+#endif
+#ifdef TCP_KEEPCNT
+  { int v = 4; setsockopt(s, IPPROTO_TCP, TCP_KEEPCNT, (const void *) &v, sizeof(v)); }
+#endif
+#endif
+}
 
 uint16_t mail_get_service_port(const char * name, char * protocol)
 {
@@ -245,6 +273,7 @@ int mail_tcp_connect_with_local_address_timeout(const char * server, uint16_t po
 #endif
     goto err;
   }
+  setup_tcp_keepalive(s);
 
   if ((local_address != NULL) || (local_port != 0)) {
     struct sockaddr_in la;
@@ -311,6 +340,8 @@ int mail_tcp_connect_with_local_address_timeout(const char * server, uint16_t po
 
     if (s == -1)
       continue;
+
+    setup_tcp_keepalive(s);
     
     // Christopher Lyon Anderson - prevent SigPipe
 #ifdef SO_NOSIGPIPE
