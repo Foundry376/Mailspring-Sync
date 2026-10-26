@@ -2588,7 +2588,8 @@ String * String::htmlEncodedString()
     const uint32_t kInStrSz = (const uint32_t) strlen(inStr);
     int nInStrConsumed = 0;
     
-    static char buf[kBufSz];
+    // Not static: the foreground and background sync workers render message bodies concurrently.
+    char buf[kBufSz];
     
     int outVal = -1;
     int nBufConsumed;
