@@ -119,6 +119,14 @@ static const map<string, string> SET_POSITIONS = {
     {"first", "1"}, {"second", "2"}, {"third", "3"}, {"fourth", "4"}, {"last", "-1"},
 };
 
+// Exchange moves a day past the month's end to its last day (EWS AbsoluteMonthlyRecurrence); -1 says
+// that for the 31st and February 29. ical.js mis-expands BYSETPOS, so the 29th and 30th still skip February.
+static string byMonthDay(int day, int month) {
+    static const int LONGEST[] = {31, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int longest = month >= 1 && month <= 12 ? LONGEST[month] : LONGEST[0];
+    return ";BYMONTHDAY=" + (day >= longest ? string("-1") : to_string(day));
+}
+
 // UNTIL this long after the last occurrence's local start still precedes the next occurrence,
 // and covers a daylight-saving change between the series' start and its end.
 static const time_t UNTIL_MARGIN = 2 * 60 * 60;
@@ -144,7 +152,7 @@ static string rruleLine(const json & recurrence, const json & start, bool allDay
         rule += ";BYMONTH=" + to_string(number(pattern, "month"));
     }
     if (type == "absoluteMonthly" || type == "absoluteYearly") {
-        rule += ";BYMONTHDAY=" + to_string(number(pattern, "dayOfMonth"));
+        rule += byMonthDay(number(pattern, "dayOfMonth"), yearly ? number(pattern, "month") : 0);
     }
 
     if (type == "weekly" || relative) {

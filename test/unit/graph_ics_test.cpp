@@ -206,6 +206,11 @@ int main() {
         expectEqual(rruleOf(series(pattern({{"type", "absoluteYearly"}, {"interval", 1}, {"month", 3},
                                             {"dayOfMonth", 14}}))),
                     "RRULE:FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=14", "yearly on March 14");
+        expectEqual(rruleOf(series(pattern({{"type", "absoluteMonthly"}, {"interval", 1}, {"dayOfMonth", 31}}))),
+                    "RRULE:FREQ=MONTHLY;BYMONTHDAY=-1", "the 31st, or the last day of a shorter month");
+        expectEqual(rruleOf(series(pattern({{"type", "absoluteYearly"}, {"interval", 1}, {"month", 2},
+                                            {"dayOfMonth", 29}}))),
+                    "RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1", "February 29, or the 28th");
         expectEqual(rruleOf(series(pattern({{"type", "relativeYearly"}, {"interval", 1}, {"month", 11},
                                             {"daysOfWeek", {"tuesday"}}, {"index", "second"}}))),
                     "RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=2TU", "second Tuesday of November");
