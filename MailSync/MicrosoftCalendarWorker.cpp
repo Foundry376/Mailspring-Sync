@@ -206,8 +206,6 @@ map<string, json> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entr
             } else if (status == 429 || status == 503) {
                 throttled.push_back(entry);
                 wait = (std::max)(wait, (long)ParseRetryAfter(JSONString(JSONObject(response, "headers"), "Retry-After")));
-            } else if (status == 401 || status == 403) {
-                throw SyncException("Invalid Response Code: " + to_string(status), url + " RETURNED for " + graphId, false);
             } else {
                 logger->warn("-X Graph event {} could not be read: HTTP {}", graphId, status);
             }

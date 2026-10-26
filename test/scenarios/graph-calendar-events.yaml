@@ -3,7 +3,7 @@ description: >
   A Microsoft calendar's events become Event rows holding the iCalendar the client reads: each
   event is read in its own zone, a series with its edited occurrence (a row of its own) and its
   cancelled date (an EXDATE). An event outside the sync window gets no row, one in a custom zone
-  Graph cannot convert to is read in UTC, and one Graph fails to return is skipped without
+  Graph cannot convert to is read in UTC, and one Graph refuses to return is skipped without
   stopping the rest.
 source: "https://learn.microsoft.com/en-us/graph/api/calendar-list-events and event-get (Prefer: outlook.timezone, $expand=exceptionOccurrences)"
 env:
@@ -15,7 +15,7 @@ servers:
     graph_consented: false
     graph_events_page_size: 2
     graph_failures:
-      - {route: "^events/AAMkEvBroken=$", method: GET, status: 500, code: ErrorInternalServerError}
+      - {route: "^events/AAMkEvBroken=$", method: GET, status: 403, code: ErrorAccessDenied}
     graph_calendars:
       - {id: "AAMkADefault=", name: Calendar, canEdit: true, owner: {name: Harness Test, address: test@example.test}}
     graph_events:
