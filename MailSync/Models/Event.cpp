@@ -48,6 +48,11 @@ static const int CALENDAR_SYNC_FUTURE_MONTHS = 18;
 
 CalendarSyncRange getCalendarSyncRange() {
     time_t now = time(nullptr);
+    // The test harness pins "now" so its fixed fixture dates stay inside the window.
+    string pinnedNow = MailUtils::getEnvUTF8("CALENDAR_SYNC_NOW");
+    if (pinnedNow != "") {
+        now = (time_t)stoll(pinnedNow);
+    }
     time_t start = now - (CALENDAR_SYNC_PAST_MONTHS * 30 * 24 * 60 * 60);
     time_t end = now + (CALENDAR_SYNC_FUTURE_MONTHS * 30 * 24 * 60 * 60);
     return {

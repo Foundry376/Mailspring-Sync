@@ -96,7 +96,7 @@ Steps:
 | `client.undo_task: {of: label}` | queue the undo of a completed task from its stored data, as `UndoRedoStore` does: for a `ChangeFolderTask` the engine-written `undoPlacements` become `restorePlacements` and the original destination its `sourceFolderIds` |
 | `client.need_bodies`, `client.wake`, `client.sync_calendar` | the other stdin commands (`sync_calendar` runs a calendar pass now, as the calendar's refresh does) |
 | `server.smtp_hold` / `server.smtp_release` | queue self-addressed SMTP deliveries, then deliver them, so the INBOX copy of a sent message arrives after the Sent copy; `smtp_release` takes `at:` like any server step (`rules-ready-inbox-copy-first`) |
-| `server.graph_calendars: {calendars: [...]}`, `server.graph_failures: {failures: [...]}` | replace the calendars the fake Graph server lists, or its injected errors (`graph-calendars-*`) |
+| `server.graph_calendars: {calendars: [...]}`, `server.graph_events: {calendar, events: [...]}`, `server.graph_failures: {failures: [...]}` | replace the calendars the fake Graph server lists, one calendar's events, or its injected errors (`graph-calendars-*`) |
 | `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
 | `db.sql: [statements]` | write the stopped engine's database (only under `restart: {before: [...]}`), to reproduce a stored state whose producing path is unknown; every derived layer must be written consistently |
 | `restart: {binary: path, before: [steps]}` | stop and relaunch on the same database, optionally with another build; `before:` runs steps while the engine is stopped (server state it did not watch happen) |
@@ -113,7 +113,8 @@ upgrades the schema.
 
 A top-level `env: {NAME: value}` is added to the engine's environment on every launch, for
 the knobs the engine reads from it: `ORPHAN_SWEEP_MAX_WAIT` (seconds; default one day) is how
-long the orphan sweep waits for a folder that has not been fully scanned.
+long the orphan sweep waits for a folder that has not been fully scanned, and `CALENDAR_SYNC_NOW`
+(seconds since the epoch) pins the calendar sync window's "now", so fixture events keep fixed dates.
 
 Expectations: `db_matches_server` (placements: every (folder, UID) on the server is a
 message locally with the same Message-ID and tracked flags, and nothing local is missing on
@@ -128,7 +129,8 @@ it on two deltas, across restarts, and each such delta carries the body; `folder
 mailboxes that delta must list, `fetched` whether it is the delta that fetched the body),
 `folder_roles: {path: role}`, `contacts: {mail: {email: name}, carddav: {id: {email, name}}}`
 (Contact rows and the ContactSearch content autocomplete matches), `calendars: {name: {path,
-color, read_only, owner}}` (Calendar rows by name, and no others), `connection_error: {reported: true, cleared: true}`
+color, read_only, owner}}` (Calendar rows by name, and no others), `events: {"icsuid|rid": {href,
+etag, ics_has: [lines]}}` (Event rows by UID and RECURRENCE-ID, and no others), `connection_error: {reported: true, cleared: true}`
 (the ProcessState stream behind the client's offline state), `migrate_output: regex` (the
 last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], log_absent:
 [regex]}` (runs `--mode test`, the client's account-add check, and compares its JSON),
@@ -429,7 +431,8 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   /send refuses a From outside them with ErrorSendAsDenied; `graph_failures:
   [{route, method, status, code, message, times, retry_after}]` injects errors (`graph-send-*`).
   `/me/calendars` lists `graph_calendars: [Graph calendar resources]`, `graph_calendars_page_size`
-  to a page; the calendar scopes take their own token, refused only with
+  to a page, and each calendar's events come from `graph_events: {calendar id: [events in their own
+  zone]}` (`graph_events_page_size` to a page), listed in UTC and read back in the zone asked for; the calendar scopes take their own token, refused only with
   `graph_calendars_consented: false`, and `graph_shared_mailbox_owner: address` makes the
   account a shared mailbox signed in as that address (`graph-calendars-*`). The
   engine reaches it through `MS_GRAPH_URL` and `MS_OAUTH_TOKEN_URL`, which the server adds to
