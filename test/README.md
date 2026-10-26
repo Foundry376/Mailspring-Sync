@@ -419,8 +419,8 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   calls the send path makes: a draft from base64 MIME, attachments (one POST, or an upload
   session in 320 KiB-multiple chunks without an Authorization header), `/send`, reading the
   draft by its immutable id, Sent Items, and DELETE; requests over 4 MB get 413. `{fake:
-  outlook, graph: true}` turns the account into an `office365` OAuth account whose IMAP (and
-  SMTP) accept the fake's mail tokens and, unless `graph_send: false`, sends through Graph.
+  outlook, graph: true}` turns the account into an `office365` OAuth account (`outlook`, as
+  Outlook.com, with `graph_provider: outlook`) whose IMAP (and SMTP) accept the fake's mail tokens and, unless `graph_send: false`, sends through Graph.
   Each sent message's copy is appended to `graph_sent_copy` (default `Sent Items`) after
   `graph_sent_copy_delay` seconds; `graph_consented: false` refuses Graph mail scopes with
   AADSTS65001, as for an account authorized before Mail.Send was requested, and

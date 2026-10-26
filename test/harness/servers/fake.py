@@ -39,7 +39,7 @@ class FakeServer(Server):
                  graph_calendars: Optional[list] = None, graph_calendars_consented: bool = True,
                  graph_calendars_page_size: int = 0, graph_shared_mailbox_owner: Optional[str] = None,
                  graph_events: Optional[dict] = None, graph_events_page_size: int = 0,
-                 graph_generated_events: int = 0, **kw):
+                 graph_generated_events: int = 0, graph_provider: str = "office365", **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
@@ -56,9 +56,11 @@ class FakeServer(Server):
         # `graph: true` makes the account a Microsoft OAuth account: IMAP and SMTP take the
         # fake's mail-scoped access tokens, and with `graph_send` (the default) mail goes out
         # through the fake Graph API, which files its Sent Items copy in `graph_sent_copy`.
-        # `graph_shared_mailbox_owner` makes it a shared mailbox signed in as that address.
+        # `graph_shared_mailbox_owner` makes it a shared mailbox signed in as that address, and
+        # `graph_provider: outlook` an Outlook.com account rather than Office 365.
         self.graph_send = graph and graph_send
         self.graph_shared_mailbox_owner = graph_shared_mailbox_owner
+        self.graph_provider = graph_provider
         self.graph = FakeGraphServer(graph_consented=graph_consented, consent_refusals=graph_consent_refusals,
                                      mailbox=email, aliases=graph_aliases or [], drop_graph_token=graph_drop_token,
                                      sent_copy=(self.store, graph_sent_copy) if graph_sent_copy else None,
@@ -97,7 +99,7 @@ class FakeServer(Server):
         if self.smtp:
             kw["smtp_host"], kw["smtp_port"] = "127.0.0.1", self.smtp.port
         if self.graph:
-            kw["provider"] = "office365"
+            kw["provider"] = self.graph_provider
             # Microsoft onboarding uses the address as both usernames; XOAUTH2 checks only the token.
             kw["username"] = self.email
             kw["extra_settings"] = {

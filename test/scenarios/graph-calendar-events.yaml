@@ -1,6 +1,6 @@
 name: graph-calendar-events
 description: >
-  A Microsoft calendar's events become Event rows holding the iCalendar the client reads: each
+  An Outlook.com calendar's events become Event rows holding the iCalendar the client reads: each
   event is read in its own zone, a series with its edited occurrence (a row of its own) and its
   cancelled date (an EXDATE). An event outside the sync window gets no row, while a series lasts
   until its recurrence ends: one that began before the window is kept, one that ended before it
@@ -12,6 +12,7 @@ env:
 servers:
   - fake: outlook
     graph: true
+    graph_provider: outlook
     graph_send: false
     graph_consented: false
     graph_events_page_size: 2
