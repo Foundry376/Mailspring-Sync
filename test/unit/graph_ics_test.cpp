@@ -55,11 +55,37 @@ static json event(json fields) {
 }
 
 static const string ME = "me@example.test";
+// 09:00 on 2026-10-22 in Pacific daylight time, as Graph lists the event in UTC.
+static const string START_UTC = "2026-10-22T16:00:00.0000000";
+
+// A series master starting Monday 2026-10-05 at 09:00 Pacific daylight time (16:00 UTC).
+static json series(json recurrence, json fields = json::object()) {
+    json master = event({
+        {"type", "seriesMaster"},
+        {"start", {{"dateTime", "2026-10-05T09:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+        {"end", {{"dateTime", "2026-10-05T09:30:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+        {"recurrence", recurrence},
+    });
+    master.update(fields);
+    return master;
+}
+
+static json pattern(json fields, json range = {{"type", "noEnd"}, {"startDate", "2026-10-05"}}) {
+    return {{"pattern", fields}, {"range", range}};
+}
+
+static const string SERIES_START_UTC = "2026-10-05T16:00:00.0000000";
+
+static string rruleOf(const json & master, const string & startUTC = SERIES_START_UTC) {
+    string ics = unfold(GraphICS::icsForEvent(master, ME, startUTC));
+    size_t at = ics.find("\r\nRRULE:");
+    return at == string::npos ? "" : ics.substr(at + 2, ics.find("\r\n", at + 2) - at - 2);
+}
 
 int main() {
     {
         // Fetched in its own zone, a timed event keeps Graph's Windows zone name as its TZID.
-        string ics = GraphICS::icsForEvent(event({}), ME);
+        string ics = GraphICS::icsForEvent(event({}), ME, START_UTC);
         expectLine(ics, "DTSTART;TZID=Pacific Standard Time:20261022T090000", "zoned DTSTART");
         expectLine(ics, "DTEND;TZID=Pacific Standard Time:20261022T093000", "zoned DTEND");
         expectLine(ics, "DTSTAMP:20261020T175034Z", "DTSTAMP from lastModifiedDateTime");
@@ -80,7 +106,7 @@ int main() {
         string ics = GraphICS::icsForEvent(event({
             {"start", {{"dateTime", "2026-10-22T16:00:00.0000000"}, {"timeZone", "UTC"}}},
             {"end", {{"dateTime", "2026-10-22T17:00:00.0000000"}, {"timeZone", "UTC"}}},
-        }), ME);
+        }), ME, START_UTC);
         expectLine(ics, "DTSTART:20261022T160000Z", "UTC DTSTART");
         ICalendar cal(ics);
         if (!cal.Events.empty()) {
@@ -95,7 +121,7 @@ int main() {
             {"isAllDay", true},
             {"start", {{"dateTime", "2026-10-22T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
             {"end", {{"dateTime", "2026-10-23T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
-        }), ME);
+        }), ME, START_UTC);
         expectLine(oneDay, "DTSTART;VALUE=DATE:20261022", "all-day DTSTART");
         expectLine(oneDay, "DTEND;VALUE=DATE:20261023", "all-day DTEND");
         ICalendar cal(oneDay);
@@ -107,7 +133,7 @@ int main() {
             {"isAllDay", true},
             {"start", {{"dateTime", "2026-10-22T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
             {"end", {{"dateTime", "2026-10-25T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
-        }), ME);
+        }), ME, START_UTC);
         expectLine(threeDays, "DTEND;VALUE=DATE:20261025", "multi-day DTEND");
     }
     {
@@ -128,7 +154,7 @@ int main() {
                 {{"type", "required"}, {"status", {{"response", "none"}}},
                  {"emailAddress", {{"name", "Me"}, {"address", "ME@example.test"}}}},
             })},
-        }), ME);
+        }), ME, START_UTC);
         expectLine(ics, "ORGANIZER;CN=Pat Lee:mailto:pat@example.com", "organizer");
         expectLine(ics, "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=\"Doe, Jane\":mailto:jane@example.com",
                    "accepted, name with a comma quoted");
@@ -145,7 +171,7 @@ int main() {
         }
     }
     {
-        string ics = GraphICS::icsForEvent(event({{"isCancelled", true}, {"showAs", "free"}}), ME);
+        string ics = GraphICS::icsForEvent(event({{"isCancelled", true}, {"showAs", "free"}}), ME, START_UTC);
         expectLine(ics, "STATUS:CANCELLED", "cancelled");
         expectLine(ics, "TRANSP:TRANSPARENT", "free is transparent");
         ICalendar cal(ics);
@@ -163,7 +189,7 @@ int main() {
             {"subject", "Budget, Q4; draft \\ v2"},
             {"location", {{"displayName", "Room 4, Building 2"}}},
             {"body", {{"contentType", "text"}, {"content", "Agenda:\r\n1. Numbers\r\n" + notes}}},
-        }), ME);
+        }), ME, START_UTC);
         expectLine(ics, "SUMMARY:Budget\\, Q4\\; draft \\\\ v2", "SUMMARY escaped");
         expectLine(ics, "DESCRIPTION:Agenda:\\n1. Numbers\\n" + notes, "DESCRIPTION escaped and unfolds whole");
 
@@ -182,6 +208,102 @@ int main() {
         if (!cal.Events.empty()) {
             expectEqual(cal.Events.front()->Location, "Room 4, Building 2", "parsed LOCATION unescaped");
         }
+    }
+    {
+        // Each Graph pattern as the RRULE Google would write for it.
+        expectEqual(rruleOf(series(pattern({{"type", "daily"}, {"interval", 3}}))),
+                    "RRULE:FREQ=DAILY;INTERVAL=3", "daily every 3 days");
+        expectEqual(rruleOf(series(pattern({{"type", "relativeMonthly"}, {"interval", 1},
+                                            {"daysOfWeek", {"friday"}}, {"index", "last"}},
+                                           {{"type", "numbered"}, {"numberOfOccurrences", 10}}))),
+                    "RRULE:FREQ=MONTHLY;BYDAY=-1FR;COUNT=10", "last Friday, ten times");
+        expectEqual(rruleOf(series(pattern({{"type", "relativeMonthly"}, {"interval", 1}, {"index", "first"},
+                                            {"daysOfWeek", {"monday", "tuesday", "wednesday", "thursday", "friday"}}}))),
+                    "RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1", "first weekday of the month");
+        expectEqual(rruleOf(series(pattern({{"type", "absoluteMonthly"}, {"interval", 3}, {"dayOfMonth", 15}}))),
+                    "RRULE:FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=15", "every third month on the 15th");
+        expectEqual(rruleOf(series(pattern({{"type", "absoluteYearly"}, {"interval", 1}, {"month", 3},
+                                            {"dayOfMonth", 14}}))),
+                    "RRULE:FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=14", "yearly on March 14");
+        expectEqual(rruleOf(series(pattern({{"type", "relativeYearly"}, {"interval", 1}, {"month", 11},
+                                            {"daysOfWeek", {"tuesday"}}, {"index", "second"}}))),
+                    "RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=2TU", "second Tuesday of November");
+    }
+    {
+        // The series starts in daylight time (UTC-7) and ends after it (UTC-8): the last
+        // occurrence, 09:00 on Wednesday 2026-12-16, is 17:00 UTC. UNTIL taken at the start's
+        // offset alone would be 16:00 UTC and drop it.
+        json master = series(pattern({{"type", "weekly"}, {"interval", 2}, {"daysOfWeek", {"monday", "wednesday"}},
+                                      {"firstDayOfWeek", "sunday"}},
+                                     {{"type", "endDate"}, {"startDate", "2026-10-05"}, {"endDate", "2026-12-16"},
+                                      {"recurrenceTimeZone", "Pacific Standard Time"}}));
+        expectEqual(rruleOf(master), "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;WKST=SU;UNTIL=20261216T180000Z",
+                    "biweekly until a date across daylight saving");
+        ICalendar cal(GraphICS::icsForEvent(master, ME, SERIES_START_UTC));
+        if (!cal.Events.empty()) {
+            int until = cal.Events.front()->RRule.Until.toUnix();
+            expect(until >= 1797440400, "UNTIL not before the last occurrence", to_string(until));
+            expect(!cal.Events.front()->RRule.IsEmpty(), "parsed RRULE");
+        }
+    }
+    {
+        // An all-day series ends on a date.
+        json master = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}},
+                                      {"firstDayOfWeek", "sunday"}},
+                                     {{"type", "endDate"}, {"startDate", "2026-10-05"}, {"endDate", "2026-12-28"}}),
+                             {{"isAllDay", true},
+                              {"start", {{"dateTime", "2026-10-05T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                              {"end", {{"dateTime", "2026-10-06T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}}});
+        expectEqual(rruleOf(master, "2026-10-05T07:00:00.0000000"),
+                    "RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU;UNTIL=20261228", "all-day UNTIL is a date");
+    }
+    {
+        // Edited occurrences become VEVENTs of the master's UID, keyed by their original start in
+        // UTC; cancelled ones become EXDATEs at the series' wall-clock start in its zone.
+        json master = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}},
+                                      {"firstDayOfWeek", "sunday"}}),
+                             {{"cancelledOccurrences", {"OID.AAMkMaster=.2026-11-02"}},
+                              {"exceptionOccurrences", json::array({event({
+                                  {"type", "exception"},
+                                  {"iCalUId", "040000008200E00074C5B7101A82E00807EA0A13000000000000000011"},
+                                  {"subject", "Planning (moved)"},
+                                  {"originalStart", "2026-10-19T16:00:00Z"},
+                                  {"start", {{"dateTime", "2026-10-19T10:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                                  {"end", {{"dateTime", "2026-10-19T10:30:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                              })})}});
+        string ics = GraphICS::icsForEvent(master, ME, SERIES_START_UTC);
+        expectLine(ics, "EXDATE;TZID=Pacific Standard Time:20261102T090000", "cancelled date");
+        expectLine(ics, "RECURRENCE-ID:20261019T160000Z", "override keyed by original start");
+        expectLine(ics, "DTSTART;TZID=Pacific Standard Time:20261019T100000", "override's own start");
+        expectLine(ics, "SUMMARY:Planning (moved)", "override's own subject");
+        ICalendar cal(ics);
+        expect(cal.Events.size() == 2, "master and override", to_string(cal.Events.size()));
+        if (cal.Events.size() == 2) {
+            expect(cal.Events.front()->RecurrenceId.empty(), "master has no RECURRENCE-ID");
+            expectEqual(cal.Events.back()->UID, cal.Events.front()->UID, "override shares the master's UID");
+            expectEqual(cal.Events.back()->RecurrenceId, "20261019T160000Z", "parsed RECURRENCE-ID");
+        }
+    }
+    {
+        // An all-day series that starts in standard time (UTC-8): an occurrence in daylight time
+        // starts at 07:00 UTC, which the series' offset alone puts at 23:00 the day before.
+        json master = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}},
+                                      {"firstDayOfWeek", "sunday"}}),
+                             {{"isAllDay", true},
+                              {"start", {{"dateTime", "2027-01-04T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                              {"end", {{"dateTime", "2027-01-05T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                              {"cancelledOccurrences", {"OID.AAMkMaster=.2027-04-12"}},
+                              {"exceptionOccurrences", json::array({event({
+                                  {"type", "exception"},
+                                  {"isAllDay", true},
+                                  {"subject", "Offsite"},
+                                  {"originalStart", "2027-04-05T07:00:00Z"},
+                                  {"start", {{"dateTime", "2027-04-05T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                                  {"end", {{"dateTime", "2027-04-06T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                              })})}});
+        string ics = GraphICS::icsForEvent(master, ME, "2027-01-04T08:00:00.0000000");
+        expectLine(ics, "RECURRENCE-ID;VALUE=DATE:20270405", "all-day override on its own date across daylight saving");
+        expectLine(ics, "EXDATE;VALUE=DATE:20270412", "all-day cancelled date");
     }
 
     if (failures) {

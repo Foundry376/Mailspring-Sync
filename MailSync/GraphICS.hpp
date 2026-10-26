@@ -21,9 +21,11 @@ using namespace std;
 // hold and the client reads. Graph has no iCalendar form of an event.
 class GraphICS {
 public:
-    // `event` as fetched in its own time zone (Prefer: outlook.timezone) with a text body.
-    // The attendee at `mailboxAddress` answers with the event's responseStatus.
-    static string icsForEvent(const json & event, const string & mailboxAddress);
+    // `event` as fetched in its own time zone (Prefer: outlook.timezone) with a text body, and
+    // for a series master with its cancelledOccurrences and expanded exceptionOccurrences.
+    // `startUTC` is the same event's start as Graph lists it in UTC, which gives a series' UTC
+    // offset. The attendee at `mailboxAddress` answers with the event's responseStatus.
+    static string icsForEvent(const json & event, const string & mailboxAddress, const string & startUTC);
 };
 
 #endif /* GraphICS_hpp */
