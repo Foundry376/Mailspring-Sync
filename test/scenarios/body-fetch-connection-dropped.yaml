@@ -1,9 +1,9 @@
 name: body-fetch-connection-dropped
 description: >
-  The connection drops while the engine fetches a batch of message bodies. The bodies it
-  reserved for that batch and had not requested yet must be fetched by a later pass; only a
-  body in flight keeps its empty MessageBody row, like any other failed fetch. A body left
-  reserved is never fetched or indexed for search unless the user opens the message.
+  The connection drops while the engine fetches a batch of message bodies. Every body it
+  reserved for that batch, including the one in flight, must be fetched by a later pass: the
+  drop says nothing about the message. A body left reserved is never fetched or indexed for
+  search unless the user opens the message.
 source: SyncWorker::syncReservedMessageBodies; batches of never-fetched bodies after ErrorConnection in a dev database
 servers:
   - {fake: dovecot}
@@ -15,7 +15,7 @@ steps:
   # The worker that failed retries after its 120 s sleep.
   - wait: {quiescent: true, timeout: 200}
 expect:
-  unfetched_bodies: {max: 2}    # one in flight per worker
+  unfetched_bodies: {max: 0}
   log_present: ["Released \\d+ body fetches"]
   db_matches_server: {}
   counts: {INBOX: 40}

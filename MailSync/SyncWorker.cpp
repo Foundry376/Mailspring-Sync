@@ -1607,8 +1607,9 @@ bool SyncWorker::syncMessageBodies(Folder & folder, IMAPFolderStatus & remoteSta
  inserting an empty one for each. The re-check and insert share a transaction, so the empty
  row reserves the message for this worker and the other cannot fetch it at the same time.
  syncReservedMessageBodies stamps the row's fetchedAt just before the fetch, and an attempted
- row is kept if the fetch fails, so each message is fetched once: otherwise a persistent
- ErrorFetch or crash for a single message can cause the account to stay "syncing" forever.
+ row is kept if the fetch fails for any reason but a dropped connection, so each message is
+ fetched once: otherwise a persistent ErrorFetch or crash for a single message can cause the
+ account to stay "syncing" forever.
  */
 vector<shared_ptr<Message>> SyncWorker::reserveMissingBodies(const vector<string> & ids) {
     vector<shared_ptr<Message>> results{};
@@ -1654,6 +1655,20 @@ vector<shared_ptr<Message>> SyncWorker::reserveMissingBodies(const vector<string
  fetches them, while the one that failed keeps its reservation like any other failed fetch.
  */
 void SyncWorker::syncReservedMessageBodies(vector<shared_ptr<Message>> & reserved, Folder & folder) {
+    auto releaseFrom = [&](size_t first) {
+        size_t remaining = reserved.size() - first;
+        if (remaining == 0) {
+            return;
+        }
+        SQLite::Statement release(store->db(), "DELETE FROM MessageBody WHERE value IS NULL AND id IN (" + MailUtils::qmarks(remaining) + ")");
+        int jj = 1;
+        for (size_t kk = first; kk < reserved.size(); kk++) {
+            release.bind(jj++, reserved[kk]->id());
+        }
+        release.exec();
+        logger->info("- Released {} body fetches after an error.", remaining);
+    };
+
     SQLite::Statement markAttempted(store->db(), "UPDATE MessageBody SET fetchedAt = datetime('now') WHERE id = ? AND value IS NULL");
     for (size_t ii = 0; ii < reserved.size(); ii++) {
         markAttempted.bind(1, reserved[ii]->id());
@@ -1661,17 +1676,12 @@ void SyncWorker::syncReservedMessageBodies(vector<shared_ptr<Message>> & reserve
         markAttempted.reset();
         try {
             syncMessageBody(reserved[ii].get(), &folder);
+        } catch (SyncException & ex) {
+            // A dropped connection says nothing about the message in flight, so it is released too.
+            releaseFrom(ex.isOffline() ? ii : ii + 1);
+            throw;
         } catch (...) {
-            size_t remaining = reserved.size() - ii - 1;
-            if (remaining > 0) {
-                SQLite::Statement release(store->db(), "DELETE FROM MessageBody WHERE value IS NULL AND id IN (" + MailUtils::qmarks(remaining) + ")");
-                int jj = 1;
-                for (size_t kk = ii + 1; kk < reserved.size(); kk++) {
-                    release.bind(jj++, reserved[kk]->id());
-                }
-                release.exec();
-                logger->info("- Released {} body fetches after an error.", remaining);
-            }
+            releaseFrom(ii + 1);
             throw;
         }
     }
