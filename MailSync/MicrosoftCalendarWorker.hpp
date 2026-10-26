@@ -39,7 +39,7 @@ class MicrosoftCalendarWorker {
     void paginateGraphCollection(const string & url, std::function<void(json &)> yieldPage);
 
     void upsertCalendar(shared_ptr<Calendar> local, const string & id, const string & path, const json & remote);
-    void syncEvents(const string & calendarId, const string & path);
+    void syncEvents(const json & calendar);
     vector<pair<json, json>> fetchEvents(const vector<json> & entries);
     void ingestEvent(const string & calendarId, const json & entry, const string & ics,
                      const vector<shared_ptr<Event>> & previousRows);

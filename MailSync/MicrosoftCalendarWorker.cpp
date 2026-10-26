@@ -63,7 +63,7 @@ MicrosoftCalendarWorker::MicrosoftCalendarWorker(shared_ptr<Account> account) :
 void MicrosoftCalendarWorker::run() {
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
     set<string> listedIds {};
-    vector<pair<string, string>> listed {}; // id, path
+    vector<json> listed {};
 
     paginateGraphCollection(MicrosoftGraphURL() + "/me/calendars?$select=" + CALENDAR_FIELDS, [&](json & page) {
         for (const auto & remote : page["value"]) {
@@ -75,7 +75,7 @@ void MicrosoftCalendarWorker::run() {
             }
             auto it = local.find(id);
             upsertCalendar(it != local.end() ? it->second : nullptr, id, path, remote);
-            listed.push_back({id, path});
+            listed.push_back(remote);
         }
     });
 
@@ -87,12 +87,14 @@ void MicrosoftCalendarWorker::run() {
         }
     }
     for (auto & calendar : listed) {
-        syncEvents(calendar.first, calendar.second);
+        syncEvents(calendar);
     }
     logger->info("Microsoft calendar sync complete: {} calendars", listedIds.size());
 }
 
-void MicrosoftCalendarWorker::syncEvents(const string & calendarId, const string & path) {
+void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
+    string path = JSONString(calendar, "id");
+    string calendarId = MailUtils::idForCalendar(account->id(), path);
     auto range = getCalendarSyncRange();
     map<string, json> remote {}; // Graph id -> listed event
     string url = MicrosoftGraphURL() + "/me/calendars/" + URLEscape(path) + "/events?$select=" + EVENT_INDEX_FIELDS + "&$top=200";
@@ -142,8 +144,8 @@ void MicrosoftCalendarWorker::syncEvents(const string & calendarId, const string
             fetched++;
         }
     }
-    logger->info("- {} events in range, {} of {} changed fetched, {} rows removed", remote.size(), fetched,
-                 changedCount, removedCount);
+    logger->info("- {}: {} events in range, {} of {} changed fetched, {} rows removed", JSONString(calendar, "name"),
+                 remote.size(), fetched, changedCount, removedCount);
 }
 
 // A $batch request reading one listed event. A batched request carries only its own headers, and
