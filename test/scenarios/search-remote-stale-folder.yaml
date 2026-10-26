@@ -1,0 +1,26 @@
+name: search-remote-stale-folder
+description: >
+  A folder deleted on the server since the last folder sync fails to SELECT. It is reported in
+  `errors` and the other folders are still searched, without using the search's one reconnect.
+source: "MailSync/SearchWorker.cpp"
+servers:
+  - {fake: dovecot}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: Inbox pineapple, message_id: "<inbox@search.test>"}}
+  - server.append: {mailbox: Archive, messages: {subject: Archived pineapple, message_id: "<archive@search.test>"}}
+  - server.create_mailbox: {name: Aardvark}
+  - server.create_mailbox: {name: Zebra}
+  - server.append: {mailbox: Aardvark, messages: {subject: Aardvark pineapple, message_id: "<aardvark@search.test>"}}
+  - server.append: {mailbox: Zebra, messages: {subject: Zebra pineapple, message_id: "<zebra@search.test>"}}
+steps:
+  - wait: quiescent
+  - server.delete_mailbox: {name: Aardvark}
+  - server.delete_mailbox: {name: Zebra}
+  - client.search: {criteria: [subject, pineapple]}
+    as: stale
+expect:
+  search:
+    stale: {message_ids: ["<inbox@search.test>", "<archive@search.test>"], folder_errors: 2}
+  log_absent:
+    - 'retrying on a fresh connection'
+  running: true

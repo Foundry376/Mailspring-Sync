@@ -3,8 +3,8 @@ description: >
   How `search-remote` behaves when things go wrong. A failed SEARCH is retried once on a
   fresh connection, whatever the error: a BAD in mid-command can leave the stream out of
   step with the server (Yahoo, live 2026-10-25), and a dropped idle connection looks the
-  same. A folder the server refuses twice is reported in `errors` and the other folders are
-  still searched. A rejected login is not retried for SEARCH_LOGIN_BACKOFF seconds (30 by
+  same. That is the search's only reconnect: a folder that fails after it is reported in
+  `errors` and ends the search, since the query is the same in every folder. A rejected login is not retried for SEARCH_LOGIN_BACKOFF seconds (30 by
   default): Yahoo rate-limits logins. The connection is closed after the rejection, since a
   server closes an unauthenticated connection long before the retry. A newer request supersedes one
   still in flight: the older search stops at the next folder and never reports `done`. A
@@ -128,13 +128,13 @@ steps:
 expect:
   search:
     refused: {message_ids: ["<inbox@search.test>", "<archive@search.test>"], folder_errors: 0}
-    refused_twice: {message_ids: ["<archive@search.test>"], folder_errors: 1}
+    refused_twice: {message_ids: [], folder_errors: 1}
     desynced: {message_ids: ["<inbox@search.test>", "<archive@search.test>"], folder_errors: 0}
     login_dropped: {error: ErrorConnection}
     login_after_drop: {message_ids: ["<inbox@search.test>"]}
     login_rejected: {error: ErrorAuthentication}
     login_backoff: {error: ErrorAuthentication}
-    desynced_twice: {message_ids: ["<archive@search.test>"], folder_errors: 1}
+    desynced_twice: {message_ids: [], folder_errors: 1}
     dropped: {message_ids: ["<inbox@search.test>", "<archive@search.test>"], folder_errors: 0}
     newer: {message_ids: ["<archive@search.test>"]}
     after_idle: {message_ids: ["<inbox@search.test>"]}

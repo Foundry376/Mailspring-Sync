@@ -4,8 +4,8 @@ description: >
   outlook.office365.com transcript in php-imap#128, 2016-05-23; no UTF8=ACCEPT in 2026
   captures either). CHARSET is only sent when a term is non-ASCII (libetpan
   mailimap_search_key_need_to_send_charset; Thunderbird and Evolution do the same), so an
-  ASCII search runs, and a non-ASCII one fails in every folder and the client keeps its
-  local results.
+  ASCII search runs, and a non-ASCII one fails and the client keeps its local results. The
+  refusal costs one reconnect, not one per folder.
 source: "Vendor/libetpan mailimap_sender.c; RFC 3501 6.4.4 (BADCHARSET)"
 servers:
   - {fake: outlook}
@@ -20,11 +20,13 @@ steps:
     as: ascii
 expect:
   search:
-    body_utf8: {message_ids: [], folder_errors: 4}
+    body_utf8: {message_ids: [], folder_errors: 1}
     ascii: {message_ids: ["<plain@search.test>"], folder_errors: 0}
   log_present:
     - '(?i)UID SEARCH CHARSET UTF-8 TEXT'
     - 'BADCHARSET'
   log_absent:
     - '(?i)UID SEARCH CHARSET UTF-8 SUBJECT'
+  log_count:
+    'retrying on a fresh connection': 1
   running: true
