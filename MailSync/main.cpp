@@ -222,6 +222,7 @@ void runForegroundSyncWorker() {
             spdlog::get("logger")->info("--sleeping");
             SharedDeltaStream()->emitWorkerState("foreground", {{"state", "sleeping"}, {"error", true}});
             MailUtils::sleepWorkerUntilWakeOrSec(120, wake);
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "busy"}});
         } catch (...) {
             exceptions::logCurrentExceptionWithStackTrace();
             abort();

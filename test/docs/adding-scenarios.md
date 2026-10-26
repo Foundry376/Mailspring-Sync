@@ -209,7 +209,9 @@ Engine interface
   `describe()` in the report says which condition was unmet (`waiting because: ...`) and
   shows the last event from each worker; usually it is a folder left busy or the background
   worker looping. A wait returns as soon as the engine is idle, so it does not cover a server
-  change the engine has not been told about yet (see Timing).
+  change the engine has not been told about yet (see Timing). Nor does it cover work the
+  engine runs on its own threads: `search-remote` and `sync-calendar` count as handled once
+  dispatched, so wait on their result (`search:` does by default) or a log line.
 - The background worker sleeps 120 s between passes, and after a retryable error; `sync:
   pass` sends `wake-workers`, and every quiescence wait re-sends it to a worker that went to
   sleep after an error, so a scenario never waits out the retry interval.
