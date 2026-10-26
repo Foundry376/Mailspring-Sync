@@ -22,7 +22,8 @@ class FakeServer(Server):
                  graph_aliases: Optional[list] = None, graph_drop_token: bool = False, graph_sent_copy: Optional[str] = "Sent Items",
                  graph_sent_copy_delay: float = 0, graph_failures: Optional[list] = None,
                  graph_calendars: Optional[list] = None, graph_calendars_consented: bool = True,
-                 graph_calendars_page_size: int = 0, graph_shared_mailbox_owner: Optional[str] = None, **kw):
+                 graph_calendars_page_size: int = 0, graph_shared_mailbox_owner: Optional[str] = None,
+                 graph_events: Optional[dict] = None, graph_events_page_size: int = 0, **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
@@ -48,7 +49,8 @@ class FakeServer(Server):
                                      sent_copy_delay=graph_sent_copy_delay, failures=graph_failures,
                                      deliver_to=(self.store, "INBOX", email), calendars=graph_calendars,
                                      calendars_consented=graph_calendars_consented,
-                                     calendars_page_size=graph_calendars_page_size) if graph else None
+                                     calendars_page_size=graph_calendars_page_size, events=graph_events,
+                                     events_page_size=graph_events_page_size) if graph else None
         if self.graph:
             self.imap.oauth_tokens = self.graph.mail_tokens
             if self.smtp:

@@ -553,6 +553,8 @@ class ScenarioRun:
             self._graph().set_calendars(arg["calendars"])
         elif op == "graph_failures":
             self._graph().set_failures(arg["failures"])
+        elif op == "graph_events":
+            self._graph().set_events(arg["calendar"], arg["events"])
         else:
             raise ScenarioFailure(f"unknown server op {op!r}")
 
@@ -1050,6 +1052,30 @@ class ScenarioRun:
             for key, value in ((want or {}).items() if row else []):
                 if row.get(key) != value:
                     out.append(f"calendar {name!r}: {key} {row.get(key)!r}, expected {value!r}")
+        return out
+
+    def expect_events(self, arg: dict) -> list:
+        """Event rows, and no others: `{"<icsuid>|<recurrenceId>": {key: value, ics_has: [lines]}}`
+        checks keys of the row's JSON (`href`, `etag`, `status`) and lines its ICS must hold."""
+        with self.ms.db() as c:
+            rows = [json.loads(r[0]) for r in c.execute("SELECT data FROM Event").fetchall()]
+        keys = sorted(f"{row.get('icsuid')}|{row.get('rid', '')}" for row in rows)
+        out = []
+        if keys != sorted(arg):
+            out.append(f"events {keys}, expected {sorted(arg)}")
+        by_key = {f"{row.get('icsuid')}|{row.get('rid', '')}": row for row in rows}
+        for key, want in arg.items():
+            row = by_key.get(key)
+            if row is None:
+                continue
+            want = dict(want or {})
+            lines = (row.get("ics") or "").split("\r\n")
+            for line in want.pop("ics_has", []):
+                if line not in lines:
+                    out.append(f"event {key}: no ICS line {line!r} in {lines}")
+            for k, v in want.items():
+                if row.get(k) != v:
+                    out.append(f"event {key}: {k} {row.get(k)!r}, expected {v!r}")
         return out
 
     def expect_contacts(self, arg: dict) -> list:
