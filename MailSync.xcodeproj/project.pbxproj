@@ -21,6 +21,7 @@
 		4348E5DC1F560FAC004CFB15 /* MailStoreTransaction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */; };
 		43A1C0B02E9E10010000A001 /* Placement.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A1C0B12E9E10010000A002 /* Placement.cpp */; };
 		43B7C1A02F9C00010000C001 /* MicrosoftCalendarWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B7C1A12F9C00010000C002 /* MicrosoftCalendarWorker.cpp */; };
+		43B7C1A42F9C00010000C005 /* GraphICS.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B7C1A52F9C00010000C006 /* GraphICS.cpp */; };
 		43617D841F3D4DDA00DB566D /* libMailCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43617D731F3D4D4300DB566D /* libMailCore.a */; };
 		436489341EF2E905007816EC /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 436489331EF2E905007816EC /* main.cpp */; };
 		436489581EF2E94B007816EC /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 436489571EF2E94B007816EC /* Security.framework */; };
@@ -187,6 +188,9 @@
 		43A1C0B22E9E10010000A003 /* Placement.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Placement.hpp; sourceTree = "<group>"; };
 		43B7C1A12F9C00010000C002 /* MicrosoftCalendarWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MicrosoftCalendarWorker.cpp; sourceTree = "<group>"; };
 		43B7C1A22F9C00010000C003 /* MicrosoftCalendarWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MicrosoftCalendarWorker.hpp; sourceTree = "<group>"; };
+		43B7C1A32F9C00010000C004 /* JSONUtils.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = JSONUtils.hpp; sourceTree = "<group>"; };
+		43B7C1A52F9C00010000C006 /* GraphICS.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GraphICS.cpp; sourceTree = "<group>"; };
+		43B7C1A62F9C00010000C007 /* GraphICS.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = GraphICS.hpp; sourceTree = "<group>"; };
 		4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = SPDLogExtensions.hpp; sourceTree = "<group>"; };
 		4349AAD62E77874500512188 /* CODE_SIGN_STYLE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = CODE_SIGN_STYLE.txt; sourceTree = "<group>"; };
 		43617D671F3D4D4200DB566D /* mailcore2.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = mailcore2.xcodeproj; path = "Vendor/mailcore2/build-mac/mailcore2.xcodeproj"; sourceTree = "<group>"; };
@@ -395,6 +399,9 @@
 				4385C98C233AA6FE00E5A357 /* GoogleContactsWorker.cpp */,
 				43B7C1A22F9C00010000C003 /* MicrosoftCalendarWorker.hpp */,
 				43B7C1A12F9C00010000C002 /* MicrosoftCalendarWorker.cpp */,
+				43B7C1A32F9C00010000C004 /* JSONUtils.hpp */,
+				43B7C1A62F9C00010000C007 /* GraphICS.hpp */,
+				43B7C1A52F9C00010000C006 /* GraphICS.cpp */,
 				4348E5DE1F575F40004CFB15 /* SPDLogExtensions.hpp */,
 				432573B61F2F7F9700E7CA4B /* MetadataWorker.hpp */,
 				432573B51F2F7F9700E7CA4B /* MetadataWorker.cpp */,
@@ -738,6 +745,7 @@
 				43A687EB220EB40F000D75CC /* date.cpp in Sources */,
 				4385C98D233AA6FE00E5A357 /* GoogleContactsWorker.cpp in Sources */,
 				43B7C1A02F9C00010000C001 /* MicrosoftCalendarWorker.cpp in Sources */,
+				43B7C1A42F9C00010000C005 /* GraphICS.cpp in Sources */,
 				432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */,
 				4364898B1EF2F905007816EC /* Exception.cpp in Sources */,
 				4364898D1EF2F905007816EC /* Transaction.cpp in Sources */,

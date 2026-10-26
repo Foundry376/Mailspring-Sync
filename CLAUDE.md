@@ -18,8 +18,9 @@ cd Vendor/libetpan && ./autogen.sh && make && sudo make install prefix=/usr
 cd Vendor/mailcore2 && mkdir -p build && cd build && cmake .. && make
 cmake . && make
 
-# Unit tests for code with no mailcore dependency (VCard parsing)
+# Unit tests for code with no mailcore dependency (VCard parsing, Graph events to iCalendar)
 make vcard_test && ./vcard_test
+make graph_ics_test && ./graph_ics_test
 ```
 
 ### macOS
