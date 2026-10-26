@@ -5,8 +5,7 @@ description: >
   captures either). CHARSET is only sent when a term is non-ASCII (libetpan
   mailimap_search_key_need_to_send_charset; Thunderbird and Evolution do the same), so an
   ASCII search runs, and a non-ASCII one fails and the client keeps its local results. The
-  refusal costs one reconnect, not one per folder: the search ends at the first folder that
-  fails again on a fresh connection.
+  refusal costs one reconnect, not one per folder.
 source: "Vendor/libetpan mailimap_sender.c; RFC 3501 6.4.4 (BADCHARSET)"
 servers:
   - {fake: outlook}

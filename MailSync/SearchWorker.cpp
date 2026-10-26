@@ -266,20 +266,16 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
     SearchResults results;
     json errors = json::array();
 
-    // A failed SEARCH is retried once on a fresh connection, whatever the error: a BAD in
-    // mid-command can leave the stream out of step with the server (Yahoo then answered every
-    // later command BAD, live 2026-10-25), and a connection dropped while idle fails the same
-    // way. Only one reconnect per search, and a failure after it ends the search: the query is
-    // the same in every folder, and retrying each one cost Office 365, which answers non-ASCII
-    // terms NO [BADCHARSET], about 33 logins for one search of 16 folders (live, 2026-10-25).
+    // A failed SEARCH is retried once per search on a fresh connection: a BAD can leave the
+    // stream out of step with the server (Yahoo). A failure after that ends the search, since
+    // the query is the same in every folder (Office 365 refuses non-ASCII in all of them).
     bool reconnected = false;
     for (auto & folder : folders) {
         if (superseded(gen)) {
             logger->info("Search {} superseded", searchId);
             return;
         }
-        // Through connect() rather than mailcore's implicit login, so the login backoff and
-        // token refresh apply and the idle disconnect knows the connection is open.
+        // Not mailcore's implicit login, which skips the login backoff and token refresh.
         if (!connected) {
             connect();
         }
@@ -287,6 +283,12 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
         auto started = chrono::steady_clock::now();
         ErrorCode err = ErrorCode::ErrorNone;
         IndexSet * uids = session.search(AS_MCSTR(folder->path()), expression, &err);
+        // The SELECT failed: a folder deleted or renamed since the last folder sync.
+        if (err == ErrorCode::ErrorNonExistantFolder) {
+            logger->warn("Search {} in {} failed: {}", searchId, folder->path(), ErrorCodeToTypeMap[err]);
+            errors.push_back({{"folderId", folder->id()}, {"error", ErrorCodeToTypeMap[err]}});
+            continue;
+        }
         if (err != ErrorCode::ErrorNone && !reconnected) {
             logger->info("Search {} in {} failed: {}, retrying on a fresh connection", searchId, folder->path(), ErrorCodeToTypeMap[err]);
             reconnected = true;
@@ -319,7 +321,6 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
         emit(resultJSON(searchId, results, limit, errors, false));
     }
 
-    // A search the client cancelled while a folder's SEARCH failed has been left.
     if (superseded(gen)) {
         logger->info("Search {} superseded", searchId);
         return;

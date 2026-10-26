@@ -4,8 +4,7 @@ description: >
   fresh connection, whatever the error: a BAD in mid-command can leave the stream out of
   step with the server (Yahoo, live 2026-10-25), and a dropped idle connection looks the
   same. That is the search's only reconnect: a folder that fails after it is reported in
-  `errors` and ends the search, since the query is the same in every folder and a
-  reconnect per folder cost Office 365 about 33 logins for one search. A rejected login is not retried for SEARCH_LOGIN_BACKOFF seconds (30 by
+  `errors` and ends the search, since the query is the same in every folder. A rejected login is not retried for SEARCH_LOGIN_BACKOFF seconds (30 by
   default): Yahoo rate-limits logins. The connection is closed after the rejection, since a
   server closes an unauthenticated connection long before the retry. A newer request supersedes one
   still in flight: the older search stops at the next folder and never reports `done`. A
