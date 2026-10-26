@@ -314,6 +314,11 @@ void DAVWorker::runContacts() {
         // Gmail sync uses a separate GoogleContactsWorker
         return;
     }
+    if (account->isMicrosoft()) {
+        // Microsoft serves no CardDAV. Discovery ends at Outlook on the web, whose 401 would read
+        // as a failed sign-in and stop calendar sync along with it.
+        return;
+    }
 
     // Discovery already completed but no address book found - nothing to sync
     if (contactsDiscoveryComplete && cachedAddressBook == nullptr) {

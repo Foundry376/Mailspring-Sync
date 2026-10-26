@@ -127,6 +127,10 @@ bool Account::isICloud() {
     return IMAPHost().find("imap.mail.me.com") != string::npos;
 }
 
+bool Account::isMicrosoft() {
+    return provider() == "office365" || provider() == "outlook";
+}
+
 unsigned int Account::SMTPPort() {
     json & val = _data["settings"]["smtp_port"];
     return val.is_string() ? stoi(val.get<string>()) : val.get<unsigned int>();
@@ -175,7 +179,7 @@ bool Account::sendsViaGraph() {
 // A shared mailbox signs in as its owner (smtp_username), so Graph's /me would be the owner's
 // calendars rather than the mailbox's.
 bool Account::syncsCalendarsViaGraph() {
-    if (provider() != "office365" && provider() != "outlook") {
+    if (!isMicrosoft()) {
         return false;
     }
     return SMTPUsername() == "" || equalsIgnoreCase(SMTPUsername(), emailAddress());
