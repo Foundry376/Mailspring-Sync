@@ -134,15 +134,10 @@ void MicrosoftCalendarWorker::syncEvents(const string & calendarId, const string
     size_t changedCount = changed.size(); // chunksOfVector empties `changed`
     size_t fetched = 0;
     for (auto & chunk : MailUtils::chunksOfVector(changed, GRAPH_BATCH_SIZE)) {
-        map<string, json> events = fetchEvents(chunk);
-        for (auto & entry : chunk) {
-            string graphId = JSONString(entry, "id");
-            if (!events.count(graphId)) {
-                continue;
-            }
-            auto it = localByHref.find(graphId);
+        for (auto & [entry, event] : fetchEvents(chunk)) {
+            auto it = localByHref.find(JSONString(entry, "id"));
             string startUTC = JSONString(JSONObject(entry, "start"), "dateTime");
-            string ics = GraphICS::icsForEvent(events[graphId], account->emailAddress(), startUTC);
+            string ics = GraphICS::icsForEvent(event, account->emailAddress(), startUTC);
             ingestEvent(calendarId, entry, ics, it != localByHref.end() ? it->second : vector<shared_ptr<Event>>{});
             fetched++;
         }
@@ -162,10 +157,10 @@ static json eventRequest(const json & entry, const string & requestId) {
     return {{"id", requestId}, {"method", "GET"}, {"url", url}, {"headers", {{"Prefer", prefer}}}};
 }
 
-// The listed events read in full, by Graph id. An event Graph fails to return is left out, so it
-// keeps its rows and is read again next pass; one it throttles is retried after Retry-After.
-map<string, json> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entries) {
-    map<string, json> events {};
+// The listed events read in full, each with its listing. An event Graph fails to return is left
+// out, so it keeps its rows and is read again next pass; one it throttles is retried after Retry-After.
+vector<pair<json, json>> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entries) {
+    vector<pair<json, json>> events {};
     vector<json> pending = entries;
     for (int attempt = 0; attempt < GRAPH_REQUEST_ATTEMPTS && !pending.empty(); attempt++) {
         json requests = json::array();
@@ -186,15 +181,14 @@ map<string, json> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entr
                 continue;
             }
             const json & entry = pending[index];
-            string graphId = JSONString(entry, "id");
             long status = JSONInt(response, "status");
             if (status >= 200 && status <= 299) {
-                events[graphId] = JSONObject(response, "body");
+                events.push_back({entry, JSONObject(response, "body")});
             } else if (status == 429 || status == 503) {
                 throttled.push_back(entry);
                 retryAfter = (std::max)(retryAfter, (long)ParseRetryAfter(JSONString(JSONObject(response, "headers"), "Retry-After")));
             } else {
-                logger->warn("-X Graph event {} could not be read: HTTP {}", graphId, status);
+                logger->warn("-X Graph event {} could not be read: HTTP {}", JSONString(entry, "id"), status);
             }
         }
         pending = throttled;

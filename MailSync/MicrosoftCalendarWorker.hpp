@@ -40,7 +40,7 @@ class MicrosoftCalendarWorker {
 
     void upsertCalendar(shared_ptr<Calendar> local, const string & id, const string & path, const json & remote);
     void syncEvents(const string & calendarId, const string & path);
-    map<string, json> fetchEvents(const vector<json> & entries);
+    vector<pair<json, json>> fetchEvents(const vector<json> & entries);
     void ingestEvent(const string & calendarId, const json & entry, const string & ics,
                      const vector<shared_ptr<Event>> & previousRows);
 
