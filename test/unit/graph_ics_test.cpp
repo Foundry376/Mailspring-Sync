@@ -10,7 +10,6 @@
 #include "icalendar.h"
 
 #include <iostream>
-#include <sstream>
 
 static int failures = 0;
 
@@ -25,21 +24,14 @@ static void expectEqual(const string & actual, const string & expected, const st
     expect(actual == expected, label, "expected \"" + expected + "\", got \"" + actual + "\"");
 }
 
-static string unfold(string ics) {
-    for (size_t at = ics.find("\r\n "); at != string::npos; at = ics.find("\r\n ", at)) {
-        ics.erase(at, 3);
-    }
-    return ics;
-}
-
 static void expectLine(const string & ics, const string & line, const string & label) {
-    expect(("\r\n" + unfold(ics)).find("\r\n" + line + "\r\n") != string::npos, label,
-           "no line \"" + line + "\" in\n" + unfold(ics));
+    expect(("\r\n" + ics).find("\r\n" + line + "\r\n") != string::npos, label,
+           "no line \"" + line + "\" in\n" + ics);
 }
 
 static json event(json fields) {
     json e = {
-        {"iCalUId", "040000008200E00074C5B7101A82E0080000000011"},
+        {"iCalUId", "040000008200E00074C5B7101A82E0080000000052A4C9D3F05CDD01000000000000000010000000A3B19F1C27E8D24E9C5A3B7F0D1E2C4B"},
         {"subject", "Planning"},
         {"lastModifiedDateTime", "2026-10-20T17:50:34.1234567Z"},
         {"isAllDay", false},
@@ -77,7 +69,7 @@ static json pattern(json fields, json range = {{"type", "noEnd"}, {"startDate", 
 static const string SERIES_START_UTC = "2026-10-05T16:00:00.0000000";
 
 static string rruleOf(const json & master, const string & startUTC = SERIES_START_UTC) {
-    string ics = unfold(GraphICS::icsForEvent(master, ME, startUTC));
+    string ics = GraphICS::icsForEvent(master, ME, startUTC);
     size_t at = ics.find("\r\nRRULE:");
     return at == string::npos ? "" : ics.substr(at + 2, ics.find("\r\n", at + 2) - at - 2);
 }
@@ -95,7 +87,7 @@ int main() {
         expect(cal.Events.size() == 1, "one VEVENT");
         if (!cal.Events.empty()) {
             ICalendarEvent * e = cal.Events.front();
-            expectEqual(e->UID, "040000008200E00074C5B7101A82E0080000000011", "parsed UID");
+            expectEqual(e->UID, "040000008200E00074C5B7101A82E0080000000052A4C9D3F05CDD01000000000000000010000000A3B19F1C27E8D24E9C5A3B7F0D1E2C4B", "parsed UID");
             expectEqual(string(e->DtStart), "20261022T090000", "parsed DTSTART");
             expectEqual(e->Summary, "Planning", "parsed SUMMARY");
             expect(e->RecurrenceId.empty(), "no RECURRENCE-ID");
@@ -180,7 +172,7 @@ int main() {
         }
     }
     {
-        // Text is escaped, and long lines fold at 75 octets without splitting a UTF-8 character.
+        // Text is escaped and stays on one line however long.
         string notes;
         for (int i = 0; i < 40; i++) {
             notes += "Café ☕ ";
@@ -191,21 +183,10 @@ int main() {
             {"body", {{"contentType", "text"}, {"content", "Agenda:\r\n1. Numbers\r\n" + notes}}},
         }), ME, START_UTC);
         expectLine(ics, "SUMMARY:Budget\\, Q4\\; draft \\\\ v2", "SUMMARY escaped");
-        expectLine(ics, "DESCRIPTION:Agenda:\\n1. Numbers\\n" + notes, "DESCRIPTION escaped and unfolds whole");
-
-        istringstream lines(ics);
-        string line;
-        while (getline(lines, line)) {
-            if (!line.empty() && line.back() == '\r') {
-                line.pop_back();
-            }
-            expect(line.size() <= 75, "line within 75 octets", to_string(line.size()) + ": " + line);
-            if (line.size() > 1 && line[0] == ' ') {
-                expect(((unsigned char)line[1] & 0xC0) != 0x80, "fold not inside a UTF-8 character", line);
-            }
-        }
+        expectLine(ics, "DESCRIPTION:Agenda:\\n1. Numbers\\n" + notes, "DESCRIPTION escaped, on one line");
         ICalendar cal(ics);
         if (!cal.Events.empty()) {
+            expectEqual(cal.Events.front()->Description, "Agenda:\\n1. Numbers\\n" + notes, "parsed DESCRIPTION intact");
             expectEqual(cal.Events.front()->Location, "Room 4, Building 2", "parsed LOCATION unescaped");
         }
     }
@@ -265,7 +246,7 @@ int main() {
                              {{"cancelledOccurrences", {"OID.AAMkMaster=.2026-11-02"}},
                               {"exceptionOccurrences", json::array({event({
                                   {"type", "exception"},
-                                  {"iCalUId", "040000008200E00074C5B7101A82E00807EA0A13000000000000000011"},
+                                  {"iCalUId", "040000008200E00074C5B7101A82E00807EA0A130000000052A4C9D3F05CDD01000000000000000010000000A3B19F1C27E8D24E9C5A3B7F0D1E2C4B"},
                                   {"subject", "Planning (moved)"},
                                   {"originalStart", "2026-10-19T16:00:00Z"},
                                   {"start", {{"dateTime", "2026-10-19T10:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},

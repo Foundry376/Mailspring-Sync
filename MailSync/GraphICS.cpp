@@ -53,20 +53,9 @@ static string paramValue(string value) {
     return value.find_first_of(":;,") != string::npos ? "\"" + value + "\"" : value;
 }
 
-// Folds at 75 octets (RFC 5545 section 3.1), never inside a UTF-8 sequence.
+// Unfolded, which RFC 5545 section 3.1 allows: icalendarlib keeps a fold's \r inside the value.
 static void appendLine(string & ics, const string & line) {
-    size_t start = 0;
-    size_t limit = 75;
-    while (line.size() - start > limit) {
-        size_t end = start + limit;
-        while (end > start && ((unsigned char)line[end] & 0xC0) == 0x80) {
-            end--;
-        }
-        ics += line.substr(start, end - start) + "\r\n ";
-        start = end;
-        limit = 74; // the continuation's leading space counts
-    }
-    ics += line.substr(start) + "\r\n";
+    ics += line + "\r\n";
 }
 
 // Graph's "2026-10-22T09:00:00.0000000" as 20261022T090000, or "" when malformed.
