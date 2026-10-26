@@ -311,11 +311,24 @@ void SyncWorker::idleCycleIteration()
         return;
     }
     if (session.setupIdle()) {
-        logger->info("Idling on folder {}", inbox->path());
+        {
+            // Checked again under idleMtx, after setupIdle: an idleInterrupt() either lands
+            // before the "idle" event (and we reloop) or interrupts the IDLE that follows it, so
+            // an "idle" event after a stdin command was handled means its remote work is done.
+            std::unique_lock<std::mutex> lck(idleMtx);
+            if (idleShouldReloop) {
+                idleShouldReloop = false;
+                session.unsetupIdle();
+                return;
+            }
+            logger->info("Idling on folder {}", inbox->path());
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "idle"}});
+        }
         String path = AS_MCSTR(inbox->path());
         session.idle(&path, 0, &err);
         session.unsetupIdle();
         logger->info("Idle exited with code {}", err);
+        SharedDeltaStream()->emitWorkerState("foreground", {{"state", "busy"}});
         idleExitedWithError = (err != ErrorCode::ErrorNone);
         
         // Ben Note: We don't throw these errors because Yandex (maybe others) abruptly and
@@ -325,7 +338,12 @@ void SyncWorker::idleCycleIteration()
     } else {
         logger->info("Connection does not support idling. Locking until more to do...");
         std::unique_lock<std::mutex> lck(idleMtx);
-        idleCv.wait(lck);
+        // The flag is left set for the next iteration to consume, as after an interrupted IDLE.
+        if (!idleShouldReloop) {
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "idle"}});
+            idleCv.wait(lck, [&] { return idleShouldReloop.load(); });
+            SharedDeltaStream()->emitWorkerState("foreground", {{"state", "busy"}});
+        }
     }
 }
 

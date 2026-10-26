@@ -28,7 +28,7 @@ Start with `docs/adding-scenarios.md` if you are here to add a test, and
 ```bash
 pip install -r test/requirements.txt   # pytest, pytest-xdist, pyyaml
 sudo apt install libsasl2-modules      # SASL PLAIN/LOGIN plugins: every SMTP send fails without them
-python3 -m pytest test                 # everything, 16 cases at a time: ~6 min
+python3 -m pytest test                 # everything, 16 cases at a time: ~2.5 min
 python3 -m pytest test --servers fake -k qresync       # narrow by server kind / name
 python3 -m pytest test -n 0 -k baseline-initial-sync   # serially, for debugging
 python3 test/run.py test/scenarios/qresync-bulk-expunge-during-idle.yaml --server dovecot:qresync --keep
@@ -38,7 +38,7 @@ python3 test/conformance/compare.py -v                  # fake vs Dovecot, full 
 Server kinds are `fake` (in-process) and, with Docker, `dovecot` and `cyrus`; their images
 are built once at session start and re-tagged whenever `servers/<kind>/` changes. The log
 prints a line when a case starts and `[gwN] [ 42%] PASSED|FAILED <case>` when it ends; a run
-is stuck only if no line appears for ~3 min (the slowest case takes ~140 s). The run ends
+is stuck only if no line appears for ~2 min (the slowest case, modseq-truncation on Cyrus, takes ~80 s). The run ends
 with a "scenarios needing attention" section: every FAILED / XFAIL / XPASS case, its reason
 and its artifacts directory.
 
@@ -155,11 +155,19 @@ silently: `expect: {invariants: {skip: [thread_counts]}}` with a comment naming 
 `invariants: {xfail: reason}`, or `invariants: false` to disable all of them. They also work
 mid-scenario as `assert: {invariants: {}}`.
 
-**Quiescence** is inferred, since the engine has no "done" signal: every Folder's
-`localStatus.busy` is false and `syncedMinUID <= 1`; the background thread's last log line
-is `Sync loop complete.` and older than the settle window (it loops without sleeping while
-there is more to do); the foreground thread's last IMAP command is `IDLE`; and no delta has
-arrived within the settle window.
+**Quiescence** is signalled. The harness launches the engine with `WORKER_STATE_EVENTS=1`,
+which makes it write `{"type":"worker-state", ...}` lines to stdout, each after flushing its
+log and buffered deltas (`DeltaStream::emitWorkerState`): the background worker before every
+sleep, the foreground worker on entering and leaving IDLE, and the main thread once a stdin
+command is handled. The engine is quiescent when it has handled every command the harness
+sent, the background is asleep after a pass that started after the latest `wake-workers`, the
+foreground is in IDLE since the latest command, and every Folder's `localStatus.busy` is false
+with `syncedMinUID <= 1`. A wait for it typically returns within 50 ms of the engine going
+idle. A worker asleep after a retryable error (a dropped connection, `NO` to LIST) would
+retry in 120 s; the wait sends `wake-workers` instead, as the client does when it comes back
+online, and notes it in the report. The ab/ baselines predate the events and are still judged
+by inference from the log (`Sync loop complete.` older than a 2 s settle window, last
+foreground command `IDLE`, no recent deltas), which costs ~3 s per wait.
 
 **The oracle.** `harness/db.py` is the only code that knows the engine's schema. It turns
 `Message.remoteFolderId/remoteUID` (or `MessageFolder` rows, once they exist) into

@@ -4,16 +4,25 @@ command line, newline-delimited JSON commands on stdin, the delta stream on stdo
 the engine log in CONFIG_DIR_PATH. Nothing here touches the engine's source; every signal
 the harness relies on is one the client already depends on or one that is logged today.
 
-Quiescence is inferred, not signalled. The engine has no "done" event, so a process is
-considered quiescent when all of these hold at once:
+Quiescence is signalled. With WORKER_STATE_EVENTS=1 the engine writes worker-state lines to
+stdout (DeltaStream::emitWorkerState), each after flushing its log and buffered deltas, and a
+process is quiescent when all of these hold at once:
 
+  - the engine has handled every stdin command sent to it, including the foreground interrupt
+    that picks up a task's remote phase
+  - the background worker's last event is "sleeping", after a pass that started at or after
+    the latest wake-workers
+  - the foreground worker's last event is "idle", and came after the latest handled command
   - every Folder's localStatus has busy == false and syncedMinUID <= 1 (initial sync done)
-  - the background worker's last log line is "Sync loop complete." and it is older than
-    the settle window (syncNow() logs that line once per iteration and loops immediately
-    while there is more to do, so a stale one means the worker went to sleep)
-  - the foreground worker's last IMAP command is IDLE (verbose log) or its last engine
-    line is "Idling on folder ..." (non-verbose)
-  - no delta has arrived within the settle window
+
+A worker that went to sleep after a retryable error would otherwise sleep for 120s, so the
+wait sends wake-workers, as the client does when it comes back online.
+
+Builds that predate the events (the ab/ baselines some scenarios start on) are judged by
+inference instead: the background's last log line is "Sync loop complete." and older than the
+settle window, the foreground's last IMAP command is IDLE, the folders are idle and no delta
+arrived within the settle window. The engine flushes its log ~1s after a line is written, so
+that path costs ~3s per wait.
 """
 import contextlib
 import json
@@ -142,6 +151,14 @@ class LogLine:
 
 
 @dataclass
+class WorkerState:
+    seq: int           # position among the worker-state lines, which are totally ordered on stdout
+    state: str         # background: running | sleeping; foreground: idle | busy | sleeping
+    error: bool = False
+    wake: int = 0      # background: the wake generation its pass started at
+
+
+@dataclass
 class ProcessState:
     deltas: list = field(default_factory=list)
     log: list = field(default_factory=list)
@@ -149,6 +166,12 @@ class ProcessState:
     folder_status: dict = field(default_factory=dict)  # folder id -> latest localStatus
     folder_paths: dict = field(default_factory=dict)   # folder id -> path
     last_delta_t: float = 0.0
+    workers: dict = field(default_factory=dict)        # background / foreground -> WorkerState
+    handled: dict = field(default_factory=dict)        # stdin command type -> how many the engine handled
+    handled_seq: int = -1                              # seq of the latest handled command
+    wake: int = 0                                      # latest wake generation the engine reported
+    worker_seq: int = 0
+    worker_event_at: float = 0.0                       # time.time() of the latest worker-state line
 
 
 class MailsyncProcess:
@@ -180,6 +203,8 @@ class MailsyncProcess:
         self.wait_reason = ""
         self.migrate_output = ""
         self.stderr_path = self.work_dir / "stderr.log"
+        self.sent: dict = {}             # stdin command type -> how many were sent
+        self.note: Callable[[str], None] = lambda msg: None
 
     # -- lifecycle ----------------------------------------------------------------------
 
@@ -202,6 +227,7 @@ class MailsyncProcess:
             # Only the metadata worker talks to the identity server, and with --identity
             # null it exits immediately. The variable must still be set or main() bails.
             IDENTITY_SERVER="http://127.0.0.1:9/unreachable",
+            WORKER_STATE_EVENTS="1",
         )
         env.update(self.extra_env)
         return env
@@ -282,12 +308,23 @@ class MailsyncProcess:
     def send(self, packet: dict):
         if not self.running:
             raise MailsyncError(f"mailsync is not running ({describe_exit(self.exit_code)})")
+        with self._lock:
+            self.sent[packet["type"]] = self.sent.get(packet["type"], 0) + 1
         self.proc.stdin.write(json.dumps(packet) + "\n")
         self.proc.stdin.flush()
 
     def wake(self):
         """Ends the background worker's 120s sleep and re-marks folders busy, exactly as the
-        client does when the user clicks Sync Mail."""
+        client does when the user clicks Sync Mail.
+
+        The engine dates orphan records and folder coverage in whole seconds and sweeps only
+        what was orphaned strictly before a pass began (MailStore::orphanMessageIdsBefore), so
+        a pass started in the second the previous one ended leaves its orphans for the next.
+        Client passes are minutes apart; the wake waits for the next second instead."""
+        with self._lock:
+            last_event_at = self.state.worker_event_at
+        if last_event_at:
+            time.sleep(max(0.0, int(last_event_at) + 1 - time.time()))
         self.send({"type": "wake-workers"})
 
     def queue_task(self, task: dict) -> str:
@@ -319,6 +356,9 @@ class MailsyncProcess:
                 with self._lock:
                     self.state.stdout_noise.append((t, line))
                 continue
+            if d.get("type") == "worker-state":
+                self._record_worker_state(d)
+                continue
             if "modelClass" not in d:
                 with self._lock:
                     self.state.stdout_noise.append((t, line))
@@ -334,6 +374,25 @@ class MailsyncProcess:
                             self.state.folder_paths[m["id"]] = m.get("path")
                         else:
                             self.state.folder_status.pop(m["id"], None)
+
+    def _record_worker_state(self, d: dict):
+        with self._lock:
+            st = self.state
+            st.worker_seq += 1
+            st.worker_event_at = time.time()
+            st.wake = max(st.wake, int(d.get("wake", 0)))
+            if d["worker"] == "main":
+                st.handled[d["handled"]] = max(st.handled.get(d["handled"], 0), int(d["count"]))
+                st.handled_seq = st.worker_seq
+            else:
+                st.workers[d["worker"]] = WorkerState(st.worker_seq, d["state"], bool(d.get("error")), int(d.get("wake", 0)))
+
+    @property
+    def signalled(self) -> bool:
+        """True once the engine has written a worker-state line, i.e. it reports quiescence
+        itself (see the module docstring)."""
+        with self._lock:
+            return bool(self.state.workers or self.state.handled)
 
     @property
     def log_path(self) -> Path:
@@ -497,13 +556,61 @@ class MailsyncProcess:
         engine = [l for l in fg if l.imap_dir is None]
         return bool(engine) and engine[-1].msg.startswith("Idling on folder")
 
+    def _workers_done(self, require_idle: bool) -> bool:
+        """The signalled half of quiescence (module docstring); sets wait_reason."""
+        with self._lock:
+            st = self.state
+            unhandled = {t: n for t, n in self.sent.items() if st.handled.get(t, 0) < n}
+            bg, fg = st.workers.get("background"), st.workers.get("foreground")
+            handled_seq, wake = st.handled_seq, st.wake
+        if unhandled:
+            self.wait_reason = f"engine has not handled stdin commands {unhandled}"
+        elif bg is None or bg.state != "sleeping" or bg.error:
+            self.wait_reason = f"background worker is {bg.state if bg else 'not started'}{' after an error' if bg and bg.error else ''}"
+        elif bg.wake < wake:
+            self.wait_reason = f"background worker has not run a pass since wake {wake}"
+        elif require_idle and (fg is None or fg.state != "idle" or fg.seq < handled_seq):
+            self.wait_reason = f"foreground worker is {fg.state if fg else 'not started'}"
+        else:
+            return True
+        return False
+
+    def _wake_if_failed(self, last_wake: float) -> float:
+        """A worker that hit a retryable error sleeps 120s unless woken; wake it, as the client
+        does when it comes back online. Returns when it last woke the engine."""
+        with self._lock:
+            failed = [w for w, s in self.state.workers.items() if s.state == "sleeping" and s.error]
+        if not failed or time.monotonic() - last_wake < 1.0:
+            return last_wake
+        self.note(f"{' and '.join(failed)} worker sleeping after an error; sending wake-workers")
+        self.wake()
+        return time.monotonic()
+
     def wait_quiescent(self, timeout: float = 120, settle: float = 2.0, require_idle: bool = True,
                        ignore_busy: Iterable[str] = ()) -> None:
         """Block until the engine has nothing left to do. See the module docstring.
         ignore_busy: folder paths whose busy flag is known never to clear (the skipped \All
-        mailbox), so they do not hold up the wait."""
+        mailbox), so they do not hold up the wait. settle applies only to builds without
+        worker-state events."""
+        last_wake = [0.0]
 
+        def signalled_check():
+            last_wake[0] = self._wake_if_failed(last_wake[0])
+            if not self._workers_done(require_idle):
+                return False
+            if not self._folders_idle(ignore_busy):
+                self.wait_reason = "a folder is busy or has syncedMinUID > 1"
+                return False
+            self._drain_log()
+            self.wait_reason = ""
+            return True
+
+        # Decided on every poll: a build that emits worker-state lines has not written its first
+        # one yet right after launch, and inference cannot pass inside its settle window.
         def check():
+            return signalled_check() if self.signalled else inferred_check()
+
+        def inferred_check():
             self._drain_log()
             if not self._folders_idle(ignore_busy):
                 self.wait_reason = "a folder is busy or has syncedMinUID > 1"
@@ -522,14 +629,16 @@ class MailsyncProcess:
             self.wait_reason = ""
             return True
 
-        self.wait_for(check, timeout, "quiescence", poll=0.5)
+        self.wait_for(check, timeout, "quiescence", poll=0.05)
 
     def sync_pass(self, timeout: float = 120, settle: float = 2.0, ignore_busy: Iterable[str] = ()) -> float:
         """wake-workers, then wait for the resulting background pass to finish. Returns the
         timestamp of the wake so callers can scope delta/log queries to this pass."""
         t = self.elapsed()
         self.wake()
-        self.wait_for_log(r"^Marking all folders as `busy`", timeout=30, since=t)
+        if not self.signalled:
+            # Quiescence by inference cannot tell a pass that has not started from one that ended.
+            self.wait_for_log(r"^Marking all folders as `busy`", timeout=30, since=t)
         self.wait_quiescent(timeout=timeout, settle=settle, ignore_busy=ignore_busy)
         return t
 
@@ -550,6 +659,7 @@ class MailsyncProcess:
             f"elapsed={self.elapsed():.1f}s exit={describe_exit(self.exit_code)} deltas={len(self.state.deltas)}\n"
             f"folders={json.dumps(folders)}\n"
             f"bg tail: {[l.msg[:100] for l in bg]}\nfg tail: {[l.msg[:100] for l in fg]}\n"
+            f"workers={self.state.workers} handled={self.state.handled} sent={self.sent} "
             f"fg idling={self._foreground_idling()} waiting because: {self.wait_reason!r} "
             f"stdout noise={self.state.stdout_noise[-3:]}"
         )

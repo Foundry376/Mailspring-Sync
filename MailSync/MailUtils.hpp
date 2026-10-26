@@ -117,7 +117,12 @@ public:
     
     static IMAPMessagesRequestKind messagesRequestKindFor(IndexSet * capabilities, bool heavyOrNeedToComputeIDs);
 
+    // Each wakeAllWorkers() advances the generation. A worker that reads it before a pass and
+    // sleeps with `sinceWake` returns at once if a wake arrived during the pass, which a bare
+    // notify would have delivered to nobody.
+    static uint64_t workerWakeGeneration();
     static void sleepWorkerUntilWakeOrSec(int sec);
+    static void sleepWorkerUntilWakeOrSec(int sec, uint64_t sinceWake);
     static void wakeAllWorkers();
 
     // Consumes `v`. Slices by index: erasing consumed elements from the front is
