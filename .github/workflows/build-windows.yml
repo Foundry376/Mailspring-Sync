@@ -9,7 +9,8 @@ on:
 env:
   VCPKG_DEFAULT_TRIPLET: x86-windows
   VCPKG_DEFAULT_HOST_TRIPLET: x86-windows
-  # Use overlay port for cyrus-sasl without krb5 (krb5 doesn't support x86-windows)
+  # Overlay ports: cyrus-sasl without krb5 (krb5 doesn't support x86-windows), and lmdb
+  # fetched from GitHub rather than git.openldap.org, which rate-limits CI downloads.
   VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/vcpkg-overlay-ports
 
 jobs:
