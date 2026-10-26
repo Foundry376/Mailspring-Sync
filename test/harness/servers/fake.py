@@ -1,6 +1,7 @@
 """The in-process fake server behind the Server interface."""
 import re
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -170,6 +171,9 @@ class FakeServer(Server):
         (one that never has), `command` a regex on the command line (e.g. "UID FETCH 1:\\*")
         for before/after_command, `mailbox` the session's selected mailbox."""
         rx = re.compile(command) if command else None
+        # A once-hook is removed only after fn returns, and fn may hold its session (`delay`),
+        # so another session's matching occasion must not run it again meanwhile.
+        claim = threading.Lock()
 
         def wrapped(sess, a, b):
             if session == "foreground" and not sess.has_idled:
@@ -184,6 +188,8 @@ class FakeServer(Server):
                     line += " " + b.decode("utf-8", "replace").strip()
                 if not rx.search(line):
                     return False
+            if once and not claim.acquire(blocking=False):
+                return False
             fn(sess)
             return True
         self.imap.add_hook(hook, wrapped, once=once)

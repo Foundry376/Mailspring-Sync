@@ -82,6 +82,7 @@ public:
     bool syncNow();
 
     void markAllFoldersBusy();
+    void releaseUnattemptedBodyFetches();
 
     std::vector<std::shared_ptr<Folder>> syncFoldersAndLabels();
 

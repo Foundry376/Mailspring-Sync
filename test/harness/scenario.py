@@ -935,6 +935,27 @@ class ScenarioRun:
                     out += [f"{mid} {where} contains {s!r}" for s in want.get("lacks", []) if s in text]
         return out
 
+    def expect_unfetched_bodies(self, arg: dict) -> list:
+        """{max: n}: at most n messages hold the empty MessageBody row that reserves a body
+        fetch (SyncWorker::syncMessageBodies). A row left behind is never fetched again
+        unless the client asks for that body."""
+        with self.ms.db() as c:
+            found = c.execute("SELECT COUNT(*) FROM MessageBody WHERE value IS NULL").fetchone()[0]
+        return [f"{found} unfetched bodies, expected at most {arg['max']}"] if found > arg["max"] else []
+
+    def expect_local_search(self, arg: dict) -> list:
+        """{FTS5 query: [thread subjects]}: the threads a local search finds, matched against
+        ThreadSearch as the client's search-query-backend-local does."""
+        out = []
+        with self.ms.db() as c:
+            for query, want in arg.items():
+                found = sorted(r[0] for r in c.execute(
+                    "SELECT Thread.subject FROM ThreadSearch JOIN Thread ON Thread.id = ThreadSearch.content_id "
+                    "WHERE ThreadSearch MATCH ?", (query,)))
+                if found != sorted(want):
+                    out.append(f"local search {query!r} found {found}, expected {sorted(want)}")
+        return out
+
     def expect_unchanged_since(self, arg) -> list:
         name = arg if isinstance(arg, str) else arg["snapshot"]
         with self.ms.db() as c:

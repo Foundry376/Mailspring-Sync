@@ -247,6 +247,8 @@ void runBackgroundSyncWorker() {
             }
 
             if (!started) {
+                // Before the foreground worker, which also fetches bodies, starts below.
+                bgWorker->releaseUnattemptedBodyFetches();
                 bgWorker->syncFoldersAndLabels();
                 SharedDeltaStream()->endConnectionError(bgWorker->account->id());
 

@@ -1,0 +1,24 @@
+name: body-fetch-interrupted-by-quit
+description: >
+  The client quits mailsync (SIGTERM) while it fetches the bodies of new mail. The bodies
+  that batch reserved and had not requested yet must be fetched after the restart; only a
+  body in flight keeps its empty MessageBody row, like any other failed fetch.
+source: SyncWorker::releaseUnattemptedBodyFetches; Indent review of Mailspring-Sync PR #169
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+mailboxes:
+  INBOX: {messages: 5}
+steps:
+  - wait: quiescent
+  - server.pause: {at: {hook: before_command, command: "UID FETCH \\d+ BODY\\.PEEK\\[\\]", delay: 10}}
+  - server.append: {mailbox: INBOX, messages: {count: 20}}
+  # UIDs 6-25 are the new mail; the first of their body fetches is held until the quit.
+  - wait: {log: "sent \\d+ UID FETCH ([6-9]|1\\d|2[0-5]) BODY\\.PEEK\\[\\]", timeout: 60}
+  - restart: {}
+expect:
+  unfetched_bodies: {max: 2}    # one in flight per worker
+  log_present: ["Released \\d+ body fetches left reserved by the previous run"]
+  db_matches_server: {}
+  counts: {INBOX: 25}
+  running: true

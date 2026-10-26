@@ -1,0 +1,17 @@
+name: search-index-long-body
+description: >
+  A message whose text is longer than the search index keeps for one message. Its first
+  15,000 characters (SEARCH_BODY_MAX_LENGTH) are searchable and the rest is not.
+source: constants.h SEARCH_BODY_MAX_LENGTH
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 1, body_lines: 1200}}   # 16 characters per line
+steps:
+  - wait: quiescent
+expect:
+  local_search:
+    pad00010: [Message 1]
+    pad00700: [Message 1]   # ~11,200 characters in
+    pad01100: []            # ~17,600 characters in
+  running: true
