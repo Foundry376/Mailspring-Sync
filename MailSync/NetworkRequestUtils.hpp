@@ -15,6 +15,7 @@
 #include <curl/curl.h>
 #include <stdio.h>
 #include "json.hpp"
+#include "JSONUtils.hpp"
 #include <vector>
 
 class Account;
@@ -77,9 +78,6 @@ string GraphSentItemsId(const string & accessToken, GraphResponse * failure = nu
 // HTTP helpers
 
 string URLEscape(const string & value);
-
-// object[key] when it is a string, otherwise "".
-string JSONString(const json & object, const string & key);
 
 // The value of a header in a block of raw response headers, matched case-insensitively.
 string HTTPHeaderValue(const string & headers, const string & headerName);

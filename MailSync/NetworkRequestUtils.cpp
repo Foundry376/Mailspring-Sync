@@ -467,13 +467,6 @@ string URLEscape(const string & value) {
     return result;
 }
 
-string JSONString(const json & object, const string & key) {
-    if (!object.is_object() || !object.count(key) || !object[key].is_string()) {
-        return "";
-    }
-    return object[key].get<string>();
-}
-
 // HTTP Protocol Quirk: Header Case Sensitivity
 // While HTTP specifications (RFC 7230) require case-insensitive header handling, some
 // server implementations or proxies treat headers as case-sensitive. The Python caldav
