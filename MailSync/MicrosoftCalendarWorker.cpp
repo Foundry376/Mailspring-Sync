@@ -75,6 +75,10 @@ void MicrosoftCalendarWorker::run() {
             listed.push_back(remote);
         }
     });
+    if (listedIds.empty()) {
+        // Graph always lists the default calendar; pruning on an empty listing would delete every one.
+        throw SyncException("invalid-graph-resp", "/me/calendars listed no calendars", true);
+    }
 
     for (auto & pair : local) {
         if (!listedIds.count(pair.first)) {
