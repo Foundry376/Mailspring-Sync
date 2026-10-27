@@ -51,6 +51,6 @@ expect:
   server_counts: {Sent Items: 1}
   counts: {Sent Items: 1}
   log_present: ["Uploading attachment video.bin", "Adding attachment deck.pptx", "Adding attachment slides.pdf",
-                "Placing a new message with `self` body"]
+                "Placing a new message with `self` body", "sent \\[\\d+ bytes not logged\\]"]
   db_matches_server: {}
   running: true

@@ -50,9 +50,10 @@ Without Docker, Dovecot runs as a local process if `dovecot`/`doveadm` are insta
 
 Artifacts go to `test/runs/session-<pid>/<scenario>-<server>/` (one pid per xdist worker;
 `HARNESS_RUNS_DIR` overrides), and are kept for failed and xfailed cases: `report.txt` (what
-happened, when), `config/mailsync-*.log` (engine log with every IMAP line, per thread),
-`config/edgehill.db`, `server.log` (server transcript). `--keep` / `HARNESS_KEEP=1` keeps
-passing runs too. `run.py --server kind:profile` uses the scenario's own entry for it.
+happened, when), `config/mailsync-*.log` (engine log with every IMAP line, per thread; a run of
+sent data keeps its first 4 KB), `config/edgehill.db`, `server.log` (server transcript).
+`--keep` / `HARNESS_KEEP=1` keeps passing runs too. `run.py --server kind:profile` uses the
+scenario's own entry for it.
 
 ## How a scenario works
 

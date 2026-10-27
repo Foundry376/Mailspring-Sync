@@ -61,7 +61,7 @@ CONFIG_DIR_PATH=/path/to/config IDENTITY_SERVER=https://id.getmailspring.com \
 
 Modes: `sync`, `test` (auth validation), `reset` (clear account data), `migrate` (run migrations)
 
-In `sync` mode the engine logs to `mailsync-<accountId>.log` in `CONFIG_DIR_PATH`, rotating at 5 MB. `--verbose` adds every IMAP and SMTP session's traffic except AUTH payloads; each unbroken run of sent data keeps only its first 4 KB, so an APPEND or SMTP DATA ends in one `sent [N bytes not logged]` line. The client passes `--verbose` while the "Enable verbose IMAP / SMTP logging" preference is on, and the test harness always does.
+In `sync` mode the engine logs to `mailsync-<accountId>.log` in `CONFIG_DIR_PATH`, rotating at 5 MB. `--verbose` adds every IMAP and SMTP session's traffic except AUTH payloads; each unbroken run of sent data keeps only its first 4 KB, so an APPEND, SMTP DATA or command over 4 KB ends in one `sent [N bytes not logged]` line. The client passes `--verbose` while the "Enable verbose IMAP / SMTP logging" preference is on, and the test harness always does.
 
 For debugging in Xcode/Visual Studio, configure the debugger to pass `--identity`, `--account`, and `--mode` arguments.
 
