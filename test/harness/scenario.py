@@ -580,6 +580,29 @@ class ScenarioRun:
             raise ScenarioFailure("this step needs SMTP: add `smtp: true` to the server entry")
         return smtp
 
+    def _event_json(self, key: str, replacements: list) -> dict:
+        """The Event row `<icsuid>|<recurrenceId>`, its ICS with each [from, to] replaced once,
+        as the client edits the stored copy."""
+        with self.ms.db() as c:
+            rows = [json.loads(r[0]) for r in c.execute("SELECT data FROM Event").fetchall()]
+        by_key = {f"{r.get('icsuid')}|{r.get('rid', '')}": r for r in rows}
+        if key not in by_key:
+            raise ScenarioFailure(f"no Event row {key}; rows: {sorted(by_key)}")
+        row = by_key[key]
+        for old, new in replacements:
+            if row["ics"].count(old) != 1:
+                raise ScenarioFailure(f"event {key}: {old!r} is in its ICS {row['ics'].count(old)} times, not once")
+            row["ics"] = row["ics"].replace(old, new)
+        return row
+
+    def _calendar_json(self, name: str) -> dict:
+        with self.ms.db() as c:
+            rows = [json.loads(r[0]) for r in c.execute("SELECT data FROM Calendar").fetchall()]
+        row = next((r for r in rows if r.get("name") == name), None)
+        if row is None:
+            raise ScenarioFailure(f"no calendar named {name!r}")
+        return row
+
     def _client_step(self, op: str, arg: dict):
         if op == "wake":
             self.ms.wake()
@@ -597,6 +620,15 @@ class ScenarioRun:
                 task["path"] = self._folder_json(task["path"])["path"]
             if isinstance(task.get("folder"), str):
                 task["folder"] = self._folder_json(task["folder"])
+            if "event_of" in task:   # "<icsuid>|<recurrenceId>": that row as the client sends it, its ICS edited
+                task["event"] = self._event_json(task.pop("event_of"), task.pop("ics_replace", []))
+                task.setdefault("calendarId", task["event"]["cid"])
+            if "calendar_of" in task:   # a new event on the calendar with this name
+                calendar = self._calendar_json(task.pop("calendar_of"))
+                task["calendarId"] = calendar["id"]
+                task["event"] = {"__cls": "Event", "aid": self.ms.account["id"], "cid": calendar["id"], **task.get("event", {})}
+            if "events_of" in task:   # DestroyEventTask's rows
+                task["events"] = [self._event_json(key, []) for key in task.pop("events_of")]
             if "sourceFolders" in task:   # the perspective's folders, as paths -> sourceFolderIds
                 task["sourceFolderIds"] = [self._folder_json(p)["id"] for p in task.pop("sourceFolders")]
             for key in ("labelsToAdd", "labelsToRemove"):
@@ -1045,6 +1077,13 @@ class ScenarioRun:
             got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com/Calendars." in scope)
             if got != arg["graph_calendar_token_requests"]:
                 out.append(f"expected {arg['graph_calendar_token_requests']} Graph calendar token requests, saw {got}")
+        if "event_writes" in arg:
+            # [[method, route regex, [fields sent]], ...], in order: every event POST, PATCH and DELETE
+            got = [[w["method"], w["route"], w["fields"]] for w in graph.event_writes]
+            want = arg["event_writes"]
+            if len(got) != len(want) or any(g[0] != w[0] or not re.search(w[1], g[1]) or g[2] != sorted(w[2])
+                                            for g, w in zip(got, want)):
+                out.append(f"Graph event writes {got}, expected {want}")
         for pattern, want in (arg.get("requests") or {}).items():
             got = sum(1 for r in graph.requests if re.search(pattern, unquote(r["path"])))
             if got != want:
