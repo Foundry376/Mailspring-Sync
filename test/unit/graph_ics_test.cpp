@@ -1,7 +1,7 @@
 //
 //  graph_ics_test.cpp
-//  Unit tests for turning Microsoft Graph events into iCalendar resources. Each case also
-//  parses the output with icalendarlib, the engine's own reader of Event.ics.
+//  Unit tests for turning Microsoft Graph events into iCalendar resources and back. Each case
+//  also parses GraphICS's output with icalendarlib, the engine's own reader of Event.ics.
 //
 //  Build and run (Linux): cmake . && make graph_ics_test && ./graph_ics_test
 //
@@ -72,6 +72,54 @@ static string rruleOf(const json & master, const string & startUTC = SERIES_STAR
     string ics = GraphICS::icsForEvent(master, ME, startUTC);
     size_t at = ics.find("\r\nRRULE:");
     return at == string::npos ? "" : ics.substr(at + 2, ics.find("\r\n", at + 2) - at - 2);
+}
+
+static void expectJSON(const json & actual, const json & expected, const string & label) {
+    expect(actual == expected, label, "expected " + expected.dump() + ", got " + actual.dump());
+}
+
+// A resource holding one VEVENT with these lines, as the client sends it.
+static string vcalendar(const string & veventLines) {
+    return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:abc@mailspring\r\n" + veventLines + "END:VEVENT\r\nEND:VCALENDAR\r\n";
+}
+
+static json graphEvent(const string & ics, const string & startUTC = "") {
+    vector<ICSVEvent> vevents = GraphICS::veventsOf(ics);
+    return vevents.empty() ? json() : GraphICS::eventForVEvent(vevents.front(), startUTC);
+}
+
+// A Wednesday-morning series in Chicago with this RRULE, as the client's Repeat control writes it.
+static json recurrenceFor(const string & rrule) {
+    return graphEvent(vcalendar("DTSTART;TZID=America/Chicago:20261007T090000\r\n"
+                                "DTEND;TZID=America/Chicago:20261007T093000\r\n"
+                                "RRULE:" + rrule + "\r\n"))["recurrence"];
+}
+
+static bool refused(const string & rrule) {
+    try {
+        recurrenceFor(rrule);
+    } catch (invalid_argument &) {
+        return true;
+    }
+    return false;
+}
+
+// GraphICS's series written out and read back: the pattern and range it started from.
+static void expectRoundTrip(const json & master, const string & label, const string & startUTC = SERIES_START_UTC) {
+    vector<ICSVEvent> vevents = GraphICS::veventsOf(GraphICS::icsForEvent(master, ME, startUTC));
+    if (vevents.empty()) {
+        expect(false, label, "no VEVENT");
+        return;
+    }
+    json recurrence = GraphICS::eventForVEvent(vevents.front(), startUTC)["recurrence"];
+    for (const auto & [key, value] : master["recurrence"]["pattern"].items()) {
+        expectJSON(recurrence["pattern"][key], value, label + ": pattern " + key);
+    }
+    for (const string key : {"type", "startDate", "endDate", "numberOfOccurrences"}) {
+        if (master["recurrence"]["range"].count(key)) {
+            expectJSON(recurrence["range"][key], master["recurrence"]["range"][key], label + ": range " + key);
+        }
+    }
 }
 
 int main() {
@@ -383,6 +431,161 @@ int main() {
                                 })})}});
         expectLine(GraphICS::icsForEvent(auckland, ME, "2026-07-05T12:00:00.0000000"),
                    "RECURRENCE-ID;VALUE=DATE:20270201", "all-day override whose original start carries its offset");
+    }
+
+    // iCalendar the client wrote, as Graph event fields.
+    {
+        // A new event as ical.js writes it: an IANA zone with its VTIMEZONE, a folded line, quoted
+        // parameter values holding ':' and ';', and an alarm whose DESCRIPTION isn't the event's.
+        json e = graphEvent(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n"
+            "BEGIN:VTIMEZONE\r\nTZID:America/Chicago\r\nBEGIN:STANDARD\r\nTZOFFSETFROM:-0500\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n"
+            "BEGIN:VEVENT\r\nUID:abc@mailspring\r\n"
+            "DTSTART;TZID=America/Chicago:20261022T090000\r\nDTEND;TZID=America/Chicago:20261022T093000\r\n"
+            "SUMMARY:Budget\\, Q4\\; draft \\\\ v2\r\n"
+            "DESCRIPTION:Agenda:\\n1. Num\r\n bers\r\n"
+            "LOCATION:Room 4\\, Building 2\r\n"
+            "ATTENDEE;CN=\"Team: Design; Ops\";ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION:mailto:team@example.com\r\n"
+            "BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Reminder\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\n"
+            "END:VEVENT\r\nEND:VCALENDAR\r\n");
+        expectJSON(e["subject"], "Budget, Q4; draft \\ v2", "subject unescaped");
+        expectJSON(e["body"], {{"contentType", "text"}, {"content", "Agenda:\n1. Numbers"}}, "body unfolded, not the alarm's");
+        expectJSON(e["location"], {{"displayName", "Room 4, Building 2"}}, "location unescaped");
+        expectJSON(e["start"], {{"dateTime", "2026-10-22T09:00:00"}, {"timeZone", "America/Chicago"}}, "IANA start");
+        expectJSON(e["end"], {{"dateTime", "2026-10-22T09:30:00"}, {"timeZone", "America/Chicago"}}, "IANA end");
+        expectJSON(e["isAllDay"], false, "timed");
+        expectJSON(e["showAs"], "busy", "no TRANSP is busy");
+        expectJSON(e["attendees"], json::array({{{"type", "required"},
+                   {"emailAddress", {{"address", "team@example.com"}, {"name", "Team: Design; Ops"}}}}}),
+                   "quoted name holding ':' and ';'");
+        expectJSON(e["recurrence"], json(), "no RRULE");
+        vector<ICSVEvent> vevents = GraphICS::veventsOf(vcalendar("BEGIN:VALARM\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\n"));
+        expect(!vevents.empty() && vevents.front().property("TRIGGER").name.empty(), "an alarm's properties aren't the event's");
+    }
+    {
+        json utc = graphEvent(vcalendar("DTSTART:20261022T160000Z\r\nDTEND:20261022T170000Z\r\nTRANSP:TRANSPARENT\r\n"));
+        expectJSON(utc["start"], {{"dateTime", "2026-10-22T16:00:00"}, {"timeZone", "UTC"}}, "UTC start");
+        expectJSON(utc["showAs"], "free", "transparent is free");
+
+        json custom = graphEvent(vcalendar("DTSTART;TZID=\"tzone://Microsoft/Custom\":20261022T090000\r\n"
+                                           "DTEND;TZID=\"tzone://Microsoft/Custom\":20261022T100000\r\n"));
+        expectJSON(custom["start"]["timeZone"], "tzone://Microsoft/Custom", "quoted TZID holding ':'");
+
+        json allDay = graphEvent(vcalendar("DTSTART;VALUE=DATE:20261022\r\nDTEND;VALUE=DATE:20261025\r\n"));
+        expectJSON(allDay["isAllDay"], true, "all-day");
+        expectJSON(allDay["start"], {{"dateTime", "2026-10-22T00:00:00"}, {"timeZone", "UTC"}}, "all-day start at midnight");
+        expectJSON(allDay["end"], {{"dateTime", "2026-10-25T00:00:00"}, {"timeZone", "UTC"}}, "all-day end at the next midnight");
+    }
+    {
+        // The attendees GraphICS writes, read back as the Graph attendees they came from.
+        json original = event({
+            {"attendees", json::array({
+                {{"type", "required"}, {"status", {{"response", "accepted"}}},
+                 {"emailAddress", {{"name", "Doe, Jane"}, {"address", "jane@example.com"}}}},
+                {{"type", "optional"}, {"status", {{"response", "none"}}},
+                 {"emailAddress", {{"name", "Sam"}, {"address", "sam@example.com"}}}},
+                {{"type", "resource"}, {"status", {{"response", "none"}}},
+                 {"emailAddress", {{"name", "Room 4"}, {"address", "room4@example.com"}}}},
+                {{"type", "required"}, {"status", {{"response", "none"}}},
+                 {"emailAddress", {{"name", ""}, {"address", "kim@example.com"}}}},
+            })},
+        });
+        json e = graphEvent(GraphICS::icsForEvent(original, ME, START_UTC), START_UTC);
+        json expected = json::array();
+        for (const auto & attendee : original["attendees"]) {
+            expected.push_back({{"type", attendee["type"]}, {"emailAddress", attendee["emailAddress"]}});
+        }
+        expectJSON(e["attendees"], expected, "attendees round trip");
+        expectJSON(e["start"], {{"dateTime", "2026-10-22T09:00:00"}, {"timeZone", "Pacific Standard Time"}}, "Windows zone round trip");
+        expectJSON(e["subject"], "Planning", "subject round trip");
+
+        json mailto = graphEvent(vcalendar("ATTENDEE;CUTYPE=ROOM:MAILTO:room9@example.com\r\n"
+                                           "ATTENDEE;ROLE=NON-PARTICIPANT:mailto:fyi@example.com\r\n"));
+        expectJSON(mailto["attendees"][0], {{"type", "resource"}, {"emailAddress", {{"address", "room9@example.com"}, {"name", ""}}}},
+                   "room, MAILTO in capitals");
+        expectJSON(mailto["attendees"][1]["type"], "optional", "non-participant is optional");
+    }
+    {
+        // The Repeat control writes only FREQ; the rest comes from DTSTART, Wednesday 7 October.
+        expectJSON(recurrenceFor("FREQ=DAILY"),
+                   {{"pattern", {{"type", "daily"}, {"interval", 1}}},
+                    {"range", {{"type", "noEnd"}, {"startDate", "2026-10-07"}}}}, "daily");
+        expectJSON(recurrenceFor("FREQ=WEEKLY")["pattern"],
+                   {{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"wednesday"}}, {"firstDayOfWeek", "monday"}},
+                   "weekly on the start's weekday");
+        expectJSON(recurrenceFor("FREQ=MONTHLY")["pattern"],
+                   {{"type", "absoluteMonthly"}, {"interval", 1}, {"dayOfMonth", 7}}, "monthly on the start's day");
+        expectJSON(recurrenceFor("FREQ=YEARLY")["pattern"],
+                   {{"type", "absoluteYearly"}, {"interval", 1}, {"month", 10}, {"dayOfMonth", 7}}, "yearly on the start's date");
+    }
+    {
+        // Every pattern GraphICS writes reads back as the one it came from.
+        expectRoundTrip(series(pattern({{"type", "daily"}, {"interval", 3}})), "daily every 3 days");
+        expectRoundTrip(series(pattern({{"type", "relativeMonthly"}, {"interval", 1}, {"daysOfWeek", {"friday"}}, {"index", "last"}},
+                                       {{"type", "numbered"}, {"numberOfOccurrences", 10}})), "last Friday, ten times");
+        expectRoundTrip(series(pattern({{"type", "relativeMonthly"}, {"interval", 1}, {"index", "first"},
+                                        {"daysOfWeek", {"monday", "tuesday", "wednesday", "thursday", "friday"}}})),
+                        "first weekday of the month");
+        expectRoundTrip(series(pattern({{"type", "absoluteMonthly"}, {"interval", 3}, {"dayOfMonth", 15}})), "every third month on the 15th");
+        expectRoundTrip(series(pattern({{"type", "absoluteYearly"}, {"interval", 1}, {"month", 3}, {"dayOfMonth", 14}})), "yearly on March 14");
+        expectRoundTrip(series(pattern({{"type", "absoluteMonthly"}, {"interval", 1}, {"dayOfMonth", 31}})), "the 31st");
+        expectRoundTrip(series(pattern({{"type", "absoluteYearly"}, {"interval", 1}, {"month", 2}, {"dayOfMonth", 29}})), "February 29");
+        expectRoundTrip(series(pattern({{"type", "relativeYearly"}, {"interval", 1}, {"month", 11}, {"daysOfWeek", {"tuesday"}},
+                                        {"index", "second"}})), "second Tuesday of November");
+        expectRoundTrip(series(pattern({{"type", "weekly"}, {"interval", 2}, {"daysOfWeek", {"monday", "wednesday"}}, {"firstDayOfWeek", "sunday"}},
+                                       {{"type", "endDate"}, {"startDate", "2026-10-05"}, {"endDate", "2026-12-16"}})),
+                        "biweekly until a date after daylight saving ends");
+        expectRoundTrip(series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}}, {"firstDayOfWeek", "sunday"}},
+                                       {{"type", "endDate"}, {"startDate", "2026-10-05"}, {"endDate", "2026-12-28"}}),
+                               {{"isAllDay", true},
+                                {"start", {{"dateTime", "2026-10-05T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                                {"end", {{"dateTime", "2026-10-06T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}}}),
+                        "all-day until a date", "2026-10-05T07:00:00.0000000");
+        // East of UTC an UNTIL lands on the UTC day before the local one.
+        expectRoundTrip(series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}}, {"firstDayOfWeek", "sunday"}},
+                                       {{"type", "endDate"}, {"startDate", "2026-10-05"}, {"endDate", "2026-11-30"}}),
+                               {{"start", {{"dateTime", "2026-10-05T09:00:00.0000000"}, {"timeZone", "Tokyo Standard Time"}}},
+                                {"end", {{"dateTime", "2026-10-05T09:30:00.0000000"}, {"timeZone", "Tokyo Standard Time"}}}}),
+                        "until a date east of UTC", "2026-10-05T00:00:00.0000000");
+    }
+    {
+        // An UNTIL exactly at the last occurrence's start, which daylight saving puts an hour later
+        // in UTC than the series' first: Monday 5 April 2027 at 09:00 Pacific daylight time.
+        json e = graphEvent(vcalendar("DTSTART;TZID=Pacific Standard Time:20270104T090000\r\n"
+                                      "DTEND;TZID=Pacific Standard Time:20270104T093000\r\n"
+                                      "RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20270405T160000Z\r\n"),
+                            "2027-01-04T17:00:00.0000000");
+        expectJSON(e["recurrence"]["range"], {{"type", "endDate"}, {"startDate", "2027-01-04"}, {"endDate", "2027-04-05"}},
+                   "UNTIL at a last occurrence in daylight time");
+    }
+    {
+        expect(refused("FREQ=HOURLY"), "hourly refused");
+        expect(refused("FREQ=MONTHLY;BYMONTHDAY=1,15"), "two days of the month refused");
+        expect(refused("FREQ=WEEKLY;BYDAY=2MO"), "a weekly position refused");
+        expect(refused("FREQ=MONTHLY;BYDAY=1MO,3WE"), "two positioned days refused");
+        expect(refused("FREQ=MONTHLY;BYDAY=MO"), "every Monday of the month refused");
+        expect(refused("FREQ=DAILY;COUNT=5;UNTIL=20261231T000000Z"), "COUNT with UNTIL refused");
+        expect(refused("FREQ=WEEKLY;BYHOUR=9"), "BYHOUR refused");
+        expect(refused("FREQ=MONTHLY;BYDAY=MO,TU;BYSETPOS=5"), "a fifth weekday refused");
+        expect(!refused("FREQ=MONTHLY;BYDAY=+2TU"), "a signed position read");
+    }
+    {
+        // An override is its own VEVENT, with no recurrence of its own.
+        vector<ICSVEvent> vevents = GraphICS::veventsOf(
+            "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:abc\r\nDTSTART:20261005T160000Z\r\nDTEND:20261005T163000Z\r\n"
+            "RRULE:FREQ=WEEKLY\r\nEXDATE:20261012T160000Z\r\nEND:VEVENT\r\n"
+            "BEGIN:VEVENT\r\nUID:abc\r\nRECURRENCE-ID:20261019T160000Z\r\nDTSTART:20261019T170000Z\r\nDTEND:20261019T173000Z\r\n"
+            "SUMMARY:Moved\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n");
+        expect(vevents.size() == 2, "master and override", to_string(vevents.size()));
+        if (vevents.size() == 2) {
+            expectEqual(vevents[0].property("EXDATE").value, "20261012T160000Z", "master's EXDATE");
+            expectEqual(vevents[1].property("RECURRENCE-ID").value, "20261019T160000Z", "override's RECURRENCE-ID");
+            json master = GraphICS::eventForVEvent(vevents[0], "");
+            json override = GraphICS::eventForVEvent(vevents[1], "");
+            expectJSON(master["recurrence"]["pattern"]["daysOfWeek"], {"monday"}, "master's recurrence");
+            expect(!override.count("recurrence"), "override has no recurrence");
+            expectJSON(override["subject"], "Moved", "override's own subject");
+        }
     }
 
     if (failures) {

@@ -10,6 +10,7 @@
 
 #include "GraphICS.hpp"
 #include "JSONUtils.hpp"
+#include "icalendar.h"
 #include "strlib.h"
 
 #include <algorithm>
@@ -17,6 +18,8 @@
 #include <cstdio>
 #include <ctime>
 #include <map>
+#include <set>
+#include <stdexcept>
 #include <vector>
 
 #ifdef _MSC_VER
@@ -118,12 +121,16 @@ static const map<string, string> SET_POSITIONS = {
     {"first", "1"}, {"second", "2"}, {"third", "3"}, {"fourth", "4"}, {"last", "-1"},
 };
 
+// The most days `month` can have; month 0, a monthly pattern, can have 31.
+static int longestMonth(int month) {
+    static const int LONGEST[] = {31, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    return month >= 1 && month <= 12 ? LONGEST[month] : LONGEST[0];
+}
+
 // Exchange moves a day past the month's end to its last day (EWS AbsoluteMonthlyRecurrence); -1 says
 // that for the 31st and February 29. ical.js mis-expands BYSETPOS, so the 29th and 30th still skip February.
 static string byMonthDay(int day, int month) {
-    static const int LONGEST[] = {31, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    int longest = month >= 1 && month <= 12 ? LONGEST[month] : LONGEST[0];
-    return ";BYMONTHDAY=" + (day >= longest ? string("-1") : to_string(day));
+    return ";BYMONTHDAY=" + (day >= longestMonth(month) ? string("-1") : to_string(day));
 }
 
 // UNTIL this long after the last occurrence's local start still precedes the next occurrence,
@@ -342,4 +349,288 @@ string GraphICS::icsForEvent(const json & event, const vector<string> & mailboxA
     }
     appendLine(ics, "END:VCALENDAR");
     return ics;
+}
+
+string ICSProperty::param(const string & name) const {
+    auto it = params.find(name);
+    return it != params.end() ? it->second : "";
+}
+
+const ICSProperty & ICSVEvent::property(const string & name) const {
+    static const ICSProperty none;
+    for (const auto & property : properties) {
+        if (property.name == name) {
+            return property;
+        }
+    }
+    return none;
+}
+
+// RFC 5545 section 3.1: a line that begins with a space or tab continues the one before it.
+static vector<string> unfoldedLines(const string & ics) {
+    vector<string> lines;
+    size_t start = 0;
+    while (start < ics.size()) {
+        size_t end = min(ics.find('\n', start), ics.size());
+        string line = ics.substr(start, end - start);
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (!line.empty() && (line[0] == ' ' || line[0] == '\t') && !lines.empty()) {
+            lines.back() += line.substr(1);
+        } else if (!line.empty()) {
+            lines.push_back(line);
+        }
+        start = end + 1;
+    }
+    return lines;
+}
+
+// The value begins at the first ':' outside a quoted parameter value (RFC 5545 section 3.2).
+static ICSProperty propertyOf(const string & line) {
+    ICSProperty property;
+    size_t i = min(line.find_first_of(";:"), line.size());
+    property.name = toUpperCase(line.substr(0, i));
+    while (i < line.size() && line[i] == ';') {
+        size_t nameStart = i + 1;
+        i = min(line.find_first_of("=;:", nameStart), line.size());
+        string name = toUpperCase(line.substr(nameStart, i - nameStart));
+        string value;
+        if (i < line.size() && line[i] == '=') {
+            for (i++; i < line.size() && line[i] != ';' && line[i] != ':'; i++) {
+                if (line[i] == '"') {
+                    size_t close = min(line.find('"', i + 1), line.size());
+                    value += line.substr(i + 1, close - i - 1);
+                    i = close;
+                } else {
+                    value += line[i];
+                }
+            }
+        }
+        property.params[name] = value;
+    }
+    property.value = i < line.size() ? line.substr(i + 1) : "";
+    return property;
+}
+
+vector<ICSVEvent> GraphICS::veventsOf(const string & ics) {
+    vector<ICSVEvent> vevents;
+    vector<string> open; // the components around the current line, innermost last
+    for (const auto & line : unfoldedLines(ics)) {
+        ICSProperty property = propertyOf(line);
+        if (property.name == "BEGIN") {
+            open.push_back(toUpperCase(property.value));
+            if (open.back() == "VEVENT") {
+                vevents.emplace_back();
+            }
+        } else if (property.name == "END") {
+            if (!open.empty()) { // the task's ICS is whatever a client queued
+                open.pop_back();
+            }
+        } else if (!open.empty() && open.back() == "VEVENT") {
+            vevents.back().properties.push_back(property);
+        }
+    }
+    return vevents;
+}
+
+// A DATE or DATE-TIME value (20261022, 20261022T090000Z) as Graph's 2026-10-22T09:00:00.
+static string extendedDateTime(const string & basic) {
+    if (basic.size() < 8) {
+        return "";
+    }
+    string time = basic.size() >= 15 ? basic.substr(9, 2) + ":" + basic.substr(11, 2) + ":" + basic.substr(13, 2) : "00:00:00";
+    return basic.substr(0, 4) + "-" + basic.substr(4, 2) + "-" + basic.substr(6, 2) + "T" + time;
+}
+
+// Graph takes an all-day event's two midnights in one zone; a VALUE=DATE has none, so UTC.
+static json dateTimeTimeZone(const ICSProperty & property, bool allDay) {
+    string zone = property.param("TZID");
+    return {{"dateTime", extendedDateTime(property.value)}, {"timeZone", allDay || zone == "" ? "UTC" : zone}};
+}
+
+// The inverse of the roles appendVEvent writes.
+static json attendeeOf(const ICSProperty & property) {
+    string address = property.value;
+    if (address.size() >= 7 && equalsIgnoreCase(address.substr(0, 7), "mailto:")) {
+        address = address.substr(7);
+    }
+    string cutype = toUpperCase(property.param("CUTYPE"));
+    string role = toUpperCase(property.param("ROLE"));
+    string type = cutype == "RESOURCE" || cutype == "ROOM" ? "resource"
+                : role == "OPT-PARTICIPANT" || role == "NON-PARTICIPANT" ? "optional"
+                : "required";
+    return {{"type", type}, {"emailAddress", {{"address", address}, {"name", property.param("CN")}}}};
+}
+
+// The name `names` gives `code` (WEEKDAYS: "MO" is "monday"), or "".
+static string nameOf(const map<string, string> & names, const string & code) {
+    for (const auto & [name, value] : names) {
+        if (value == code) {
+            return name;
+        }
+    }
+    return "";
+}
+
+static int integerOf(const string & text) {
+    return stringIsInteger(text) ? stringToInteger(text) : 0;
+}
+
+// UNTIL names the last occurrence by its instant (UTC) or, for an all-day series, its date; endDate
+// is that occurrence's local date. `utcOffset` is the series start's: at the last occurrence
+// daylight saving can make it an hour off.
+static string endDateOf(const string & until, const string & start, time_t utcOffset) {
+    time_t last = GraphICS::secondsAsUTC(extendedDateTime(until)) + (until.back() == 'Z' ? utcOffset : 0);
+    time_t timeOfDay = GraphICS::secondsAsUTC(extendedDateTime(start)) % 86400;
+    return formatUTC(last - timeOfDay + 3600, "%Y-%m-%d");
+}
+
+static const set<string> RRULE_PARTS = {"FREQ", "INTERVAL", "COUNT", "UNTIL", "WKST", "BYDAY", "BYMONTHDAY", "BYMONTH", "BYSETPOS"};
+
+// The inverse of rruleLine, with the parts a rule may leave to DTSTART (RFC 5545 section 3.3.10):
+// a weekly rule's day, a monthly rule's day of the month, a yearly rule's month and day.
+static json recurrenceOf(const ICSVEvent & vevent, time_t utcOffset) {
+    const string & rule = vevent.property("RRULE").value;
+    const string & start = vevent.property("DTSTART").value;
+    invalid_argument unsupported("RRULE:" + rule + " has no Graph recurrence pattern");
+
+    map<string, string> parts;
+    for (const auto & part : stringSplit(rule, ";")) {
+        size_t equals = part.find('=');
+        string name = toUpperCase(part.substr(0, equals));
+        if (equals == string::npos || !RRULE_PARTS.count(name)) {
+            throw unsupported;
+        }
+        parts[name] = toUpperCase(part.substr(equals + 1));
+    }
+
+    static const char * DAY_CODES[] = {"SU", "MO", "TU", "WE", "TH", "FR", "SA"};
+    time_t startSeconds = GraphICS::secondsAsUTC(extendedDateTime(start));
+    string startDay = nameOf(WEEKDAYS, DAY_CODES[integerOf(formatUTC(startSeconds, "%w"))]);
+
+    // BYDAY=-1FR and BYDAY=MO,TU;BYSETPOS=1 both say which of the month's days.
+    vector<string> days;
+    string index = parts.count("BYSETPOS") ? parts["BYSETPOS"] : "";
+    if (parts.count("BYDAY")) {
+        vector<string> entries = stringSplit(parts["BYDAY"], ",");
+        for (const auto & entry : entries) {
+            string day = entry.size() >= 2 ? nameOf(WEEKDAYS, entry.substr(entry.size() - 2)) : "";
+            string position = entry.substr(0, entry.size() - min<size_t>(2, entry.size()));
+            if (day == "" || (position != "" && (entries.size() > 1 || index != ""))) {
+                throw unsupported;
+            }
+            if (position != "") {
+                index = position[0] == '+' ? position.substr(1) : position;
+            }
+            days.push_back(day);
+        }
+    }
+    string indexName = index == "" ? "" : nameOf(SET_POSITIONS, index);
+    if (index != "" && indexName == "") {
+        throw unsupported;
+    }
+
+    string frequency = parts["FREQ"];
+    int interval = parts.count("INTERVAL") ? integerOf(parts["INTERVAL"]) : 1;
+    if (interval < 1) {
+        throw unsupported;
+    }
+    json pattern = {{"interval", interval}};
+    if (frequency == "DAILY" || frequency == "WEEKLY") {
+        if (index != "" || parts.count("BYMONTHDAY") || parts.count("BYMONTH") || (frequency == "DAILY" && !days.empty())) {
+            throw unsupported;
+        }
+        pattern["type"] = toLowerCase(frequency);
+        if (frequency == "WEEKLY") {
+            string weekStart = parts.count("WKST") ? nameOf(WEEKDAYS, parts["WKST"]) : "monday";
+            if (weekStart == "") {
+                throw unsupported;
+            }
+            pattern["daysOfWeek"] = days.empty() ? vector<string>{startDay} : days;
+            pattern["firstDayOfWeek"] = weekStart;
+        }
+    } else if (frequency == "MONTHLY" || frequency == "YEARLY") {
+        bool yearly = frequency == "YEARLY";
+        int month = 0;
+        if (yearly) {
+            month = integerOf(parts.count("BYMONTH") ? parts["BYMONTH"] : formatUTC(startSeconds, "%m"));
+            if (month < 1 || month > 12) {
+                throw unsupported;
+            }
+            pattern["month"] = month;
+        } else if (parts.count("BYMONTH")) {
+            throw unsupported;
+        }
+        if (!days.empty()) {
+            if (indexName == "" || parts.count("BYMONTHDAY")) {
+                throw unsupported;
+            }
+            pattern["type"] = yearly ? "relativeYearly" : "relativeMonthly";
+            pattern["daysOfWeek"] = days;
+            pattern["index"] = indexName;
+        } else {
+            if (index != "") {
+                throw unsupported;
+            }
+            string monthDay = parts.count("BYMONTHDAY") ? parts["BYMONTHDAY"] : formatUTC(startSeconds, "%d");
+            int day = monthDay == "-1" ? longestMonth(month) : integerOf(monthDay);
+            if (day < 1 || day > 31) {
+                throw unsupported;
+            }
+            pattern["type"] = yearly ? "absoluteYearly" : "absoluteMonthly";
+            pattern["dayOfMonth"] = day;
+        }
+    } else {
+        throw unsupported;
+    }
+
+    json range = {{"startDate", formatUTC(startSeconds, "%Y-%m-%d")}};
+    if (parts.count("COUNT") && parts.count("UNTIL")) {
+        throw unsupported;
+    }
+    if (parts.count("COUNT")) {
+        int count = integerOf(parts["COUNT"]);
+        if (count < 1) {
+            throw unsupported;
+        }
+        range["type"] = "numbered";
+        range["numberOfOccurrences"] = count;
+    } else if (parts.count("UNTIL")) {
+        if (parts["UNTIL"].size() < 8) {
+            throw unsupported;
+        }
+        range["type"] = "endDate";
+        range["endDate"] = endDateOf(parts["UNTIL"], start, utcOffset);
+    } else {
+        range["type"] = "noEnd";
+    }
+    return {{"pattern", pattern}, {"range", range}};
+}
+
+json GraphICS::eventForVEvent(const ICSVEvent & vevent, const string & startUTC) {
+    const ICSProperty & start = vevent.property("DTSTART");
+    bool allDay = start.param("VALUE") == "DATE";
+    json attendees = json::array();
+    for (const auto & property : vevent.properties) {
+        if (property.name == "ATTENDEE") {
+            attendees.push_back(attendeeOf(property));
+        }
+    }
+    json event = {
+        {"subject", UnescapeICSText(vevent.property("SUMMARY").value)},
+        {"body", {{"contentType", "text"}, {"content", UnescapeICSText(vevent.property("DESCRIPTION").value)}}},
+        {"location", {{"displayName", UnescapeICSText(vevent.property("LOCATION").value)}}},
+        {"isAllDay", allDay},
+        {"start", dateTimeTimeZone(start, allDay)},
+        {"end", dateTimeTimeZone(vevent.property("DTEND"), allDay)},
+        {"showAs", vevent.property("TRANSP").value == "TRANSPARENT" ? "free" : "busy"},
+        {"attendees", attendees},
+    };
+    if (vevent.property("RECURRENCE-ID").name.empty()) {
+        time_t utcOffset = startUTC == "" || start.param("TZID") == ""
+                         ? 0 : secondsAsUTC(extendedDateTime(start.value)) - secondsAsUTC(startUTC);
+        event["recurrence"] = vevent.property("RRULE").name.empty() ? json() : recurrenceOf(vevent, utcOffset);
+    }
+    return event;
 }
