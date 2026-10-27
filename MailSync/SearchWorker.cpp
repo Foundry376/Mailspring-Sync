@@ -514,9 +514,41 @@ void SearchWorker::fetchCandidates(string searchId, uint64_t gen, vector<SearchM
                 throw SyncException(err, "search fetch " + folder->path());
             }
             if (err != ErrorCode::ErrorNone || raw == nullptr) {
+                // A NO, a BAD or a parse error. After a BAD the stream may be out of step with the
+                // server (Yahoo), and after a parse error mailcore logs in again implicitly, past
+                // connect()'s backoff and token refresh: the batch is retried one message at a
+                // time on a fresh connection, the search's one reconnect, so one message the
+                // server refuses or libetpan cannot parse costs only itself. A batch that fails
+                // after that reconnect is skipped.
                 logger->warn("Search {}: fetching {} message(s) from {} failed: {}", searchId, batch.size(), folder->path(), ErrorCodeToTypeMap[err]);
                 errors.push_back({{"folderId", folder->id()}, {"error", ErrorCodeToTypeMap[err]}});
-                progress.skipped += batch.size();
+                if (reconnected) {
+                    progress.skipped += batch.size();
+                } else {
+                    reconnected = true;
+                    disconnect();
+                    connect();
+                    logger->info("Search {}: retrying {} message(s) from {} one at a time on a fresh connection", searchId, batch.size(), folder->path());
+                    for (auto & match : batch) {
+                        ErrorCode one = ErrorCode::ErrorNone;
+                        HashMap * single = session.fetchMessagesRawByUID(&path, IndexSet::indexSetWithIndex(match.uid), nullptr, &one);
+                        if (one == ErrorCode::ErrorConnection) {
+                            disconnect();
+                            throw SyncException(one, "search fetch " + folder->path());
+                        }
+                        if (one != ErrorCode::ErrorNone || single == nullptr) {
+                            logger->warn("Search {}: fetching message {} ({} UID {}) alone failed: {}, skipped", searchId, match.messageId, folder->path(), match.uid, ErrorCodeToTypeMap[one]);
+                            progress.skipped++;
+                            continue;
+                        }
+                        Data * data = (Data *)single->objectForKey(Value::valueWithUnsignedIntValue(match.uid));
+                        if (data ? storeFetchedBody(match, data) : fetchFromAnotherCopy(match)) {
+                            progress.fetched++;
+                        } else {
+                            progress.skipped++;
+                        }
+                    }
+                }
             } else {
                 for (auto & match : batch) {
                     Data * data = (Data *)raw->objectForKey(Value::valueWithUnsignedIntValue(match.uid));
