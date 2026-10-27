@@ -94,8 +94,9 @@ Steps:
 | `server.flags: {..., per_message: true}` | one STORE per UID, so HIGHESTMODSEQ advances once per message - how a modseq gap larger than one grows on a real server (used by `modseq-truncation`) |
 | `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids (`{mailbox, uids}`, or `{header_message_ids: [...]}` for rows without a server placement such as a local draft), `threads: {mailbox, uids}` to their `threadIds`, `folder`/`labelsTo*` to Folder JSON, `sourceFolders: [paths]` to `sourceFolderIds` |
 | `client.undo_task: {of: label}` | queue the undo of a completed task from its stored data, as `UndoRedoStore` does: for a `ChangeFolderTask` the engine-written `undoPlacements` become `restorePlacements` and the original destination its `sourceFolderIds` |
-| `client.need_bodies`, `client.wake` | the other stdin commands |
+| `client.need_bodies`, `client.wake`, `client.sync_calendar` | the other stdin commands (`sync_calendar` runs a calendar pass now, as the calendar's refresh does) |
 | `server.smtp_hold` / `server.smtp_release` | queue self-addressed SMTP deliveries, then deliver them, so the INBOX copy of a sent message arrives after the Sent copy; `smtp_release` takes `at:` like any server step (`rules-ready-inbox-copy-first`) |
+| `server.graph_calendars: {calendars: [...]}`, `server.graph_events: {calendar, events: [...]}`, `server.graph_failures: {failures: [...]}` | replace the calendars the fake Graph server lists, one calendar's events, or its injected errors (`graph-calendars-*`, `graph-calendar-events*`) |
 | `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
 | `db.sql: [statements]` | write the stopped engine's database (only under `restart: {before: [...]}`), to reproduce a stored state whose producing path is unknown; every derived layer must be written consistently |
 | `restart: {binary: path, before: [steps]}` | stop and relaunch on the same database, optionally with another build; `before:` runs steps while the engine is stopped (server state it did not watch happen) |
@@ -112,7 +113,8 @@ upgrades the schema.
 
 A top-level `env: {NAME: value}` is added to the engine's environment on every launch, for
 the knobs the engine reads from it: `ORPHAN_SWEEP_MAX_WAIT` (seconds; default one day) is how
-long the orphan sweep waits for a folder that has not been fully scanned.
+long the orphan sweep waits for a folder that has not been fully scanned, and `CALENDAR_SYNC_NOW`
+(seconds since the epoch) pins the calendar sync window's "now", so fixture events keep fixed dates.
 
 Expectations: `db_matches_server` (placements: every (folder, UID) on the server is a
 message locally with the same Message-ID and tracked flags, and nothing local is missing on
@@ -126,13 +128,15 @@ log lines match, to bound a loop the engine should take a known number of times)
 it on two deltas, across restarts, and each such delta carries the body; `folders` the
 mailboxes that delta must list, `fetched` whether it is the delta that fetched the body),
 `folder_roles: {path: role}`, `contacts: {mail: {email: name}, carddav: {id: {email, name}}}`
-(Contact rows and the ContactSearch content autocomplete matches), `connection_error: {reported: true, cleared: true}`
+(Contact rows and the ContactSearch content autocomplete matches), `calendars: {name: {path,
+color, read_only, owner}}` (Calendar rows by name, and no others), `events: {"icsuid|rid": {href,
+etag, ics_has: [lines]}}` (Event rows by UID and RECURRENCE-ID, and no others), `event_count: n`, `connection_error: {reported: true, cleared: true}`
 (the ProcessState stream behind the client's offline state), `migrate_output: regex` (the
 last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], log_absent:
 [regex]}` (runs `--mode test`, the client's account-add check, and compares its JSON),
 `task_error: {label: key or null or {key, debuginfo: regex}}` (how a labelled task finished), `graph: {count, messages:
-[{recipients, headers, attachments}], drafts, upload_sessions, graph_token_requests,
-max_request_bytes}` (what the fake Graph server sent and still holds), `local_search: {FTS5 query:
+[{recipients, headers, attachments}], drafts, upload_sessions, graph_mail_token_requests,
+graph_calendar_token_requests, distinct_tokens, requests: {regex: n}, max_request_bytes}` (what the fake Graph server sent and still holds), `local_search: {FTS5 query:
 [thread subjects]}` (the threads a local search finds in `ThreadSearch`),
 `unfetched_bodies: {max: n}` (empty `MessageBody` rows reserving a fetch), `unchanged_since:
 snapshot`, `running`, `exit`. Any
@@ -433,20 +437,31 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   calls the send path makes: a draft from base64 MIME, attachments (one POST, or an upload
   session in 320 KiB-multiple chunks without an Authorization header), `/send`, reading the
   draft by its immutable id, Sent Items, and DELETE; requests over 4 MB get 413. `{fake:
-  outlook, graph: true}` turns the account into an `office365` OAuth account whose IMAP (and
-  SMTP) accept the fake's mail tokens and, unless `graph_send: false`, sends through Graph.
-  Each sent message's copy is appended to `graph_sent_copy` (default `Sent Items`) after
-  `graph_sent_copy_delay` seconds; `graph_consented: false` refuses Graph scopes with
-  AADSTS65001, as for an account authorized before Mail.Send was requested, and
-  `graph_consent_refusals: n` refuses only the first n, as while a fresh consent replicates,
-  and `graph_drop_token: true` closes the connection on them unanswered, as when offline;
-  `graph_aliases: [address]` are the addresses besides the account's own it may send as - a
-  MIME draft from any other address is rewritten to the account's, as Exchange does, and
-  /send refuses a From outside them with ErrorSendAsDenied; `graph_failures:
-  [{route, method, status, code, message, times, retry_after}]` injects errors (`graph-send-*`). The
-  engine reaches it through `MS_GRAPH_URL` and `MS_OAUTH_TOKEN_URL`, which the server adds to
-  the engine's environment (`Server.engine_env`). A draft attachment written as `{filename,
-  bytes, contentType, contentId}` is created on disk where the engine looks for it.
+  outlook, graph: true}` turns the account into an `office365` OAuth account (`outlook`, as
+  Outlook.com, with `graph_provider: outlook`) whose IMAP (and SMTP) accept the fake's mail
+  tokens and, unless `graph_send: false`, sends through Graph. Each sent message's copy is
+  appended to `graph_sent_copy` (default `Sent Items`) after `graph_sent_copy_delay` seconds;
+  `graph_consented: false` refuses Graph mail scopes with AADSTS65001, as for an account
+  authorized before Mail.Send was requested, and `graph_consent_refusals: n` refuses only the
+  first n, as while a fresh consent replicates, and `graph_drop_token: true` closes the
+  connection on them unanswered, as when offline; `graph_aliases: [address]` are the addresses
+  besides the account's own it may send as - a MIME draft from any other address is rewritten
+  to the account's, as Exchange does, and /send refuses a From outside them with
+  ErrorSendAsDenied; `graph_failures: [{route, method, status, code, message, times,
+  retry_after}]` injects errors (`graph-send-*`). `/me/calendars` lists `graph_calendars:
+  [Graph calendar resources]`, `graph_calendars_page_size` to a page (`graph_calendars_delay`
+  seconds late each), and each calendar's events come from `graph_events: {calendar id:
+  [events in their own zone]}` (`graph_events_page_size` to a page; `graph_generated_events:
+  n` adds n one-off events to the first calendar), listed in UTC and read back in the zone
+  asked for, one at a time or 20 per `$batch`; the calendar scopes take their own token,
+  refused only with `graph_calendars_consented: false`, and `graph_shared_mailbox_owner:
+  address` makes the account a shared mailbox signed in as that address (`graph-calendars-*`,
+  `graph-calendar-events*`). It also answers the identity server's DAV host lookup as
+  production does for a Microsoft account, sending CardDAV discovery to an Outlook on the web
+  page that answers 401. The engine reaches it through `MS_GRAPH_URL`, `MS_OAUTH_TOKEN_URL`
+  and `IDENTITY_SERVER`, which the server adds to the engine's environment
+  (`Server.engine_env`). A draft attachment written as `{filename, bytes, contentType,
+  contentId}` is created on disk where the engine looks for it.
 - **Recording real providers.** `tools/record_personality.py HOST PORT USER --name NAME`
   captures greeting, capabilities, NAMESPACE, ID, LIST, STATUS/SELECT and FETCH shapes from a
   real account (no message content) into `fakeimap/recordings/`; use it to replace every

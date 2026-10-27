@@ -67,6 +67,10 @@ jobs:
         env:
           SIGN_BUILD: ${{ github.ref == 'refs/heads/master' }}
 
+      - name: Unit tests (Linux)
+        if: runner.os == 'Linux'
+        run: make vcard_test graph_ics_test && ./vcard_test && ./graph_ics_test
+
       - name: Verify universal binary architectures (macOS)
         if: runner.os == 'macOS'
         run: |

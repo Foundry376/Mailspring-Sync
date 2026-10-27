@@ -51,6 +51,7 @@ public:
     string IMAPCertificateSHA256();
 
     bool isICloud();
+    bool isMicrosoft();
 
     unsigned int SMTPPort();
     string SMTPHost();
@@ -62,6 +63,7 @@ public:
     string SMTPVerification();
     bool createHelperFolders();
     bool sendsViaGraph();
+    bool syncsCalendarsViaGraph();
 
     string tableName();
     string constructorName();

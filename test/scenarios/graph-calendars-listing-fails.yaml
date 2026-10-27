@@ -1,0 +1,38 @@
+name: graph-calendars-listing-fails
+description: >
+  A calendar listing that fails must leave the calendars alone. A 2xx whose body is not a Graph
+  collection (no `value` array, as from an intercepting proxy) must not read as "no calendars",
+  nor may an empty one (Graph always lists the default calendar), and an error status must stop
+  the pass before anything is pruned.
+source: "https://learn.microsoft.com/en-us/graph/api/user-list-calendars (a collection is {value: [...]})"
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, owner: {name: Harness Test, address: test@example.test}}
+      - {id: "AAMkADTeam=", name: Team, owner: {name: Bob Builder, address: bob@example.net}}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 2 calendars", timeout: 90}
+  - server.graph_failures:
+      failures: [{route: "^calendars$", method: GET, status: 200, times: 1}]
+  - client.sync_calendar: {}
+  - wait: {seconds: 3}
+  - server.graph_failures:
+      failures: [{route: "^calendars$", method: GET, status: 500, times: 1}]
+  - client.sync_calendar: {}
+  - wait: {seconds: 3}
+  - server.graph_calendars: {calendars: []}
+  - client.sync_calendar: {}
+  - wait: {seconds: 3}
+expect:
+  calendars:
+    Calendar: {path: "AAMkADefault="}
+    Team: {path: "AAMkADTeam="}
+  deltas: {Calendar: {unpersist: 0}}
+  log_count: {"Microsoft calendar sync complete": 1}
+  graph: {requests: {"/me/calendars$": 4}}
+  running: true

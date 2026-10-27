@@ -87,9 +87,23 @@ XOAuth2TokenManager::~XOAuth2TokenManager() {
 
 
 
+static string labelForAudience(OAuthTokenAudience audience) {
+    switch (audience) {
+        case OAuthTokenAudience::Mail: return "";
+        case OAuthTokenAudience::MicrosoftGraphMail: return "Graph mail";
+        case OAuthTokenAudience::MicrosoftGraphCalendars: return "Graph calendars";
+    }
+    return "";
+}
+
+static string cacheKey(shared_ptr<Account> account, OAuthTokenAudience audience) {
+    return account->id() + ":" + to_string(static_cast<int>(audience));
+}
+
 XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, OAuthTokenAudience audience) {
-    string key = account->id() + (audience == OAuthTokenAudience::MicrosoftGraph ? ":graph" : "");
-    
+    string label = labelForAudience(audience);
+    string key = cacheKey(account, audience);
+
     // There's not much of a point to having two threads request the same token at once.
     // Only allow one thread to access / update the cache and make others wait until it
     // exits.
@@ -109,7 +123,7 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, O
     }
 
     spdlog::get("logger")->info("Fetching XOAuth2 access token ({}{}) for {}", account->provider(),
-        audience == OAuthTokenAudience::MicrosoftGraph ? ", Graph" : "", account->id());
+        label.empty() ? "" : ", " + label, account->id());
     json updated = MakeOAuthRefreshRequest(account->provider(), refreshClientId, account->refreshToken(), audience);
 
     // A 2xx does not mean the body is a token response: a captive portal or intercepting
@@ -144,7 +158,8 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, O
     return parts;
 }
 
+// The IMAP/SMTP token: both callers retry an IMAP login the server refused.
 void XOAuth2TokenManager::invalidateTokenForAccount(shared_ptr<Account> account) {
     lock_guard<mutex> guard(_cacheLock);
-    _cache.erase(account->id());
+    _cache.erase(cacheKey(account, OAuthTokenAudience::Mail));
 }

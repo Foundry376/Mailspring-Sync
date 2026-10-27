@@ -1,0 +1,87 @@
+name: graph-calendars
+description: >
+  An Office 365 account has no CalDAV, so its calendars come from Microsoft Graph with their
+  own calendar-scoped token. That works for an account signed in before Graph sending, which
+  granted the calendar scopes but not the mail ones. Every calendar /me/calendars lists,
+  across pages, becomes a read-only Calendar row (until event edits go through Graph) with
+  its colour and whether the account owns it: a calendar is the account's when its owner is the
+  default calendar's, which is the mailbox's primary address even where the account signs in with
+  an alias (as here), and wherever the default calendar falls in the listing. An event's
+  responseStatus is the answer of the calendar's owner, so it lands on the account's own attendee
+  entry (at either address) in its calendars, and on the colleague's in a calendar they share. A
+  calendar renamed on the server is renamed here; one the server stops listing is removed.
+source: "https://learn.microsoft.com/en-us/graph/api/user-list-calendars (calendar: id, name, hexColor, owner, isDefaultCalendar)"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars_page_size: 1
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvMine="
+          changeKey: "ck-mine-1"
+          iCalUId: "uid-mine"
+          type: singleInstance
+          subject: Design review
+          start: {dateTime: "2026-10-20T10:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-20T11:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+          organizer: {emailAddress: {name: Pat Lee, address: pat@example.net}}
+          responseStatus: {response: tentativelyAccepted}
+          attendees:
+            - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: harness.primary@example.test}}
+      AAMkADTeam=:
+        - id: "AAMkEvTeam="
+          changeKey: "ck-team-1"
+          iCalUId: "uid-team"
+          type: singleInstance
+          subject: Team sync
+          start: {dateTime: "2026-10-21T10:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-21T10:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+          organizer: {emailAddress: {name: Pat Lee, address: pat@example.net}}
+          responseStatus: {response: accepted}
+          attendees:
+            - {type: required, status: {response: none}, emailAddress: {name: Bob Builder, address: bob@example.net}}
+            - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: harness.primary@example.test}}
+    graph_calendars:
+      - {id: "AAMkADBirthdays=", name: Birthdays, hexColor: "", isDefaultCalendar: false,
+         owner: {name: Harness Test, address: harness.primary@example.test}}
+      - {id: "AAMkADTeam=", name: Team, hexColor: "", isDefaultCalendar: false,
+         owner: {name: Bob Builder, address: bob@example.net}}
+      - {id: "AAMkADefault=", name: Calendar, hexColor: "#FF8C00", isDefaultCalendar: true,
+         owner: {name: Harness Test, address: Harness.Primary@example.test}}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 3 calendars", timeout: 90}
+  - assert:
+      calendars:
+        Calendar: {path: "AAMkADefault=", color: "#ff8c00", read_only: true, owner: mine}
+        Birthdays: {path: "AAMkADBirthdays=", read_only: true, owner: mine}
+        Team: {path: "AAMkADTeam=", read_only: true, owner: other}
+      events:
+        "uid-mine|":
+          ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:harness.primary@example.test"]
+        "uid-team|":
+          ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Bob Builder:mailto:bob@example.net",
+                    "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:harness.primary@example.test"]
+  - server.graph_calendars:
+      calendars:
+        - {id: "AAMkADefault=", name: Work, hexColor: "#FF8C00", isDefaultCalendar: true,
+           owner: {name: Harness Test, address: harness.primary@example.test}}
+  - client.sync_calendar: {}
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 60}
+expect:
+  calendars:
+    Work: {path: "AAMkADefault=", color: "#ff8c00", read_only: true, owner: mine}
+  log_present: ["Removed calendar 'Team' and its 1 events"]
+  graph: {graph_mail_token_requests: 0}
+  running: true

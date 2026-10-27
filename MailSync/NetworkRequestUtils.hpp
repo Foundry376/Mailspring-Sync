@@ -15,6 +15,8 @@
 #include <curl/curl.h>
 #include <stdio.h>
 #include "json.hpp"
+#include "JSONUtils.hpp"
+#include <functional>
 #include <vector>
 
 class Account;
@@ -42,8 +44,10 @@ CURL * CreateJSONRequest(string url, string method = "GET", string authorization
 CURL * CreateCalDavRequest(string url, string method = "GET", const char * payloadChars = nullptr);
 
 // Microsoft issues access tokens per resource: one refresh token yields either a token for
-// IMAP/SMTP (outlook.office.com) or one for Microsoft Graph, never both at once.
-enum class OAuthTokenAudience { Mail, MicrosoftGraph };
+// IMAP/SMTP (outlook.office.com) or one for Microsoft Graph, never both at once. Graph calendars
+// get their own token: accounts authorized before Graph sending granted the calendar scopes but
+// not the mail ones, and a refresh asking for any ungranted scope is refused outright.
+enum class OAuthTokenAudience { Mail, MicrosoftGraphMail, MicrosoftGraphCalendars };
 
 const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken, OAuthTokenAudience audience = OAuthTokenAudience::Mail);
 
@@ -70,6 +74,19 @@ enum class GraphRetry { ThrottledOrUnavailable, ThrottledOnly };
 // requests carry extra headers.
 GraphResponse PerformGraphRequest(const string & method, const string & url, const string & accessToken, const string & body = "", const string & contentType = "application/json", const vector<string> & headers = {}, GraphRetry retry = GraphRetry::ThrottledOrUnavailable);
 
+// The responses to `requests` ({method, url relative to MicrosoftGraphURL(), headers}), one per
+// request and in their order, sent 20 to a JSON batch. Graph answers each request on its own, so a
+// throttled one is retried alone; a refused batch gives every request its response. The token is
+// asked for per batch request, since retries can outlast it.
+vector<GraphResponse> PerformGraphBatch(const vector<json> & requests, const std::function<string()> & tokenProvider, GraphRetry retry = GraphRetry::ThrottledOrUnavailable);
+
+// Each page of a Graph collection, following @odata.nextLink. Throws as ThrowForGraphResponse
+// on an error status, and when a page has no value array.
+void PaginateGraphCollection(const string & url, const std::function<string()> & tokenProvider, const std::function<void(json &)> & yieldPage);
+
+// Keyed like ValidateRequestResp's errors, so runCalContactsSyncWorker stops on a 401 or 403.
+[[noreturn]] void ThrowForGraphResponse(const string & url, const GraphResponse & resp);
+
 // "<code>: <message>" from a Graph error response, for logs and the client's error dialog.
 string GraphErrorDescription(const GraphResponse & resp);
 
@@ -80,9 +97,6 @@ string GraphSentItemsId(const string & accessToken, GraphResponse * failure = nu
 // HTTP helpers
 
 string URLEscape(const string & value);
-
-// object[key] when it is a string, otherwise "".
-string JSONString(const json & object, const string & key);
 
 // The value of a header in a block of raw response headers, matched case-insensitively.
 string HTTPHeaderValue(const string & headers, const string & headerName);

@@ -1,0 +1,20 @@
+name: graph-calendars-not-consented
+description: >
+  When the refresh token cannot be exchanged for the Graph calendar scopes (an admin removed
+  the consent), the calendar thread stops for the session and mail keeps syncing: the
+  calendar token is separate from the mail one, so neither refusal reaches the other.
+source: "AADSTS65001 on a refresh asking for an ungranted scope (Microsoft identity platform)"
+servers:
+  - {fake: outlook, graph: true, graph_calendars_consented: false,
+     graph_calendars: [{id: "AAMkADefault=", name: Calendar, 
+                        owner: {name: Harness Test, address: test@example.test}}]}
+mailboxes:
+  INBOX: {messages: 3}
+steps:
+  - wait: {log: "Stopping sync - unable to authenticate", timeout: 90}
+  - wait: quiescent
+expect:
+  calendars: {}
+  graph: {graph_calendar_token_requests: 1}
+  db_matches_server: {}
+  running: true

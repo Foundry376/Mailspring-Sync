@@ -16,6 +16,21 @@ Outbox; the engine only cares whether it has reached Sent Items). A draft PATCHe
 PidTagDeleteAfterSubmit (`Boolean 0x0E01`) is deleted once sent and filed nowhere. Delivery
 uses the MIME's To and Cc plus the draft's `bccRecipients`; a Bcc header in the MIME is not
 modelled as a recipient, since Graph does not document honoring it.
+
+Calendars are listed from /me/calendars, paged by `@odata.nextLink`
+(https://learn.microsoft.com/en-us/graph/api/user-list-calendars). A calendar's events are listed
+in UTC, single instances and series masters only (calendar-list-events); one event is read, through
+its calendar, in the zone `Prefer: outlook.timezone` names (originalStart too, with that zone's
+offset, though the reference says UTC: observed on an Outlook.com account), with a text body only
+when asked for one, and a series' cancelledOccurrences / exceptionOccurrences only when selected
+and expanded (event-get). $batch runs up to 20 requests and answers them out of order
+(json-batching). Calendar and mail scopes are consented and tokened separately: a token for one is
+refused by the other's routes with 403, as Graph answers a token missing the permission a request
+needs.
+
+The server also stands in for the Mailspring identity server's DAV host lookup, which sends a
+Microsoft account's CardDAV discovery to Outlook on the web: its /owa/ answers 401, as observed
+on an Outlook.com account.
 """
 import base64
 import email
@@ -24,17 +39,43 @@ import json
 import re
 import threading
 import time
-from email.message import EmailMessage
+from datetime import datetime
+from email.message import EmailMessage, Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
+from zoneinfo import ZoneInfo
 
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 UPLOAD_CHUNK_MULTIPLE = 320 * 1024
 GRAPH_SCOPE = "https://graph.microsoft.com/"
+CALENDARS_SCOPE = GRAPH_SCOPE + "Calendars."
 MAIL_SCOPE = "https://outlook.office.com/"
 SENT_ITEMS_ID = "AQMkAGSentItems="
 DRAFTS_ID = "AQMkAGDrafts="
+# The Windows zone names Graph writes, for the zones the scenarios use.
+WINDOWS_ZONES = {"UTC": "UTC", "Pacific Standard Time": "America/Los_Angeles", "Tokyo Standard Time": "Asia/Tokyo",
+                 "New Zealand Standard Time": "Pacific/Auckland", "W. Europe Standard Time": "Europe/Berlin"}
+
+
+def _offset_in_zone(value: str, zone: str) -> str:
+    """A DateTimeOffset ("2026-10-19T16:00:00Z") written in `zone` with its offset."""
+    instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return instant.astimezone(ZoneInfo(WINDOWS_ZONES[zone])).isoformat(timespec="seconds")
+
+
+def _in_zone(value: dict, zone: str) -> dict:
+    """A Graph dateTimeTimeZone moved into `zone`."""
+    if value.get("timeZone") == zone:
+        return dict(value)
+    local = datetime.fromisoformat(value["dateTime"][:19]).replace(tzinfo=ZoneInfo(WINDOWS_ZONES[value["timeZone"]]))
+    moved = local.astimezone(ZoneInfo(WINDOWS_ZONES[zone]))
+    return {"dateTime": moved.strftime("%Y-%m-%dT%H:%M:%S.0000000"), "timeZone": zone}
+
+
+def _selected(resource: dict, select: str) -> dict:
+    fields = set(select.split(",")) if select else None
+    return {k: v for k, v in resource.items() if fields is None or k in fields or k == "id"}
 
 
 def _with_from(mime: bytes, name: str, address: str) -> bytes:
@@ -101,11 +142,16 @@ class GraphMessage:
 
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    _captured: Optional[list] = None   # set while a $batch runs one of its requests
 
     def log_message(self, fmt, *args):
         pass
 
     def _reply(self, status: int, body=None, headers: Optional[dict] = None):
+        if self._captured is not None:
+            self._captured.append((status, body, headers))
+            self.server.owner.log(self.command, self.path, status)
+            return
         payload = b"" if body is None else json.dumps(body).encode()
         self.send_response(status)
         if body is not None:
@@ -139,9 +185,22 @@ class _Handler(BaseHTTPRequestHandler):
     def do_PATCH(self):
         self._dispatch()
 
+    def do_PROPFIND(self):
+        self._dispatch()
+
+    def _preferences(self) -> dict:
+        """Every Prefer header's preferences, whether sent one per header or comma-separated."""
+        out = {}
+        for header in self.headers.get_all("Prefer") or []:
+            for m in re.finditer(r'([\w.-]+)\s*=\s*(?:"([^"]*)"|([^,\s]*))', header):
+                out[m.group(1)] = m.group(2) if m.group(2) is not None else m.group(3)
+        return out
+
     def _dispatch(self):
+        self._route(self._body())
+
+    def _route(self, body: bytes):
         srv: "FakeGraphServer" = self.server.owner
-        body = self._body()
         path = urlparse(self.path).path
         with srv.lock:
             srv.requests.append({"method": self.command, "path": path, "bytes": len(body),
@@ -150,25 +209,44 @@ class _Handler(BaseHTTPRequestHandler):
             return self._token(body)
         if path.startswith("/upload/"):
             return self._upload(path[len("/upload/"):], body)
+        if path == "/v1.0/$batch" and self.command == "POST":
+            return self._batch(body)
+        if path == "/api/resolve-dav-hosts" and self.command == "POST":
+            return self._reply(200, {"carddavHost": f"127.0.0.1:{srv.port}"})
+        if path == "/.well-known/carddav":
+            return self._reply(301, headers={"Location": f"http://127.0.0.1:{srv.port}/owa/"})
+        if path == "/owa/":
+            return self._reply(401)
         if not path.startswith("/v1.0/me/"):
             return self._error(404, "ResourceNotFound", f"no route for {path}")
         if len(body) > MAX_REQUEST_BYTES:
             return self._error(413, "RequestEntityTooLarge", "The request is larger than 4 MB.")
-        auth = self.headers.get("Authorization") or ""
-        expires = srv.graph_tokens.get(auth[len("Bearer "):])
-        if expires is None:
-            return self._error(401, "InvalidAuthenticationToken", "Access token is empty or invalid.")
-        if expires < time.time():
-            return self._error(401, "InvalidAuthenticationToken", "Lifetime validation failed, the token is expired.")
-        if self.headers.get("Prefer") != 'IdType="ImmutableId"':
-            return self._error(400, "HarnessError", "every request must ask for immutable ids")
         route = path[len("/v1.0/me/"):]
-        failure = srv.failure_for(route, self.command)
+        token = (self.headers.get("Authorization") or "")[len("Bearer "):]
+        calendar_route = route.split("/")[0] == "calendars"
+        tokens = srv.calendar_tokens if calendar_route else srv.graph_tokens
+        if token not in tokens:
+            if token in srv.calendar_tokens or token in srv.graph_tokens:
+                return self._error(403, "ErrorAccessDenied", "Access is denied. Check credentials and try again.")
+            return self._error(401, "InvalidAuthenticationToken", "Access token is empty or invalid.")
+        if tokens[token] < time.time():
+            return self._error(401, "InvalidAuthenticationToken", "Lifetime validation failed, the token is expired.")
+        if self._preferences().get("IdType") != "ImmutableId":
+            return self._error(400, "HarnessError", "every request must ask for immutable ids")
+        failure = srv.failure_for(unquote(route), self.command)
         if failure:
             headers = {"Retry-After": str(failure["retry_after"])} if "retry_after" in failure else None
             return self._reply(failure.get("status", 500), {"error": {"code": failure.get("code", "ErrorInternalServerError"),
                                "message": failure.get("message", "Injected failure")}}, headers)
 
+        if route == "calendars" and self.command == "GET":
+            return self._calendars()
+        m = re.match(r"^calendars/([^/]+)/events$", route)
+        if m and self.command == "GET":
+            return self._calendar_events(unquote(m.group(1)))
+        m = re.match(r"^calendars/([^/]+)/events/([^/]+)$", route)
+        if m and self.command == "GET":
+            return self._event(unquote(m.group(1)), unquote(m.group(2)))
         if route == "mailFolders/sentitems" and self.command == "GET":
             return self._reply(200, {"id": SENT_ITEMS_ID})
         if route == "messages" and self.command == "POST":
@@ -226,7 +304,15 @@ class _Handler(BaseHTTPRequestHandler):
             srv.token_scopes.append(scope)
         if form.get("grant_type") != "refresh_token" or form.get("refresh_token") != srv.refresh_token:
             return self._reply(400, {"error": "invalid_grant", "error_description": "AADSTS70000: The refresh token is invalid."})
-        graph_requests = sum(1 for sc in srv.token_scopes if GRAPH_SCOPE in sc)
+        if CALENDARS_SCOPE in scope:
+            if not srv.calendars_consented:
+                return self._reply(400, {"error": "invalid_grant", "error_description":
+                                         "AADSTS65001: The user or administrator has not consented to use the application."})
+            token = f"calendar-token-{len(srv.token_scopes)}"
+            srv.calendar_tokens[token] = time.time() + srv.token_lifetime
+            return self._reply(200, {"token_type": "Bearer", "scope": scope, "expires_in": srv.token_lifetime,
+                                     "access_token": token, "refresh_token": srv.refresh_token})
+        graph_requests = sum(1 for sc in srv.token_scopes if GRAPH_SCOPE in sc and CALENDARS_SCOPE not in sc)
         dropped = srv.drop_graph_token or (srv.drop_graph_token_after is not None and graph_requests > srv.drop_graph_token_after)
         if GRAPH_SCOPE in scope and dropped:
             self.close_connection = True   # no response at all: curl reports CURLE_GOT_NOTHING
@@ -246,6 +332,90 @@ class _Handler(BaseHTTPRequestHandler):
             srv.mail_tokens.add(token)
         return self._reply(200, {"token_type": "Bearer", "scope": scope, "expires_in": srv.token_lifetime,
                                  "access_token": token, "refresh_token": srv.refresh_token})
+
+    def _calendars(self):
+        srv: "FakeGraphServer" = self.server.owner
+        time.sleep(srv.calendars_delay)
+        query = parse_qs(urlparse(self.path).query)
+        select = query.get("$select", [""])[0]
+        skip = int(query.get("$skip", ["0"])[0])
+        with srv.lock:
+            calendars = list(srv.calendars)
+        size = srv.calendars_page_size or max(len(calendars), 1)
+        body = {"value": [_selected(c, select) for c in calendars[skip:skip + size]]}
+        if skip + size < len(calendars):
+            body["@odata.nextLink"] = f"{srv.url}/me/calendars?$select={select}&$skip={skip + size}"
+        return self._reply(200, body)
+
+    def _batch(self, body: bytes):
+        """JSON batching: each request runs as if sent alone with the batch's Authorization, and
+        the responses come back out of order (https://learn.microsoft.com/en-us/graph/json-batching)."""
+        requests = json.loads(body or b"{}").get("requests", [])
+        if not 1 <= len(requests) <= 20:
+            return self._error(400, "BadRequest", "A batch holds 1 to 20 requests.")
+        outer = (self.path, self.command, self.headers)
+        responses = []
+        try:
+            for request in requests:
+                headers = Message()
+                headers["Authorization"] = outer[2].get("Authorization") or ""
+                for name, value in (request.get("headers") or {}).items():
+                    headers[name] = value
+                self.path, self.command, self.headers = "/v1.0" + request["url"], request["method"], headers
+                self._captured = []
+                self._route(json.dumps(request["body"]).encode() if "body" in request else b"")
+                status, payload, reply_headers = self._captured[0]
+                responses.append({"id": request["id"], "status": status, "headers": reply_headers or {}, "body": payload})
+        finally:
+            self.path, self.command, self.headers = outer
+            self._captured = None
+        return self._reply(200, {"responses": list(reversed(responses))})
+
+    def _calendar_events(self, calendar_id: str):
+        srv: "FakeGraphServer" = self.server.owner
+        query = parse_qs(urlparse(self.path).query)
+        select = query.get("$select", [""])[0]
+        skip = int(query.get("$skip", ["0"])[0])
+        with srv.lock:
+            events = [dict(e) for e in srv.events.get(calendar_id, [])]
+        size = srv.events_page_size or max(len(events), 1)
+        page = []
+        for event in events[skip:skip + size]:
+            event = {k: v for k, v in event.items() if k not in ("cancelledOccurrences", "exceptionOccurrences")}
+            event["start"], event["end"] = _in_zone(event["start"], "UTC"), _in_zone(event["end"], "UTC")
+            page.append(_selected(event, select))
+        body = {"value": page}
+        if skip + size < len(events):
+            body["@odata.nextLink"] = f"{srv.url}/me/calendars/{calendar_id}/events?$select={select}&$skip={skip + size}"
+        return self._reply(200, body)
+
+    def _event(self, calendar_id: str, event_id: str):
+        srv: "FakeGraphServer" = self.server.owner
+        query = parse_qs(urlparse(self.path).query)
+        select = query.get("$select", [""])[0]
+        expand = query.get("$expand", [""])[0].split(",")
+        prefer = self._preferences()
+        if prefer.get("outlook.body-content-type") != "text":
+            return self._error(400, "HarnessError", "event details must ask for a text body")
+        zone = prefer.get("outlook.timezone", "UTC")
+        if zone not in WINDOWS_ZONES:
+            return self._error(400, "TimeZoneNotSupportedException", f"A valid TimeZone value must be specified: {zone}")
+        with srv.lock:
+            event = next((dict(e) for e in srv.events.get(calendar_id, []) if e["id"] == event_id), None)
+        if event is None:
+            return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
+
+        def moved(e: dict) -> dict:
+            out = {**e, "start": _in_zone(e["start"], zone), "end": _in_zone(e["end"], zone)}
+            if "originalStart" in e:
+                out["originalStart"] = _offset_in_zone(e["originalStart"], zone)
+            return out
+        event = moved(event)
+        if "exceptionOccurrences" in event:
+            event["exceptionOccurrences"] = [moved(x) for x in event["exceptionOccurrences"]]
+            if "exceptionOccurrences" not in expand:
+                del event["exceptionOccurrences"]
+        return self._reply(200, _selected(event, select))
 
     def _create(self, body: bytes):
         srv: "FakeGraphServer" = self.server.owner
@@ -294,7 +464,7 @@ class _Handler(BaseHTTPRequestHandler):
             threading.Timer(srv.sent_copy_delay, file_copy).start()
         else:
             file_copy()
-        failure = srv.failure_for(route, "POST", after=True)
+        failure = srv.failure_for(unquote(route), "POST", after=True)
         if failure:
             return self._reply(failure.get("status", 500), {"error": {"code": failure.get("code", "ErrorInternalServerError"),
                                "message": failure.get("message", "Injected failure")}})
@@ -330,27 +500,36 @@ class FakeGraphServer:
                  sent_copy=None, sent_copy_delay: float = 0, failures: Optional[list] = None, deliver_to=None,
                  consent_refusals: int = 0, mailbox: Optional[str] = None, aliases=(),
                  drop_graph_token: bool = False, honors_delete_after_submit: bool = True,
-                 token_lifetime: int = 3599, drop_graph_token_after: Optional[int] = None):
+                 token_lifetime: int = 3599, drop_graph_token_after: Optional[int] = None,
+                 calendars: Optional[list] = None, calendars_consented: bool = True,
+                 calendars_page_size: int = 0, calendars_delay: float = 0,
+                 events: Optional[dict] = None, events_page_size: int = 0):
         """sent_copy: optional (Store, mailbox) every sent message's copy is appended to, as
         Exchange files it in Sent Items. sent_copy_delay: seconds between /send and that copy.
-        graph_consented: whether the refresh token may be exchanged for Graph scopes (an
+        graph_consented: whether the refresh token may be exchanged for Graph mail scopes (an
         account authorized before Mail.Send was requested may not).
-        drop_graph_token: close the connection on Graph token requests without answering, as
-        when the machine goes offline mid-send. drop_graph_token_after: answer that many Graph
-        token requests first.
-        consent_refusals: refuse the first N Graph token requests with AADSTS65001 anyway, as
-        Azure AD does for a few seconds while a consent the user just gave replicates.
+        drop_graph_token: close the connection on Graph mail token requests without answering,
+        as when the machine goes offline mid-send. drop_graph_token_after: answer that many Graph
+        mail token requests first.
+        consent_refusals: refuse the first N Graph mail token requests with AADSTS65001 anyway,
+        as Azure AD does for a few seconds while a consent the user just gave replicates.
+        calendars: the Graph calendar resources /me/calendars lists, `calendars_page_size` to a
+        page (0: all on one), each page `calendars_delay` seconds late. calendars_consented:
+        whether the refresh token may be exchanged for the calendar scopes, which Mailspring has
+        asked for since 2020.
+        events: {calendar id: [Graph event resources, each in its own zone]}, listed
+        `events_page_size` to a page (0: all on one).
         mailbox / aliases: the mailbox's primary address and the aliases it may send as. A
         MIME draft whose From is any other address gets the primary address instead, a PATCH
         of `from` sets it, and /send refuses an address outside these with ErrorSendAsDenied
         (outlook.com, 2026-10-22).
-        failures: [{route: regex on the path after /v1.0/me/, method, status, code, message,
+        failures: [{route: regex on the unescaped path after /v1.0/me/, method, status, code, message,
         times, retry_after, after}] - answer matching requests with that error, `times` times
         (default always), with a Retry-After header when `retry_after` is given. With `after:
         true` a /send is carried out first and its 202 replaced by the error, as a gateway
         that times out on a request the mailbox accepted.
-        token_lifetime: seconds an access token is valid for (its expires_in); Graph refuses an
-        expired one with 401.
+        token_lifetime: seconds a mail or calendar access token is valid for (its expires_in);
+        Graph refuses an expired one with 401.
         honors_delete_after_submit: whether a draft marked PidTagDeleteAfterSubmit is deleted
         when sent instead of being filed in Sent Items.
         deliver_to: optional (Store, mailbox, address) - sent mail addressed to `address` is
@@ -368,8 +547,15 @@ class FakeGraphServer:
         self.honors_delete_after_submit = honors_delete_after_submit
         self.deliver_to = deliver_to
         self.failures = [dict(f) for f in (failures or [])]
+        self.calendars = [dict(c) for c in (calendars or [])]
+        self.calendars_consented = calendars_consented
+        self.calendars_page_size = calendars_page_size
+        self.calendars_delay = calendars_delay
+        self.events = {cid: [dict(e) for e in evs] for cid, evs in (events or {}).items()}
+        self.events_page_size = events_page_size
         self.mail_tokens: set = set()
-        self.graph_tokens: dict = {}   # token -> expiry
+        self.graph_tokens: dict = {}   # Graph mail scopes: token -> expiry
+        self.calendar_tokens: dict = {}   # token -> expiry
         self.token_lifetime = token_lifetime
         self.token_scopes: list = []
         self.messages: dict = {}   # graph id -> GraphMessage, drafts and filed copies
@@ -383,6 +569,18 @@ class FakeGraphServer:
 
     def log(self, method, path, status):
         self.transcript.append((time.time(), method, path, status))
+
+    def set_calendars(self, calendars: list):
+        with self.lock:
+            self.calendars = [dict(c) for c in calendars]
+
+    def set_events(self, calendar_id: str, events: list):
+        with self.lock:
+            self.events[calendar_id] = [dict(e) for e in events]
+
+    def set_failures(self, failures: list):
+        with self.lock:
+            self.failures = [dict(f) for f in failures]
 
     def failure_for(self, route: str, method: str, after: bool = False) -> Optional[dict]:
         with self.lock:
@@ -405,6 +603,10 @@ class FakeGraphServer:
     @property
     def token_url(self) -> str:
         return f"http://127.0.0.1:{self.port}/token"
+
+    @property
+    def identity_url(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
 
     def drafts(self) -> list:
         return [m for m in self.messages.values() if m.sent_at is None]

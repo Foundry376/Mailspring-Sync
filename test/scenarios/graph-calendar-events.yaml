@@ -1,0 +1,183 @@
+name: graph-calendar-events
+description: >
+  An Outlook.com calendar's events become Event rows holding the iCalendar the client reads: each
+  event is read in its own zone, a series with its edited occurrence (a row of its own) and its
+  cancelled date (an EXDATE). An event outside the sync window gets no row, while a series lasts
+  until its recurrence ends: one that began before the window is kept, one that ended before it
+  is not. One in a custom zone Graph cannot convert to is read in UTC, as is one whose zone name
+  Graph refuses in Prefer (read again after the 400), and one Graph refuses to return is skipped
+  without stopping the rest.
+source: "https://learn.microsoft.com/en-us/graph/api/calendar-list-events and event-get (Prefer: outlook.timezone, $expand=exceptionOccurrences)"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_provider: outlook
+    graph_send: false
+    graph_consented: false
+    graph_events_page_size: 2
+    graph_failures:
+      - {route: "^calendars/[^/]+/events/AAMkEvBroken=$", method: GET, status: 403, code: ErrorAccessDenied}
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvPlanning="
+          changeKey: "ck-planning-1"
+          iCalUId: "040000008200E00074C5B7101A82E0080000000052A4C9D3F05CDD01000000000000000010000000A3B19F1C27E8D24E9C5A3B7F0D1E2C4B"
+          type: singleInstance
+          subject: Planning
+          body: {contentType: text, content: Agenda}
+          start: {dateTime: "2026-10-22T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-22T09:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          isCancelled: false
+          showAs: busy
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+          organizer: {emailAddress: {name: Harness Test, address: test@example.test}}
+          attendees: []
+          responseStatus: {response: organizer}
+        - id: "AAMkEvOffsite="
+          changeKey: "ck-offsite-1"
+          iCalUId: "uid-offsite"
+          type: singleInstance
+          subject: Offsite
+          start: {dateTime: "2026-11-06T00:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-11-07T00:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: true
+          showAs: free
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+        - id: "AAMkEvStandup="
+          changeKey: "ck-standup-1"
+          iCalUId: "uid-standup"
+          type: seriesMaster
+          subject: Standup
+          start: {dateTime: "2026-10-05T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-05T09:15:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          showAs: busy
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [monday], firstDayOfWeek: sunday}
+            range: {type: endDate, startDate: "2026-10-05", endDate: "2026-12-28", recurrenceTimeZone: Pacific Standard Time}
+          cancelledOccurrences: ["OID.AAMkEvStandup=.2026-11-02"]
+          exceptionOccurrences:
+            - id: "AAMkEvStandupX1="
+              type: exception
+              iCalUId: "uid-standup-occurrence-1019"
+              subject: Standup (moved)
+              originalStart: "2026-10-19T16:00:00Z"
+              start: {dateTime: "2026-10-19T10:00:00.0000000", timeZone: Pacific Standard Time}
+              end: {dateTime: "2026-10-19T10:15:00.0000000", timeZone: Pacific Standard Time}
+              isAllDay: false
+              showAs: busy
+              lastModifiedDateTime: "2026-10-02T12:00:00Z"
+        - id: "AAMkEvOneOnOne="
+          changeKey: "ck-one-on-one-1"
+          iCalUId: "uid-one-on-one"
+          type: seriesMaster
+          subject: One on one
+          start: {dateTime: "2024-03-04T10:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2024-03-04T10:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2024-03-01T12:00:00Z"
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [monday], firstDayOfWeek: sunday}
+            range: {type: noEnd, startDate: "2024-03-04", recurrenceTimeZone: Pacific Standard Time}
+        - id: "AAMkEvOldSeries="
+          changeKey: "ck-old-series-1"
+          iCalUId: "uid-old-series"
+          type: seriesMaster
+          subject: Old series
+          start: {dateTime: "2024-01-08T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2024-01-08T09:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2024-01-01T12:00:00Z"
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [monday], firstDayOfWeek: sunday}
+            range: {type: endDate, startDate: "2024-01-08", endDate: "2024-06-24", recurrenceTimeZone: Pacific Standard Time}
+        - id: "AAMkEvKickoff="
+          changeKey: "ck-kickoff-1"
+          iCalUId: "uid-kickoff"
+          type: singleInstance
+          subject: Kickoff
+          start: {dateTime: "2025-10-25T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2025-10-25T10:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2025-10-01T12:00:00Z"
+        - id: "AAMkEvOldReview="
+          changeKey: "ck-old-1"
+          iCalUId: "uid-old-review"
+          type: singleInstance
+          subject: Old review
+          start: {dateTime: "2024-01-10T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2024-01-10T10:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2024-01-01T12:00:00Z"
+        - id: "AAMkEvVendor="
+          changeKey: "ck-vendor-1"
+          iCalUId: "uid-vendor"
+          type: singleInstance
+          subject: Vendor call
+          start: {dateTime: "2026-10-23T18:00:00.0000000", timeZone: UTC}
+          end: {dateTime: "2026-10-23T19:00:00.0000000", timeZone: UTC}
+          originalStartTimeZone: "tzone://Microsoft/Custom"
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+        - id: "AAMkEvNamedZone="
+          changeKey: "ck-named-zone-1"
+          iCalUId: "uid-named-zone"
+          type: singleInstance
+          subject: Partner sync
+          start: {dateTime: "2026-10-27T08:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-27T08:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Customized Time Zone
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+        - id: "AAMkEvBroken="
+          changeKey: "ck-broken-1"
+          iCalUId: "uid-broken"
+          type: singleInstance
+          subject: Unreadable
+          start: {dateTime: "2026-10-26T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-26T10:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+expect:
+  events:
+    "040000008200E00074C5B7101A82E0080000000052A4C9D3F05CDD01000000000000000010000000A3B19F1C27E8D24E9C5A3B7F0D1E2C4B|":
+      href: "AAMkEvPlanning="
+      etag: "ck-planning-1"
+      ics_has: ["DTSTART;TZID=Pacific Standard Time:20261022T090000", "SUMMARY:Planning", "DESCRIPTION:Agenda"]
+    "uid-kickoff|": {} # inside the window CALENDAR_SYNC_NOW pins, before today's
+    "uid-one-on-one|":
+      ics_has: ["RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU"]
+    "uid-offsite|":
+      ics_has: ["DTSTART;VALUE=DATE:20261106", "DTEND;VALUE=DATE:20261107", "TRANSP:TRANSPARENT"]
+    "uid-standup|":
+      href: "AAMkEvStandup="
+      ics_has: ["RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU;UNTIL=20261228T180000Z",
+                "EXDATE;TZID=Pacific Standard Time:20261102T090000"]
+    "uid-standup|20261019T160000Z":
+      href: "AAMkEvStandup="
+      ics_has: ["RECURRENCE-ID:20261019T160000Z", "DTSTART;TZID=Pacific Standard Time:20261019T100000",
+                "SUMMARY:Standup (moved)"]
+    "uid-vendor|":
+      ics_has: ["DTSTART:20261023T180000Z"]
+    "uid-named-zone|":
+      ics_has: ["DTSTART:20261027T150000Z"]
+  log_present: ["Graph event AAMkEvBroken= could not be read"]
+  running: true

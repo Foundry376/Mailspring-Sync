@@ -34,40 +34,6 @@ struct EventResult {
     ETAG etag;
 };
 
-// Calendar sync time range configuration
-// Events outside this range are not synced to reduce storage and improve performance
-static const int CALENDAR_SYNC_PAST_MONTHS = 12;
-static const int CALENDAR_SYNC_FUTURE_MONTHS = 18;
-
-struct CalendarSyncRange {
-    time_t start;
-    time_t end;
-    string startStr;  // Formatted for CalDAV time-range filter
-    string endStr;
-};
-
-CalendarSyncRange getCalendarSyncRange() {
-    time_t now = time(nullptr);
-    time_t start = now - (CALENDAR_SYNC_PAST_MONTHS * 30 * 24 * 60 * 60);
-    time_t end = now + (CALENDAR_SYNC_FUTURE_MONTHS * 30 * 24 * 60 * 60);
-    return {
-        start,
-        end,
-        MailUtils::formatDateTimeUTC(start),
-        MailUtils::formatDateTimeUTC(end)
-    };
-}
-
-// RFC 4791 compliant overlap check: event overlaps range if (eventStart < rangeEnd) AND (eventEnd > rangeStart).
-// Used for client-side validation of server results. Some CalDAV servers (notably Bedework
-// and SOGo, per python-caldav project documentation) return events outside the requested
-// time-range, so we validate overlap client-side when processing sync-token responses
-// to avoid accumulating events outside our sync window.
-bool eventOverlapsRange(time_t eventStart, time_t eventEnd, const CalendarSyncRange& range) {
-    // Event overlaps range if it ends after range start AND starts before range end
-    return eventEnd >= range.start && eventStart <= range.end;
-}
-
 // Structs for two-phase transaction pattern: parse data outside the transaction,
 // then perform DB operations inside a short transaction.
 struct ParsedContact {
@@ -343,14 +309,14 @@ DAVWorker::DAVWorker(shared_ptr<Account> account) :
     xmlInitParser();
 }
 
-void DAVWorker::run() {
-    runContacts();
-    runCalendars();
-}
-
 void DAVWorker::runContacts() {
     if (account->provider() == "gmail") {
         // Gmail sync uses a separate GoogleContactsWorker
+        return;
+    }
+    if (account->isMicrosoft()) {
+        // Microsoft serves no CardDAV. Discovery ends at Outlook on the web, whose 401 would read
+        // as a failed sign-in and stop calendar sync along with it.
         return;
     }
 
@@ -1640,17 +1606,9 @@ void DAVWorker::runCalendars() {
                 continue;
             }
             auto calendar = local[id];
-            auto events = store->findAll<Event>(Query().equal("calendarId", id));
-            {
-                MailStoreTransaction transaction{store, "pruneCalendar"};
-                for (auto & event : events) {
-                    store->remove(event.get());
-                }
-                store->remove(calendar.get());
-                transaction.commit();
-            }
+            size_t removed = store->removeCalendarAndEvents(calendar.get());
             logger->info("Removed calendar '{}' and its {} events; the server no longer lists it",
-                         calendar->name(), events.size());
+                         calendar->name(), removed);
         }
     }
 }

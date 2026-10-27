@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote
 
 import yaml
 from datetime import datetime, timedelta
@@ -558,8 +559,20 @@ class ScenarioRun:
             self._smtp().hold()
         elif op == "smtp_release":
             self._note(f"released {self._smtp().release()} held SMTP deliveries")
+        elif op == "graph_calendars":
+            self._graph().set_calendars(arg["calendars"])
+        elif op == "graph_failures":
+            self._graph().set_failures(arg["failures"])
+        elif op == "graph_events":
+            self._graph().set_events(arg["calendar"], arg["events"])
         else:
             raise ScenarioFailure(f"unknown server op {op!r}")
+
+    def _graph(self):
+        graph = getattr(self.server, "graph", None)
+        if graph is None:
+            raise ScenarioFailure("this step needs Graph: add `graph: true` to the server entry")
+        return graph
 
     def _smtp(self):
         smtp = getattr(self.server, "smtp", None)
@@ -570,6 +583,9 @@ class ScenarioRun:
     def _client_step(self, op: str, arg: dict):
         if op == "wake":
             self.ms.wake()
+            return
+        if op == "sync_calendar":
+            self.ms.sync_calendar()
             return
         if op == "task":
             task = dict(arg)
@@ -991,9 +1007,10 @@ class ScenarioRun:
         draft's bccRecipients), `headers` (null for one that must be absent), `body_contains` /
         `body_lacks` strings and `attachments` (file names, wherever they ended up); `drafts` unsent drafts left on the
         server; `upload_sessions` attachments that went through an upload session;
-        `graph_token_requests` refreshes that asked for Graph scopes; `distinct_tokens` two path
-        regexes whose requests used different access tokens; `max_request_bytes` the
-        largest request body the engine sent."""
+        `graph_mail_token_requests` / `graph_calendar_token_requests` refreshes that asked for
+        Graph mail / calendar scopes; `distinct_tokens` two path regexes whose requests used
+        different access tokens; `requests: {regex: n}` requests whose unescaped path matches;
+        `max_request_bytes` the largest request body the engine sent."""
         graph = getattr(self.server, "graph", None)
         if graph is None:
             return ["scenario expects Graph but the server has no `graph: true`"]
@@ -1020,10 +1037,18 @@ class ScenarioRun:
             out.append(f"expected {arg['drafts']} unsent Graph drafts, found {len(graph.drafts())}")
         if "upload_sessions" in arg and len(graph.uploads) != arg["upload_sessions"]:
             out.append(f"expected {arg['upload_sessions']} upload sessions, saw {len(graph.uploads)}")
-        if "graph_token_requests" in arg:
-            got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com" in scope)
-            if got != arg["graph_token_requests"]:
-                out.append(f"expected {arg['graph_token_requests']} Graph token requests, saw {got}")
+        if "graph_mail_token_requests" in arg:
+            got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com/Mail." in scope)
+            if got != arg["graph_mail_token_requests"]:
+                out.append(f"expected {arg['graph_mail_token_requests']} Graph mail token requests, saw {got}")
+        if "graph_calendar_token_requests" in arg:
+            got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com/Calendars." in scope)
+            if got != arg["graph_calendar_token_requests"]:
+                out.append(f"expected {arg['graph_calendar_token_requests']} Graph calendar token requests, saw {got}")
+        for pattern, want in (arg.get("requests") or {}).items():
+            got = sum(1 for r in graph.requests if re.search(pattern, unquote(r["path"])))
+            if got != want:
+                out.append(f"expected {want} Graph requests matching /{pattern}/, saw {got}")
         if "distinct_tokens" in arg:
             # [regex, regex]: the requests matching each path regex were made with different tokens
             def tokens(rx):
@@ -1134,6 +1159,53 @@ class ScenarioRun:
                                    f"fullSyncComplete={bool(m.get('fullSyncComplete'))} "
                                    f"metadata={[e.get('pluginId') for e in m.get('metadata') or []]} v={m.get('v')}")
         return out
+
+    def expect_calendars(self, arg: dict) -> list:
+        """Calendar rows, by name, and no others: `{name: {key: value}}` checks keys of the
+        row's JSON (`path`, `color`, `read_only`, `owner`)."""
+        with self.ms.db() as c:
+            rows = [json.loads(r[0]) for r in c.execute("SELECT data FROM Calendar").fetchall()]
+        by_name = {row.get("name"): row for row in rows}
+        out = []
+        names = sorted(row.get("name") for row in rows)
+        if names != sorted(arg):
+            out.append(f"calendars {names}, expected {sorted(arg)}")
+        for name, want in arg.items():
+            row = by_name.get(name)
+            for key, value in ((want or {}).items() if row else []):
+                if row.get(key) != value:
+                    out.append(f"calendar {name!r}: {key} {row.get(key)!r}, expected {value!r}")
+        return out
+
+    def expect_events(self, arg: dict) -> list:
+        """Event rows, and no others: `{"<icsuid>|<recurrenceId>": {key: value, ics_has: [lines]}}`
+        checks keys of the row's JSON (`href`, `etag`, `status`) and lines its ICS must hold."""
+        with self.ms.db() as c:
+            rows = [json.loads(r[0]) for r in c.execute("SELECT data FROM Event").fetchall()]
+        keys = sorted(f"{row.get('icsuid')}|{row.get('rid', '')}" for row in rows)
+        out = []
+        if keys != sorted(arg):
+            out.append(f"events {keys}, expected {sorted(arg)}")
+        by_key = {f"{row.get('icsuid')}|{row.get('rid', '')}": row for row in rows}
+        for key, want in arg.items():
+            row = by_key.get(key)
+            if row is None:
+                continue
+            want = dict(want or {})
+            lines = (row.get("ics") or "").split("\r\n")
+            for line in want.pop("ics_has", []):
+                if line not in lines:
+                    out.append(f"event {key}: no ICS line {line!r} in {lines}")
+            for k, v in want.items():
+                if row.get(k) != v:
+                    out.append(f"event {key}: {k} {row.get(k)!r}, expected {v!r}")
+        return out
+
+    def expect_event_count(self, arg) -> list:
+        """How many Event rows the engine holds."""
+        with self.ms.db() as c:
+            got = c.execute("SELECT count(*) FROM Event").fetchone()[0]
+        return [] if got == arg else [f"expected {arg} Event rows, found {got}"]
 
     def expect_contacts(self, arg: dict) -> list:
         """Contact rows. `mail: {email: name}` checks found-in-mail contacts by email (`null`:

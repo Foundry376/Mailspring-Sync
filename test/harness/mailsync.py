@@ -226,8 +226,8 @@ class MailsyncProcess:
         env = dict(os.environ)
         env.update(
             CONFIG_DIR_PATH=str(self.config_dir),
-            # Only the metadata worker talks to the identity server, and with --identity
-            # null it exits immediately. The variable must still be set or main() bails.
+            # Unreachable: with --identity null the metadata worker exits at once, and DAV
+            # discovery reads the failed lookup as offline. main() bails if it is unset.
             IDENTITY_SERVER="http://127.0.0.1:9/unreachable",
             WORKER_STATE_EVENTS="1",
         )
@@ -328,6 +328,10 @@ class MailsyncProcess:
         if last_event_at:
             time.sleep(max(0.0, int(last_event_at) + 1 - time.time()))
         self.send({"type": "wake-workers"})
+
+    def sync_calendar(self):
+        """Runs a calendar pass now, as MailsyncBridge does when the user refreshes the calendar."""
+        self.send({"type": "sync-calendar"})
 
     def queue_task(self, task: dict) -> str:
         """Queue a task the way Actions.queueTask does. `task` needs __cls and the fields

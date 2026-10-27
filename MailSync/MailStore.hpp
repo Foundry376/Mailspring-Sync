@@ -31,6 +31,8 @@
 using namespace nlohmann;
 using namespace std;
 
+class Calendar;
+
 struct Metadata {
     int version;
     string objectId;
@@ -268,7 +270,10 @@ public:
     }
     
     void remove(MailModel * model);
-    
+
+    // Returns how many events went with the calendar.
+    size_t removeCalendarAndEvents(Calendar * calendar);
+
     template<typename ModelClass>
     void remove(Query & query) {
         assertCorrectThread();

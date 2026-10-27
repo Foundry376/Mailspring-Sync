@@ -12,6 +12,7 @@
 #include <algorithm>
 #include "Account.hpp"
 #include "MailUtils.hpp"
+#include "strlib.h"
 #include "Thread.hpp"
 #include "Message.hpp"
 
@@ -132,6 +133,10 @@ bool Account::isICloud() {
     return IMAPHost().find("imap.mail.me.com") != string::npos;
 }
 
+bool Account::isMicrosoft() {
+    return provider() == "office365" || provider() == "outlook";
+}
+
 unsigned int Account::SMTPPort() {
     json & val = _data["settings"]["smtp_port"];
     return val.is_string() ? stoi(val.get<string>()) : val.get<unsigned int>();
@@ -180,6 +185,15 @@ bool Account::createHelperFolders() {
 bool Account::sendsViaGraph() {
     json & s = _data["settings"];
     return s.count("graph_send") && s["graph_send"].is_boolean() && s["graph_send"].get<bool>();
+}
+
+// A shared mailbox signs in as its owner (smtp_username), so Graph's /me would be the owner's
+// calendars rather than the mailbox's.
+bool Account::syncsCalendarsViaGraph() {
+    if (!isMicrosoft()) {
+        return false;
+    }
+    return SMTPUsername() == "" || equalsIgnoreCase(SMTPUsername(), emailAddress());
 }
 
 string Account::constructorName() {

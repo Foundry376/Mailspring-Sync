@@ -2106,7 +2106,7 @@ static string _mcString(String * value, string fallback = "") {
 // upload of large attachments can outlast one token.
 static string _graphAccessToken(shared_ptr<Account> account) {
     try {
-        return SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraph).accessToken;
+        return SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraphMail).accessToken;
     } catch (SyncException & ex) {
         if (ex.isOffline()) {
             throw SyncException("send-failed", "ErrorConnection", false);

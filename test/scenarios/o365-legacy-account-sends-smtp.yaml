@@ -36,7 +36,7 @@ expect:
     count: 1
     messages:
       - {recipients: ["bob@example.net"], headers: {Subject: "Over SMTP", Message-ID: "<legacy-smtp@example.test>"}}
-  graph: {count: 0, graph_token_requests: 0}
+  graph: {count: 0, graph_mail_token_requests: 0}
   server_counts: {Sent Items: 1}
   counts: {Sent Items: 1}
   db_matches_server: {}

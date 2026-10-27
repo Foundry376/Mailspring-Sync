@@ -1,0 +1,95 @@
+name: graph-calendar-events-incremental
+description: >
+  Each pass lists a calendar's events and reads in full only those whose changeKey moved. A pass
+  over an unchanged calendar reads none; an edited event is read again and its row updated; a
+  deleted event loses its row; an edited occurrence the organizer reverts loses its own row.
+source: "https://learn.microsoft.com/en-us/graph/api/resources/event (changeKey changes every time the event changes)"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=:
+        - &planning
+          id: "AAMkEvPlanning="
+          changeKey: "ck-planning-1"
+          iCalUId: "uid-planning"
+          type: singleInstance
+          subject: Planning
+          start: {dateTime: "2026-10-22T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-22T09:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+        - &retro
+          id: "AAMkEvRetro="
+          changeKey: "ck-retro-1"
+          iCalUId: "uid-retro"
+          type: singleInstance
+          subject: Retro
+          start: {dateTime: "2026-10-23T15:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-23T16:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+        - &standup
+          id: "AAMkEvStandup="
+          changeKey: "ck-standup-1"
+          iCalUId: "uid-standup"
+          type: seriesMaster
+          subject: Standup
+          start: {dateTime: "2026-10-05T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-05T09:15:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [monday], firstDayOfWeek: sunday}
+            range: {type: noEnd, startDate: "2026-10-05", recurrenceTimeZone: Pacific Standard Time}
+          cancelledOccurrences: []
+          exceptionOccurrences:
+            - id: "AAMkEvStandupX1="
+              type: exception
+              subject: Standup (moved)
+              originalStart: "2026-10-19T16:00:00Z"
+              start: {dateTime: "2026-10-19T10:00:00.0000000", timeZone: Pacific Standard Time}
+              end: {dateTime: "2026-10-19T10:15:00.0000000", timeZone: Pacific Standard Time}
+              isAllDay: false
+              lastModifiedDateTime: "2026-10-02T12:00:00Z"
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  - client.sync_calendar: {}
+  - wait: {seconds: 3}
+  - assert:
+      event_count: 4
+      graph: {requests: {"/me/calendars/[^/]+/events$": 2, "/me/calendars/[^/]+/events/": 3}}
+  - server.graph_events:
+      calendar: "AAMkADefault="
+      events:
+        - <<: *planning
+          changeKey: "ck-planning-2"
+          subject: Planning (moved)
+          start: {dateTime: "2026-10-22T11:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-22T11:30:00.0000000", timeZone: Pacific Standard Time}
+        - <<: *standup
+          changeKey: "ck-standup-2"
+          exceptionOccurrences: []
+  - client.sync_calendar: {}
+  - wait: {seconds: 3}
+expect:
+  events:
+    "uid-planning|":
+      etag: "ck-planning-2"
+      ics_has: ["DTSTART;TZID=Pacific Standard Time:20261022T110000", "SUMMARY:Planning (moved)"]
+    "uid-standup|":
+      etag: "ck-standup-2"
+  graph: {requests: {"/me/calendars/[^/]+/events$": 3, "/me/calendars/[^/]+/events/": 5}}
+  log_count: {"Microsoft calendar sync complete": 3}
+  running: true

@@ -15,6 +15,7 @@
 #include "SyncException.hpp"
 #include "constants.h"
 
+#include "Calendar.hpp"
 #include "Event.hpp"
 #include "icalendar.h"
 #include "Folder.hpp"
@@ -93,7 +94,7 @@ MailStore::MailStore() :
     _stmtRollbackTransaction(_db, "ROLLBACK"),
     _stmtCommitTransaction(_db, "COMMIT"),
     _transactionOpen(false),
-    // Every DAVWorker's store streams with this; only SyncWorker and main call setStreamDelay.
+    // Every calendar and contact worker's store streams with this; only SyncWorker and main call setStreamDelay.
     _streamMaxDelay(500),
     _owningThread(spdlog::details::os::thread_id()),
     _labelCacheVersion(0),
@@ -915,6 +916,18 @@ void MailStore::remove(MailModel * model) {
 
     DeltaStreamItem delta {DELTA_TYPE_UNPERSIST, model};
     _emit(delta);
+}
+
+size_t MailStore::removeCalendarAndEvents(Calendar * calendar) {
+    assertCorrectThread();
+    auto events = findAll<Event>(Query().equal("calendarId", calendar->id()));
+    MailStoreTransaction transaction{this, "removeCalendarAndEvents"};
+    for (auto & event : events) {
+        remove(event.get());
+    }
+    remove(calendar);
+    transaction.commit();
+    return events.size();
 }
 
 

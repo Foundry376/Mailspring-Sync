@@ -1,0 +1,28 @@
+name: graph-calendars-refresh-during-pass
+description: >
+  A manual refresh (sync-calendar) runs on its own thread while the periodic pass may be running.
+  Overlapping, both would find a new calendar missing and insert it, and the second insert's
+  constraint error would stop calendar sync for the session; the passes take turns instead.
+  Here the refresh starts at launch and its slow listing is still out when the periodic pass
+  begins.
+source: "Mailspring-Sync #176 review (a manual refresh can race the periodic pass)"
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars_delay: 20
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, owner: {name: Harness Test, address: test@example.test}}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - client.sync_calendar: {}
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 60}
+  - wait: {seconds: 25}
+expect:
+  calendars:
+    Calendar: {path: "AAMkADefault="}
+  log_count: {"Microsoft calendar sync complete": 2}
+  log_absent: ["Stopping cal/contacts sync"]
+  running: true

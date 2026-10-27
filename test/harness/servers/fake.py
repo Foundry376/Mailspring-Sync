@@ -2,6 +2,7 @@
 import re
 import sys
 import threading
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,20 @@ from fakeimap import FakeImapServer, Store  # noqa: E402
 from fakeimap.smtp import FakeSmtpServer  # noqa: E402
 from fakeimap.graph import FakeGraphServer  # noqa: E402
 from .base import Server
+
+
+def _generated_events(count: int) -> list:
+    """`count` one-off daily events from 2026-10-16, for scenarios about how many are read at once."""
+    events = []
+    for i in range(1, count + 1):
+        day = (date(2026, 10, 15) + timedelta(days=i)).isoformat()
+        events.append({"id": f"AAMkEvGen{i:02d}=", "changeKey": f"ck-gen-{i}", "iCalUId": f"uid-gen-{i:02d}",
+                       "type": "singleInstance", "subject": f"Generated {i}", "isAllDay": False,
+                       "start": {"dateTime": f"{day}T09:00:00.0000000", "timeZone": "Pacific Standard Time"},
+                       "end": {"dateTime": f"{day}T09:30:00.0000000", "timeZone": "Pacific Standard Time"},
+                       "originalStartTimeZone": "Pacific Standard Time",
+                       "lastModifiedDateTime": "2026-10-01T12:00:00Z"})
+    return events
 
 
 class FakeServer(Server):
@@ -24,7 +39,12 @@ class FakeServer(Server):
                  graph_aliases: Optional[list] = None, graph_drop_token: bool = False, graph_sent_copy: Optional[str] = "Sent Items",
                  graph_sent_copy_delay: float = 0, graph_failures: Optional[list] = None,
                  graph_honors_delete_after_submit: bool = True, graph_token_lifetime: int = 3599,
-                 graph_drop_token_after: Optional[int] = None, **kw):
+                 graph_drop_token_after: Optional[int] = None,
+                 graph_calendars: Optional[list] = None, graph_calendars_consented: bool = True,
+                 graph_calendars_page_size: int = 0, graph_calendars_delay: float = 0,
+                 graph_shared_mailbox_owner: Optional[str] = None,
+                 graph_events: Optional[dict] = None, graph_events_page_size: int = 0,
+                 graph_generated_events: int = 0, graph_provider: str = "office365", **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
@@ -45,14 +65,25 @@ class FakeServer(Server):
         # fake's mail-scoped access tokens, and with `graph_send` (the default) mail goes out
         # through the fake Graph API, which files its Sent Items copy in `graph_sent_copy` unless
         # the draft is marked delete-after-submit and `graph_honors_delete_after_submit` (default).
+        # `graph_shared_mailbox_owner` makes it a shared mailbox signed in as that address, and
+        # `graph_provider: outlook` an Outlook.com account rather than Office 365.
         self.graph_send = graph and graph_send
+        self.graph_shared_mailbox_owner = graph_shared_mailbox_owner
+        self.graph_provider = graph_provider
         self.graph = FakeGraphServer(graph_consented=graph_consented, consent_refusals=graph_consent_refusals,
                                      mailbox=email, aliases=graph_aliases or [], drop_graph_token=graph_drop_token,
                                      sent_copy=(self.store, graph_sent_copy) if graph_sent_copy else None,
                                      sent_copy_delay=graph_sent_copy_delay, failures=graph_failures,
                                      honors_delete_after_submit=graph_honors_delete_after_submit,
                                      token_lifetime=graph_token_lifetime, drop_graph_token_after=graph_drop_token_after,
-                                     deliver_to=(self.store, "INBOX", email)) if graph else None
+                                     deliver_to=(self.store, "INBOX", email), calendars=graph_calendars,
+                                     calendars_consented=graph_calendars_consented,
+                                     calendars_page_size=graph_calendars_page_size,
+                                     calendars_delay=graph_calendars_delay, events=graph_events,
+                                     events_page_size=graph_events_page_size) if graph else None
+        if self.graph and graph_generated_events:
+            calendar_id = graph_calendars[0]["id"]
+            self.graph.events.setdefault(calendar_id, []).extend(_generated_events(graph_generated_events))
         if self.graph:
             self.imap.oauth_tokens = self.graph.mail_tokens
             if self.smtp:
@@ -80,18 +111,23 @@ class FakeServer(Server):
         if self.smtp:
             kw["smtp_host"], kw["smtp_port"] = "127.0.0.1", self.smtp.port
         if self.graph:
-            kw["provider"] = "office365"
+            kw["provider"] = self.graph_provider
+            # Microsoft onboarding uses the address as both usernames; XOAUTH2 checks only the token.
+            kw["username"] = self.email
             kw["extra_settings"] = {
                 "refresh_client_id": "harness-client-id",
                 "refresh_token": self.graph.refresh_token,
                 "graph_send": self.graph_send,
             }
+            if self.graph_shared_mailbox_owner:
+                kw["extra_settings"]["smtp_username"] = self.graph_shared_mailbox_owner
         return kw
 
     def engine_env(self) -> dict:
         if not self.graph:
             return {}
-        return {"MS_GRAPH_URL": self.graph.url, "MS_OAUTH_TOKEN_URL": self.graph.token_url}
+        return {"MS_GRAPH_URL": self.graph.url, "MS_OAUTH_TOKEN_URL": self.graph.token_url,
+                "IDENTITY_SERVER": self.graph.identity_url}
 
     def sent_messages(self) -> list:
         return list(self.smtp.messages) if self.smtp else []

@@ -218,8 +218,10 @@ const json MakeOAuthRefreshRequest(string provider, string clientId, string refr
         // workaround the fact that Microsoft's OAUTH flow allows you to authorize many scopes, but you
         // have to get a separate token for outlook (email + IMAP) and contacts / calendar / Microsoft Graph APIs
         // separately. The same refresh token will give you access tokens, but the access tokens are different.
-        if (audience == OAuthTokenAudience::MicrosoftGraph) {
+        if (audience == OAuthTokenAudience::MicrosoftGraphMail) {
             payload += "&scope=https%3A%2F%2Fgraph.microsoft.com%2FMail.ReadWrite%20https%3A%2F%2Fgraph.microsoft.com%2FMail.Send";
+        } else if (audience == OAuthTokenAudience::MicrosoftGraphCalendars) {
+            payload += "&scope=https%3A%2F%2Fgraph.microsoft.com%2FCalendars.ReadWrite%20https%3A%2F%2Fgraph.microsoft.com%2FCalendars.ReadWrite.Shared";
         } else {
             payload += "&scope=https%3A%2F%2Foutlook.office.com%2FIMAP.AccessAsUser.All%20https%3A%2F%2Foutlook.office.com%2FSMTP.Send";
         }
@@ -421,19 +423,115 @@ static GraphResponse _performGraphRequestOnce(const string & method, const strin
     return resp;
 }
 
+// A throttled (429, or 503 when the request allows it) Graph request is tried this many times.
+static const int GRAPH_REQUEST_ATTEMPTS = 3;
+// Graph JSON batching takes up to 20 requests (https://learn.microsoft.com/en-us/graph/json-batching).
+static const size_t GRAPH_BATCH_LIMIT = 20;
+
+static bool _graphRetries(long status, GraphRetry retry) {
+    return status == 429 || (status == 503 && retry == GraphRetry::ThrottledOrUnavailable);
+}
+
+// Seconds to wait before retrying a throttled Graph request: its Retry-After, kept to 1-30.
+static long _graphRetryWait(long retryAfter) {
+    return (std::min)((std::max)(retryAfter, 1L), 30L); // parenthesized for <windows.h>'s min/max macros
+}
+
 GraphResponse PerformGraphRequest(const string & method, const string & url, const string & accessToken, const string & body, const string & contentType, const vector<string> & headers, GraphRetry retry) {
     GraphResponse resp;
-    for (int attempt = 0; attempt < 3; attempt ++) {
+    for (int attempt = 0; attempt < GRAPH_REQUEST_ATTEMPTS; attempt ++) {
         resp = _performGraphRequestOnce(method, url, accessToken, body, contentType, headers);
-        bool retryable = resp.status == 429 || (resp.status == 503 && retry == GraphRetry::ThrottledOrUnavailable);
-        if (!retryable) {
+        if (!_graphRetries(resp.status, retry)) {
             break;
         }
-        long wait = (std::min)((std::max)(resp.retryAfter, 1L), 30L); // parenthesized for <windows.h>'s min/max macros
+        long wait = _graphRetryWait(resp.retryAfter);
         spdlog::get("logger")->info("-- Graph returned {}, retrying in {}s", resp.status, wait);
         std::this_thread::sleep_for(std::chrono::seconds(wait));
     }
     return resp;
+}
+
+// A batched response's headers arrive as a JSON object rather than a header block.
+static string _batchedHeaderValue(const json & response, const string & headerName) {
+    string block;
+    for (const auto & header : JSONObject(response, "headers").items()) {
+        if (header.value().is_string()) {
+            block += header.key() + ": " + header.value().get<string>() + "\r\n";
+        }
+    }
+    return HTTPHeaderValue(block, headerName);
+}
+
+vector<GraphResponse> PerformGraphBatch(const vector<json> & requests, const std::function<string()> & tokenProvider, GraphRetry retry) {
+    vector<GraphResponse> responses(requests.size());
+    for (size_t first = 0; first < requests.size(); first += GRAPH_BATCH_LIMIT) {
+        vector<size_t> pending {};
+        for (size_t i = first; i < requests.size() && i < first + GRAPH_BATCH_LIMIT; i++) {
+            pending.push_back(i);
+        }
+        for (int attempt = 0; attempt < GRAPH_REQUEST_ATTEMPTS && !pending.empty(); attempt++) {
+            json batch = json::array();
+            for (size_t i : pending) {
+                json request = requests[i];
+                request["id"] = to_string(i);
+                batch.push_back(request);
+            }
+            GraphResponse resp = PerformGraphRequest("POST", MicrosoftGraphURL() + "/$batch", tokenProvider(),
+                                                     json{{"requests", batch}}.dump(), "application/json", {}, retry);
+            if (!resp.ok()) {
+                for (size_t i : pending) {
+                    responses[i] = resp;
+                }
+                break;
+            }
+
+            vector<size_t> throttled {};
+            long retryAfter = 0;
+            for (const auto & answer : JSONArray(resp.body, "responses")) {
+                size_t i = (size_t)atoi(JSONString(answer, "id").c_str());
+                if (find(pending.begin(), pending.end(), i) == pending.end()) {
+                    continue;
+                }
+                GraphResponse & response = responses[i];
+                response.status = JSONInt(answer, "status");
+                response.body = JSONObject(answer, "body");
+                response.retryAfter = ParseRetryAfter(_batchedHeaderValue(answer, "Retry-After"));
+                if (_graphRetries(response.status, retry)) {
+                    throttled.push_back(i);
+                    retryAfter = (std::max)(retryAfter, response.retryAfter);
+                }
+            }
+            pending = throttled;
+            if (!pending.empty() && attempt + 1 < GRAPH_REQUEST_ATTEMPTS) {
+                long wait = _graphRetryWait(retryAfter);
+                spdlog::get("logger")->info("-- Graph throttled {} batched requests, retrying in {}s", pending.size(), wait);
+                std::this_thread::sleep_for(std::chrono::seconds(wait));
+            }
+        }
+    }
+    return responses;
+}
+
+void ThrowForGraphResponse(const string & url, const GraphResponse & resp) {
+    bool retryable = resp.status != 401 && resp.status != 403;
+    throw SyncException("Invalid Response Code: " + to_string(resp.status),
+                        url + " RETURNED " + GraphErrorDescription(resp), retryable);
+}
+
+void PaginateGraphCollection(const string & url, const std::function<string()> & tokenProvider, const std::function<void(json &)> & yieldPage) {
+    string next = url;
+    while (next != "") {
+        GraphResponse resp = PerformGraphRequest("GET", next, tokenProvider());
+        if (!resp.ok()) {
+            ThrowForGraphResponse(next, resp);
+        }
+        json & page = resp.body;
+        if (!page.count("value") || !page["value"].is_array()) {
+            throw SyncException("invalid-graph-resp", next + " returned no value array", true);
+        }
+        yieldPage(page);
+        next = JSONString(page, "@odata.nextLink");
+    }
 }
 
 string GraphErrorDescription(const GraphResponse & resp) {
@@ -464,13 +562,6 @@ string URLEscape(const string & value) {
     string result = escaped ? escaped : value;
     curl_free(escaped);
     return result;
-}
-
-string JSONString(const json & object, const string & key) {
-    if (!object.is_object() || !object.count(key) || !object[key].is_string()) {
-        return "";
-    }
-    return object[key].get<string>();
 }
 
 // HTTP Protocol Quirk: Header Case Sensitivity
