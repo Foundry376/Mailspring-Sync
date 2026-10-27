@@ -1,0 +1,46 @@
+name: search-remote-fetch-skips-trash-copy
+description: >
+  A candidate whose searched copy vanished is fetched from another copy, but not from Spam or
+  Trash: the search bar leaves those folders out, so their candidates can never be shown, and
+  their copies may be purged by the server at any time. A search that names Spam or Trash
+  itself still fetches from them.
+source: "MailSync/SearchWorker.cpp (fetchFromAnotherCopy); the review of Mailspring-Sync #173"
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 3, age_days: 120}}
+steps:
+  - wait: quiescent
+  - server.copy: {mailbox: INBOX, uids: [1], to: Trash}
+  - server.copy: {mailbox: INBOX, uids: [2], to: Archive}
+  - server.copy: {mailbox: INBOX, uids: [3], to: Junk}
+  - sync: pass
+  - wait: {counts: {INBOX: 3, Trash: 1, Archive: 1, Junk: 1}, timeout: 30}
+  - server.expunge: {mailbox: INBOX, uids: [1, 2, 3], at: {hook: before_command, command: "^UID FETCH [0-9:,]+ \\(UID RFC822\\.SIZE\\)", mailbox: INBOX}}
+  - client.search: {criteria: [subject, Message], folders: [INBOX], fetchLimit: 100}
+    as: fetch
+  - wait: {log: 'Search: the only copies of message \S+ are in Spam or Trash', timeout: 30}
+  - wait: {quiescent: true}
+  # A fourth message, unread in INBOX and read in Junk, so only the INBOX copy matches: when it
+  # vanishes, the Junk copy is fetched after all, because this search named Junk.
+  - server.append: {mailbox: INBOX, messages: {count: 1, age_days: 120}}
+  - server.copy: {mailbox: INBOX, uids: [4], to: Junk}
+  - server.flags: {mailbox: INBOX, uids: [4], remove: ["\\Seen"]}
+  - server.flags: {mailbox: Junk, uids: [2], add: ["\\Seen"]}
+  - sync: pass
+  - wait: {counts: {INBOX: 1, Junk: 2}, timeout: 30}
+  - server.expunge: {mailbox: INBOX, uids: [4], at: {hook: before_command, command: "^UID FETCH [0-9:,]+ \\(UID RFC822\\.SIZE\\)", mailbox: INBOX}}
+  - client.search: {criteria: [and, [unread], [subject, Message]], folders: [INBOX, Junk], fetchLimit: 100}
+    as: named
+  - wait: {log: 'Search \S+: 1 candidate\(s\), 0 stored, 1 to fetch', timeout: 30}
+  - wait: {quiescent: true}
+expect:
+  search:
+    fetch: {candidates: 3, fetched: 1, skipped: 2, phase: done}
+    named: {candidates: 1, fetched: 1, skipped: 0, phase: done}
+  log_count:
+    'Search: the only copies of message \S+ are in Spam or Trash': 2
+  local_search:
+    '"body of message 2"': [Message 2]
+    '"body of message 4"': [Message 4]
+  running: true

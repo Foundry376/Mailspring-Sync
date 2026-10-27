@@ -97,9 +97,9 @@ private:
     void collectLocalMessages(string folderId, IndexSet * uids, SearchResults & results);
     vector<SearchMatch> candidatesToFetch(SearchResults & results, size_t fetchLimit, FetchProgress & progress);
     void fetchCandidates(string searchId, uint64_t gen, vector<SearchMatch> candidates, SearchResults & results,
-                         size_t limit, json & errors, FetchProgress & progress);
+                         size_t limit, json & errors, FetchProgress & progress, const set<string> & searchedFolderIds);
     bool storeFetchedBody(const SearchMatch & match, Data * data);
-    bool fetchFromAnotherCopy(const SearchMatch & match);
+    bool fetchFromAnotherCopy(const SearchMatch & match, const set<string> & searchedFolderIds);
     json resultJSON(string searchId, SearchResults & results, size_t limit, const json & errors,
                     string phase, const FetchProgress & progress, bool done);
     void emitFailure(string searchId, uint64_t gen, string error);
