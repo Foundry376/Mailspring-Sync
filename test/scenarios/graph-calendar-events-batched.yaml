@@ -13,7 +13,7 @@ servers:
     graph_consented: false
     graph_generated_events: 21
     graph_failures:
-      - {route: "^calendars/[^/]+/events/AAMkEvGen05=$", method: GET, status: 429, code: TooManyRequests, times: 1, retry_after: 1}
+      - {route: "^calendars/[^/]+/events/AAMkEvGen05=$", method: GET, status: 429, code: TooManyRequests, times: 1, retry_after: 3}
     graph_calendars:
       - {id: "AAMkADefault=", name: Calendar, owner: {name: Harness Test, address: test@example.test}}
 mailboxes:
@@ -23,5 +23,5 @@ steps:
 expect:
   event_count: 21
   graph: {requests: {"/v1.0/\\$batch$": 3, "/me/calendars/[^/]+/events/AAMkEvGen05=": 2, "/me/calendars/[^/]+/events/AAMkEvGen06=": 1}}
-  log_present: ["Graph throttled 1 batched requests"]
+  log_present: ["Graph throttled 1 batched requests, retrying in 3s"]
   running: true

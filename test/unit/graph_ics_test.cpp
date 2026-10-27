@@ -174,10 +174,14 @@ int main() {
             {"attendees", json::array({
                 {{"type", "required"}, {"status", {{"response", "none"}}},
                  {"emailAddress", {{"name", "Me"}, {"address", "me@primary.example.test"}}}},
+                {{"type", "optional"}, {"status", {{"response", "none"}}},
+                 {"emailAddress", {{"name", "Me"}, {"address", "me@alias.example.test"}}}},
             })},
         }), {"me@alias.example.test", "me@primary.example.test"}, START_UTC);
         expectLine(ics, "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Me:mailto:me@primary.example.test",
                    "own answer at the primary address");
+        expectLine(ics, "ATTENDEE;ROLE=OPT-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Me:mailto:me@alias.example.test",
+                   "own answer at the alias");
     }
     {
         // A meeting a Google user organized: Exchange's ID wraps the organizer's UID, which the
