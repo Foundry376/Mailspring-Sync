@@ -7,7 +7,7 @@ description: >
 source: "Mailspring-Sync #116 (shared mailboxes: IMAP as the mailbox, SMTP AUTH as the owner)"
 servers:
   - {fake: outlook, graph: true, graph_send: false, graph_shared_mailbox_owner: owner@example.test,
-     graph_calendars: [{id: "AAMkADOwner=", name: Calendar, canEdit: true,
+     graph_calendars: [{id: "AAMkADOwner=", name: Calendar, 
                         owner: {name: Owner, address: owner@example.test}}]}
 mailboxes:
   INBOX: {messages: 1}

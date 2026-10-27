@@ -336,13 +336,15 @@ class _Handler(BaseHTTPRequestHandler):
     def _calendars(self):
         srv: "FakeGraphServer" = self.server.owner
         time.sleep(srv.calendars_delay)
-        skip = int(parse_qs(urlparse(self.path).query).get("$skip", ["0"])[0])
+        query = parse_qs(urlparse(self.path).query)
+        select = query.get("$select", [""])[0]
+        skip = int(query.get("$skip", ["0"])[0])
         with srv.lock:
             calendars = list(srv.calendars)
         size = srv.calendars_page_size or max(len(calendars), 1)
-        body = {"value": calendars[skip:skip + size]}
+        body = {"value": [_selected(c, select) for c in calendars[skip:skip + size]]}
         if skip + size < len(calendars):
-            body["@odata.nextLink"] = f"{srv.url}/me/calendars?$skip={skip + size}"
+            body["@odata.nextLink"] = f"{srv.url}/me/calendars?$select={select}&$skip={skip + size}"
         return self._reply(200, body)
 
     def _batch(self, body: bytes):

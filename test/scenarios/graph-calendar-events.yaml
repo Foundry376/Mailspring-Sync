@@ -20,7 +20,7 @@ servers:
     graph_failures:
       - {route: "^calendars/[^/]+/events/AAMkEvBroken=$", method: GET, status: 403, code: ErrorAccessDenied}
     graph_calendars:
-      - {id: "AAMkADefault=", name: Calendar, canEdit: true, owner: {name: Harness Test, address: test@example.test}}
+      - {id: "AAMkADefault=", name: Calendar, owner: {name: Harness Test, address: test@example.test}}
     graph_events:
       AAMkADefault=:
         - id: "AAMkEvPlanning="

@@ -9,7 +9,7 @@ servers:
     smtp: true
     graph: true
     graph_calendars:
-      - {id: "AAMkADefault=", name: Calendar, hexColor: "#FF8C00", canEdit: true,
+      - {id: "AAMkADefault=", name: Calendar, hexColor: "#FF8C00", 
          owner: {name: Harness Test, address: test@example.test}}
 mailboxes:
   INBOX: {messages: 1}

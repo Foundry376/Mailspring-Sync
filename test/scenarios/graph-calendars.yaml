@@ -8,7 +8,7 @@ description: >
   default calendar's, which is the mailbox's primary address even where the account signs in with
   an alias (as here), and wherever the default calendar falls in the listing. A calendar renamed
   on the server is renamed here; one the server stops listing is removed.
-source: "https://learn.microsoft.com/en-us/graph/api/user-list-calendars (calendar: id, name, hexColor, canEdit, owner)"
+source: "https://learn.microsoft.com/en-us/graph/api/user-list-calendars (calendar: id, name, hexColor, owner, isDefaultCalendar)"
 servers:
   - fake: outlook
     graph: true

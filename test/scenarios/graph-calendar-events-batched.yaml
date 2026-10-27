@@ -15,7 +15,7 @@ servers:
     graph_failures:
       - {route: "^calendars/[^/]+/events/AAMkEvGen05=$", method: GET, status: 429, code: TooManyRequests, times: 1, retry_after: 1}
     graph_calendars:
-      - {id: "AAMkADefault=", name: Calendar, canEdit: true, owner: {name: Harness Test, address: test@example.test}}
+      - {id: "AAMkADefault=", name: Calendar, owner: {name: Harness Test, address: test@example.test}}
 mailboxes:
   INBOX: {messages: 1}
 steps:

@@ -11,8 +11,8 @@ servers:
     graph_send: false
     graph_consented: false
     graph_calendars:
-      - {id: "AAMkADefault=", name: Calendar, canEdit: true, owner: {name: Harness Test, address: test@example.test}}
-      - {id: "AAMkADTeam=", name: Team, canEdit: false, owner: {name: Bob Builder, address: bob@example.net}}
+      - {id: "AAMkADefault=", name: Calendar, owner: {name: Harness Test, address: test@example.test}}
+      - {id: "AAMkADTeam=", name: Team, owner: {name: Bob Builder, address: bob@example.net}}
 mailboxes:
   INBOX: {messages: 1}
 steps:
