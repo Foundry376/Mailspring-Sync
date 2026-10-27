@@ -22,7 +22,7 @@
 #include <mutex>
 #include <set>
 
-static const string CALENDAR_FIELDS = "id,name,hexColor,owner,isDefaultCalendar";
+static const string CALENDAR_FIELDS = "id,name,hexColor,owner,isDefaultCalendar,canEdit";
 static const string EVENT_INDEX_FIELDS = "id,changeKey,type,start,end,recurrence,originalStartTimeZone";
 static const string EVENT_FIELDS = "id,iCalUId,type,subject,body,start,end,isAllDay,isCancelled,showAs,location,"
                                    "organizer,attendees,responseStatus,lastModifiedDateTime,recurrence,originalStart";
@@ -286,8 +286,7 @@ void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const s
     string color = JSONString(remote, "hexColor");
     string owner = JSONString(JSONObject(remote, "owner"), "address");
     string ownership = owner == "" ? "" : equalsIgnoreCase(owner, mailboxAddress) ? "mine" : "other";
-    // Read-only until event edits go through Graph: TaskProcessor writes events with DAVWorker.
-    bool readOnly = true;
+    bool readOnly = !JSONBool(remote, "canEdit");
 
     if (!local) {
         Calendar calendar(id, account->id());
