@@ -1,0 +1,41 @@
+name: body-purge-removes-attachment-files
+description: >
+  The hourly cache cleanup drops bodies fetched more than 14 days ago of messages older than
+  the body sync window. The attachment files written with those bodies must go with them: a
+  search's candidate fetch can write tens of megabytes of files per search, and nothing else
+  removes them. A body fetched within the 14 days, or of a message inside the sync window,
+  keeps its files, and a message's files come back when its body is fetched again.
+source: SyncWorker::cleanMessageCache; the review of Mailspring-Sync #173
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+mailboxes:
+  INBOX:
+    messages: {count: 3, attachment: [report.bin, "0123456789abcdef0123456789abcdef"], age_days: 120}
+  Archive:
+    messages: {count: 1, attachment: [fresh.bin, "0123456789abcdef0123456789abcdef"]}
+steps:
+  - wait: quiescent
+  # Bodies older than the sync window are fetched only when the client asks.
+  - client.need_bodies: {messages: {mailbox: INBOX, uids: [1, 2, 3]}}
+  - wait: {log: "Fetching body for message", timeout: 30}
+  - wait: {quiescent: true}
+  - assert: {files: {INBOX: {1: true, 2: true, 3: true}, Archive: {1: true}}}
+  # INBOX 3 keeps a fresh fetch time and Archive 1 a fresh date: one guard each.
+  - restart:
+      before:
+        - db.sql: >
+            UPDATE MessageBody SET fetchedAt = datetime('now', '-20 days') WHERE id NOT IN
+            (SELECT messageId FROM MessageFolder WHERE remoteUID = 3 AND folderId IN (SELECT id FROM Folder WHERE path = 'INBOX'))
+  - wait: quiescent
+  - force_scans: {keys: [lastCleanup]}
+  - wait: {log: "2 message bodies deleted from local cache", timeout: 60}
+  - wait: {quiescent: true}
+  - assert: {files: {INBOX: {1: false, 2: false, 3: true}, Archive: {1: true}}}
+  - client.need_bodies: {messages: {mailbox: INBOX, uids: [1]}}
+  - wait: {log: "Fetching body for message", timeout: 30}
+  - wait: {quiescent: true}
+expect:
+  files: {INBOX: {1: true, 2: false, 3: true}, Archive: {1: true}}
+  db_matches_server: {}
+  running: true

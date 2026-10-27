@@ -1003,6 +1003,27 @@ class ScenarioRun:
                     out += [f"{mid} {where} contains {s!r}" for s in want.get("lacks", []) if s in text]
         return out
 
+    def expect_files(self, arg: dict) -> list:
+        """{mailbox: {uid: bool}}: whether every attachment file of that message is on disk, in
+        the files/<id[0:2]>/<id[2:4]>/<id>/ directory MailUtils::pathForFile writes and the
+        client's AttachmentStore reads."""
+        out = []
+        for mb, wanted in arg.items():
+            uids = list(wanted)
+            for uid, mid in zip(uids, self._resolve_messages({"mailbox": mb, "uids": uids})):
+                with self.ms.db() as c:
+                    files = json.loads(c.execute("SELECT data FROM Message WHERE id = ?", (mid,)).fetchone()["data"]).get("files") or []
+                if not files:
+                    out.append(f"{mb} UID {uid} has no attachment to check")
+                for f in files:
+                    fid = f["id"].lower()   # pathForFile lowercases the id
+                    folder = self.ms.config_dir / "files" / fid[0:2] / fid[2:4] / fid
+                    present = folder.is_dir() and any(folder.iterdir())
+                    if present != bool(wanted[uid]):
+                        out.append(f"{mb} UID {uid} {f['filename']}: {'present' if present else 'missing'}, "
+                                   f"expected {'present' if wanted[uid] else 'missing'}")
+        return out
+
     def expect_unfetched_bodies(self, arg: dict) -> list:
         """{max: n}: at most n messages hold the empty MessageBody row that reserves a body
         fetch (SyncWorker::syncMessageBodies). A row left behind is never fetched again

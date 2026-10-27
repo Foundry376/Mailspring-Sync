@@ -14,6 +14,7 @@
 
 #include "SyncWorker.hpp"
 #include "MailUtils.hpp"
+#include <filesystem>
 #include "MailStoreTransaction.hpp"
 #include "Folder.hpp"
 #include "Label.hpp"
@@ -1510,23 +1511,49 @@ void SyncWorker::deleteVanishedUIDs(Folder & folder, IndexSet * vanished, const 
     }
 }
 
+/*
+ Drops the bodies fetched more than 14 days ago of messages older than the body sync window,
+ and the attachment files written with them: MailProcessor::retrievedMessageBody writes both,
+ and a search's candidate fetch can write tens of megabytes of files per search. The 14 days
+ keep a body the user is viewing or could still want. A dropped body is fetched again, files
+ included, when the client asks for it; its text stays in ThreadSearch so search still finds it.
+ */
 void SyncWorker::cleanMessageCache(Folder & folder) {
     logger->info("Cleaning local cache and updating stats");
-    
-    // delete bodies we no longer want. Note: you can't do INNER JOINs within a DELETE
-    // note: we only delete messages fetchedd more than 14 days ago to avoid deleting
-    // old messages you're actively viewing / could still want
-    SQLite::Statement purge(store->db(),
-        "DELETE FROM MessageBody WHERE MessageBody.fetchedAt < datetime('now', '-14 days') AND MessageBody.id IN ("
-        "SELECT Message.id FROM MessageFolder INNER JOIN Message ON Message.id = MessageFolder.messageId "
-        "WHERE MessageFolder.accountId = ? AND MessageFolder.folderId = ? AND MessageFolder.remoteUID > 0 "
-        "AND Message.draft = 0 AND Message.date < ?)");
-    purge.bind(1, folder.accountId());
-    purge.bind(2, folder.id());
-    purge.bind(3, (double)(time(0) - maxAgeForBodySync(folder)));
-    int purged = purge.exec();
+
+    SQLite::Statement expired(store->db(),
+        "SELECT Message.id, Message.data FROM Message INNER JOIN MessageBody ON MessageBody.id = Message.id "
+        "WHERE MessageBody.fetchedAt < datetime('now', '-14 days') AND Message.draft = 0 AND Message.date < ? "
+        "AND Message.id IN (SELECT messageId FROM MessageFolder WHERE accountId = ? AND folderId = ? AND remoteUID > 0)");
+    expired.bind(1, (double)(time(0) - maxAgeForBodySync(folder)));
+    expired.bind(2, folder.accountId());
+    expired.bind(3, folder.id());
+    vector<string> ids;
+    vector<string> fileIds;
+    while (expired.executeStep()) {
+        ids.push_back(expired.getColumn(0).getString());
+        for (const auto & file : json::parse(expired.getColumn(1).getString()).value("files", json::array())) {
+            fileIds.push_back(file["id"].get<string>());
+        }
+    }
+    int purged = 0;
+    for (size_t start = 0; start < ids.size(); start += 500) {
+        size_t end = min(start + 500, ids.size());
+        SQLite::Statement purge(store->db(), "DELETE FROM MessageBody WHERE id IN (" + MailUtils::qmarks(end - start) + ")");
+        for (size_t i = start; i < end; i++) {
+            purge.bind((int)(1 + i - start), ids[i]);
+        }
+        purged += purge.exec();
+    }
+    // Files go after their bodies: a body left without its files is never repaired, while files
+    // left without a body are written again when the body is fetched.
+    const string root = MailUtils::filesRootPath();
+    for (const string & fileId : fileIds) {
+        std::error_code ec;
+        // u8path: the config path is UTF-8, which a plain path treats as the ANSI code page on Windows.
+        std::filesystem::remove_all(std::filesystem::u8path(MailUtils::directoryForFile(root, fileId)), ec);
+    }
     logger->info("-- {} message bodies deleted from local cache.", purged);
-    // Note: their text stays in ThreadSearch so search still finds them. TODO BG: remove attachments
 
     // update messages body stats
     folder.localStatus()[LS_BODIES_PRESENT] = countBodiesDownloaded(folder);

@@ -60,6 +60,8 @@ public:
     // Builds queries over MessageFolder (folderId, remoteUID) covering every UID in the set.
     static vector<Query> queriesForUIDRangesInIndexSet(string folderId, IndexSet * set);
 
+    static string filesRootPath();
+    static string directoryForFile(string root, string fileId);
     static string pathForFile(string root, File * file, bool create);
 
     static string namespacePrefixOrBlank(IMAPSession * session);
