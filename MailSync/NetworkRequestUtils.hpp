@@ -78,11 +78,11 @@ GraphResponse PerformGraphRequest(const string & method, const string & url, con
 // request and in their order, sent 20 to a JSON batch. Graph answers each request on its own, so a
 // throttled one is retried alone; a refused batch gives every request its response. The token is
 // asked for per batch request, since retries can outlast it.
-vector<GraphResponse> PerformGraphBatch(const vector<json> & requests, const std::function<string()> & accessToken, GraphRetry retry = GraphRetry::ThrottledOrUnavailable);
+vector<GraphResponse> PerformGraphBatch(const vector<json> & requests, const std::function<string()> & tokenProvider, GraphRetry retry = GraphRetry::ThrottledOrUnavailable);
 
 // Each page of a Graph collection, following @odata.nextLink. Throws as ThrowForGraphResponse
 // on an error status, and when a page has no value array.
-void PaginateGraphCollection(const string & url, const std::function<string()> & accessToken, const std::function<void(json &)> & yieldPage);
+void PaginateGraphCollection(const string & url, const std::function<string()> & tokenProvider, const std::function<void(json &)> & yieldPage);
 
 // Keyed like ValidateRequestResp's errors, so runCalContactsSyncWorker stops on a 401 or 403.
 [[noreturn]] void ThrowForGraphResponse(const string & url, const GraphResponse & resp);

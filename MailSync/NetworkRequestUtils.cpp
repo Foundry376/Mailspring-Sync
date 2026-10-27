@@ -462,7 +462,7 @@ static string _batchedHeaderValue(const json & response, const string & headerNa
     return HTTPHeaderValue(block, headerName);
 }
 
-vector<GraphResponse> PerformGraphBatch(const vector<json> & requests, const std::function<string()> & accessToken, GraphRetry retry) {
+vector<GraphResponse> PerformGraphBatch(const vector<json> & requests, const std::function<string()> & tokenProvider, GraphRetry retry) {
     vector<GraphResponse> responses(requests.size());
     for (size_t first = 0; first < requests.size(); first += GRAPH_BATCH_LIMIT) {
         vector<size_t> pending {};
@@ -476,7 +476,7 @@ vector<GraphResponse> PerformGraphBatch(const vector<json> & requests, const std
                 request["id"] = to_string(i);
                 batch.push_back(request);
             }
-            GraphResponse resp = PerformGraphRequest("POST", MicrosoftGraphURL() + "/$batch", accessToken(),
+            GraphResponse resp = PerformGraphRequest("POST", MicrosoftGraphURL() + "/$batch", tokenProvider(),
                                                      json{{"requests", batch}}.dump(), "application/json", {}, retry);
             if (!resp.ok()) {
                 for (size_t i : pending) {
@@ -518,10 +518,10 @@ void ThrowForGraphResponse(const string & url, const GraphResponse & resp) {
                         url + " RETURNED " + GraphErrorDescription(resp), retryable);
 }
 
-void PaginateGraphCollection(const string & url, const std::function<string()> & accessToken, const std::function<void(json &)> & yieldPage) {
+void PaginateGraphCollection(const string & url, const std::function<string()> & tokenProvider, const std::function<void(json &)> & yieldPage) {
     string next = url;
     while (next != "") {
-        GraphResponse resp = PerformGraphRequest("GET", next, accessToken());
+        GraphResponse resp = PerformGraphRequest("GET", next, tokenProvider());
         if (!resp.ok()) {
             ThrowForGraphResponse(next, resp);
         }
