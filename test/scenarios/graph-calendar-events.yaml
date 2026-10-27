@@ -4,8 +4,9 @@ description: >
   event is read in its own zone, a series with its edited occurrence (a row of its own) and its
   cancelled date (an EXDATE). An event outside the sync window gets no row, while a series lasts
   until its recurrence ends: one that began before the window is kept, one that ended before it
-  is not. One in a custom zone Graph cannot convert to is read in UTC, and one Graph refuses to
-  return is skipped without stopping the rest.
+  is not. One in a custom zone Graph cannot convert to is read in UTC, as is one whose zone name
+  Graph refuses in Prefer (read again after the 400), and one Graph refuses to return is skipped
+  without stopping the rest.
 source: "https://learn.microsoft.com/en-us/graph/api/calendar-list-events and event-get (Prefer: outlook.timezone, $expand=exceptionOccurrences)"
 env:
   CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
@@ -131,6 +132,16 @@ servers:
           originalStartTimeZone: "tzone://Microsoft/Custom"
           isAllDay: false
           lastModifiedDateTime: "2026-10-01T12:00:00Z"
+        - id: "AAMkEvNamedZone="
+          changeKey: "ck-named-zone-1"
+          iCalUId: "uid-named-zone"
+          type: singleInstance
+          subject: Partner sync
+          start: {dateTime: "2026-10-27T08:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-27T08:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Customized Time Zone
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
         - id: "AAMkEvBroken="
           changeKey: "ck-broken-1"
           iCalUId: "uid-broken"
@@ -166,5 +177,7 @@ expect:
                 "SUMMARY:Standup (moved)"]
     "uid-vendor|":
       ics_has: ["DTSTART:20261023T180000Z"]
+    "uid-named-zone|":
+      ics_has: ["DTSTART:20261027T150000Z"]
   log_present: ["Graph event AAMkEvBroken= could not be read"]
   running: true

@@ -163,16 +163,16 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
                  remote.size(), fetched, changedCount, removedCount);
 }
 
-// A $batch request reading one listed event. It goes through the event's calendar, as
+// A $batch request reading one listed event in `zone`. It goes through the event's calendar, as
 // Graph reads an event in a calendar shared with the user
 // (https://learn.microsoft.com/en-us/graph/outlook-get-shared-events-calendars). A batched request
 // carries only its own headers, and one value per header, so the preferences share one Prefer
 // (RFC 7240 section 2).
-static json eventRequest(const string & calendarPath, const json & entry) {
+static json eventRequest(const string & calendarPath, const json & entry, const string & zone) {
     bool series = JSONString(entry, "type") == "seriesMaster";
     string url = "/me/calendars/" + URLEscape(calendarPath) + "/events/" + URLEscape(JSONString(entry, "id")) +
                  "?$select=" + (series ? SERIES_FIELDS + "&$expand=exceptionOccurrences" : EVENT_FIELDS);
-    string prefer = "IdType=\"ImmutableId\", outlook.timezone=\"" + zoneToReadIn(entry) + "\", outlook.body-content-type=\"text\"";
+    string prefer = "IdType=\"ImmutableId\", outlook.timezone=\"" + zone + "\", outlook.body-content-type=\"text\"";
     return {{"method", "GET"}, {"url", url}, {"headers", {{"Prefer", prefer}}}};
 }
 
@@ -181,9 +181,25 @@ static json eventRequest(const string & calendarPath, const json & entry) {
 vector<pair<json, json>> MicrosoftCalendarWorker::fetchEvents(const string & calendarPath, const vector<json> & entries) {
     vector<json> requests {};
     for (const auto & entry : entries) {
-        requests.push_back(eventRequest(calendarPath, entry));
+        requests.push_back(eventRequest(calendarPath, entry, zoneToReadIn(entry)));
     }
     vector<GraphResponse> responses = PerformGraphBatch(requests, tokenProvider());
+
+    // A zone name Graph refuses in Prefer answers 400; such an event is read again in UTC.
+    vector<size_t> refused {};
+    vector<json> retries {};
+    for (size_t i = 0; i < entries.size(); i++) {
+        if (responses[i].status == 400 && zoneToReadIn(entries[i]) != "UTC") {
+            refused.push_back(i);
+            retries.push_back(eventRequest(calendarPath, entries[i], "UTC"));
+        }
+    }
+    if (!retries.empty()) {
+        vector<GraphResponse> inUTC = PerformGraphBatch(retries, tokenProvider());
+        for (size_t k = 0; k < refused.size(); k++) {
+            responses[refused[k]] = inUTC[k];
+        }
+    }
     vector<pair<json, json>> events {};
     for (size_t i = 0; i < entries.size(); i++) {
         if (responses[i].ok()) {
