@@ -213,13 +213,14 @@ static string recurrenceIdLine(const json & exception, bool allDay, time_t utcOf
     return "RECURRENCE-ID:" + formatUTC(originalStart, "%Y%m%dT%H%M%SZ");
 }
 
-// Graph's iCalUId is Exchange's Global Object ID in hex. For a meeting organized outside Exchange,
-// that ID wraps the organizer's UID, which invitations carry: its data is "vCal-Uid", 01 00 00 00,
-// then the UID ([MS-OXCICAL] 2.1.3.1.1.20.26, which exports that UID as the event's).
+// Graph's iCalUId is Exchange's Global Object ID in hex. For a meeting organized outside Exchange, its
+// data wraps the organizer's UID as "vCal-Uid", 01 00 00 00, UID ([MS-OXCICAL] 2.1.3.1.1.20.26).
 static string organizerUID(const string & iCalUId) {
     static const string BYTE_ARRAY_ID = "040000008200E00074C5B7101A82E008";
     static const string THIRD_PARTY_MARKER("vCal-Uid\x01\x00\x00\x00", 12);
-    if (iCalUId.size() < 82 || iCalUId.size() % 2 || !equalsIgnoreCase(iCalUId.substr(0, 32), BYTE_ARRAY_ID)) {
+    static const size_t INSTANCE_DATE_OFFSET = 16, SIZE_OFFSET = 36, DATA_OFFSET = 40;
+    if (iCalUId.size() < 2 * (DATA_OFFSET + 1) || iCalUId.size() % 2 ||
+        !equalsIgnoreCase(iCalUId.substr(0, BYTE_ARRAY_ID.size()), BYTE_ARRAY_ID)) {
         return iCalUId;
     }
     string bytes;
@@ -229,9 +230,14 @@ static string organizerUID(const string & iCalUId) {
         }
         bytes += (char)stoi(iCalUId.substr(i, 2), nullptr, 16);
     }
-    size_t size = (unsigned char)bytes[36] | (unsigned char)bytes[37] << 8 | (unsigned char)bytes[38] << 16 |
-                  (size_t)(unsigned char)bytes[39] << 24;
-    string data = bytes.substr(40, size);
+    // An orphan occurrence (an invitation to one occurrence, not its series) carries its date here.
+    // Unwrapped, two of them would share one UID with no RECURRENCE-ID to tell them apart.
+    if (bytes.compare(INSTANCE_DATE_OFFSET, 4, string(4, '\0')) != 0) {
+        return iCalUId;
+    }
+    size_t size = (unsigned char)bytes[SIZE_OFFSET] | (unsigned char)bytes[SIZE_OFFSET + 1] << 8 |
+                  (unsigned char)bytes[SIZE_OFFSET + 2] << 16 | (size_t)(unsigned char)bytes[SIZE_OFFSET + 3] << 24;
+    string data = bytes.substr(DATA_OFFSET, size);
     if (data.compare(0, THIRD_PARTY_MARKER.size(), THIRD_PARTY_MARKER) != 0) {
         return iCalUId;
     }
