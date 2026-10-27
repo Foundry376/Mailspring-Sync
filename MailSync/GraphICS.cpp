@@ -13,6 +13,7 @@
 #include "strlib.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <ctime>
 #include <map>
@@ -212,6 +213,35 @@ static string recurrenceIdLine(const json & exception, bool allDay, time_t utcOf
     return "RECURRENCE-ID:" + formatUTC(originalStart, "%Y%m%dT%H%M%SZ");
 }
 
+// Graph's iCalUId is Exchange's Global Object ID in hex. For a meeting organized outside Exchange,
+// that ID wraps the organizer's UID, which invitations carry: its data is "vCal-Uid", 01 00 00 00,
+// then the UID ([MS-OXCICAL] 2.1.3.1.1.20.26, which exports that UID as the event's).
+static string organizerUID(const string & iCalUId) {
+    static const string BYTE_ARRAY_ID = "040000008200E00074C5B7101A82E008";
+    static const string THIRD_PARTY_MARKER("vCal-Uid\x01\x00\x00\x00", 12);
+    if (iCalUId.size() < 82 || iCalUId.size() % 2 || !equalsIgnoreCase(iCalUId.substr(0, 32), BYTE_ARRAY_ID)) {
+        return iCalUId;
+    }
+    string bytes;
+    for (size_t i = 0; i < iCalUId.size(); i += 2) {
+        if (!isxdigit((unsigned char)iCalUId[i]) || !isxdigit((unsigned char)iCalUId[i + 1])) {
+            return iCalUId;
+        }
+        bytes += (char)stoi(iCalUId.substr(i, 2), nullptr, 16);
+    }
+    size_t size = (unsigned char)bytes[36] | (unsigned char)bytes[37] << 8 | (unsigned char)bytes[38] << 16 |
+                  (size_t)(unsigned char)bytes[39] << 24;
+    string data = bytes.substr(40, size);
+    if (data.compare(0, THIRD_PARTY_MARKER.size(), THIRD_PARTY_MARKER) != 0) {
+        return iCalUId;
+    }
+    string uid = data.substr(THIRD_PARTY_MARKER.size());
+    while (!uid.empty() && uid.back() == '\0') { // Graph's ends with one, counted in Size, though the spec has none
+        uid.pop_back();
+    }
+    return uid.empty() ? iCalUId : uid;
+}
+
 static string partstatFor(const string & response) {
     if (response == "accepted" || response == "organizer") return "ACCEPTED";
     if (response == "tentativelyAccepted") return "TENTATIVE";
@@ -277,7 +307,7 @@ static void appendVEvent(string & ics, const json & event, const string & uid, c
 
 string GraphICS::icsForEvent(const json & event, const vector<string> & mailboxAddresses, const string & startUTC) {
     // Occurrences carry their own iCalUId; the series shares the master's.
-    string uid = JSONString(event, "iCalUId");
+    string uid = organizerUID(JSONString(event, "iCalUId"));
     bool allDay = JSONBool(event, "isAllDay");
     const json & start = JSONObject(event, "start");
     time_t utcOffset = GraphICS::secondsAsUTC(JSONString(start, "dateTime")) - GraphICS::secondsAsUTC(startUTC);

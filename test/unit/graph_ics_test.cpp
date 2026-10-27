@@ -180,6 +180,14 @@ int main() {
                    "own answer at the primary address");
     }
     {
+        // A meeting a Google user organized: Exchange's ID wraps the organizer's UID, which the
+        // invitation carries ([MS-OXCICAL] 2.1.3.1.1.20.26), with or without a trailing NUL.
+        expectLine(GraphICS::icsForEvent(event({{"iCalUId", "040000008200E00074C5B7101A82E00800000000000000000000000000000000000000002B0000007643616C2D556964010000003676713065316C726E6A35673863346D3361326240676F6F676C652E636F6D"}}), ME, START_UTC),
+                   "UID:6vq0e1lrnj5g8c4m3a2b@google.com", "organizer's UID unwrapped");
+        expectLine(GraphICS::icsForEvent(event({{"iCalUId", "040000008200E00074C5B7101A82E00800000000000000000000000000000000000000002C0000007643616C2D556964010000003676713065316C726E6A35673863346D3361326240676F6F676C652E636F6D00"}}), ME, START_UTC),
+                   "UID:6vq0e1lrnj5g8c4m3a2b@google.com", "organizer's UID unwrapped, trailing NUL dropped");
+    }
+    {
         string ics = GraphICS::icsForEvent(event({{"isCancelled", true}, {"showAs", "free"}}), ME, START_UTC);
         expectLine(ics, "STATUS:CANCELLED", "cancelled");
         expectLine(ics, "TRANSP:TRANSPARENT", "free is transparent");
