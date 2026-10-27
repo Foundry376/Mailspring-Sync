@@ -120,6 +120,10 @@ void MicrosoftCalendarWorker::run() {
 void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
     string path = JSONString(calendar, "id");
     string calendarId = MailUtils::idForCalendar(account->id(), path);
+    // responseStatus is the answer of the mailbox the calendar belongs to: in a colleague's, theirs.
+    string owner = JSONString(JSONObject(calendar, "owner"), "address");
+    vector<string> answering = owner == "" || equalsIgnoreCase(owner, mailboxAddress)
+                             ? vector<string>{account->emailAddress(), mailboxAddress} : vector<string>{owner};
     auto range = getCalendarSyncRange();
     map<string, json> remote {}; // Graph id -> listed event
     string url = MicrosoftGraphURL() + "/me/calendars/" + URLEscape(path) + "/events?$select=" + EVENT_INDEX_FIELDS + "&$top=200";
@@ -166,7 +170,7 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
         for (auto & [entry, event] : events) {
             auto it = localByHref.find(JSONString(entry, "id"));
             string startUTC = JSONString(JSONObject(entry, "start"), "dateTime");
-            string ics = GraphICS::icsForEvent(event, {account->emailAddress(), mailboxAddress}, startUTC);
+            string ics = GraphICS::icsForEvent(event, answering, startUTC);
             ingestEvent(calendarId, entry, ics, it != localByHref.end() ? it->second : vector<shared_ptr<Event>>{});
             fetched++;
         }
