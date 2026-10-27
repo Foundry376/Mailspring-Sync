@@ -786,19 +786,14 @@ bool MailUtils::isVerboseLoggingEnabled() {
     return _verboseLogging;
 }
 
-// libetpan logs each 4 KB stream write, so an APPEND or SMTP DATA becomes thousands of "sent"
-// lines that rotate the 5 MB log. Only the head of each unbroken run of sent data is kept.
+// libetpan logs each 4 KB stream write, so a cap per record would still log a whole APPEND or
+// SMTP DATA and rotate the 5 MB log.
 static const size_t SENT_RUN_LOG_LIMIT = 4096;
 
 class MailcoreSPDLogger : public ConnectionLogger {
-    size_t _sentRunLogged = 0;
-    size_t _sentRunOmitted = 0;
+    size_t _sentRunBytes = 0;
 
   public:
-    void log(string str) {
-        spdlog::get("logger")->info(str);
-    }
-
     void log(void *sender, ConnectionLogType logType, Data *buffer) {
         string logTypeString{"unknown"};
         switch (logType)
@@ -831,23 +826,21 @@ class MailcoreSPDLogger : public ConnectionLogger {
         default:
             break;
         }
-        string msg = buffer != nullptr ? buffer->stringWithCharset("UTF-8")->UTF8Characters() : "";
+        string msg;
         if (logType == ConnectionLogTypeSent) {
-            size_t room = SENT_RUN_LOG_LIMIT - _sentRunLogged;
-            if (msg.size() > room) {
-                _sentRunOmitted += msg.size() - room;
-                msg.resize(room);
-            }
-            if (msg.empty()) {
+            size_t logged = min(_sentRunBytes, SENT_RUN_LOG_LIMIT);
+            _sentRunBytes += buffer->length();
+            if (logged == SENT_RUN_LOG_LIMIT) {
                 return;
             }
-            _sentRunLogged += msg.size();
+            msg = buffer->stringWithCharset("UTF-8")->UTF8Characters();
+            msg.resize(min(msg.size(), SENT_RUN_LOG_LIMIT - logged));
         } else {
-            if (_sentRunOmitted > 0) {
-                spdlog::get("logger")->info("sent [{} bytes not logged]", _sentRunOmitted);
+            if (_sentRunBytes > SENT_RUN_LOG_LIMIT) {
+                spdlog::get("logger")->info("sent [{} bytes not logged]", _sentRunBytes - SENT_RUN_LOG_LIMIT);
             }
-            _sentRunLogged = 0;
-            _sentRunOmitted = 0;
+            _sentRunBytes = 0;
+            msg = buffer != nullptr ? buffer->stringWithCharset("UTF-8")->UTF8Characters() : "";
         }
         spdlog::get("logger")->info("{} {}", logTypeString, msg);
     }
