@@ -1,0 +1,47 @@
+name: graph-calendars-one-refused
+description: >
+  Graph refusing one calendar's events must not stop the other calendars or the calendar thread.
+  A calendar a colleague stopped sharing can still be listed while its events answer 403: the
+  calendar listed after it is synced anyway, and the pass completes.
+source: "Mailspring-Sync #176 review (only a failed /me/calendars listing should stop calendar sync)"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_failures:
+      - {route: "^calendars/AAMkADShared=/events$", method: GET, status: 403, code: ErrorAccessDenied}
+    graph_calendars:
+      - {id: "AAMkADShared=", name: Shared, canEdit: false, owner: {name: Bob Builder, address: bob@example.net}}
+      - {id: "AAMkADefault=", name: Calendar, canEdit: true, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADShared=:
+        - &review
+          id: "AAMkEvReview="
+          changeKey: "ck-review-1"
+          iCalUId: "uid-review"
+          type: singleInstance
+          subject: Review
+          start: {dateTime: "2026-10-21T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-21T10:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+      AAMkADefault=:
+        - <<: *review
+          id: "AAMkEvPlanning="
+          changeKey: "ck-planning-1"
+          iCalUId: "uid-planning"
+          subject: Planning
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 2 calendars", timeout: 90}
+expect:
+  events:
+    "uid-planning|": {}
+  log_present: ["Calendar 'Shared' could not be synced"]
+  log_absent: ["Stopping sync - unable to authenticate"]
+  running: true

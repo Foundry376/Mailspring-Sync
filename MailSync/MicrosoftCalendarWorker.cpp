@@ -84,7 +84,15 @@ void MicrosoftCalendarWorker::run() {
         }
     }
     for (auto & calendar : listed) {
-        syncEvents(calendar);
+        try {
+            syncEvents(calendar);
+        } catch (SyncException & ex) {
+            // One calendar Graph refuses (a colleague stopped sharing it) must not stop the others.
+            if (ex.isOffline()) {
+                throw;
+            }
+            logger->warn("-X Calendar '{}' could not be synced: {} {}", JSONString(calendar, "name"), ex.key, ex.debuginfo);
+        }
     }
     logger->info("Microsoft calendar sync complete: {} calendars", listedIds.size());
 }
