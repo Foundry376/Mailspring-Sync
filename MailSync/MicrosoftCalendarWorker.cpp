@@ -151,13 +151,16 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
     size_t changedCount = changed.size(); // chunksOfVector empties `changed`
     size_t fetched = 0;
     for (auto & chunk : MailUtils::chunksOfVector(changed, EVENTS_PER_ROUND)) {
-        for (auto & [entry, event] : fetchEvents(path, chunk)) {
+        vector<pair<json, json>> events = fetchEvents(path, chunk);
+        MailStoreTransaction transaction{store.get(), "syncEvents:changes"};
+        for (auto & [entry, event] : events) {
             auto it = localByHref.find(JSONString(entry, "id"));
             string startUTC = JSONString(JSONObject(entry, "start"), "dateTime");
             string ics = GraphICS::icsForEvent(event, account->emailAddress(), startUTC);
             ingestEvent(calendarId, entry, ics, it != localByHref.end() ? it->second : vector<shared_ptr<Event>>{});
             fetched++;
         }
+        transaction.commit();
     }
     logger->info("- {}: {} events in range, {} of {} changed fetched, {} rows removed", JSONString(calendar, "name"),
                  remote.size(), fetched, changedCount, removedCount);
@@ -212,20 +215,25 @@ vector<pair<json, json>> MicrosoftCalendarWorker::fetchEvents(const string & cal
 }
 
 // One row per VEVENT, keyed by UID and RECURRENCE-ID; rows of the event no longer in its ICS go.
+// Runs inside the caller's transaction.
 void MicrosoftCalendarWorker::ingestEvent(const string & calendarId, const json & entry, const string & ics,
                                           const vector<shared_ptr<Event>> & previousRows) {
     string graphId = JSONString(entry, "id");
     string changeKey = JSONString(entry, "changeKey");
+    map<string, shared_ptr<Event>> previousById {};
+    for (auto & row : previousRows) {
+        previousById[row->id()] = row;
+    }
     ICalendar cal(ics);
     set<string> kept {};
-    MailStoreTransaction transaction{store.get(), "ingestGraphEvent"};
     for (auto vevent : cal.Events) {
         if (vevent->DtStart.IsEmpty()) {
             continue;
         }
-        auto existing = store->find<Event>(Query().equal("calendarId", calendarId)
-                                                  .equal("icsuid", vevent->UID)
-                                                  .equal("recurrenceId", vevent->RecurrenceId));
+        string id = MailUtils::idForEvent(account->id(), calendarId, vevent->UID, vevent->RecurrenceId);
+        auto previous = previousById.find(id);
+        shared_ptr<Event> existing = previous != previousById.end() ? previous->second
+                                                                     : store->find<Event>(Query().equal("id", id));
         if (existing) {
             existing->applyICSEventData(changeKey, graphId, ics, vevent);
             store->save(existing.get());
@@ -242,7 +250,6 @@ void MicrosoftCalendarWorker::ingestEvent(const string & calendarId, const json 
             store->remove(row.get());
         }
     }
-    transaction.commit();
 }
 
 void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const string & id, const string & path, const json & remote) {
