@@ -13,6 +13,7 @@
 
 #include <ctime>
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include "json.hpp"
@@ -38,6 +39,22 @@ struct ICSVEvent {
     const ICSProperty & property(const string & name) const;
 };
 
+// An edit Graph has no way to make. `key` is the task error the client looks up.
+struct GraphEditRefused : runtime_error {
+    string key;
+    GraphEditRefused(const string & key, const string & message) : runtime_error(message), key(key) {}
+};
+
+// One Graph write of an edit, in the order they must be made.
+struct GraphEventChange {
+    enum class Kind { Create, Update, UpdateOccurrence, CancelOccurrence };
+    Kind kind;
+    // UpdateOccurrence: its RECURRENCE-ID. CancelOccurrence: one EXDATE value, with its parameters.
+    ICSProperty occurrence;
+    // Create, Update, UpdateOccurrence: the Graph fields to send.
+    json fields;
+};
+
 // Microsoft Graph events as the iCalendar resources Event rows hold; Graph has no iCalendar form.
 class GraphICS {
 public:
@@ -53,9 +70,15 @@ public:
 
     // The Graph fields Mailspring edits, from one VEVENT: subject, body, location, start, end,
     // isAllDay, showAs, attendees and, unless it has a RECURRENCE-ID, recurrence (null without an
-    // RRULE). `startUTC` as for icsForEvent, or "" for an event Graph doesn't hold yet. Throws
-    // invalid_argument for an RRULE that patternedRecurrence can't express.
+    // RRULE). `startUTC` as for icsForEvent, or "" for an event Graph doesn't hold yet. Refuses an
+    // RRULE that patternedRecurrence can't express.
     static json eventForVEvent(const ICSVEvent & vevent, const string & startUTC);
+
+    // The Graph writes that turn the resource `before` (the row as the user saw it, "" for a new
+    // event) into `after` (the client's edit). Only fields the edit changed are sent, so what
+    // iCalendar can't carry (an HTML body, showAs tentative, categories) survives. A change to the
+    // series' times or recurrence re-applies every override and EXDATE, which the client moved with it.
+    static vector<GraphEventChange> changesBetween(const string & before, const string & after, const string & startUTC);
 
     // A Graph date-time or date ("2026-10-22T09:00:00.0000000", "2026-12-31") read as UTC.
     static time_t secondsAsUTC(const string & extended);

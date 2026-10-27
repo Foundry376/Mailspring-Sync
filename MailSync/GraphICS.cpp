@@ -493,7 +493,7 @@ static const set<string> RRULE_PARTS = {"FREQ", "INTERVAL", "COUNT", "UNTIL", "W
 static json recurrenceOf(const ICSVEvent & vevent, time_t utcOffset) {
     const string & rule = vevent.property("RRULE").value;
     const string & start = vevent.property("DTSTART").value;
-    invalid_argument unsupported("RRULE:" + rule + " has no Graph recurrence pattern");
+    GraphEditRefused unsupported("unsupported-recurrence", "RRULE:" + rule + " has no Graph recurrence pattern");
 
     map<string, string> parts;
     for (const auto & part : stringSplit(rule, ";")) {
@@ -633,4 +633,140 @@ json GraphICS::eventForVEvent(const ICSVEvent & vevent, const string & startUTC)
         event["recurrence"] = vevent.property("RRULE").name.empty() ? json() : recurrenceOf(vevent, utcOffset);
     }
     return event;
+}
+
+// The series master: the VEVENT without a RECURRENCE-ID.
+static const ICSVEvent * masterOf(const vector<ICSVEvent> & vevents) {
+    for (const auto & vevent : vevents) {
+        if (vevent.property("RECURRENCE-ID").name.empty()) {
+            return &vevent;
+        }
+    }
+    return nullptr;
+}
+
+// Overrides by RECURRENCE-ID as written. GraphICS writes them in UTC or as dates, and so does the client.
+static map<string, const ICSVEvent *> overridesOf(const vector<ICSVEvent> & vevents) {
+    map<string, const ICSVEvent *> overrides;
+    for (const auto & vevent : vevents) {
+        const ICSProperty & recurrenceId = vevent.property("RECURRENCE-ID");
+        if (!recurrenceId.name.empty()) {
+            overrides[recurrenceId.param("TZID") + ":" + recurrenceId.value] = &vevent;
+        }
+    }
+    return overrides;
+}
+
+// Each EXDATE value on its own, by its value as written.
+static map<string, ICSProperty> exdatesOf(const ICSVEvent * master) {
+    map<string, ICSProperty> exdates;
+    if (master) {
+        for (const auto & property : master->properties) {
+            if (property.name != "EXDATE") {
+                continue;
+            }
+            for (const auto & value : stringSplit(property.value, ",")) {
+                ICSProperty single = property;
+                single.value = value;
+                exdates[property.param("TZID") + ":" + value] = single;
+            }
+        }
+    }
+    return exdates;
+}
+
+static const vector<string> DESCRIPTIVE_FIELDS = {"subject", "body", "location", "showAs", "attendees"};
+static const vector<string> TIMING_FIELDS = {"start", "end", "isAllDay", "recurrence"};
+
+// Attendees as Graph tells them apart; a name the client spelled differently is no change.
+static set<pair<string, string>> attendeesOf(const json & event) {
+    set<pair<string, string>> attendees;
+    for (const auto & attendee : JSONArray(event, "attendees")) {
+        attendees.insert({toLowerCase(JSONString(JSONObject(attendee, "emailAddress"), "address")), JSONString(attendee, "type")});
+    }
+    return attendees;
+}
+
+// The fields among `names` whose value differs in `after`, with that value.
+static json changedFields(const json & before, const json & after, const vector<string> & names) {
+    json fields = json::object();
+    for (const auto & name : names) {
+        bool same = name == "attendees" ? attendeesOf(before) == attendeesOf(after)
+                                        : before.value(name, json()) == after.value(name, json());
+        if (!same) {
+            fields[name] = after.value(name, json());
+        }
+    }
+    return fields;
+}
+
+vector<GraphEventChange> GraphICS::changesBetween(const string & before, const string & after, const string & startUTC) {
+    vector<ICSVEvent> beforeVEvents = veventsOf(before);
+    vector<ICSVEvent> afterVEvents = veventsOf(after);
+    const ICSVEvent * previousMaster = masterOf(beforeVEvents);
+    const ICSVEvent * master = masterOf(afterVEvents);
+    if (!master) {
+        throw GraphEditRefused("invalid-ics", "The event has no VEVENT without a RECURRENCE-ID");
+    }
+
+    vector<GraphEventChange> changes;
+    json masterFields = eventForVEvent(*master, startUTC);
+    bool reshaped = true;
+    if (!previousMaster) {
+        changes.push_back({GraphEventChange::Kind::Create, {}, masterFields});
+    } else {
+        json previousFields = eventForVEvent(*previousMaster, startUTC);
+        json fields = changedFields(previousFields, masterFields, DESCRIPTIVE_FIELDS);
+        reshaped = !changedFields(previousFields, masterFields, TIMING_FIELDS).empty();
+        if (reshaped) {
+            for (const auto & name : TIMING_FIELDS) {
+                if (name != "recurrence" || !masterFields["recurrence"].is_null() || !previousFields["recurrence"].is_null()) {
+                    fields[name] = masterFields[name];
+                }
+            }
+        }
+        if (!fields.empty()) {
+            changes.push_back({GraphEventChange::Kind::Update, {}, fields});
+        }
+    }
+
+    // Overrides the edit added or changed. One the edit left out without cancelling its occurrence
+    // has no client that writes it, and is left as Graph holds it.
+    map<string, const ICSVEvent *> previousOverrides = overridesOf(beforeVEvents);
+    for (const auto & [key, vevent] : overridesOf(afterVEvents)) {
+        json overrideFields = eventForVEvent(*vevent, startUTC);
+        auto previous = previousOverrides.find(key);
+        json fields;
+        if (reshaped || previous == previousOverrides.end()) {
+            fields = changedFields(masterFields, overrideFields, DESCRIPTIVE_FIELDS);
+            fields["start"] = overrideFields["start"];
+            fields["end"] = overrideFields["end"];
+        } else {
+            json previousFields = eventForVEvent(*previous->second, startUTC);
+            fields = changedFields(previousFields, overrideFields, DESCRIPTIVE_FIELDS);
+            if (!changedFields(previousFields, overrideFields, {"start", "end"}).empty()) {
+                fields["start"] = overrideFields["start"];
+                fields["end"] = overrideFields["end"];
+            }
+        }
+        if (!fields.empty()) {
+            changes.push_back({GraphEventChange::Kind::UpdateOccurrence, vevent->property("RECURRENCE-ID"), fields});
+        }
+    }
+
+    map<string, ICSProperty> previousExdates = exdatesOf(previousMaster);
+    map<string, ICSProperty> exdates = exdatesOf(master);
+    for (const auto & [key, exdate] : exdates) {
+        if (reshaped || !previousExdates.count(key)) {
+            changes.push_back({GraphEventChange::Kind::CancelOccurrence, exdate, json()});
+        }
+    }
+    if (!reshaped) {
+        for (const auto & [key, exdate] : previousExdates) {
+            if (!exdates.count(key)) {
+                throw GraphEditRefused("cannot-restore-occurrence", "Graph can't bring back the occurrence cancelled by EXDATE " + exdate.value);
+            }
+        }
+    }
+    return changes;
 }

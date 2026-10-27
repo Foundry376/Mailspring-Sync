@@ -8,6 +8,7 @@
 
 #include "GraphICS.hpp"
 #include "icalendar.h"
+#include "strlib.h"
 
 #include <iostream>
 
@@ -98,7 +99,7 @@ static json recurrenceFor(const string & rrule) {
 static bool refused(const string & rrule) {
     try {
         recurrenceFor(rrule);
-    } catch (invalid_argument &) {
+    } catch (GraphEditRefused &) {
         return true;
     }
     return false;
@@ -120,6 +121,43 @@ static void expectRoundTrip(const json & master, const string & label, const str
             expectJSON(recurrence["range"][key], master["recurrence"]["range"][key], label + ": range " + key);
         }
     }
+}
+
+// `text` with its one `from` replaced, as the client's edit would leave it.
+static string edited(const string & text, const string & from, const string & to) {
+    size_t at = text.find(from);
+    expect(at != string::npos && text.find(from, at + 1) == string::npos, "fixture edit", "\"" + from + "\" not found once");
+    return at == string::npos ? text : text.substr(0, at) + to + text.substr(at + from.size());
+}
+
+// The writes, one line each: "update subject", "occurrence 20261019T160000Z start,end",
+// "cancel Pacific Standard Time:20261109T090000".
+static string writesFor(const string & before, const string & after) {
+    static const map<GraphEventChange::Kind, string> NAMES = {
+        {GraphEventChange::Kind::Create, "create"}, {GraphEventChange::Kind::Update, "update"},
+        {GraphEventChange::Kind::UpdateOccurrence, "occurrence"}, {GraphEventChange::Kind::CancelOccurrence, "cancel"},
+    };
+    vector<string> lines;
+    for (const auto & change : GraphICS::changesBetween(before, after, SERIES_START_UTC)) {
+        vector<string> fields;
+        if (change.fields.is_object()) {
+            for (const auto & [name, value] : change.fields.items()) {
+                fields.push_back(name);
+            }
+        }
+        string occurrence = change.occurrence.param("TZID") + (change.occurrence.param("TZID") == "" ? "" : ":") + change.occurrence.value;
+        lines.push_back(NAMES.at(change.kind) + (occurrence == "" ? "" : " " + occurrence) + (fields.empty() ? "" : " " + stringJoin(fields, ",")));
+    }
+    return stringJoin(lines, "\n");
+}
+
+static string refusalFor(const string & before, const string & after) {
+    try {
+        GraphICS::changesBetween(before, after, SERIES_START_UTC);
+    } catch (GraphEditRefused & ex) {
+        return ex.key;
+    }
+    return "";
 }
 
 int main() {
@@ -586,6 +624,118 @@ int main() {
             expect(!override.count("recurrence"), "override has no recurrence");
             expectJSON(override["subject"], "Moved", "override's own subject");
         }
+    }
+
+    // An edit as Graph writes. Each `before` is GraphICS's own copy; each `after` is that copy as
+    // the client's edit leaves it.
+    {
+        json master = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}}, {"firstDayOfWeek", "sunday"}}),
+                             {{"cancelledOccurrences", {"OID.AAMkMaster=.2026-11-02"}},
+                              {"exceptionOccurrences", json::array({event({
+                                  {"type", "exception"},
+                                  {"subject", "Planning (moved)"},
+                                  {"originalStart", "2026-10-19T16:00:00Z"},
+                                  {"start", {{"dateTime", "2026-10-19T10:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                                  {"end", {{"dateTime", "2026-10-19T10:30:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                              })})}});
+        string base = GraphICS::icsForEvent(master, ME, SERIES_START_UTC);
+
+        expectEqual(writesFor(base, base), "", "an unchanged series writes nothing");
+        expectEqual(writesFor(base, edited(base, "SUMMARY:Planning\r\n", "SEQUENCE:1\r\nSUMMARY:Planning\r\n")), "",
+                    "a new SEQUENCE alone writes nothing");
+        expectEqual(writesFor(base, edited(base, "SUMMARY:Planning\r\n", "SUMMARY:Roadmap\r\n")), "update subject",
+                    "a new title sends only the subject");
+
+        string movedAgain = edited(edited(base, "DTSTART;TZID=Pacific Standard Time:20261019T100000", "DTSTART;TZID=Pacific Standard Time:20261019T110000"),
+                                   "DTEND;TZID=Pacific Standard Time:20261019T103000", "DTEND;TZID=Pacific Standard Time:20261019T113000");
+        expectEqual(writesFor(base, movedAgain), "occurrence 20261019T160000Z end,start", "an override moved again sends its times");
+        expectEqual(writesFor(base, edited(base, "SUMMARY:Planning (moved)", "SUMMARY:Planning (room 4)")),
+                    "occurrence 20261019T160000Z subject", "an override retitled sends only its subject");
+
+        string reverted = edited(edited(edited(base, "SUMMARY:Planning (moved)", "SUMMARY:Planning"),
+                                        "DTSTART;TZID=Pacific Standard Time:20261019T100000", "DTSTART;TZID=Pacific Standard Time:20261019T090000"),
+                                 "DTEND;TZID=Pacific Standard Time:20261019T103000", "DTEND;TZID=Pacific Standard Time:20261019T093000");
+        expectEqual(writesFor(base, reverted), "occurrence 20261019T160000Z end,start,subject",
+                    "an override undone takes the series' values back");
+
+        string added = edited(base, "END:VCALENDAR", "BEGIN:VEVENT\r\nUID:x\r\nRECURRENCE-ID:20261026T160000Z\r\n"
+                                                     "DTSTART;TZID=Pacific Standard Time:20261026T140000\r\n"
+                                                     "DTEND;TZID=Pacific Standard Time:20261026T143000\r\n"
+                                                     "SUMMARY:Planning\r\nTRANSP:OPAQUE\r\nEND:VEVENT\r\nEND:VCALENDAR");
+        expectEqual(writesFor(base, added), "occurrence 20261026T160000Z end,start",
+                    "a new override sends its times and only the fields it changed from the series");
+
+        expectEqual(writesFor(base, edited(base, "EXDATE;TZID=Pacific Standard Time:20261102T090000",
+                                           "EXDATE;TZID=Pacific Standard Time:20261102T090000,20261109T090000")),
+                    "cancel Pacific Standard Time:20261109T090000", "a date added to an EXDATE cancels its occurrence");
+        expectEqual(writesFor(base, edited(base, "EXDATE;TZID=Pacific Standard Time:20261102T090000\r\n",
+                                           "EXDATE;TZID=Pacific Standard Time:20261102T090000\r\nEXDATE;TZID=Pacific Standard Time:20261116T090000\r\n")),
+                    "cancel Pacific Standard Time:20261116T090000", "a new EXDATE line cancels its occurrence");
+        expectEqual(refusalFor(base, edited(base, "EXDATE;TZID=Pacific Standard Time:20261102T090000\r\n", "")),
+                    "cannot-restore-occurrence", "a cancelled occurrence can't come back");
+
+        // The client moves the override's RECURRENCE-ID and the EXDATE along with the series.
+        string seriesMoved = base;
+        seriesMoved = edited(seriesMoved, "DTSTART;TZID=Pacific Standard Time:20261005T090000", "DTSTART;TZID=Pacific Standard Time:20261005T100000");
+        seriesMoved = edited(seriesMoved, "DTEND;TZID=Pacific Standard Time:20261005T093000", "DTEND;TZID=Pacific Standard Time:20261005T103000");
+        seriesMoved = edited(seriesMoved, "RECURRENCE-ID:20261019T160000Z", "RECURRENCE-ID:20261019T170000Z");
+        seriesMoved = edited(seriesMoved, "EXDATE;TZID=Pacific Standard Time:20261102T090000", "EXDATE;TZID=Pacific Standard Time:20261102T100000");
+        expectEqual(writesFor(base, seriesMoved),
+                    "update end,isAllDay,recurrence,start\noccurrence 20261019T170000Z end,start,subject\ncancel Pacific Standard Time:20261102T100000",
+                    "a series move re-applies its override and its cancelled date");
+        expectEqual(writesFor(base, edited(seriesMoved, "SUMMARY:Planning\r\n", "SUMMARY:Roadmap\r\n")),
+                    "update end,isAllDay,recurrence,start,subject\noccurrence 20261019T170000Z end,start,subject\ncancel Pacific Standard Time:20261102T100000",
+                    "a series moved and retitled at once");
+
+        string nextDay = base;
+        nextDay = edited(nextDay, "DTSTART;TZID=Pacific Standard Time:20261005T090000", "DTSTART;TZID=Pacific Standard Time:20261006T090000");
+        nextDay = edited(nextDay, "DTEND;TZID=Pacific Standard Time:20261005T093000", "DTEND;TZID=Pacific Standard Time:20261006T093000");
+        nextDay = edited(nextDay, "RECURRENCE-ID:20261019T160000Z", "RECURRENCE-ID:20261020T160000Z");
+        nextDay = edited(nextDay, "EXDATE;TZID=Pacific Standard Time:20261102T090000", "EXDATE;TZID=Pacific Standard Time:20261103T090000");
+        expectEqual(writesFor(base, nextDay),
+                    "update end,isAllDay,recurrence,start\noccurrence 20261020T160000Z end,start,subject\ncancel Pacific Standard Time:20261103T090000",
+                    "a series moved a day takes its cancelled date along, which is no restore");
+
+        // Longer occurrences: the override and the cancelled date keep their slots and are re-applied.
+        string longer = edited(base, "DTEND;TZID=Pacific Standard Time:20261005T093000", "DTEND;TZID=Pacific Standard Time:20261005T100000");
+        expectEqual(writesFor(base, longer),
+                    "update end,isAllDay,recurrence,start\noccurrence 20261019T160000Z end,start,subject\ncancel Pacific Standard Time:20261102T090000",
+                    "a series made longer re-applies its override and its cancelled date");
+        expectEqual(refusalFor("", base), "", "nothing refused");
+        expectEqual(writesFor("", base),
+                    "create attendees,body,end,isAllDay,location,recurrence,showAs,start,subject\n"
+                    "occurrence 20261019T160000Z end,start,subject\ncancel Pacific Standard Time:20261102T090000",
+                    "a new series is created, then its override and cancelled date");
+    }
+    {
+        string base = GraphICS::icsForEvent(event({
+            {"showAs", "tentative"},
+            {"attendees", json::array({
+                {{"type", "required"}, {"status", {{"response", "accepted"}}},
+                 {"emailAddress", {{"name", "Doe, Jane"}, {"address", "jane@example.com"}}}},
+                {{"type", "optional"}, {"status", {{"response", "none"}}},
+                 {"emailAddress", {{"name", "Sam"}, {"address", "sam@example.com"}}}},
+            })},
+        }), ME, START_UTC);
+        const string jane = "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=\"Doe, Jane\":mailto:jane@example.com";
+
+        // Show As "tentative" reads as OPAQUE, which the client sends back untouched.
+        expectEqual(writesFor(base, base), "", "an unchanged event writes nothing");
+        expectEqual(writesFor(base, edited(base, jane, "ATTENDEE;PARTSTAT=ACCEPTED;CN=Jane Doe:MAILTO:Jane@Example.com")), "",
+                    "a guest's name and capitals are no change");
+        expectEqual(writesFor(base, edited(base, jane, jane + "\r\nATTENDEE;CN=Kim:mailto:kim@example.com")), "update attendees",
+                    "a new guest updates the attendees");
+        expectEqual(writesFor(base, edited(base, jane, "ATTENDEE;ROLE=OPT-PARTICIPANT;CN=\"Doe, Jane\":mailto:jane@example.com")),
+                    "update attendees", "a guest made optional updates the attendees");
+        expectEqual(writesFor(base, edited(base, "TRANSP:OPAQUE", "TRANSP:TRANSPARENT")), "update showAs", "Show As free");
+
+        string moved = edited(edited(base, "DTSTART;TZID=Pacific Standard Time:20261022T090000", "DTSTART;TZID=America/Los_Angeles:20261023T090000"),
+                              "DTEND;TZID=Pacific Standard Time:20261022T093000", "DTEND;TZID=America/Los_Angeles:20261023T093000");
+        expectEqual(writesFor(base, moved), "update end,isAllDay,start", "a moved event sends its times, and no recurrence");
+        expectEqual(writesFor(base, edited(base, "TRANSP:OPAQUE", "RRULE:FREQ=WEEKLY\r\nTRANSP:OPAQUE")), "update end,isAllDay,recurrence,start",
+                    "a repeat added sends the recurrence with the times");
+        expectEqual(refusalFor(base, edited(base, "TRANSP:OPAQUE", "RRULE:FREQ=HOURLY\r\nTRANSP:OPAQUE")), "unsupported-recurrence",
+                    "a repeat Graph can't express is refused");
     }
 
     if (failures) {
