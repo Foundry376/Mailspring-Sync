@@ -28,6 +28,7 @@
 #include "SyncException.hpp"
 #include "NetworkRequestUtils.hpp"
 #include "XOAuth2TokenManager.hpp"
+#include "strlib.h"
 
 #include <sstream>
 #include <algorithm>
@@ -2209,12 +2210,8 @@ static void _graphPrepareDraft(shared_ptr<Account> account, const string & messa
     }
 
     string wanted = from != nullptr ? _mcString(from->mailbox()) : "";
-    json sender = created.is_object() ? created.value("from", json()) : json();
-    string actual = sender.is_object() ? JSONString(sender.value("emailAddress", json()), "address") : "";
-    string wantedLower = wanted, actualLower = actual;
-    std::transform(wantedLower.begin(), wantedLower.end(), wantedLower.begin(), ::tolower);
-    std::transform(actualLower.begin(), actualLower.end(), actualLower.begin(), ::tolower);
-    if (wanted != "" && wantedLower != actualLower) {
+    string actual = JSONString(JSONObject(JSONObject(created, "from"), "emailAddress"), "address");
+    if (wanted != "" && !equalsIgnoreCase(wanted, actual)) {
         spdlog::get("logger")->info("-- Graph changed From to {}, restoring {}", actual, wanted);
         payload["from"] = {{"emailAddress", {{"name", _mcString(from->displayName())}, {"address", wanted}}}};
     }
