@@ -15,6 +15,7 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 #include "json.hpp"
 
@@ -79,6 +80,13 @@ public:
     // iCalendar can't carry (an HTML body, showAs tentative, categories) survives. A change to the
     // series' times or recurrence re-applies every override and EXDATE, which the client moved with it.
     static vector<GraphEventChange> changesBetween(const string & before, const string & after, const string & startUTC);
+
+    // Whether Graph's `originalStart` is the occurrence `anchor` (a RECURRENCE-ID, or one EXDATE
+    // value) names. `originalStart` read in the anchor's zone: its TZID, or for a date the series'.
+    static bool namesOccurrence(const ICSProperty & anchor, const string & originalStart);
+
+    // A UTC range (startDateTime, endDateTime for /instances) holding the occurrence `anchor` names.
+    static pair<string, string> occurrenceWindow(const ICSProperty & anchor);
 
     // A Graph date-time or date ("2026-10-22T09:00:00.0000000", "2026-12-31") read as UTC.
     static time_t secondsAsUTC(const string & extended);

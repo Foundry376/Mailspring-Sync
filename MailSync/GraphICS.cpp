@@ -93,7 +93,7 @@ static string formatUTC(time_t seconds, const char * format) {
 #else
     gmtime_r(&seconds, &parts);
 #endif
-    char out[20];
+    char out[32];
     strftime(out, sizeof(out), format, &parts);
     return out;
 }
@@ -769,4 +769,21 @@ vector<GraphEventChange> GraphICS::changesBetween(const string & before, const s
         }
     }
     return changes;
+}
+
+bool GraphICS::namesOccurrence(const ICSProperty & anchor, const string & originalStart) {
+    string value = extendedDateTime(anchor.value);
+    if (anchor.param("VALUE") == "DATE") {
+        return originalStart.substr(0, 10) == value.substr(0, 10);
+    }
+    if (!anchor.value.empty() && anchor.value.back() == 'Z') {
+        return secondsOfDateTimeOffset(originalStart) == secondsAsUTC(value);
+    }
+    return originalStart.substr(0, 19) == value;
+}
+
+// A day either side of the anchor read as UTC covers every zone's offset.
+pair<string, string> GraphICS::occurrenceWindow(const ICSProperty & anchor) {
+    time_t at = secondsAsUTC(extendedDateTime(anchor.value));
+    return {formatUTC(at - 86400, "%Y-%m-%dT%H:%M:%SZ"), formatUTC(at + 2 * 86400, "%Y-%m-%dT%H:%M:%SZ")};
 }

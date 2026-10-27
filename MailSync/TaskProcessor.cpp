@@ -17,6 +17,7 @@
 #include "Message.hpp"
 #include "MailUtils.hpp"
 #include "DAVWorker.hpp"
+#include "MicrosoftCalendarWorker.hpp"
 #include "DAVUtils.hpp"
 #include "GoogleContactsWorker.hpp"
 #include "File.hpp"
@@ -1707,6 +1708,14 @@ void TaskProcessor::performRemoteSyncbackContact(Task * task) {
 }
 
 
+// Graph takes an edit as the fields it changed, not as a resource: performRemote compares the
+// client's ICS with the one the row held, which the local phase is about to replace.
+static void _keepPreviousIcs(shared_ptr<Account> account, Task * task, Event * existing) {
+    if (account->syncsCalendarsViaGraph()) {
+        task->data()["previousIcs"] = existing->icsData();
+    }
+}
+
 void TaskProcessor::performLocalSyncbackEvent(Task * task) {
     json & eventJSON = task->data()["event"];
     string calendarId = task->data()["calendarId"].get<string>();
@@ -1722,6 +1731,7 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
     if (existing) {
         // UPDATE: Merge client changes into existing event
         if (eventJSON.count("ics")) {
+            _keepPreviousIcs(account, task, existing.get());
             existing->setIcsData(eventJSON["ics"].get<string>());
             // Re-parse ICS to update recurrence fields
             ICalendar cal(existing->icsData());
@@ -1807,6 +1817,7 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
                                     "send the whole resource",
                                     false);
             }
+            _keepPreviousIcs(account, task, existing.get());
             existing->applyICSEventData(existing->etag(), existing->href(), icsData, icsEvent);
             store->save(existing.get());
             task->data()["event"]["id"] = existing->id();
@@ -1829,6 +1840,12 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
         throw SyncException("not-found", "Event not found for syncback", false);
     }
 
+    if (account->syncsCalendarsViaGraph()) {
+        string previousIcs = task->data().count("previousIcs") ? task->data()["previousIcs"].get<string>() : "";
+        // A new event's rows take Graph's UID, and with it a new id.
+        task->data()["event"]["id"] = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs);
+        return;
+    }
     auto dav = make_shared<DAVWorker>(account);
     dav->writeAndResyncEvent(event);
 }
@@ -1853,12 +1870,19 @@ void TaskProcessor::performRemoteDestroyEvent(Task * task) {
                      events.size(), requested);
     }
 
-    auto dav = make_shared<DAVWorker>(account);
+    std::function<void(shared_ptr<Event>)> deleteEvent;
+    if (account->syncsCalendarsViaGraph()) {
+        auto graph = make_shared<MicrosoftCalendarWorker>(account);
+        deleteEvent = [graph](shared_ptr<Event> event) { graph->deleteEvent(event); };
+    } else {
+        auto dav = make_shared<DAVWorker>(account);
+        deleteEvent = [dav](shared_ptr<Event> event) { dav->deleteEvent(event); };
+    }
     // One failure must not strand the rest: this loop is the only thing that removes these rows.
     vector<SyncException> failures {};
     for (auto & event : events) {
         try {
-            dav->deleteEvent(event);
+            deleteEvent(event);
         } catch (SyncException & ex) {
             bool gone = ex.key.find("404") != string::npos || ex.key.find("410") != string::npos;
             // Gone from the server's own href is what was asked; from a guessed one, maybe not.

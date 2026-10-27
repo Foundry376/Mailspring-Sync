@@ -1,0 +1,70 @@
+name: graph-calendar-event-series-move
+description: >
+  A whole Outlook series moves an hour later. The client moves its override's RECURRENCE-ID and
+  its EXDATE along with it. Graph takes the series' new times and recurrence in one PATCH; the fake
+  then drops the series' exception and cancellation, as Exchange may, so the engine applies both
+  again at their new slots: the override's own subject and times, and the cancelled date. Read
+  back, the rows match the client's edit.
+source: "https://learn.microsoft.com/en-us/graph/api/event-update; whether Exchange keeps exceptions when a series' times change is unverified"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvStandup="
+          changeKey: "ck-standup-1"
+          iCalUId: "uid-standup"
+          type: seriesMaster
+          subject: Standup
+          start: {dateTime: "2026-10-05T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-05T09:15:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [monday], firstDayOfWeek: sunday}
+            range: {type: noEnd, startDate: "2026-10-05", recurrenceTimeZone: Pacific Standard Time}
+          cancelledOccurrences: ["OID.AAMkEvStandup=.2026-11-02"]
+          exceptionOccurrences:
+            - id: "AAMkEvStandupX1="
+              type: exception
+              iCalUId: "uid-standup-x1"
+              subject: Standup (moved)
+              originalStart: "2026-10-19T16:00:00Z"
+              start: {dateTime: "2026-10-19T11:00:00.0000000", timeZone: Pacific Standard Time}
+              end: {dateTime: "2026-10-19T11:15:00.0000000", timeZone: Pacific Standard Time}
+              isAllDay: false
+              lastModifiedDateTime: "2026-10-02T12:00:00Z"
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-standup|"
+      ics_replace:
+        - ["DTSTART;TZID=Pacific Standard Time:20261005T090000", "DTSTART;TZID=Pacific Standard Time:20261005T100000"]
+        - ["DTEND;TZID=Pacific Standard Time:20261005T091500", "DTEND;TZID=Pacific Standard Time:20261005T101500"]
+        - ["RECURRENCE-ID:20261019T160000Z", "RECURRENCE-ID:20261019T170000Z"]
+        - ["EXDATE;TZID=Pacific Standard Time:20261102T090000", "EXDATE;TZID=Pacific Standard Time:20261102T100000"]
+    as: move_series
+  - wait: {task: move_series, timeout: 60}
+expect:
+  task_error: {move_series: null}
+  graph:
+    event_writes:
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvStandup=$", [end, isAllDay, recurrence, start]]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-10-19$", [end, start, subject]]
+      - [DELETE, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-11-02$", []]
+  events:
+    "uid-standup|":
+      ics_has: ["DTSTART;TZID=Pacific Standard Time:20261005T100000", "EXDATE;TZID=Pacific Standard Time:20261102T100000"]
+    "uid-standup|20261019T170000Z":
+      ics_has: ["SUMMARY:Standup (moved)", "DTSTART;TZID=Pacific Standard Time:20261019T110000"]
+  running: true

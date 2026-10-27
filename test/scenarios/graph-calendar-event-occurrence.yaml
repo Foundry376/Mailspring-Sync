@@ -1,0 +1,95 @@
+name: graph-calendar-event-occurrence
+description: >
+  One occurrence of an Outlook series is edited and another deleted, as the client writes them: an
+  override VEVENT added to the series' resource, and an EXDATE. Graph takes each on the
+  occurrence itself, found through /instances: a PATCH of the times that changed, and a DELETE.
+  The series' existing exception, moved from Monday to Wednesday and so outside the days around
+  its slot, is found by its originalStart instead: retitled, then deleted the way the client
+  cancels a moved occurrence, with an EXDATE at its RECURRENCE-ID. Read back, the rows hold the
+  moved occurrence and both cancelled dates.
+source: "https://learn.microsoft.com/en-us/graph/api/event-list-instances; https://learn.microsoft.com/en-us/graph/api/event-update; https://learn.microsoft.com/en-us/graph/api/event-delete"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvStandup="
+          changeKey: "ck-standup-1"
+          iCalUId: "uid-standup"
+          type: seriesMaster
+          subject: Standup
+          start: {dateTime: "2026-10-05T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-05T09:15:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [monday], firstDayOfWeek: sunday}
+            range: {type: noEnd, startDate: "2026-10-05", recurrenceTimeZone: Pacific Standard Time}
+          cancelledOccurrences: []
+          exceptionOccurrences:
+            - id: "AAMkEvStandupX1="
+              type: exception
+              iCalUId: "uid-standup-x1"
+              subject: Standup (moved)
+              originalStart: "2026-10-19T16:00:00Z"
+              start: {dateTime: "2026-10-21T10:00:00.0000000", timeZone: Pacific Standard Time}
+              end: {dateTime: "2026-10-21T10:15:00.0000000", timeZone: Pacific Standard Time}
+              isAllDay: false
+              lastModifiedDateTime: "2026-10-02T12:00:00Z"
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-standup|"
+      ics_replace:
+        - ["END:VCALENDAR", "BEGIN:VEVENT\r\nUID:uid-standup\r\nRECURRENCE-ID:20261026T160000Z\r\nDTSTART;TZID=Pacific Standard Time:20261026T110000\r\nDTEND;TZID=Pacific Standard Time:20261026T111500\r\nSUMMARY:Standup\r\nTRANSP:OPAQUE\r\nSEQUENCE:1\r\nEND:VEVENT\r\nEND:VCALENDAR"]
+    as: move_one
+  - wait: {task: move_one, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-standup|"
+      ics_replace:
+        - ["RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU", "RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU\r\nEXDATE;TZID=Pacific Standard Time:20261102T090000"]
+    as: delete_one
+  - wait: {task: delete_one, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-standup|"
+      ics_replace: [["SUMMARY:Standup (moved)", "SUMMARY:Standup (Wednesday)"]]
+    as: retitle_moved
+  - wait: {task: retitle_moved, timeout: 60}
+  - assert:
+      events:
+        "uid-standup|": {}
+        "uid-standup|20261019T160000Z": {ics_has: ["SUMMARY:Standup (Wednesday)"]}
+        "uid-standup|20261026T160000Z": {}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-standup|"
+      ics_replace: [["RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU", "RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU\r\nEXDATE:20261019T160000Z"]]
+    as: cancel_moved
+  - wait: {task: cancel_moved, timeout: 60}
+expect:
+  task_error: {move_one: null, delete_one: null, retitle_moved: null, cancel_moved: null}
+  graph:
+    event_writes:
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-10-26$", [end, start]]
+      - [DELETE, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-11-02$", []]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvStandupX1=$", [subject]]
+      - [DELETE, "^calendars/AAMkADefault=/events/AAMkEvStandupX1=$", []]
+  events:
+    "uid-standup|":
+      etag: "ck-standup-1++++"
+      ics_has: ["EXDATE;TZID=Pacific Standard Time:20261019T090000", "EXDATE;TZID=Pacific Standard Time:20261102T090000"]
+    "uid-standup|20261026T160000Z":
+      ics_has: ["DTSTART;TZID=Pacific Standard Time:20261026T110000"]
+  running: true

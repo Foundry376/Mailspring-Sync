@@ -738,6 +738,25 @@ int main() {
                     "a repeat Graph can't express is refused");
     }
 
+    // Finding the occurrence an override or an EXDATE names among Graph's.
+    {
+        ICSProperty utc{"RECURRENCE-ID", {}, "20261019T160000Z"};
+        expect(GraphICS::namesOccurrence(utc, "2026-10-19T09:00:00-07:00"), "a UTC RECURRENCE-ID matches the same instant in another zone");
+        expect(!GraphICS::namesOccurrence(utc, "2026-10-19T09:00:00-08:00"), "an hour off is another occurrence");
+
+        ICSProperty zoned{"EXDATE", {{"TZID", "Pacific Standard Time"}}, "20261102T090000"};
+        expect(GraphICS::namesOccurrence(zoned, "2026-11-02T09:00:00-08:00"), "a zoned EXDATE matches its wall clock");
+        expect(!GraphICS::namesOccurrence(zoned, "2026-11-02T10:00:00-08:00"), "a zoned EXDATE at another time");
+
+        ICSProperty date{"EXDATE", {{"VALUE", "DATE"}}, "20261102"};
+        expect(GraphICS::namesOccurrence(date, "2026-11-02T00:00:00+13:00"), "a date matches its day, east of UTC too");
+        expect(!GraphICS::namesOccurrence(date, "2026-11-01T00:00:00-08:00"), "a date doesn't match the day before");
+
+        auto window = GraphICS::occurrenceWindow(zoned);
+        expectEqual(window.first, "2026-11-01T09:00:00Z", "window starts a day before");
+        expectEqual(window.second, "2026-11-04T09:00:00Z", "window ends two days after");
+    }
+
     if (failures) {
         cerr << failures << " failure(s)\n";
         return 1;

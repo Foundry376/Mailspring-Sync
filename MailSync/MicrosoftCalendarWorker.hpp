@@ -14,6 +14,7 @@
 #include "Account.hpp"
 #include "Calendar.hpp"
 #include "Event.hpp"
+#include "GraphICS.hpp"
 #include "MailStore.hpp"
 
 #include <functional>
@@ -31,20 +32,37 @@ class MicrosoftCalendarWorker {
     unique_ptr<MailStore> store;
     shared_ptr<spdlog::logger> logger;
     shared_ptr<Account> account;
-    string mailboxAddress; // the default calendar's owner, set by each pass
+    string mailboxAddress; // the default calendar's owner, set by listCalendars
 
     std::function<string()> tokenProvider();
 
+    vector<json> listCalendars();
+    vector<string> answeringFor(const json & calendar);
     void upsertCalendar(shared_ptr<Calendar> local, const string & id, const string & path, const json & remote);
     void syncEvents(const json & calendar);
     vector<pair<json, json>> fetchEvents(const string & calendarPath, const vector<json> & entries);
-    void ingestEvent(const string & calendarId, const json & entry, const string & ics,
-                     const vector<shared_ptr<Event>> & previousRows);
+    string ingestEvent(const string & calendarId, const json & entry, const string & ics,
+                       const vector<shared_ptr<Event>> & previousRows);
+
+    json listedCalendar(const string & calendarId);
+    vector<shared_ptr<Event>> rowsOf(const string & calendarId, const string & graphId);
+    json listedEvent(const string & calendarPath, const string & graphId);
+    json readSeries(const string & calendarPath, const string & graphId);
+    string occurrenceId(const string & calendarPath, const json & series, const ICSProperty & anchor);
+    string storeEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows);
+    void restoreEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows);
 
 public:
     MicrosoftCalendarWorker(shared_ptr<Account> account);
 
     void run();
+
+    // Makes Graph's copy of `event` match its ICS, an edit of `previousIcs` (unused for an event
+    // Graph doesn't hold yet), then stores Graph's copy in its rows. Returns its master row's id.
+    string writeEvent(shared_ptr<Event> event, const string & previousIcs);
+
+    // Deletes the event, or the whole series of a master row, and its rows.
+    void deleteEvent(shared_ptr<Event> event);
 };
 
 #endif /* MicrosoftCalendarWorker_hpp */

@@ -1,0 +1,51 @@
+name: graph-calendar-event-all-day
+description: >
+  Deleting one occurrence of an all-day Outlook series in Tokyo: the client's EXDATE is a date, and
+  the engine finds that occurrence by its date in the series' own zone. Read in UTC, Tokyo's
+  midnight falls on the day before, and the edit would find nothing to delete.
+source: "https://learn.microsoft.com/en-us/graph/api/event-list-instances (Prefer: outlook.timezone sets the zone of the times returned)"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvGym="
+          changeKey: "ck-gym-1"
+          iCalUId: "uid-gym"
+          type: seriesMaster
+          subject: Gym
+          start: {dateTime: "2026-10-05T00:00:00.0000000", timeZone: Tokyo Standard Time}
+          end: {dateTime: "2026-10-06T00:00:00.0000000", timeZone: Tokyo Standard Time}
+          originalStartTimeZone: Tokyo Standard Time
+          isAllDay: true
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [monday], firstDayOfWeek: sunday}
+            range: {type: noEnd, startDate: "2026-10-05", recurrenceTimeZone: Tokyo Standard Time}
+          cancelledOccurrences: []
+          exceptionOccurrences: []
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-gym|"
+      ics_replace: [["RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU", "RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=SU\r\nEXDATE;VALUE=DATE:20261026"]]
+    as: skip_one
+  - wait: {task: skip_one, timeout: 60}
+expect:
+  task_error: {skip_one: null}
+  graph:
+    event_writes:
+      - [DELETE, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvGym=\\.2026-10-26$", []]
+  events:
+    "uid-gym|":
+      ics_has: ["EXDATE;VALUE=DATE:20261026"]
+  running: true
