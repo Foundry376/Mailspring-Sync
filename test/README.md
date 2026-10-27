@@ -107,7 +107,7 @@ A scenario may also start on another build with a top-level `binary: ab/mailsync
 older engine is handed to the current one (`migration-from-pre-placements-db`;
 `ab/mailsync-eb246b6`, the last V10 build, for `migration-v11-from-v10-db`;
 `ab/mailsync-f7b0239`, the last V12 build, for `migration-v13-repairs-contacts`;
-`ab/mailsync-5b8f6bd`, the last V14 build, for `migration-v15-recounts-contacts`). `--mailsync`
+`ab/mailsync-5b8f6bd`, the last V14 build, for `migration-v16-recounts-contacts`). `--mailsync`
 still sets the build under test that a `restart` with no `binary:` lands on. The harness runs
 `--mode migrate` on every launch, as the client does, so a restart onto a newer build
 upgrades the schema.
@@ -350,7 +350,7 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | contacts-from-sent-mail | found-in-mail contacts: junk display names stored as "", quotes stripped, a later real name fills a blank one and reaches ContactSearch | fake, dovecot |
 | migration-v13-repairs-contacts | V13 repairs junk mail-contact names and CardDAV rows (grouped `item1.EMAIL`, empty FN) from the stored vCard | fake (starts on `ab/mailsync-f7b0239`) |
 | contacts-from-received-mail | found-in-mail contacts from the From/To/Cc of received mail too, scored 10 per sent message and 1 per received one; none from Junk, Trash, a draft or a 26-recipient mass mail | fake, dovecot |
-| migration-v15-recounts-contacts | V15 rescores every mail contact from every message, keeping names and the hidden flag | fake (starts on `ab/mailsync-5b8f6bd`) |
+| migration-v16-recounts-contacts | V16 rescores every mail contact from every message, keeping names and the hidden flag | fake (starts on `ab/mailsync-5b8f6bd`) |
 | search-index-long-body | the first SEARCH_BODY_MAX_LENGTH characters of a long body are searchable, the rest not | fake |
 | search-index-legacy-length | text indexed at 5 000 characters is extended in place when the body is fetched again | fake |
 | search-index-body-fetched-again | a body fetched again (need-bodies, moved into INBOX) is indexed once | fake ×2, dovecot |

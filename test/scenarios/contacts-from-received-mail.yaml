@@ -7,7 +7,8 @@ description: >
   with them, the received part capped at 9, so Carol (written to once, copied on three)
   scores 13 and outranks Alice (wrote four times, never written to) at 4, and Frequent
   (wrote 100 times) stops at 9. Mail in Junk or Trash, a draft's recipient, and the 26
-  recipients of a mass mail create no contacts.
+  recipients of a mass mail create no contacts, nor do the relays and reply tokens received
+  mail brings ("via" names, "reply+<token>"), while a relay the user wrote to does.
 source: "Composer autocomplete never offered people the user had only been copied with (MailProcessor::upsertContacts, Contact::countMessage)"
 servers:
   - {fake: dovecot}
@@ -50,6 +51,29 @@ setup:
         count: 1
         sender: [Harness Test, test@example.test]
         to: "Carol Copied <carol@example.net>"
+  # Relays and reply tokens in received mail create no contact (nor does a mailer-daemon, by
+  # the prefix list), a plus-address that carries a word rather than a token is kept, and a
+  # relay the user wrote to counts as sent mail.
+  - server.append:
+      mailbox: INBOX
+      messages:
+        count: 1
+        sender: [Erin Hewgley Via DocuSign, dse_na3@docusign.example]
+        to: "Harness Test <test@example.test>"
+        cc: "Brian Lists <brian+lists@example.net>, Year Tag <year+2024@example.net>, Sales Partners <sales+partners@example.net>"
+  - server.append:
+      mailbox: INBOX
+      messages:
+        count: 1
+        sender: [GitHub, reply+a1b2c3d4e5f6@reply.github.example]
+        to: "Harness Test <test@example.test>"
+        cc: "Monorail <monorail+v2.463707639@chromium.example>, Daemon <mailer-daemon@mx.example>"
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: "Mats Lewan via LinkedIn <invitations@linkedin.example>"
 steps:
   - wait: quiescent
 expect:
@@ -58,8 +82,16 @@ expect:
       alice@example.net: {name: Alice Example, refs: 4}
       carol@example.net: {name: Carol Copied, refs: 13}
       bob@example.net: {name: Bob Builder, refs: 1}
+      brian+lists@example.net: {name: Brian Lists, refs: 1}
+      year+2024@example.net: {name: Year Tag, refs: 1}
+      sales+partners@example.net: {name: Sales Partners, refs: 1}
+      invitations@linkedin.example: {name: Mats Lewan via LinkedIn, refs: 10}
+      dse_na3@docusign.example: null
+      reply+a1b2c3d4e5f6@reply.github.example: null
+      monorail+v2.463707639@chromium.example: null
+      mailer-daemon@mx.example: null
       frequent@example.net: {name: Frequent Writer, refs: 9}
-      test@example.test: {name: Harness Test, refs: 19}
+      test@example.test: {name: Harness Test, refs: 29}
       spammer@example.net: null
       trashed@example.net: null
       draftee@example.net: null

@@ -1,11 +1,11 @@
-name: migration-v15-recounts-contacts
+name: migration-v16-recounts-contacts
 description: >
-  A database written before V15 holds found-in-mail contacts for sent mail only, scored one
-  per message. V15 recounts every contact from every message under the new scoring
+  A database written before V16 holds found-in-mail contacts for sent mail only, scored one
+  per message. V16 recounts every contact from every message under the new scoring
   (contacts-from-received-mail): the people who only wrote to the user appear, Carol's one
   sent message becomes 10 plus the three received with her, and it announces how many
   contacts it counted. A name the row already had and the hidden flag survive the recount.
-source: "MailStore::_migrateToV15"
+source: "MailStore::_migrateToV16"
 servers:
   - {fake: dovecot}
 binary: ab/mailsync-5b8f6bd
@@ -41,7 +41,7 @@ steps:
             - "UPDATE Contact SET hidden = 1, data = json_set(data, '$.h', json('true'), '$.name', 'Carol Renamed') WHERE email = 'carol@example.net'"
             - "UPDATE ContactSearch SET content = 'carol example.net Carol Renamed' WHERE content_id = 'carol@example.net'"
 expect:
-  migrate_output: "Migration V15: 3 contacts counted from 4 messages"
+  migrate_output: "Migration V16: 3 contacts counted from 4 messages"
   contacts:
     mail:
       alice@example.net: {name: Alice Example, refs: 3}

@@ -847,7 +847,8 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
  they write to: the composer must complete the address of someone who has only ever written
  to the user, or been copied beside them, and Contact::countMessage ranks the two kinds.
  Drafts, mail that is only in spam or trash, and mass mail (more than 25 addresses) count for
- nothing.
+ nothing, and neither does a relay or reply-token address in received mail
+ (MailUtils::isAutomatedSender) or an address contactKeyForEmail refuses.
  */
 void MailProcessor::upsertContacts(MailStore * store, Message * message) {
     // A transaction of its own that emits no deltas: the client does not need to be told
@@ -864,20 +865,19 @@ void MailProcessor::countContactsInOpenTransaction(MailStore * store, Message * 
     }
     bool sentByUser = message->isSentByUser(store);
 
+    // Received mail brings relays and reply tokens the user would never write to; what the
+    // user chose to write to counts, as long as contactKeyForEmail accepts it.
     map<string, json> byEmail{};
-    for (auto & c : message->to()) {
-        if (c.count("email")) {
-            byEmail[MailUtils::contactKeyForEmail(c["email"].get<string>())] = c;
-        }
-    }
-    for (auto & c : message->cc()) {
-        if (c.count("email")) {
-            byEmail[MailUtils::contactKeyForEmail(c["email"].get<string>())] = c;
-        }
-    }
-    for (auto & c : message->from()) {
-        if (c.count("email")) {
-            byEmail[MailUtils::contactKeyForEmail(c["email"].get<string>())] = c;
+    for (auto * participants : {&message->to(), &message->cc(), &message->from()}) {
+        for (auto & c : *participants) {
+            if (!c.count("email")) {
+                continue;
+            }
+            const string email = c["email"].get<string>();
+            if (!sentByUser && MailUtils::isAutomatedSender(c.count("name") ? c["name"].get<string>() : "", email)) {
+                continue;
+            }
+            byEmail[MailUtils::contactKeyForEmail(email)] = c;
         }
     }
     
