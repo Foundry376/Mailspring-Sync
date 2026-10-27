@@ -96,9 +96,13 @@ static string labelForAudience(OAuthTokenAudience audience) {
     return "";
 }
 
+static string cacheKey(shared_ptr<Account> account, OAuthTokenAudience audience) {
+    return account->id() + ":" + to_string(static_cast<int>(audience));
+}
+
 XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, OAuthTokenAudience audience) {
     string label = labelForAudience(audience);
-    string key = account->id() + (label.empty() ? "" : ":" + label);
+    string key = cacheKey(account, audience);
 
     // There's not much of a point to having two threads request the same token at once.
     // Only allow one thread to access / update the cache and make others wait until it
@@ -154,7 +158,8 @@ XOAuth2Parts XOAuth2TokenManager::partsForAccount(shared_ptr<Account> account, O
     return parts;
 }
 
+// The IMAP/SMTP token: both callers retry an IMAP login the server refused.
 void XOAuth2TokenManager::invalidateTokenForAccount(shared_ptr<Account> account) {
     lock_guard<mutex> guard(_cacheLock);
-    _cache.erase(account->id());
+    _cache.erase(cacheKey(account, OAuthTokenAudience::Mail));
 }
