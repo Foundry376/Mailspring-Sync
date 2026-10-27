@@ -356,6 +356,10 @@ string ICSProperty::param(const string & name) const {
     return it != params.end() ? it->second : "";
 }
 
+string ICSProperty::calAddress() const {
+    return value.size() >= 7 && equalsIgnoreCase(value.substr(0, 7), "mailto:") ? value.substr(7) : value;
+}
+
 const ICSProperty & ICSVEvent::property(const string & name) const {
     static const ICSProperty none;
     for (const auto & property : properties) {
@@ -451,16 +455,12 @@ static json dateTimeTimeZone(const ICSProperty & property, bool allDay) {
 
 // The inverse of the roles appendVEvent writes.
 static json attendeeOf(const ICSProperty & property) {
-    string address = property.value;
-    if (address.size() >= 7 && equalsIgnoreCase(address.substr(0, 7), "mailto:")) {
-        address = address.substr(7);
-    }
     string cutype = toUpperCase(property.param("CUTYPE"));
     string role = toUpperCase(property.param("ROLE"));
     string type = cutype == "RESOURCE" || cutype == "ROOM" ? "resource"
                 : role == "OPT-PARTICIPANT" || role == "NON-PARTICIPANT" ? "optional"
                 : "required";
-    return {{"type", type}, {"emailAddress", {{"address", address}, {"name", property.param("CN")}}}};
+    return {{"type", type}, {"emailAddress", {{"address", property.calAddress()}, {"name", property.param("CN")}}}};
 }
 
 // The name `names` gives `code` (WEEKDAYS: "MO" is "monday"), or "".

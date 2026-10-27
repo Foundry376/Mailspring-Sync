@@ -28,7 +28,7 @@ static const string EVENT_FIELDS = "id,iCalUId,type,subject,body,start,end,isAll
                                    "organizer,attendees,responseStatus,lastModifiedDateTime,recurrence,originalStart";
 static const string SERIES_FIELDS = EVENT_FIELDS + ",cancelledOccurrences,exceptionOccurrences";
 // A write reads its event as the pass lists it, with what a write must check besides.
-static const string EVENT_WRITE_FIELDS = EVENT_INDEX_FIELDS + ",isOnlineMeeting";
+static const string EVENT_WRITE_FIELDS = EVENT_INDEX_FIELDS + ",isOnlineMeeting,isOrganizer";
 
 // Changed events read and stored together; PerformGraphBatch sends them 20 to a request.
 static const size_t EVENTS_PER_ROUND = 100;
@@ -341,6 +341,13 @@ static string eventURL(const string & calendarPath, const string & graphId) {
     return eventsURL(calendarPath) + "/" + URLEscape(graphId);
 }
 
+// A guest who deletes a meeting declines it, as Outlook and Google do: a DELETE would tell the
+// organizer nothing. Retried only when throttled, since a second decline is a second email.
+static GraphResponse declineEvent(const string & url, const string & accessToken) {
+    return PerformGraphRequest("POST", url + "/decline", accessToken, json{{"sendResponse", true}}.dump(),
+                               "application/json", {}, GraphRetry::ThrottledOnly);
+}
+
 // A refused write as a task error: a 404 is the event deleted since the client last synced.
 [[noreturn]] static void throwForWrite(const string & url, const GraphResponse & resp) {
     if (resp.status == 404) {
@@ -359,6 +366,19 @@ json MicrosoftCalendarWorker::listedCalendar(const string & calendarId) {
         }
     }
     throw SyncException("no-calendar", "Graph no longer lists the event's calendar", false);
+}
+
+// The client makes a new event from an emailed invitation that isn't on the calendar yet. Created
+// through Graph, the user would become its organizer and Exchange would invite every guest. An
+// event the user makes in Mailspring names the sign-in address as its organizer, or none.
+bool MicrosoftCalendarWorker::organizedElsewhere(const string & ics) {
+    for (const auto & vevent : GraphICS::veventsOf(ics)) {
+        string organizer = vevent.property("ORGANIZER").calAddress();
+        if (organizer != "" && !equalsIgnoreCase(organizer, account->emailAddress())) {
+            return true;
+        }
+    }
+    return false;
 }
 
 vector<shared_ptr<Event>> MicrosoftCalendarWorker::rowsOf(const string & calendarId, const string & graphId) {
@@ -446,10 +466,16 @@ void MicrosoftCalendarWorker::restoreEvent(const json & calendar, const string &
     }
 }
 
-string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs) {
+string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, bool answer) {
     json calendar = listedCalendar(event->calendarId());
     string path = JSONString(calendar, "id");
     string graphId = event->href();
+    if (graphId == "" && organizedElsewhere(event->icsData())) {
+        // Exchange put the invitation on the calendar when it arrived; the next pass brings it in.
+        logger->info("- Not creating event {}: someone else organizes it", event->icsUID());
+        store->remove(event.get());
+        return event->id();
+    }
     if (graphId != "" && previousIcs == "") {
         // Read as a new event, the edit would create a second one and invite its guests again.
         throw SyncException("invalid-ics", "No copy of the event from before the edit", false);
@@ -459,13 +485,23 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
     try {
         string startUTC;
         bool onlineMeeting = false;
+        bool guest = false;
         if (graphId != "") {
             json listed = listedEvent(path, graphId);
             startUTC = JSONString(JSONObject(listed, "start"), "dateTime");
             onlineMeeting = JSONBool(listed, "isOnlineMeeting");
+            guest = !JSONBool(listed, "isOrganizer");
+            if (answer) {
+                logger->info("- Answer to {} goes to its organizer by email, not to Graph", graphId);
+                return storeEvent(calendar, graphId, rows);
+            }
         }
         vector<GraphEventChange> changes = GraphICS::changesBetween(graphId == "" ? "" : previousIcs, event->icsData(), startUTC);
         for (const auto & change : changes) {
+            // A guest's only edit is removing an occurrence, which declines it.
+            if (guest && change.kind != GraphEventChange::Kind::CancelOccurrence) {
+                throw GraphEditRefused("not-organizer", "Only the organizer can change this meeting");
+            }
             if (onlineMeeting && change.fields.is_object() && change.fields.count("body")) {
                 // Text notes would replace the HTML body, and the join details in it
                 // (https://learn.microsoft.com/en-us/graph/api/event-update, "body property and online meetings").
@@ -496,9 +532,11 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
                     continue;
                 }
                 url = eventURL(path, occurrence);
-                resp = change.kind == GraphEventChange::Kind::UpdateOccurrence
-                     ? PerformGraphRequest("PATCH", url, tokenProvider()(), change.fields.dump())
-                     : PerformGraphRequest("DELETE", url, tokenProvider()());
+                if (change.kind == GraphEventChange::Kind::UpdateOccurrence) {
+                    resp = PerformGraphRequest("PATCH", url, tokenProvider()(), change.fields.dump());
+                } else {
+                    resp = guest ? declineEvent(url, tokenProvider()()) : PerformGraphRequest("DELETE", url, tokenProvider()());
+                }
             }
             if (!resp.ok()) {
                 throwForWrite(url, resp);
@@ -533,7 +571,12 @@ void MicrosoftCalendarWorker::deleteEvent(shared_ptr<Event> event) {
         throw SyncException("no-calendar", "Calendar not found for event deletion", false);
     }
     string url = eventURL(calendar->path(), event->href());
-    GraphResponse resp = PerformGraphRequest("DELETE", url, tokenProvider()());
+    GraphResponse listed = PerformGraphRequest("GET", url + "?$select=isOrganizer", tokenProvider()());
+    if (!listed.ok()) {
+        ThrowForGraphResponse(url, listed);
+    }
+    bool guest = !JSONBool(listed.body, "isOrganizer");
+    GraphResponse resp = guest ? declineEvent(url, tokenProvider()()) : PerformGraphRequest("DELETE", url, tokenProvider()());
     if (!resp.ok()) {
         ThrowForGraphResponse(url, resp);
     }
@@ -542,5 +585,5 @@ void MicrosoftCalendarWorker::deleteEvent(shared_ptr<Event> event) {
         store->remove(row.get());
     }
     transaction.commit();
-    logger->info("- Deleted event {} from Graph", event->href());
+    logger->info("- {} event {} on Graph", guest ? "Declined" : "Deleted", event->href());
 }

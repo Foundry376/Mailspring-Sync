@@ -1,0 +1,107 @@
+name: graph-calendar-invitations
+description: >
+  Meetings someone else organizes, on the user's Outlook calendar. An answer, here to one
+  occurrence, writes nothing to Graph: it reaches the organizer by email, and the rows keep Graph's
+  copy. Any other guest edit is refused. A guest who deletes an occurrence, or the whole meeting,
+  declines it through Graph with a response to the organizer, as Outlook and Google do, where a
+  DELETE would tell the organizer nothing. An emailed invitation the client adds to the calendar
+  is not created: through Graph the user would become its organizer and Exchange would invite
+  every guest, and Exchange has already put the invitation on the calendar.
+source: "https://learn.microsoft.com/en-us/graph/api/event-decline (sendResponse); https://learn.microsoft.com/en-us/graph/api/user-post-events (the signed-in user is the organizer of an event they create)"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvSync="
+          changeKey: "ck-sync-1"
+          iCalUId: "uid-weekly-sync"
+          type: seriesMaster
+          isOrganizer: false
+          subject: Weekly sync
+          start: {dateTime: "2026-10-08T10:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-08T10:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          organizer: {emailAddress: {name: Pat Lee, address: pat@example.com}}
+          responseStatus: {response: notResponded}
+          attendees:
+            - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: test@example.test}}
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [thursday], firstDayOfWeek: sunday}
+            range: {type: noEnd, startDate: "2026-10-08", recurrenceTimeZone: Pacific Standard Time}
+          cancelledOccurrences: []
+          exceptionOccurrences: []
+        - id: "AAMkEvOffsite="
+          changeKey: "ck-offsite-1"
+          iCalUId: "uid-offsite"
+          type: singleInstance
+          isOrganizer: false
+          subject: Offsite
+          start: {dateTime: "2026-10-23T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-23T17:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          organizer: {emailAddress: {name: Pat Lee, address: pat@example.com}}
+          responseStatus: {response: notResponded}
+          attendees:
+            - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: test@example.test}}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  # As the client answers one occurrence: an override VEVENT with the guest's new PARTSTAT.
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-weekly-sync|"
+      ics_replace:
+        - ["END:VCALENDAR", "BEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261022T170000Z\r\nDTSTART;TZID=Pacific Standard Time:20261022T100000\r\nDTEND;TZID=Pacific Standard Time:20261022T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR"]
+      rsvp: {email: test@example.test, status: ACCEPTED}
+    as: answer
+  - wait: {task: answer, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-weekly-sync|"
+      ics_replace: [["SUMMARY:Weekly sync", "SUMMARY:Weekly sync (moved)"]]
+    as: retitle
+  - wait: {task: retitle, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-weekly-sync|"
+      ics_replace: [["RRULE:FREQ=WEEKLY;BYDAY=TH;WKST=SU", "RRULE:FREQ=WEEKLY;BYDAY=TH;WKST=SU\r\nEXDATE;TZID=Pacific Standard Time:20261029T100000"]]
+    as: decline_one
+  - wait: {task: decline_one, timeout: 60}
+  - client.task: {__cls: DestroyEventTask, events_of: ["uid-offsite|"]}
+    as: decline_all
+  - wait: {task: decline_all, timeout: 60}
+  # The invitation header adds an emailed invitation it can't find on the calendar.
+  - client.task:
+      __cls: SyncbackEventTask
+      calendar_of: Calendar
+      event:
+        icsuid: "planning-review@example.com"
+        ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:planning-review@example.com\r\nSUMMARY:Planning review\r\nDTSTART:20261027T170000Z\r\nDTEND:20261027T180000Z\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nATTENDEE;PARTSTAT=NEEDS-ACTION;CN=Kim:mailto:kim@example.com\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: add_invitation
+  - wait: {task: add_invitation, timeout: 60}
+expect:
+  task_error: {answer: null, retitle: not-organizer, decline_one: null, decline_all: null, add_invitation: null}
+  graph:
+    event_writes:
+      - [POST, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvSync=\\.2026-10-29/decline$", [sendResponse]]
+      - [POST, "^calendars/AAMkADefault=/events/AAMkEvOffsite=/decline$", [sendResponse]]
+    responses_sent: 2
+  events:
+    "uid-weekly-sync|":
+      ics_has:
+        - "SUMMARY:Weekly sync"
+        - "EXDATE;TZID=Pacific Standard Time:20261029T100000"
+        - "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test"
+  running: true

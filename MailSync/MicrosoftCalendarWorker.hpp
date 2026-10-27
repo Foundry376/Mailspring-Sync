@@ -45,6 +45,7 @@ class MicrosoftCalendarWorker {
                        const vector<shared_ptr<Event>> & previousRows);
 
     json listedCalendar(const string & calendarId);
+    bool organizedElsewhere(const string & ics);
     vector<shared_ptr<Event>> rowsOf(const string & calendarId, const string & graphId);
     json listedEvent(const string & calendarPath, const string & graphId);
     json readSeries(const string & calendarPath, const string & graphId);
@@ -59,9 +60,10 @@ public:
 
     // Makes Graph's copy of `event` match its ICS, an edit of `previousIcs` (unused for an event
     // Graph doesn't hold yet), then stores Graph's copy in its rows. Returns its master row's id.
-    string writeEvent(shared_ptr<Event> event, const string & previousIcs);
+    // An `answer` to an invitation writes nothing: it reaches the organizer by email.
+    string writeEvent(shared_ptr<Event> event, const string & previousIcs, bool answer);
 
-    // Deletes the event, or the whole series of a master row, and its rows.
+    // Deletes the event, or the whole series of a master row, and its rows. A guest declines it.
     void deleteEvent(shared_ptr<Event> event);
 };
 

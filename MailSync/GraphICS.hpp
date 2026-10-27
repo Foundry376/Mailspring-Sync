@@ -30,6 +30,8 @@ struct ICSProperty {
     string value;
 
     string param(const string & name) const;
+    // An ATTENDEE or ORGANIZER value's address, without "mailto:".
+    string calAddress() const;
 };
 
 // A VEVENT's own properties, in order; a VALARM's inside it are left out.

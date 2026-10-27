@@ -1843,7 +1843,8 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
     if (account->syncsCalendarsViaGraph()) {
         string previousIcs = task->data().count("previousIcs") ? task->data()["previousIcs"].get<string>() : "";
         // A new event's rows take Graph's UID, and with it a new id.
-        task->data()["event"]["id"] = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs);
+        bool answer = task->data().count("rsvp") > 0;
+        task->data()["event"]["id"] = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs, answer);
         return;
     }
     auto dav = make_shared<DAVWorker>(account);

@@ -1,10 +1,10 @@
 name: graph-calendar-event-create
 description: >
   A new event on an Outlook calendar is POSTed with every field the client wrote, its zone
-  passed through as the IANA name the client used. Graph answers the first POST 503 after creating
-  the event; the engine's retry carries the same transactionId, so Graph returns that event rather
-  than a second one. The client's row, keyed by its own UID, is replaced by Graph's copy: Graph's
-  UID, id and changeKey.
+  passed through as the IANA name the client used; its organizer, the user, is Graph's to set.
+  Graph answers the first POST 503 after creating the event; the engine's retry carries the same
+  transactionId, so Graph returns that event rather than a second one. The client's row, keyed by
+  its own UID, is replaced by Graph's copy: Graph's UID, id and changeKey.
 source: "https://learn.microsoft.com/en-us/graph/api/resources/event (transactionId avoids redundant POSTs when a client retries); https://learn.microsoft.com/en-us/graph/api/resources/datetimetimezone (IANA zone names)"
 env:
   CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
@@ -28,7 +28,7 @@ steps:
       calendar_of: Calendar
       event:
         icsuid: "new-event@mailspring"
-        ics: "BEGIN:VCALENDAR\r\nPRODID:-//Mailspring//Calendar//EN\r\nVERSION:2.0\r\nBEGIN:VTIMEZONE\r\nTZID:America/Chicago\r\nBEGIN:STANDARD\r\nTZOFFSETFROM:-0500\r\nTZOFFSETTO:-0600\r\nDTSTART:19701101T020000\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:new-event@mailspring\r\nSUMMARY:Design review\r\nDTSTART;TZID=America/Chicago:20261021T140000\r\nDTEND;TZID=America/Chicago:20261021T150000\r\nLOCATION:Room 4\r\nTRANSP:OPAQUE\r\nDTSTAMP:20261013T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+        ics: "BEGIN:VCALENDAR\r\nPRODID:-//Mailspring//Calendar//EN\r\nVERSION:2.0\r\nBEGIN:VTIMEZONE\r\nTZID:America/Chicago\r\nBEGIN:STANDARD\r\nTZOFFSETFROM:-0500\r\nTZOFFSETTO:-0600\r\nDTSTART:19701101T020000\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:new-event@mailspring\r\nSUMMARY:Design review\r\nORGANIZER;CN=Harness Test:mailto:test@example.test\r\nDTSTART;TZID=America/Chicago:20261021T140000\r\nDTEND;TZID=America/Chicago:20261021T150000\r\nLOCATION:Room 4\r\nTRANSP:OPAQUE\r\nDTSTAMP:20261013T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
     as: create
   - wait: {task: create, timeout: 60}
   - client.sync_calendar: {}

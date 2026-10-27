@@ -3,7 +3,8 @@ description: >
   Deleting an Outlook series DELETEs its master, and every row of the series goes: the master's
   and its override's. An override row is never deleted on its own, since it carries its series'
   id. An edit to an event already gone from Graph (404) fails as not-found and leaves its row to
-  the next pass, without the etag it had; deleting that event drops the row without an error.
+  the next pass, without the etag it had; deleting that event finds it gone (404) and drops the row
+  without an error.
 source: "https://learn.microsoft.com/en-us/graph/api/event-delete"
 env:
   CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
@@ -78,6 +79,5 @@ expect:
   graph:
     event_writes:
       - [DELETE, "^calendars/AAMkADefault=/events/AAMkEvStandup=$", []]
-      - [DELETE, "^calendars/AAMkADefault=/events/AAMkEvRetro=$", []]
   events: {}
   running: true

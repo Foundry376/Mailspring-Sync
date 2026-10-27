@@ -1077,6 +1077,8 @@ class ScenarioRun:
             got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com/Calendars." in scope)
             if got != arg["graph_calendar_token_requests"]:
                 out.append(f"expected {arg['graph_calendar_token_requests']} Graph calendar token requests, saw {got}")
+        if "responses_sent" in arg and graph.responses_sent != arg["responses_sent"]:
+            out.append(f"expected {arg['responses_sent']} responses sent to organizers, saw {graph.responses_sent}")
         if "event_writes" in arg:
             # [[method, route regex, [fields sent]], ...], in order: every event POST, PATCH and DELETE
             got = [[w["method"], w["route"], w["fields"]] for w in graph.event_writes]

@@ -32,7 +32,10 @@ event it already created, event-create), PATCH changes the fields it names and D
 PATCHing it makes it an exception, DELETEing it cancels it, and either moves the series' changeKey,
 as an Outlook.com account showed. A PATCH that moves a series' times or recurrence drops its
 exceptions and cancellations; whether Exchange does is unverified, and this is the case where the
-engine must apply them again. /instances expands daily and weekly series only. Calendar and mail scopes are consented and tokened separately: a token for one is
+engine must apply them again. /instances expands daily and weekly series only. An event is the
+mailbox's own (`isOrganizer`) unless a scenario says otherwise. A guest's /decline (event-decline)
+takes the event, or the occurrence, off the calendar, and counts a response to the organizer when
+`sendResponse` is true. Calendar and mail scopes are consented and tokened separately: a token for one is
 refused by the other's routes with 403, as Graph answers a token missing the permission a request
 needs.
 
@@ -323,6 +326,9 @@ class _Handler(BaseHTTPRequestHandler):
         m = re.match(r"^calendars/([^/]+)/events/([^/]+)/instances$", route)
         if m and self.command == "GET":
             return self._instances(unquote(m.group(1)), unquote(m.group(2)))
+        m = re.match(r"^calendars/([^/]+)/events/([^/]+)/decline$", route)
+        if m and self.command == "POST":
+            return self._write_event(unquote(m.group(1)), unquote(m.group(2)), body)
         m = re.match(r"^calendars/([^/]+)/events/([^/]+)$", route)
         if m and self.command == "GET":
             return self._event(unquote(m.group(1)), unquote(m.group(2)))
@@ -485,6 +491,7 @@ class _Handler(BaseHTTPRequestHandler):
             event = next((dict(e) for e in srv.events.get(calendar_id, []) if e["id"] == event_id), None)
         if event is None:
             return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
+        event.setdefault("isOrganizer", True)
 
         def moved(e: dict) -> dict:
             out = {**e, "start": _in_zone(e["start"], zone), "end": _in_zone(e["end"], zone)}
@@ -521,7 +528,7 @@ class _Handler(BaseHTTPRequestHandler):
                 srv.created_events += 1
                 n = srv.created_events
                 event = _with_fields({"id": f"AAMkEvCreated{n}=", "changeKey": f"ck-created-{n}", "iCalUId": f"uid-created-{n}",
-                                      "isCancelled": False}, fields)
+                                      "isCancelled": False, "isOrganizer": True}, fields)
                 if srv.mailbox:
                     event["organizer"] = {"emailAddress": {"name": "", "address": srv.mailbox}}
                 if event.get("type") == "seriesMaster":
@@ -549,9 +556,11 @@ class _Handler(BaseHTTPRequestHandler):
         return None, None, None, None
 
     def _write_event(self, calendar_id: str, event_id: str, body: bytes):
+        """PATCH or DELETE an event or occurrence, or POST its /decline."""
         srv: "FakeGraphServer" = self.server.owner
-        fields = json.loads(body or b"{}") if self.command == "PATCH" else {}
-        refusal = self._refused_fields(fields)
+        declining = self.command == "POST"
+        fields = json.loads(body or b"{}") if self.command != "DELETE" else {}
+        refusal = None if declining else self._refused_fields(fields)
         if refusal:
             return self._error(*refusal)
         route = urlparse(self.path).path[len("/v1.0/me/"):]
@@ -560,11 +569,17 @@ class _Handler(BaseHTTPRequestHandler):
             event, master, exception, slot = self._find_event(calendar_id, event_id)
             if event is None and master is None:
                 return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
+            if declining:
+                if (event or master).get("isOrganizer", True):
+                    return self._error(400, "ErrorInvalidRequest", "The organizer can't decline their own meeting.")
+                srv.responses_sent += 1 if fields.get("sendResponse") is True else 0
+            removing = self.command == "DELETE" or declining
+            done = 202 if declining else 204
             events = srv.events[calendar_id]
             if event is not None:
-                if self.command == "DELETE":
+                if removing:
                     events.remove(event)
-                    return self._reply(204)
+                    return self._reply(done)
                 changed = _with_fields(event, fields)
                 changed["changeKey"] = event["changeKey"] + "+"
                 if event.get("type") == "seriesMaster" and SERIES_TIMING & set(fields):
@@ -583,12 +598,12 @@ class _Handler(BaseHTTPRequestHandler):
                                   "originalStart": start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                                   "start": _zoned(start, zone), "end": _zoned(end, zone)})
             exceptions = [x for x in master.get("exceptionOccurrences") or [] if x["id"] != exception["id"]]
-            if self.command == "DELETE":
+            if removing:
                 date = slot or _utc(exception["originalStart"]).astimezone(_zone(zone)).date().isoformat()
                 master["cancelledOccurrences"] = (master.get("cancelledOccurrences") or []) + [f"OID.{master['id']}.{date}"]
                 master["exceptionOccurrences"] = exceptions
                 master["changeKey"] += "+"
-                return self._reply(204)
+                return self._reply(done)
             if "recurrence" in fields:
                 return self._error(400, "ErrorInvalidRequest", "An occurrence has no recurrence of its own.")
             exception = _with_fields(exception, fields)
@@ -769,8 +784,9 @@ class FakeGraphServer:
         self.calendars_delay = calendars_delay
         self.events = {cid: [dict(e) for e in evs] for cid, evs in (events or {}).items()}
         self.events_page_size = events_page_size
-        self.event_writes: list = []   # {method, route, fields}: each event POST, PATCH and DELETE
+        self.event_writes: list = []   # {method, route, fields}: each event POST, PATCH, DELETE and decline
         self.created_events = 0
+        self.responses_sent = 0   # declines with sendResponse, which Exchange emails to the organizer
         self.mail_tokens: set = set()
         self.graph_tokens: dict = {}   # Graph mail scopes: token -> expiry
         self.calendar_tokens: dict = {}   # token -> expiry
