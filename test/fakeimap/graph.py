@@ -19,14 +19,14 @@ modelled as a recipient, since Graph does not document honoring it.
 
 Calendars are listed from /me/calendars, paged by `@odata.nextLink`
 (https://learn.microsoft.com/en-us/graph/api/user-list-calendars). A calendar's events are listed
-in UTC, single instances and series masters only (calendar-list-events); one event is read, through its
-calendar, in the
-zone `Prefer: outlook.timezone` names (originalStart too, with that zone's offset, though the reference
-says UTC: observed on an Outlook.com account), with a text body only when asked for one, and a series'
-cancelledOccurrences / exceptionOccurrences only when selected and expanded (event-get). $batch
-runs up to 20 requests and answers them out of order (json-batching). Calendar and mail scopes
-are consented and tokened separately: a token for one is refused by the other's routes with
-403, as Graph answers a token missing the permission a request needs.
+in UTC, single instances and series masters only (calendar-list-events); one event is read, through
+its calendar, in the zone `Prefer: outlook.timezone` names (originalStart too, with that zone's
+offset, though the reference says UTC: observed on an Outlook.com account), with a text body only
+when asked for one, and a series' cancelledOccurrences / exceptionOccurrences only when selected
+and expanded (event-get). $batch runs up to 20 requests and answers them out of order
+(json-batching). Calendar and mail scopes are consented and tokened separately: a token for one is
+refused by the other's routes with 403, as Graph answers a token missing the permission a request
+needs.
 
 The server also stands in for the Mailspring identity server's DAV host lookup, which sends a
 Microsoft account's CardDAV discovery to Outlook on the web: its /owa/ answers 401, as observed
@@ -223,7 +223,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(413, "RequestEntityTooLarge", "The request is larger than 4 MB.")
         route = path[len("/v1.0/me/"):]
         token = (self.headers.get("Authorization") or "")[len("Bearer "):]
-        calendar_route = route.split("/")[0] in ("calendars", "events")
+        calendar_route = route.split("/")[0] == "calendars"
         tokens = srv.calendar_tokens if calendar_route else srv.graph_tokens
         if token not in tokens:
             if token in srv.calendar_tokens or token in srv.graph_tokens:
@@ -514,8 +514,9 @@ class FakeGraphServer:
         consent_refusals: refuse the first N Graph mail token requests with AADSTS65001 anyway,
         as Azure AD does for a few seconds while a consent the user just gave replicates.
         calendars: the Graph calendar resources /me/calendars lists, `calendars_page_size` to a
-        page (0: all on one), each page `calendars_delay` seconds late. calendars_consented: whether the refresh token may be exchanged
-        for the calendar scopes, which Mailspring has asked for since 2020.
+        page (0: all on one), each page `calendars_delay` seconds late. calendars_consented:
+        whether the refresh token may be exchanged for the calendar scopes, which Mailspring has
+        asked for since 2020.
         events: {calendar id: [Graph event resources, each in its own zone]}, listed
         `events_page_size` to a page (0: all on one).
         mailbox / aliases: the mailbox's primary address and the aliases it may send as. A

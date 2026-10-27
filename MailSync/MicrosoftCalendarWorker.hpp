@@ -15,7 +15,6 @@
 #include "Calendar.hpp"
 #include "Event.hpp"
 #include "MailStore.hpp"
-#include "NetworkRequestUtils.hpp"
 
 #include <functional>
 #include <memory>

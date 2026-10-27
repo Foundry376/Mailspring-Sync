@@ -438,28 +438,30 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   session in 320 KiB-multiple chunks without an Authorization header), `/send`, reading the
   draft by its immutable id, Sent Items, and DELETE; requests over 4 MB get 413. `{fake:
   outlook, graph: true}` turns the account into an `office365` OAuth account (`outlook`, as
-  Outlook.com, with `graph_provider: outlook`) whose IMAP (and SMTP) accept the fake's mail tokens and, unless `graph_send: false`, sends through Graph.
-  Each sent message's copy is appended to `graph_sent_copy` (default `Sent Items`) after
-  `graph_sent_copy_delay` seconds; `graph_consented: false` refuses Graph mail scopes with
-  AADSTS65001, as for an account authorized before Mail.Send was requested, and
-  `graph_consent_refusals: n` refuses only the first n, as while a fresh consent replicates,
-  and `graph_drop_token: true` closes the connection on them unanswered, as when offline;
-  `graph_aliases: [address]` are the addresses besides the account's own it may send as - a
-  MIME draft from any other address is rewritten to the account's, as Exchange does, and
-  /send refuses a From outside them with ErrorSendAsDenied; `graph_failures:
-  [{route, method, status, code, message, times, retry_after}]` injects errors (`graph-send-*`).
-  `/me/calendars` lists `graph_calendars: [Graph calendar resources]`, `graph_calendars_page_size`
-  to a page (`graph_calendars_delay` seconds late each), and each calendar's events come from `graph_events: {calendar id: [events in their own
-  zone]}` (`graph_events_page_size` to a page; `graph_generated_events: n` adds n one-off events to
-  the first calendar), listed in UTC and read back in the zone asked for, one at a time or 20 per
-  `$batch`; the calendar scopes take their own token, refused only with
-  `graph_calendars_consented: false`, and `graph_shared_mailbox_owner: address` makes the
-  account a shared mailbox signed in as that address (`graph-calendars-*`, `graph-calendar-events*`). It also answers
-  the identity server's DAV host lookup as production does for a Microsoft account, sending
-  CardDAV discovery to an Outlook on the web page that answers 401. The engine reaches it
-  through `MS_GRAPH_URL`, `MS_OAUTH_TOKEN_URL` and `IDENTITY_SERVER`, which the server adds to
-  the engine's environment (`Server.engine_env`). A draft attachment written as `{filename,
-  bytes, contentType, contentId}` is created on disk where the engine looks for it.
+  Outlook.com, with `graph_provider: outlook`) whose IMAP (and SMTP) accept the fake's mail
+  tokens and, unless `graph_send: false`, sends through Graph. Each sent message's copy is
+  appended to `graph_sent_copy` (default `Sent Items`) after `graph_sent_copy_delay` seconds;
+  `graph_consented: false` refuses Graph mail scopes with AADSTS65001, as for an account
+  authorized before Mail.Send was requested, and `graph_consent_refusals: n` refuses only the
+  first n, as while a fresh consent replicates, and `graph_drop_token: true` closes the
+  connection on them unanswered, as when offline; `graph_aliases: [address]` are the addresses
+  besides the account's own it may send as - a MIME draft from any other address is rewritten
+  to the account's, as Exchange does, and /send refuses a From outside them with
+  ErrorSendAsDenied; `graph_failures: [{route, method, status, code, message, times,
+  retry_after}]` injects errors (`graph-send-*`). `/me/calendars` lists `graph_calendars:
+  [Graph calendar resources]`, `graph_calendars_page_size` to a page (`graph_calendars_delay`
+  seconds late each), and each calendar's events come from `graph_events: {calendar id:
+  [events in their own zone]}` (`graph_events_page_size` to a page; `graph_generated_events:
+  n` adds n one-off events to the first calendar), listed in UTC and read back in the zone
+  asked for, one at a time or 20 per `$batch`; the calendar scopes take their own token,
+  refused only with `graph_calendars_consented: false`, and `graph_shared_mailbox_owner:
+  address` makes the account a shared mailbox signed in as that address (`graph-calendars-*`,
+  `graph-calendar-events*`). It also answers the identity server's DAV host lookup as
+  production does for a Microsoft account, sending CardDAV discovery to an Outlook on the web
+  page that answers 401. The engine reaches it through `MS_GRAPH_URL`, `MS_OAUTH_TOKEN_URL`
+  and `IDENTITY_SERVER`, which the server adds to the engine's environment
+  (`Server.engine_env`). A draft attachment written as `{filename, bytes, contentType,
+  contentId}` is created on disk where the engine looks for it.
 - **Recording real providers.** `tools/record_personality.py HOST PORT USER --name NAME`
   captures greeting, capabilities, NAMESPACE, ID, LIST, STATUS/SELECT and FETCH shapes from a
   real account (no message content) into `fakeimap/recordings/`; use it to replace every

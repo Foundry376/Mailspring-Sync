@@ -180,11 +180,8 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
                  remote.size(), fetched, changedCount, removedCount);
 }
 
-// A $batch request reading one listed event in `zone`. It goes through the event's calendar, as
-// Graph reads an event in a calendar shared with the user
-// (https://learn.microsoft.com/en-us/graph/outlook-get-shared-events-calendars). A batched request
-// carries only its own headers, and one value per header, so the preferences share one Prefer
-// (RFC 7240 section 2).
+// Through the event's calendar, as Graph reads one shared with the user (https://learn.microsoft.com/en-us/graph/outlook-get-shared-events-calendars).
+// A batched request carries one value per header of its own, so the preferences share one Prefer (RFC 7240 section 2).
 static json eventRequest(const string & calendarPath, const json & entry, const string & zone) {
     bool series = JSONString(entry, "type") == "seriesMaster";
     string url = "/me/calendars/" + URLEscape(calendarPath) + "/events/" + URLEscape(JSONString(entry, "id")) +
