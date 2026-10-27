@@ -334,6 +334,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _calendars(self):
         srv: "FakeGraphServer" = self.server.owner
+        time.sleep(srv.calendars_delay)
         skip = int(parse_qs(urlparse(self.path).query).get("$skip", ["0"])[0])
         with srv.lock:
             calendars = list(srv.calendars)
@@ -498,7 +499,8 @@ class FakeGraphServer:
                  drop_graph_token: bool = False, honors_delete_after_submit: bool = True,
                  token_lifetime: int = 3599, drop_graph_token_after: Optional[int] = None,
                  calendars: Optional[list] = None, calendars_consented: bool = True,
-                 calendars_page_size: int = 0, events: Optional[dict] = None, events_page_size: int = 0):
+                 calendars_page_size: int = 0, calendars_delay: float = 0,
+                 events: Optional[dict] = None, events_page_size: int = 0):
         """sent_copy: optional (Store, mailbox) every sent message's copy is appended to, as
         Exchange files it in Sent Items. sent_copy_delay: seconds between /send and that copy.
         graph_consented: whether the refresh token may be exchanged for Graph mail scopes (an
@@ -509,7 +511,7 @@ class FakeGraphServer:
         consent_refusals: refuse the first N Graph mail token requests with AADSTS65001 anyway,
         as Azure AD does for a few seconds while a consent the user just gave replicates.
         calendars: the Graph calendar resources /me/calendars lists, `calendars_page_size` to a
-        page (0: all on one). calendars_consented: whether the refresh token may be exchanged
+        page (0: all on one), each page `calendars_delay` seconds late. calendars_consented: whether the refresh token may be exchanged
         for the calendar scopes, which Mailspring has asked for since 2020.
         events: {calendar id: [Graph event resources, each in its own zone]}, listed
         `events_page_size` to a page (0: all on one).
@@ -544,6 +546,7 @@ class FakeGraphServer:
         self.calendars = [dict(c) for c in (calendars or [])]
         self.calendars_consented = calendars_consented
         self.calendars_page_size = calendars_page_size
+        self.calendars_delay = calendars_delay
         self.events = {cid: [dict(e) for e in evs] for cid, evs in (events or {}).items()}
         self.events_page_size = events_page_size
         self.mail_tokens: set = set()

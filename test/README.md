@@ -449,7 +449,7 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   /send refuses a From outside them with ErrorSendAsDenied; `graph_failures:
   [{route, method, status, code, message, times, retry_after}]` injects errors (`graph-send-*`).
   `/me/calendars` lists `graph_calendars: [Graph calendar resources]`, `graph_calendars_page_size`
-  to a page, and each calendar's events come from `graph_events: {calendar id: [events in their own
+  to a page (`graph_calendars_delay` seconds late each), and each calendar's events come from `graph_events: {calendar id: [events in their own
   zone]}` (`graph_events_page_size` to a page; `graph_generated_events: n` adds n one-off events to
   the first calendar), listed in UTC and read back in the zone asked for, one at a time or 20 per
   `$batch`; the calendar scopes take their own token, refused only with

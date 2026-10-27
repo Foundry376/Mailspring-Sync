@@ -41,7 +41,8 @@ class FakeServer(Server):
                  graph_honors_delete_after_submit: bool = True, graph_token_lifetime: int = 3599,
                  graph_drop_token_after: Optional[int] = None,
                  graph_calendars: Optional[list] = None, graph_calendars_consented: bool = True,
-                 graph_calendars_page_size: int = 0, graph_shared_mailbox_owner: Optional[str] = None,
+                 graph_calendars_page_size: int = 0, graph_calendars_delay: float = 0,
+                 graph_shared_mailbox_owner: Optional[str] = None,
                  graph_events: Optional[dict] = None, graph_events_page_size: int = 0,
                  graph_generated_events: int = 0, graph_provider: str = "office365", **kw):
         self.personality_name = personality
@@ -77,7 +78,8 @@ class FakeServer(Server):
                                      token_lifetime=graph_token_lifetime, drop_graph_token_after=graph_drop_token_after,
                                      deliver_to=(self.store, "INBOX", email), calendars=graph_calendars,
                                      calendars_consented=graph_calendars_consented,
-                                     calendars_page_size=graph_calendars_page_size, events=graph_events,
+                                     calendars_page_size=graph_calendars_page_size,
+                                     calendars_delay=graph_calendars_delay, events=graph_events,
                                      events_page_size=graph_events_page_size) if graph else None
         if self.graph and graph_generated_events:
             calendar_id = graph_calendars[0]["id"]

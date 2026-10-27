@@ -19,6 +19,7 @@
 #include "strlib.h"
 
 #include <limits>
+#include <mutex>
 #include <set>
 
 static const string CALENDAR_FIELDS = "id,name,hexColor,canEdit,owner";
@@ -50,6 +51,10 @@ static string zoneToReadIn(const json & entry) {
     return zone == "" || zone.find(':') != string::npos ? "UTC" : zone;
 }
 
+// The periodic pass and a manual refresh run on separate threads. Overlapping, both would find a
+// new calendar missing and insert it, and the second insert's constraint error stops calendar sync.
+static std::mutex passMtx;
+
 MicrosoftCalendarWorker::MicrosoftCalendarWorker(shared_ptr<Account> account) :
     store(make_unique<MailStore>()),
     logger(spdlog::get("logger")),
@@ -58,6 +63,7 @@ MicrosoftCalendarWorker::MicrosoftCalendarWorker(shared_ptr<Account> account) :
 }
 
 void MicrosoftCalendarWorker::run() {
+    lock_guard<mutex> pass(passMtx);
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
     set<string> listedIds {};
     vector<json> listed {};
