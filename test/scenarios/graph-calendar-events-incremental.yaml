@@ -69,7 +69,7 @@ steps:
   - wait: {seconds: 3}
   - assert:
       event_count: 4
-      graph: {requests: {"/me/calendars/[^/]+/events$": 2, "/me/events/": 3}}
+      graph: {requests: {"/me/calendars/[^/]+/events$": 2, "/me/calendars/[^/]+/events/": 3}}
   - server.graph_events:
       calendar: "AAMkADefault="
       events:
@@ -90,6 +90,6 @@ expect:
       ics_has: ["DTSTART;TZID=Pacific Standard Time:20261022T110000", "SUMMARY:Planning (moved)"]
     "uid-standup|":
       etag: "ck-standup-2"
-  graph: {requests: {"/me/calendars/[^/]+/events$": 3, "/me/events/": 5}}
+  graph: {requests: {"/me/calendars/[^/]+/events$": 3, "/me/calendars/[^/]+/events/": 5}}
   log_count: {"Microsoft calendar sync complete": 3}
   running: true

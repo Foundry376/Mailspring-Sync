@@ -17,7 +17,7 @@ servers:
     graph_consented: false
     graph_events_page_size: 2
     graph_failures:
-      - {route: "^events/AAMkEvBroken=$", method: GET, status: 403, code: ErrorAccessDenied}
+      - {route: "^calendars/[^/]+/events/AAMkEvBroken=$", method: GET, status: 403, code: ErrorAccessDenied}
     graph_calendars:
       - {id: "AAMkADefault=", name: Calendar, canEdit: true, owner: {name: Harness Test, address: test@example.test}}
     graph_events:

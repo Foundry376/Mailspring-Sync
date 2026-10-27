@@ -19,7 +19,8 @@ modelled as a recipient, since Graph does not document honoring it.
 
 Calendars are listed from /me/calendars, paged by `@odata.nextLink`
 (https://learn.microsoft.com/en-us/graph/api/user-list-calendars). A calendar's events are listed
-in UTC, single instances and series masters only (calendar-list-events); one event is read in the
+in UTC, single instances and series masters only (calendar-list-events); one event is read, through its
+calendar, in the
 zone `Prefer: outlook.timezone` names (originalStart too, with that zone's offset, though the reference
 says UTC: observed on an Outlook.com account), with a text body only when asked for one, and a series'
 cancelledOccurrences / exceptionOccurrences only when selected and expanded (event-get). $batch
@@ -243,9 +244,9 @@ class _Handler(BaseHTTPRequestHandler):
         m = re.match(r"^calendars/([^/]+)/events$", route)
         if m and self.command == "GET":
             return self._calendar_events(unquote(m.group(1)))
-        m = re.match(r"^events/([^/]+)$", route)
+        m = re.match(r"^calendars/([^/]+)/events/([^/]+)$", route)
         if m and self.command == "GET":
-            return self._event(unquote(m.group(1)))
+            return self._event(unquote(m.group(1)), unquote(m.group(2)))
         if route == "mailFolders/sentitems" and self.command == "GET":
             return self._reply(200, {"id": SENT_ITEMS_ID})
         if route == "messages" and self.command == "POST":
@@ -386,7 +387,7 @@ class _Handler(BaseHTTPRequestHandler):
             body["@odata.nextLink"] = f"{srv.url}/me/calendars/{calendar_id}/events?$select={select}&$skip={skip + size}"
         return self._reply(200, body)
 
-    def _event(self, event_id: str):
+    def _event(self, calendar_id: str, event_id: str):
         srv: "FakeGraphServer" = self.server.owner
         query = parse_qs(urlparse(self.path).query)
         select = query.get("$select", [""])[0]
@@ -398,7 +399,7 @@ class _Handler(BaseHTTPRequestHandler):
         if zone not in WINDOWS_ZONES:
             return self._error(400, "TimeZoneNotSupportedException", f"A valid TimeZone value must be specified: {zone}")
         with srv.lock:
-            event = next((dict(e) for events in srv.events.values() for e in events if e["id"] == event_id), None)
+            event = next((dict(e) for e in srv.events.get(calendar_id, []) if e["id"] == event_id), None)
         if event is None:
             return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
 

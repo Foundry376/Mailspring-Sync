@@ -151,7 +151,7 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
     size_t changedCount = changed.size(); // chunksOfVector empties `changed`
     size_t fetched = 0;
     for (auto & chunk : MailUtils::chunksOfVector(changed, EVENTS_PER_ROUND)) {
-        for (auto & [entry, event] : fetchEvents(chunk)) {
+        for (auto & [entry, event] : fetchEvents(path, chunk)) {
             auto it = localByHref.find(JSONString(entry, "id"));
             string startUTC = JSONString(JSONObject(entry, "start"), "dateTime");
             string ics = GraphICS::icsForEvent(event, account->emailAddress(), startUTC);
@@ -163,23 +163,25 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
                  remote.size(), fetched, changedCount, removedCount);
 }
 
-// A $batch request reading one listed event. A batched request carries only its own headers, and
-// one value per header, so the preferences share one Prefer (RFC 7240 section 2).
-static json eventRequest(const json & entry) {
+// A $batch request reading one listed event. It goes through the event's calendar, as
+// Graph reads an event in a calendar shared with the user
+// (https://learn.microsoft.com/en-us/graph/outlook-get-shared-events-calendars). A batched request
+// carries only its own headers, and one value per header, so the preferences share one Prefer
+// (RFC 7240 section 2).
+static json eventRequest(const string & calendarPath, const json & entry) {
     bool series = JSONString(entry, "type") == "seriesMaster";
-    string url = "/me/events/" + URLEscape(JSONString(entry, "id")) + "?$select=" +
-                 (series ? SERIES_FIELDS + "&$expand=exceptionOccurrences" : EVENT_FIELDS);
-    string prefer = "IdType=\"ImmutableId\", outlook.timezone=\"" + zoneToReadIn(entry) +
-                    "\", outlook.body-content-type=\"text\"";
+    string url = "/me/calendars/" + URLEscape(calendarPath) + "/events/" + URLEscape(JSONString(entry, "id")) +
+                 "?$select=" + (series ? SERIES_FIELDS + "&$expand=exceptionOccurrences" : EVENT_FIELDS);
+    string prefer = "IdType=\"ImmutableId\", outlook.timezone=\"" + zoneToReadIn(entry) + "\", outlook.body-content-type=\"text\"";
     return {{"method", "GET"}, {"url", url}, {"headers", {{"Prefer", prefer}}}};
 }
 
 // The listed events read in full, each with its listing. An event Graph fails to return is left
 // out, so it keeps its rows and is read again next pass.
-vector<pair<json, json>> MicrosoftCalendarWorker::fetchEvents(const vector<json> & entries) {
+vector<pair<json, json>> MicrosoftCalendarWorker::fetchEvents(const string & calendarPath, const vector<json> & entries) {
     vector<json> requests {};
     for (const auto & entry : entries) {
-        requests.push_back(eventRequest(entry));
+        requests.push_back(eventRequest(calendarPath, entry));
     }
     vector<GraphResponse> responses = PerformGraphBatch(requests, tokenProvider());
     vector<pair<json, json>> events {};
