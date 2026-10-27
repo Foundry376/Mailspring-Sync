@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <cstring>
+#include <map>
 #include "types.h"
 
 using namespace std;
@@ -26,25 +27,60 @@ public:
 
 	class Query;
     list<ICalendarEvent *> Events;
+	map<string, shared_ptr<const TimeZone>> TimeZones; // the object's VTIMEZONEs, by TZID
 
 private:
+	// The colon that ends a content line's name and parameters. A quoted parameter value may
+	// itself hold colons (RFC 5545 section 3.1), as Outlook's TZID="(UTC-05:00) Eastern..." does.
+	static size_t ValueStart(const string &Line) {
+		bool Quoted = false;
+		for (size_t i = 0; i < Line.length(); ++i) {
+			if (Line[i] == '"')
+				Quoted = !Quoted;
+			else if (Line[i] == ':' && !Quoted)
+				return i;
+		}
+		return string::npos;
+	}
+	static string GetPropertyName(const string &Line) {
+		return Line.substr(0, Line.find_first_of(";:"));
+	}
+	// Parameter names are case-insensitive (section 3.2).
+	static bool IsParameter(const string &Params, size_t At, const string &Name) {
+		if (At + Name.length() >= Params.length() || Params[At + Name.length()] != '=')
+			return false;
+		for (size_t i = 0; i < Name.length(); ++i) {
+			if (toupper((unsigned char)Params[At + i]) != Name[i])
+				return false;
+		}
+		return true;
+	}
+	// A parameter's value, unquoted, or "" when the property doesn't carry it.
+	static string GetParameter(const string &Line, const string &Name) {
+		const string Params = Line.substr(0, ValueStart(Line));
+		bool Quoted = false;
+		for (size_t i = 0; i < Params.length(); ++i) {
+			if (Params[i] == '"') {
+				Quoted = !Quoted;
+			} else if (Params[i] == ';' && !Quoted && IsParameter(Params, i + 1, Name)) {
+				size_t Start = i + Name.length() + 2;
+				if (Start < Params.length() && Params[Start] == '"')
+					return Params.substr(Start + 1, Params.find('"', Start + 1) - Start - 1);
+				return Params.substr(Start, Params.find(';', Start) - Start);
+			}
+		}
+		return "";
+	}
+	void AttachTimeZone(Date &Value) const;
+
 	string GetProperty(const string &Line) const {
 		// if VALUE=DATE or VALUE=DATE-TIME used, then the date is not directly
 		// after the property name so we just search for the string after ':'
-		string Temp = Line.substr(Line.find_first_of(':')+1);
+		string Temp = Line.substr(ValueStart(Line)+1);
 		unsigned int Length = (unsigned int)Temp.length();
 		if (Length > 0 && Temp[Length-1] == '\r')
 			Temp.resize(Length-1);
 		return Temp;
-	}
-	// A parameter's value as written, or "" when the property doesn't carry it.
-	string GetParameter(const string &Line, const string &Name) const {
-		string Params = Line.substr(0, Line.find_first_of(':'));
-		size_t Start = Params.find(";" + Name + "=");
-		if (Start == string::npos)
-			return "";
-		Start += Name.length() + 2;
-		return Params.substr(Start, Params.find(';', Start) - Start);
 	}
 	string GetSubProperty(const string &Line, const char *SubProperty) const {
 		size_t Pos = Line.find(SubProperty);
