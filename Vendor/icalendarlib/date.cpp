@@ -2,11 +2,30 @@
 #include <algorithm>
 #include <climits>
 #include <map>
+#include <unicode/putil.h>
+#include <unicode/ustring.h>
 #ifdef __APPLE__
-#include <CoreFoundation/CoreFoundation.h>
+/*
+ The macOS SDK carries libicucore's utypes.h, ustring.h and putil.h but not ucal.h. These are the
+ ucal.h declarations used below, as ICU 78 writes them; libicucore exports them unversioned
+ (U_DISABLE_RENAMING in the SDK's uconfig.h).
+*/
+extern "C" {
+typedef void *UCalendar;
+enum UCalendarType { UCAL_TRADITIONAL, UCAL_GREGORIAN };
+enum UCalendarDateFields { UCAL_ZONE_OFFSET = 15, UCAL_DST_OFFSET = 16 };
+#define UCAL_UNKNOWN_ZONE_ID "Etc/Unknown"
+UCalendar *ucal_open(const UChar *zoneID, int32_t len, const char *locale, UCalendarType type, UErrorCode *status);
+void ucal_close(UCalendar *cal);
+void ucal_setMillis(UCalendar *cal, UDate dateTime, UErrorCode *status);
+int32_t ucal_get(const UCalendar *cal, UCalendarDateFields field, UErrorCode *status);
+int32_t ucal_getTimeZoneID(const UCalendar *cal, UChar *result, int32_t resultLength, UErrorCode *status);
+int32_t ucal_getTimeZoneIDForWindowsID(const UChar *winid, int32_t len, const char *region, UChar *id,
+                                       int32_t idCapacity, UErrorCode *status);
+const char *ucal_getTZDataVersion(UErrorCode *status);
+}
 #else
 #include <unicode/ucal.h>
-#include <unicode/ustring.h>
 #endif
 
 string Date::Format() const {
@@ -492,28 +511,6 @@ bool VTimeZone::OffsetForWallClock(int64_t Wall, int &Offset) const {
 	return false;
 }
 
-#ifdef __APPLE__
-
-static void *OpenSystemZone(const string &TzId) {
-	CFStringRef Name = CFStringCreateWithCString(kCFAllocatorDefault, TzId.c_str(), kCFStringEncodingUTF8);
-	if (!Name)
-		return nullptr;
-	CFTimeZoneRef Zone = CFTimeZoneCreateWithName(kCFAllocatorDefault, Name, true);
-	CFRelease(Name);
-	return (void *)Zone; // CFTimeZoneRef is a const pointer; the untyped handle is shared with ICU's
-}
-
-SystemTimeZone::~SystemTimeZone() {
-	CFRelease((CFTimeZoneRef)Handle);
-}
-
-bool SystemTimeZone::OffsetAt(int64_t Utc, int &Offset) const {
-	Offset = (int)CFTimeZoneGetSecondsFromGMT((CFTimeZoneRef)Handle, (CFAbsoluteTime)Utc - kCFAbsoluteTimeIntervalSince1970);
-	return true;
-}
-
-#else
-
 // ICU opens an unknown name as the "Etc/Unknown" zone instead of failing, so the opened zone's
 // own id tells whether the name was known. A Windows name ("Eastern Standard Time") is mapped
 // to its IANA zone through CLDR's table.
@@ -558,7 +555,16 @@ bool SystemTimeZone::OffsetAt(int64_t Utc, int &Offset) const {
 	return true;
 }
 
-#endif
+void SystemTimeZone::UseZoneFilesIn(const string &Directory) {
+	UErrorCode Status = U_ZERO_ERROR;
+	u_setTimeZoneFilesDirectory(Directory.c_str(), &Status);
+}
+
+string SystemTimeZone::DataVersion() {
+	UErrorCode Status = U_ZERO_ERROR;
+	const char *Version = ucal_getTZDataVersion(&Status);
+	return U_SUCCESS(Status) && Version ? Version : "";
+}
 
 shared_ptr<const TimeZone> SystemTimeZone::Named(const string &TzId) {
 	static map<string, shared_ptr<const TimeZone>> Zones;
@@ -568,9 +574,7 @@ shared_ptr<const TimeZone> SystemTimeZone::Named(const string &TzId) {
 	if (Found != Zones.end())
 		return Found->second;
 	void *Handle = OpenSystemZone(TzId);
-	if (!Handle)
-		return nullptr;
-	return Zones[TzId] = shared_ptr<const TimeZone>(new SystemTimeZone(Handle));
+	return Zones[TzId] = Handle ? shared_ptr<const TimeZone>(new SystemTimeZone(Handle)) : nullptr;
 }
 
 // The system gives the offset at an instant; the instant a wall clock means is the one whose

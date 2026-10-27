@@ -211,7 +211,7 @@ jobs:
         run: |
           cd Windows
           REM SASL plugin DLLs (saslPLAIN.dll, etc.) are now in dist alongside other DLLs
-          7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe -so | 7z -si -tgzip a .\mailsync.tar.gz
+          7z -ttar a dummy ..\..\app\dist\*.dll ..\..\app\dist\*.pdb ..\..\app\dist\mailsync.exe ..\..\app\dist\icu-tzdata -so | 7z -si -tgzip a .\mailsync.tar.gz
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7

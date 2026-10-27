@@ -10,6 +10,7 @@
 //
 
 #include <atomic>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <time.h>
@@ -48,6 +49,7 @@
 #include "ThreadUtils.h"
 #include "constants.h"
 #include "SPDLogExtensions.hpp"
+#include "date.h"
 
 #if defined(__linux__)
 #include "MailspringDynamicTidy.h"
@@ -636,6 +638,7 @@ int runInstallCheck() {
         {"smtp_check", nullptr},
         {"tidy_check", nullptr},
         {"legacy_tls_check", nullptr},
+        {"tz_check", nullptr},
         {"log", nullptr}
     };
 
@@ -873,8 +876,27 @@ int runInstallCheck() {
         resp["tidy_check"] = {{"success", true}};
     }
 
+    // Step 5: Check the time zone data is current. Mexico City dropped DST in October 2022, so
+    // noon on 1 July 2026 there is UTC-06:00 only in tzdata 2022f or later.
+    string tzError = "";
+    string tzVersion = SystemTimeZone::DataVersion();
+    auto mexicoCity = SystemTimeZone::Named("America/Mexico_City");
+    Date july;
+    july = string("20260701T120000");
+    int offset = 0;
+    if (!mexicoCity || !mexicoCity->OffsetForWallClock(july.WallClockSeconds(), offset)) {
+        tzError = "America/Mexico_City is not in the time zone data";
+    } else if (offset != -6 * 3600) {
+        tzError = "time zone data " + tzVersion + " predates Mexico's 2022 change (offset " + to_string(offset) + ")";
+    }
+    if (tzError != "") {
+        resp["tz_check"] = {{"error", tzError}, {"version", tzVersion}};
+    } else {
+        resp["tz_check"] = {{"success", true}, {"version", tzVersion}};
+    }
+
     // Determine overall success
-    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "" && legacyTLSError == "");
+    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "" && legacyTLSError == "" && tzError == "");
     if (!success) {
         resp["error"] = "One or more checks failed";
     }
@@ -1056,8 +1078,27 @@ void runListenOnMainThread(shared_ptr<Account> account) {
     }
 }
 
+/*
+ Points ICU at the zone files shipped in icu-tzdata/ beside the binary, so every platform reads
+ the same, current tzdata. Without them the static ICU 70 linked on Linux reads 2021a3, where
+ Mexico City still observes DST, unless the distro's tzdata ships /usr/share/zoneinfo-icu as
+ Ubuntu's does; vcpkg's ICU reads its release's and macOS's libicucore the OS's.
+ ICU_TIMEZONE_FILES_DIR, when set, is left to choose.
+*/
+static void useShippedZoneFiles(const string & executablePath) {
+    if (getenv("ICU_TIMEZONE_FILES_DIR")) {
+        return;
+    }
+    size_t separator = executablePath.find_last_of("/\\");
+    string directory = (separator == string::npos ? "." : executablePath.substr(0, separator)) + "/icu-tzdata";
+    if (ifstream(directory + "/zoneinfo64.res").good()) {
+        SystemTimeZone::UseZoneFilesIn(directory);
+    }
+}
+
 int main(int argc, const char * argv[]) {
     SetThreadName("main");
+    useShippedZoneFiles(argv[0]);
 #ifndef _WIN32
     // A write to a connection the server has closed raises SIGPIPE on Linux, which kills the
     // process: a LOGOUT sent after a rejected login once the server dropped the connection
@@ -1249,6 +1290,7 @@ string exectuablePath = argv[0];
 
     if (mode == "sync") {
         spdlog::get("logger")->info("------------- Starting Sync ({}) ---------------", account->emailAddress());
+        spdlog::get("logger")->info("- Time zone data {}", SystemTimeZone::DataVersion());
 
         fgThread = nullptr; // started after background iteration
         bgThread = new std::thread([&]() {
