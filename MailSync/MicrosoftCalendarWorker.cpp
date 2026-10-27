@@ -22,7 +22,7 @@
 #include <mutex>
 #include <set>
 
-static const string CALENDAR_FIELDS = "id,name,hexColor,canEdit,owner";
+static const string CALENDAR_FIELDS = "id,name,hexColor,owner,isDefaultCalendar";
 static const string EVENT_INDEX_FIELDS = "id,changeKey,type,start,end,recurrence,originalStartTimeZone";
 static const string EVENT_FIELDS = "id,iCalUId,type,subject,body,start,end,isAllDay,isCancelled,showAs,location,"
                                    "organizer,attendees,responseStatus,lastModifiedDateTime,recurrence,originalStart";
@@ -70,20 +70,30 @@ void MicrosoftCalendarWorker::run() {
 
     PaginateGraphCollection(MicrosoftGraphURL() + "/me/calendars?$select=" + CALENDAR_FIELDS, tokenProvider(), [&](json & page) {
         for (const auto & remote : page["value"]) {
-            string path = JSONString(remote, "id");
-            string id = MailUtils::idForCalendar(account->id(), path);
             // $skip paging repeats a calendar that shifted between page fetches.
-            if (!listedIds.insert(id).second) {
-                continue;
+            if (listedIds.insert(MailUtils::idForCalendar(account->id(), JSONString(remote, "id"))).second) {
+                listed.push_back(remote);
             }
-            auto it = local.find(id);
-            upsertCalendar(it != local.end() ? it->second : nullptr, id, path, remote);
-            listed.push_back(remote);
         }
     });
     if (listedIds.empty()) {
         // Graph always lists the default calendar; pruning on an empty listing would delete every one.
         throw SyncException("invalid-graph-resp", "/me/calendars listed no calendars", true);
+    }
+
+    // The default calendar's owner is the mailbox itself, at its primary address, which the
+    // sign-in address need not be (an alias). The sign-in address stands in if none is marked.
+    mailboxAddress = account->emailAddress();
+    for (const auto & remote : listed) {
+        if (JSONBool(remote, "isDefaultCalendar") && JSONString(JSONObject(remote, "owner"), "address") != "") {
+            mailboxAddress = JSONString(JSONObject(remote, "owner"), "address");
+        }
+    }
+    for (const auto & remote : listed) {
+        string path = JSONString(remote, "id");
+        string id = MailUtils::idForCalendar(account->id(), path);
+        auto it = local.find(id);
+        upsertCalendar(it != local.end() ? it->second : nullptr, id, path, remote);
     }
 
     for (auto & pair : local) {
@@ -156,7 +166,7 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
         for (auto & [entry, event] : events) {
             auto it = localByHref.find(JSONString(entry, "id"));
             string startUTC = JSONString(JSONObject(entry, "start"), "dateTime");
-            string ics = GraphICS::icsForEvent(event, account->emailAddress(), startUTC);
+            string ics = GraphICS::icsForEvent(event, {account->emailAddress(), mailboxAddress}, startUTC);
             ingestEvent(calendarId, entry, ics, it != localByHref.end() ? it->second : vector<shared_ptr<Event>>{});
             fetched++;
         }
@@ -256,7 +266,7 @@ void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const s
     string name = JSONString(remote, "name");
     string color = JSONString(remote, "hexColor");
     string owner = JSONString(JSONObject(remote, "owner"), "address");
-    string ownership = owner == "" ? "" : equalsIgnoreCase(owner, account->emailAddress()) ? "mine" : "other";
+    string ownership = owner == "" ? "" : equalsIgnoreCase(owner, mailboxAddress) ? "mine" : "other";
     // Read-only until event edits go through Graph: TaskProcessor writes events with DAVWorker.
     bool readOnly = true;
 

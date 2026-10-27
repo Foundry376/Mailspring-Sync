@@ -4,8 +4,10 @@ description: >
   own calendar-scoped token. That works for an account signed in before Graph sending, which
   granted the calendar scopes but not the mail ones. Every calendar /me/calendars lists,
   across pages, becomes a read-only Calendar row (until event edits go through Graph) with
-  its colour and whether the account owns it. A calendar renamed on the server is renamed
-  here; one the server stops listing is removed.
+  its colour and whether the account owns it: a calendar is the account's when its owner is the
+  default calendar's, which is the mailbox's primary address even where the account signs in with
+  an alias (as here), and wherever the default calendar falls in the listing. A calendar renamed
+  on the server is renamed here; one the server stops listing is removed.
 source: "https://learn.microsoft.com/en-us/graph/api/user-list-calendars (calendar: id, name, hexColor, canEdit, owner)"
 servers:
   - fake: outlook
@@ -14,22 +16,25 @@ servers:
     graph_consented: false
     graph_calendars_page_size: 1
     graph_calendars:
-      - {id: "AAMkADefault=", name: Calendar, hexColor: "#FF8C00", canEdit: true,
-         owner: {name: Harness Test, address: Test@Example.test}}
-      - {id: "AAMkADTeam=", name: Team, hexColor: "", canEdit: false,
+      - {id: "AAMkADBirthdays=", name: Birthdays, hexColor: "", isDefaultCalendar: false,
+         owner: {name: Harness Test, address: harness.primary@example.test}}
+      - {id: "AAMkADTeam=", name: Team, hexColor: "", isDefaultCalendar: false,
          owner: {name: Bob Builder, address: bob@example.net}}
+      - {id: "AAMkADefault=", name: Calendar, hexColor: "#FF8C00", isDefaultCalendar: true,
+         owner: {name: Harness Test, address: Harness.Primary@example.test}}
 mailboxes:
   INBOX: {messages: 1}
 steps:
-  - wait: {log: "Microsoft calendar sync complete: 2 calendars", timeout: 90}
+  - wait: {log: "Microsoft calendar sync complete: 3 calendars", timeout: 90}
   - assert:
       calendars:
         Calendar: {path: "AAMkADefault=", color: "#ff8c00", read_only: true, owner: mine}
+        Birthdays: {path: "AAMkADBirthdays=", read_only: true, owner: mine}
         Team: {path: "AAMkADTeam=", read_only: true, owner: other}
   - server.graph_calendars:
       calendars:
-        - {id: "AAMkADefault=", name: Work, hexColor: "#FF8C00", canEdit: true,
-           owner: {name: Harness Test, address: test@example.test}}
+        - {id: "AAMkADefault=", name: Work, hexColor: "#FF8C00", isDefaultCalendar: true,
+           owner: {name: Harness Test, address: harness.primary@example.test}}
   - client.sync_calendar: {}
   - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 60}
 expect:

@@ -46,7 +46,7 @@ static json event(json fields) {
     return e;
 }
 
-static const string ME = "me@example.test";
+static const vector<string> ME = {"me@example.test"};
 // 09:00 on 2026-10-22 in Pacific daylight time, as Graph lists the event in UTC.
 static const string START_UTC = "2026-10-22T16:00:00.0000000";
 
@@ -165,6 +165,19 @@ int main() {
             expect(cal.Events.front()->Attendees.size() == 6, "parsed attendees",
                    to_string(cal.Events.front()->Attendees.size()));
         }
+    }
+    {
+        // Signed in with an alias, the user is invited at the primary address: either one is the
+        // mailbox's own entry.
+        string ics = GraphICS::icsForEvent(event({
+            {"responseStatus", {{"response", "tentativelyAccepted"}}},
+            {"attendees", json::array({
+                {{"type", "required"}, {"status", {{"response", "none"}}},
+                 {"emailAddress", {{"name", "Me"}, {"address", "me@primary.example.test"}}}},
+            })},
+        }), {"me@alias.example.test", "me@primary.example.test"}, START_UTC);
+        expectLine(ics, "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Me:mailto:me@primary.example.test",
+                   "own answer at the primary address");
     }
     {
         string ics = GraphICS::icsForEvent(event({{"isCancelled", true}, {"showAs", "free"}}), ME, START_UTC);

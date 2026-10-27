@@ -225,7 +225,7 @@ static string participant(const string & property, const string & params, const 
     return property + params + cn + ":mailto:" + JSONString(emailAddress, "address");
 }
 
-static void appendVEvent(string & ics, const json & event, const string & uid, const string & mailboxAddress,
+static void appendVEvent(string & ics, const json & event, const string & uid, const vector<string> & mailboxAddresses,
                          const vector<string> & recurrenceLines) {
     bool allDay = JSONBool(event, "isAllDay");
     appendLine(ics, "BEGIN:VEVENT");
@@ -263,7 +263,8 @@ static void appendVEvent(string & ics, const json & event, const string & uid, c
         if (address == "") {
             continue;
         }
-        bool mine = myResponse != "" && equalsIgnoreCase(address, mailboxAddress);
+        bool mine = myResponse != "" && any_of(mailboxAddresses.begin(), mailboxAddresses.end(),
+                                               [&](const string & own) { return equalsIgnoreCase(address, own); });
         string response = mine ? myResponse : JSONString(JSONObject(attendee, "status"), "response");
         string type = JSONString(attendee, "type");
         string role = type == "resource" ? ";CUTYPE=RESOURCE;ROLE=NON-PARTICIPANT"
@@ -274,7 +275,7 @@ static void appendVEvent(string & ics, const json & event, const string & uid, c
     appendLine(ics, "END:VEVENT");
 }
 
-string GraphICS::icsForEvent(const json & event, const string & mailboxAddress, const string & startUTC) {
+string GraphICS::icsForEvent(const json & event, const vector<string> & mailboxAddresses, const string & startUTC) {
     // Occurrences carry their own iCalUId; the series shares the master's.
     string uid = JSONString(event, "iCalUId");
     bool allDay = JSONBool(event, "isAllDay");
@@ -299,9 +300,9 @@ string GraphICS::icsForEvent(const json & event, const string & mailboxAddress, 
     appendLine(ics, "BEGIN:VCALENDAR");
     appendLine(ics, "VERSION:2.0");
     appendLine(ics, "PRODID:-//Mailspring//Microsoft Graph//EN");
-    appendVEvent(ics, event, uid, mailboxAddress, seriesLines);
+    appendVEvent(ics, event, uid, mailboxAddresses, seriesLines);
     for (const auto & exception : JSONArray(event, "exceptionOccurrences")) {
-        appendVEvent(ics, exception, uid, mailboxAddress, {recurrenceIdLine(exception, allDay, utcOffset)});
+        appendVEvent(ics, exception, uid, mailboxAddresses, {recurrenceIdLine(exception, allDay, utcOffset)});
     }
     appendLine(ics, "END:VCALENDAR");
     return ics;

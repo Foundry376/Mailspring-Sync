@@ -32,6 +32,7 @@ class MicrosoftCalendarWorker {
     unique_ptr<MailStore> store;
     shared_ptr<spdlog::logger> logger;
     shared_ptr<Account> account;
+    string mailboxAddress; // the default calendar's owner, set by each pass
 
     std::function<string()> tokenProvider();
 

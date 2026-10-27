@@ -13,6 +13,7 @@
 
 #include <ctime>
 #include <string>
+#include <vector>
 #include "json.hpp"
 
 using namespace nlohmann;
@@ -22,9 +23,10 @@ using namespace std;
 class GraphICS {
 public:
     // `event` fetched in its own zone (Prefer: outlook.timezone) with a text body; a series master
-    // also with $select=cancelledOccurrences and $expand=exceptionOccurrences. `startUTC`: the
-    // event's start as Graph lists it in UTC, which gives a series its UTC offset.
-    static string icsForEvent(const json & event, const string & mailboxAddress, const string & startUTC);
+    // also with $select=cancelledOccurrences and $expand=exceptionOccurrences. `mailboxAddresses`:
+    // the user's own, whose attendee entry gets the mailbox's answer. `startUTC`: the event's start
+    // as Graph lists it in UTC, which gives a series its UTC offset.
+    static string icsForEvent(const json & event, const vector<string> & mailboxAddresses, const string & startUTC);
 
     // A Graph date-time or date ("2026-10-22T09:00:00.0000000", "2026-12-31") read as UTC.
     static time_t secondsAsUTC(const string & extended);
