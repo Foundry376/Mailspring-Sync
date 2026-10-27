@@ -148,6 +148,11 @@ namespace mailcore {
 
         virtual Data * fetchMessageByUID(String * folder, uint32_t uid,
                                          IMAPProgressCallback * progressCallback, ErrorCode * pError);
+        // One UID FETCH (BODY.PEEK[]) for the whole set. The result maps each UID the server
+        // answered for (Value, unsigned int) to the message's raw RFC 822 bytes (Data); a UID
+        // the server left out, typically one expunged since the caller's last scan, has no entry.
+        virtual HashMap * /* Value(uid) -> Data */ fetchMessagesRawByUID(String * folder, IndexSet * uids,
+                                                                        IMAPProgressCallback * progressCallback, ErrorCode * pError);
         virtual Data * fetchMessageByNumber(String * folder, uint32_t number,
                                             IMAPProgressCallback * progressCallback, ErrorCode * pError);
         virtual Data * fetchMessageAttachmentByUID(String * folder, uint32_t uid, String * partID,

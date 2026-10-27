@@ -1,0 +1,29 @@
+name: search-remote-fetch-oversize
+description: >
+  A candidate over the size limit is skipped, found from one RFC822.SIZE fetch before any
+  body is transferred, and counted in `skipped`; the others are fetched. The limit is held
+  to 2,000 bytes here, and one message is padded past it.
+source: "MailSync/SearchWorker.cpp (fetchCandidates)"
+servers:
+  - {fake: dovecot}
+env:
+  SEARCH_FETCH_MAX_MESSAGE_BYTES: "2000"
+mailboxes:
+  INBOX: {messages: {count: 2, age_days: 120}}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: Message padded, age_days: 120, body_lines: 200}}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [subject, Message], fetchLimit: 100}
+    as: fetch
+  - wait: {log: 'Search search-\S+: fetched 2 message\(s\) .* 2 of 3 stored', timeout: 30}
+expect:
+  search:
+    fetch: {candidates: 3, fetched: 2, skipped: 1, phase: done}
+  log_count:
+    'sent \d+ UID FETCH [0-9:,]+ \(UID RFC822\.SIZE\)': 1
+    'sent \d+ UID FETCH [0-9:,]+ BODY\.PEEK\[\]': 1
+    'over the 2000 byte limit, skipped': 1
+  local_search:
+    '"body of message 2"': [Message 2]
+  running: true

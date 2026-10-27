@@ -1,0 +1,32 @@
+name: search-remote-fetch-batches
+description: >
+  A search carrying `fetchLimit` downloads the bodies of its matched messages that the sync
+  never fetched (mail older than the body-prefetch window), several messages per UID FETCH,
+  and stores them through the same path as a body the user opened: the words are then in
+  the thread's search index. The batch size is held to two messages here, so five
+  candidates take three FETCH commands.
+source: "MailSync/SearchWorker.cpp (fetchCandidates); Mailspring-Sync#164 follow-up plan"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+  - {dovecot: qresync}
+env:
+  SEARCH_FETCH_BATCH_MESSAGES: "2"
+mailboxes:
+  INBOX: {messages: {count: 5, age_days: 120}}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [subject, Message], fetchLimit: 100}
+    as: fetch
+  - wait: {log: 'Search search-\S+: fetched 1 message\(s\) .* 5 of 5 stored', timeout: 30}
+expect:
+  search:
+    fetch: {candidates: 5, fetched: 5, skipped: 0, phase: done, folder_errors: 0, fetch_events: {min: 1}}
+  log_count:
+    'sent \d+ UID FETCH [0-9:,]+ BODY\.PEEK\[\]': 3
+    'Search search-\S+: 5 candidate\(s\), 0 stored, 5 to fetch': 1
+  local_search:
+    '"body of message 1"': [Message 1]
+    '"body of message 5"': [Message 5]
+  unfetched_bodies: {max: 0}
+  running: true

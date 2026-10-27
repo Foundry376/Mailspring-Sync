@@ -1,0 +1,32 @@
+name: search-remote-fetch-stored
+description: >
+  Candidates whose body is already stored (recent mail the sync prefetched) are counted as
+  fetched without a FETCH; a message in two folders is one candidate; a request without
+  `fetchLimit` downloads nothing at all, and one with a `fetchLimit` that is not a
+  non-negative integer is refused.
+source: "MailSync/SearchWorker.cpp (candidatesToFetch)"
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 3}
+setup:
+  - server.copy: {mailbox: INBOX, uids: [1], to: Archive}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [subject, Message], fetchLimit: 100}
+    as: stored
+  - client.search: {criteria: [subject, Message]}
+    as: no_limit
+  - client.search: {criteria: [subject, Message], fetchLimit: ten}
+    as: bad_limit
+expect:
+  search:
+    stored: {candidates: 3, fetched: 3, skipped: 0, phase: done}
+    no_limit: {candidates: 0, fetched: 0, skipped: 0, phase: done}
+    bad_limit: {error: "search fetchLimit must be a non-negative integer"}
+  log_present:
+    - 'Search search-\S+: 3 candidate\(s\), 3 stored, 0 to fetch'
+  log_count:
+    'candidate\(s\)': 1
+  running: true

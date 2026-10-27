@@ -22,6 +22,7 @@
 
 #include "Account.hpp"
 #include "Folder.hpp"
+#include "MailProcessor.hpp"
 #include "MailStore.hpp"
 #include "json.hpp"
 #include "spdlog/spdlog.h"
@@ -33,10 +34,22 @@ using namespace mailcore;
 struct SearchMatch {
     string threadId;
     double date;
+    string messageId;
+    string folderId;
+    uint32_t uid;
 };
 
 struct SearchResults {
     vector<SearchMatch> matches;
+};
+
+// How far a search has got with downloading its candidates' bodies. `candidates` is the
+// number of matched messages kept after the cap, `fetched` those whose body is stored,
+// already or now, `skipped` those over the size limit or that the server would not give.
+struct FetchProgress {
+    size_t candidates = 0;
+    size_t fetched = 0;
+    size_t skipped = 0;
 };
 
 // Runs "search-remote" requests against the IMAP server on a connection of its own, so a
@@ -45,6 +58,7 @@ struct SearchResults {
 class SearchWorker {
     shared_ptr<Account> account;
     MailStore * store;
+    MailProcessor * processor;
     IMAPSession session;
     shared_ptr<spdlog::logger> logger;
 
@@ -81,7 +95,13 @@ private:
     void disconnect();
     vector<shared_ptr<Folder>> foldersToSearch(const json & request, bool gmail);
     void collectLocalMessages(string folderId, IndexSet * uids, SearchResults & results);
-    json resultJSON(string searchId, SearchResults & results, size_t limit, const json & errors, bool done);
+    vector<SearchMatch> candidatesToFetch(SearchResults & results, size_t fetchLimit, FetchProgress & progress);
+    void fetchCandidates(string searchId, uint64_t gen, vector<SearchMatch> candidates, SearchResults & results,
+                         size_t limit, json & errors, FetchProgress & progress);
+    bool storeFetchedBody(const SearchMatch & match, Data * data);
+    bool fetchFromAnotherCopy(const SearchMatch & match);
+    json resultJSON(string searchId, SearchResults & results, size_t limit, const json & errors,
+                    string phase, const FetchProgress & progress, bool done);
     void emitFailure(string searchId, uint64_t gen, string error);
     void emit(const json & result);
 };

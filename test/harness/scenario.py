@@ -622,7 +622,7 @@ class ScenarioRun:
         the final ProcessSearchResult unless `wait: false`; returns the search id for `expect: search`."""
         search_id = f"search-{int(time.time() * 1000)}-{len(self.labels)}"
         packet = {"type": "search-remote", "searchId": search_id}
-        for key in ("criteria", "gmailRaw", "limit"):
+        for key in ("criteria", "gmailRaw", "limit", "fetchLimit"):
             if key in arg:
                 packet[key] = arg[key]
         for key in ("criteria", "gmailRaw"):
@@ -1207,6 +1207,21 @@ class ScenarioRun:
                     out.append(f"search {label}: matched {sorted(names.get(t, t) for t in got_threads)}, expected {sorted(wanted)}")
             if "folder_errors" in want and len(got.get("errors", [])) != want["folder_errors"]:
                 out.append(f"search {label}: folder errors {got.get('errors')}, expected {want['folder_errors']}")
+            # The candidate fetch's final counts: matched messages kept after the cap, those
+            # whose body is stored, and those skipped (over the size limit, or gone).
+            for key in ("candidates", "fetched", "skipped", "phase"):
+                if key in want and got.get(key) != want[key]:
+                    out.append(f"search {label}: {key} {got.get(key)!r}, expected {want[key]!r}")
+            # Progress results in the fetching phase: one when the search phase ends, then one
+            # per batch. Results of one search share an id, so those queued before the stream
+            # flushes merge into the latest (DeltaStreamItem::upsertModelJSON): a minimum.
+            if "fetch_events" in want:
+                events = [m for d in self.ms.deltas("ProcessSearchResult") for m in d.models
+                          if m.get("id") == self.labels[label] and m.get("phase") == "fetching" and not m.get("done")]
+                if len(events) < want["fetch_events"]["min"]:
+                    out.append(f"search {label}: {len(events)} fetching results, expected at least {want['fetch_events']['min']}")
+                if any(e.get("fetched", 0) > got.get("fetched", 0) for e in events):
+                    out.append(f"search {label}: a progress result counted more fetched than the final one")
         return out
 
     def expect_no_search_without_id(self, arg) -> list:

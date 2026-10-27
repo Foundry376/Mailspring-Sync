@@ -1,0 +1,26 @@
+name: search-remote-fetch-with-need-bodies
+description: >
+  The client asks for the same bodies twice at once: through `need-bodies`, which the
+  foreground worker fetches one at a time, and through a search's candidate fetch, which
+  batches them on the search connection. Both store through retrievedMessageBody, so each
+  message's text must end up in its thread's ThreadSearch row once (the thread_search
+  invariant), and the search still reports every candidate stored.
+source: "MailSync/SearchWorker.cpp (fetchCandidates); MailProcessor::appendToThreadSearchContent (#169)"
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 4, age_days: 120}}
+steps:
+  - wait: quiescent
+  - client.need_bodies: {messages: {mailbox: INBOX, uids: [1, 2, 3, 4]}}
+  - client.search: {criteria: [subject, Message], fetchLimit: 100}
+    as: fetch
+  - wait: {quiescent: true}
+expect:
+  search:
+    fetch: {candidates: 4, fetched: 4, skipped: 0, phase: done}
+  local_search:
+    '"body of message 1"': [Message 1]
+    '"body of message 4"': [Message 4]
+  unfetched_bodies: {max: 0}
+  running: true
