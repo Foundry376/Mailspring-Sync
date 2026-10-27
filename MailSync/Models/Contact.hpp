@@ -28,6 +28,14 @@ using namespace std;
 using namespace mailcore;
 
 static string CONTACT_SOURCE_MAIL = "mail";
+
+// `refs` ranks contacts for composer autocomplete; the client orders by it. A found-in-mail
+// contact scores CONTACT_SENT_REF_WEIGHT per message the user sent to them and 1 per message
+// the user received with them in its headers, the received part kept below the weight, so
+// anyone the user has written to ranks above anyone who has only written to them (or been
+// copied beside them), and received mail orders the rest. Address-book contacts are created
+// at CONTACT_MAX_REFS and stay above all of them.
+static int CONTACT_SENT_REF_WEIGHT = 10;
 static int CONTACT_MAX_REFS = 100000;
 
 class Message;
@@ -65,7 +73,9 @@ public:
     void setGroupIds(unordered_set<string> set);
     
     int refs();
-    void incrementRefs();
+    // Scores one message for this contact (see CONTACT_SENT_REF_WEIGHT); false when the
+    // score is already as high as that kind of message can take it.
+    bool countMessage(bool sentByUser);
 
     void mutateCardInInfo(function<void(shared_ptr<VCard>)> yieldBlock);
 

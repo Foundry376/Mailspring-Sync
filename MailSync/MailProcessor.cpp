@@ -252,7 +252,7 @@ shared_ptr<Message> MailProcessor::insertMessage(IMAPMessage * mMsg, Folder & fo
         transaction.commit();
     }
 
-    upsertContacts(msg.get());
+    upsertContacts(store, msg.get());
 
     return msg;
 }
@@ -841,13 +841,29 @@ void MailProcessor::upsertThreadReferences(string threadId, string accountId, st
     }
 }
 
-void MailProcessor::upsertContacts(Message * message) {
-    // As of Mailspring 1.7, we no longer keep around Contacts that you've never
-    // sent email to. We actually never really did anything with these.
-    if (!message->isSentByUser(store)) {
+/*
+ Counts a message for the found-in-mail contacts in its From, To and Cc, creating the ones
+ not yet in the database. Contacts are whoever the user corresponds with, not only whoever
+ they write to: the composer must complete the address of someone who has only ever written
+ to the user, or been copied beside them, and Contact::countMessage ranks the two kinds.
+ Drafts, mail that is only in spam or trash, and mass mail (more than 25 addresses) count for
+ nothing.
+ */
+void MailProcessor::upsertContacts(MailStore * store, Message * message) {
+    // A transaction of its own that emits no deltas: the client does not need to be told
+    // about contact changes.
+    MailStoreTransaction transaction{store, "insertMessage:contacts"};
+    countContactsInOpenTransaction(store, message);
+    store->unsafeEraseTransactionDeltas();
+    transaction.commit();
+}
+
+void MailProcessor::countContactsInOpenTransaction(MailStore * store, Message * message) {
+    if (message->isDraft() || !message->inAllMail(store)) {
         return;
     }
-    
+    bool sentByUser = message->isSentByUser(store);
+
     map<string, json> byEmail{};
     for (auto & c : message->to()) {
         if (c.count("email")) {
@@ -887,54 +903,39 @@ void MailProcessor::upsertContacts(Message * message) {
         // I think it's safe to say mass emails shouldn't create contacts.
         return;
     }
-    
-    {
-        // Index contacts for autocomplete. We do this separately in a transaction that does not
-        // emit any deltas, since the client doesn't need to be bothered with contacts changes.
-        MailStoreTransaction transaction{store, "insertMessage:contacts"};
 
-        Query query = Query().equal("email", emails).equal("source", CONTACT_SOURCE_MAIL);
-        auto results = store->findAll<Contact>(query);
-        
-        // update refcounts of existing items if this is a sent message
-        for (auto & result : results) {
-            bool changed = false;
-            if (result->refs() < CONTACT_MAX_REFS) {
-                result->incrementRefs();
+    Query query = Query().equal("email", emails).equal("source", CONTACT_SOURCE_MAIL);
+    auto results = store->findAll<Contact>(query);
+
+    for (auto & result : results) {
+        bool changed = result->countMessage(sentByUser);
+        // A later message can supply the name an earlier header lacked.
+        auto header = byEmail.find(result->email());
+        if (result->name() == "" && header != byEmail.end() && !isWelcomeEmailSender(header->second)) {
+            string name = header->second.count("name") ? header->second["name"].get<string>() : "";
+            name = MailUtils::contactNameFromHeader(name, result->email());
+            if (name != "") {
+                result->setName(name);
                 changed = true;
             }
-            // A later message can supply the name an earlier header lacked.
-            auto header = byEmail.find(result->email());
-            if (result->name() == "" && header != byEmail.end() && !isWelcomeEmailSender(header->second)) {
-                string name = header->second.count("name") ? header->second["name"].get<string>() : "";
-                name = MailUtils::contactNameFromHeader(name, result->email());
-                if (name != "") {
-                    result->setName(name);
-                    changed = true;
-                }
-            }
-            if (changed) {
-                store->save(result.get());
-            }
-            byEmail.erase(result->email());
         }
-        
-        // insert remaining items (contacts not yet in the database)
-        for (auto & result : byEmail) {
-            if (isWelcomeEmailSender(result.second)) {
-                continue;
-            }
-            string name = result.second.count("name") ? result.second["name"].get<string>() : "";
-            string email = result.second.count("email") ? result.second["email"].get<string>() : "";
+        if (changed) {
+            store->save(result.get());
+        }
+        byEmail.erase(result->email());
+    }
+    
+    // insert remaining items (contacts not yet in the database)
+    for (auto & result : byEmail) {
+        if (isWelcomeEmailSender(result.second)) {
+            continue;
+        }
+        string name = result.second.count("name") ? result.second["name"].get<string>() : "";
+        string email = result.second.count("email") ? result.second["email"].get<string>() : "";
 
-            auto c = make_shared<Contact>(result.first, message->accountId(), result.first, 0, CONTACT_SOURCE_MAIL);
-            c->setName(MailUtils::contactNameFromHeader(name, email));
-            c->incrementRefs();
-            store->save(c.get());
-        }
-        
-        store->unsafeEraseTransactionDeltas();
-        transaction.commit();
+        auto c = make_shared<Contact>(result.first, message->accountId(), result.first, 0, CONTACT_SOURCE_MAIL);
+        c->setName(MailUtils::contactNameFromHeader(name, email));
+        c->countMessage(sentByUser);
+        store->save(c.get());
     }
 }
-

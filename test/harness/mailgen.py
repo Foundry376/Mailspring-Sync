@@ -30,6 +30,7 @@ def message(
     *,
     domain: str = "example.test",
     to: str = "Harness Test <test@example.test>",
+    cc: Optional[str] = None,
     sender: Optional[tuple] = None,
     subject: Optional[str] = None,
     date: Optional[datetime] = None,
@@ -62,6 +63,7 @@ def message(
         ("Date", email.utils.format_datetime(date)),
         ("From", f"{name} <{addr}>"),
         ("To", to),
+        *([("Cc", cc)] if cc else []),
         ("Subject", subject),
         ("MIME-Version", "1.0"),
     ]

@@ -1,0 +1,51 @@
+name: migration-v15-recounts-contacts
+description: >
+  A database written before V15 holds found-in-mail contacts for sent mail only, scored one
+  per message. V15 recounts every contact from every message under the new scoring
+  (contacts-from-received-mail): the people who only wrote to the user appear, Carol's one
+  sent message becomes 10 plus the three received with her, and it announces how many
+  contacts it counted. A name the row already had and the hidden flag survive the recount.
+source: "MailStore::_migrateToV15"
+servers:
+  - {fake: dovecot}
+binary: ab/mailsync-5b8f6bd
+mailboxes:
+  INBOX: {messages: 0}
+  Sent: {messages: 0}
+setup:
+  - server.append:
+      mailbox: INBOX
+      messages:
+        count: 3
+        sender: [Alice Example, alice@example.net]
+        to: "Harness Test <test@example.test>"
+        cc: "Carol Copied <carol@example.net>"
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: "Carol Copied <carol@example.net>"
+steps:
+  - wait: quiescent
+  - assert:
+      contacts:
+        mail:
+          alice@example.net: null
+          carol@example.net: {name: Carol Copied, refs: 1}
+          test@example.test: {name: Harness Test, refs: 1}
+  - restart:
+      timeout: 120
+      before:
+        - db.sql:
+            - "UPDATE Contact SET hidden = 1, data = json_set(data, '$.h', json('true'), '$.name', 'Carol Renamed') WHERE email = 'carol@example.net'"
+            - "UPDATE ContactSearch SET content = 'carol example.net Carol Renamed' WHERE content_id = 'carol@example.net'"
+expect:
+  migrate_output: "Migration V15: 3 contacts counted from 4 messages"
+  contacts:
+    mail:
+      alice@example.net: {name: Alice Example, refs: 3}
+      carol@example.net: {name: Carol Renamed, refs: 13, hidden: true}
+      test@example.test: {name: Harness Test, refs: 13}
+  db_matches_server: {}
+  running: true

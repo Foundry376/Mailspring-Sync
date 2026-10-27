@@ -1,0 +1,69 @@
+name: contacts-from-received-mail
+description: >
+  Found-in-mail contacts come from received mail as well as sent mail: the sender of a
+  message to the user, and everyone in its To and Cc, so the composer can complete the
+  address of someone who has only ever written to the user or been copied beside them.
+  `refs` scores a contact 10 per message the user sent to them and 1 per message received
+  with them, the received part capped at 9, so Carol (written to once, copied on three)
+  scores 13 and outranks Alice (wrote four times, never written to) at 4, and Frequent
+  (wrote 100 times) stops at 9. Mail in Junk or Trash, a draft's recipient, and the 26
+  recipients of a mass mail create no contacts.
+source: "Composer autocomplete never offered people the user had only been copied with (MailProcessor::upsertContacts, Contact::countMessage)"
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+mailboxes:
+  INBOX: {messages: 0}
+  Sent: {messages: 0}
+  Junk: {messages: {count: 1, sender: [Spam Sender, spammer@example.net]}}
+  Trash: {messages: {count: 1, sender: [Trashed Sender, trashed@example.net]}}
+  Drafts: {messages: {count: 1, sender: [Harness Test, test@example.test], to: "Draft Person <draftee@example.net>"}, flags: ["\\Draft", "\\Seen"]}
+setup:
+  - server.append:
+      mailbox: INBOX
+      messages:
+        count: 3
+        sender: [Alice Example, alice@example.net]
+        to: "Harness Test <test@example.test>"
+        cc: "Carol Copied <carol@example.net>"
+  - server.append:
+      mailbox: INBOX
+      messages:
+        count: 1
+        sender: [Alice Example, alice@example.net]
+        to: "Harness Test <test@example.test>, Bob Builder <bob@example.net>"
+  - server.append:
+      mailbox: INBOX
+      messages:
+        count: 1
+        sender: [Mass Mailer, mass@example.net]
+        to: "m1@mass.example, m2@mass.example, m3@mass.example, m4@mass.example, m5@mass.example, m6@mass.example, m7@mass.example, m8@mass.example, m9@mass.example, m10@mass.example, m11@mass.example, m12@mass.example, m13@mass.example, m14@mass.example, m15@mass.example, m16@mass.example, m17@mass.example, m18@mass.example, m19@mass.example, m20@mass.example, m21@mass.example, m22@mass.example, m23@mass.example, m24@mass.example, m25@mass.example, test@example.test"
+  - server.append:
+      mailbox: INBOX
+      messages:
+        count: 100
+        sender: [Frequent Writer, frequent@example.net]
+        to: "Harness Test <test@example.test>"
+  - server.append:
+      mailbox: Sent
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: "Carol Copied <carol@example.net>"
+steps:
+  - wait: quiescent
+expect:
+  contacts:
+    mail:
+      alice@example.net: {name: Alice Example, refs: 4}
+      carol@example.net: {name: Carol Copied, refs: 13}
+      bob@example.net: {name: Bob Builder, refs: 1}
+      frequent@example.net: {name: Frequent Writer, refs: 9}
+      test@example.test: {name: Harness Test, refs: 19}
+      spammer@example.net: null
+      trashed@example.net: null
+      draftee@example.net: null
+      mass@example.net: null
+      m1@mass.example: null
+  db_matches_server: {}
+  running: true

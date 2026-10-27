@@ -72,11 +72,14 @@ public:
                          std::chrono::milliseconds pause = std::chrono::milliseconds(0));
     int refreshMessagesInOpenTransaction(const vector<string> & messageIds, UnplacedMessages unplaced, bool logSubjects = true);
 
+    // Found-in-mail contacts. See upsertContacts.
+    static void upsertContacts(MailStore * store, Message * message);
+    static void countContactsInOpenTransaction(MailStore * store, Message * message);
+
 private:
     void saveDisplacedMessage(const string & messageId);
     void appendToThreadSearchContent(Thread * thread, Message * messageToAppendOrNull, String * bodyToAppendOrNull);
     void upsertThreadReferences(string threadId, string accountId, string headerMessageId, Array * references);
-    void upsertContacts(Message * message);
     shared_ptr<Label> labelForXGMLabelName(string mlname);
 };
 

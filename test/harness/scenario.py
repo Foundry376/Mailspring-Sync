@@ -1210,8 +1210,9 @@ class ScenarioRun:
     def expect_contacts(self, arg: dict) -> list:
         """Contact rows. `mail: {email: name}` checks found-in-mail contacts by email (`null`:
         there must be none); `carddav: {id: {email, name}}` checks address-book contacts by id.
-        Each contact found must have the ContactSearch row the engine indexes for it (email
-        with `@` as a space, then name), which is what composer autocomplete matches."""
+        A dict value may also check `refs` (the autocomplete score) and `hidden`. Each contact
+        found must have the ContactSearch row the engine indexes for it (email with `@` as a
+        space, then name), which is what composer autocomplete matches."""
         out = []
 
         def check(label, row, want):

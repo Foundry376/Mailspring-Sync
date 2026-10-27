@@ -22,6 +22,7 @@
 #include "Message.hpp"
 #include "Thread.hpp"
 #include "DAVUtils.hpp"
+#include "MailProcessor.hpp"
 
 #include <filesystem>
 #include <algorithm>
@@ -122,7 +123,7 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA journal_size_limit = 67108864").executeStep();
 }
 
-static int CURRENT_VERSION = 15;
+static int CURRENT_VERSION = 16;
 static string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 30 * 24 * 60 * 60; // 30 days
 
@@ -277,6 +278,9 @@ void MailStore::migrate() {
     }
     if (version < 15) {
         recomputeEventTimes();
+    }
+    if (version < 16) {
+        _migrateToV16();
     }
 
     // Update the version flag. Note that we don't want to go from v3 back to v2
@@ -573,6 +577,47 @@ void MailStore::_migrateToV14(bool freshDatabase) {
     }
 
     cout << "\nMigration V14: " << contacts << " contacts and " << events << " events indexed by id";
+    cout.flush();
+}
+
+/*
+ V15 recounts found-in-mail contacts from every message, because they now come from received
+ mail as well as sent mail and `refs` scores the two (Contact::countMessage). Scores are reset
+ first, so a run interrupted part-way starts over at the next launch; names and the hidden
+ flag are kept. Each chunk commits on its own and deltas are dropped, as in V11.
+ */
+void MailStore::_migrateToV16() {
+    vector<string> messageIds;
+    SQLite::Statement find(_db, "SELECT id FROM Message ORDER BY accountId");
+    while (find.executeStep()) {
+        messageIds.push_back(find.getColumn(0).getString());
+    }
+    size_t messages = messageIds.size();
+    if (messages == 0) {
+        return;
+    }
+
+    // The client watches for this line and shows its progress window.
+    cout << "\nRunning Migration";
+    cout.flush();
+
+    SQLite::Statement reset(_db, "UPDATE Contact SET refs = 0, data = json_set(data, '$.refs', 0) WHERE source = ?");
+    reset.bind(1, CONTACT_SOURCE_MAIL);
+    reset.exec();
+
+    for (auto & chunk : MailUtils::chunksOfVector(messageIds, 500)) {
+        MailStoreTransaction transaction{this, "_migrateToV16"};
+        for (auto & message : findAll<Message>(Query().equal("id", chunk))) {
+            MailProcessor::countContactsInOpenTransaction(this, message.get());
+        }
+        unsafeEraseTransactionDeltas();
+        transaction.commit();
+    }
+
+    SQLite::Statement count(_db, "SELECT COUNT(*) FROM Contact WHERE source = ? AND refs > 0");
+    count.bind(1, CONTACT_SOURCE_MAIL);
+    count.executeStep();
+    cout << "\nMigration V16: " << count.getColumn(0).getInt() << " contacts counted from " << messages << " messages";
     cout.flush();
 }
 
