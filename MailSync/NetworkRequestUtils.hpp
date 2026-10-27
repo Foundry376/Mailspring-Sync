@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include "json.hpp"
 #include "JSONUtils.hpp"
+#include <functional>
 #include <vector>
 
 class Account;
@@ -61,11 +62,6 @@ struct GraphResponse {
 // MS_GRAPH_URL replaces https://graph.microsoft.com/v1.0, for the test harness's fake Graph server.
 string MicrosoftGraphURL();
 
-// A throttled Graph request is tried this many times, waiting out its Retry-After.
-const int GRAPH_REQUEST_ATTEMPTS = 3;
-// Seconds to wait before retrying a throttled Graph request: its Retry-After, kept to 1-30.
-long GraphRetryWait(long retryAfter);
-
 // Which refusals PerformGraphRequest retries. A 429 means Graph did not process the request.
 // A 503 usually means the same, but a gateway can answer 503 for a request the mailbox
 // accepted, so a request that must not run twice (sending a message) retries only 429s.
@@ -77,6 +73,19 @@ enum class GraphRetry { ThrottledOrUnavailable, ThrottledOnly };
 // Separate from CreateJSONRequest because bodies may be binary (upload chunks, base64 MIME) and
 // requests carry extra headers.
 GraphResponse PerformGraphRequest(const string & method, const string & url, const string & accessToken, const string & body = "", const string & contentType = "application/json", const vector<string> & headers = {}, GraphRetry retry = GraphRetry::ThrottledOrUnavailable);
+
+// The responses to `requests` ({method, url relative to MicrosoftGraphURL(), headers}), one per
+// request and in their order, sent 20 to a JSON batch. Graph answers each request on its own, so a
+// throttled one is retried alone; a refused batch gives every request its response. The token is
+// asked for per batch request, since retries can outlast it.
+vector<GraphResponse> PerformGraphBatch(const vector<json> & requests, const std::function<string()> & accessToken, GraphRetry retry = GraphRetry::ThrottledOrUnavailable);
+
+// Each page of a Graph collection, following @odata.nextLink. Throws as ThrowForGraphResponse
+// on an error status, and when a page has no value array.
+void PaginateGraphCollection(const string & url, const std::function<string()> & accessToken, const std::function<void(json &)> & yieldPage);
+
+// Keyed like ValidateRequestResp's errors, so runCalContactsSyncWorker stops on a 401 or 403.
+[[noreturn]] void ThrowForGraphResponse(const string & url, const GraphResponse & resp);
 
 // "<code>: <message>" from a Graph error response, for logs and the client's error dialog.
 string GraphErrorDescription(const GraphResponse & resp);

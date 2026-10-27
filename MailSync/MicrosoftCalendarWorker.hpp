@@ -33,10 +33,7 @@ class MicrosoftCalendarWorker {
     shared_ptr<spdlog::logger> logger;
     shared_ptr<Account> account;
 
-    string accessToken();
-    [[noreturn]] void throwForGraphResponse(const string & url, const GraphResponse & resp);
-    json graphGET(const string & url);
-    void paginateGraphCollection(const string & url, std::function<void(json &)> yieldPage);
+    std::function<string()> tokenProvider();
 
     void upsertCalendar(shared_ptr<Calendar> local, const string & id, const string & path, const json & remote);
     void syncEvents(const json & calendar);

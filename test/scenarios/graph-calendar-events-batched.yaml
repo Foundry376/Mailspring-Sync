@@ -23,5 +23,5 @@ steps:
 expect:
   event_count: 21
   graph: {requests: {"/v1.0/\\$batch$": 3, "/me/events/AAMkEvGen05=": 2, "/me/events/AAMkEvGen06=": 1}}
-  log_present: ["Graph throttled 1 event reads"]
+  log_present: ["Graph throttled 1 batched requests"]
   running: true
