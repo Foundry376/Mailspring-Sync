@@ -9,7 +9,8 @@ on:
 env:
   VCPKG_DEFAULT_TRIPLET: x86-windows
   VCPKG_DEFAULT_HOST_TRIPLET: x86-windows
-  # Use overlay port for cyrus-sasl without krb5 (krb5 doesn't support x86-windows)
+  # Overlay ports: cyrus-sasl without krb5 (krb5 doesn't support x86-windows), and lmdb
+  # fetched from GitHub rather than git.openldap.org, which rate-limits CI downloads.
   VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/vcpkg-overlay-ports
 
 jobs:
@@ -35,13 +36,17 @@ jobs:
       - name: Enable vcpkg MSBuild integration
         run: vcpkg integrate install
 
-      # Cache packages installed by MSBuild's vcpkg manifest mode
-      # MSBuild with VcpkgEnableManifest=true installs to vcpkg_installed/ next to vcpkg.json
-      - name: Restore vcpkg packages cache
-        uses: actions/cache@v6
+      # Cache vcpkg's binary packages (one zip per package, named by its ABI hash), not
+      # vcpkg_installed: vcpkg discards a restored vcpkg_installed wholesale once any ABI input
+      # changes, such as the compiler or CMake in a runner image update, and actions/cache
+      # never replaces an existing key. The key is saved again whenever the set of zips changes.
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v6
         with:
-          path: vcpkg_installed
-          key: vcpkg-msbuild-x86-windows-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'vcpkg-overlay-ports/**') }}
+          path: vcpkg-binary-cache
+          key: vcpkg-bin-x86-windows-${{ github.run_id }}
+          restore-keys: vcpkg-bin-x86-windows-
 
       - name: Set commit hash
         shell: pwsh
@@ -59,10 +64,49 @@ jobs:
 
       - name: Build with MSBuild
         shell: cmd
+        env:
+          VCPKG_BINARY_SOURCES: 'clear;files,${{ github.workspace }}\vcpkg-binary-cache,readwrite'
         run: |
+          if not exist vcpkg-binary-cache mkdir vcpkg-binary-cache
           cd Windows
           REM VcpkgEnableManifest=true tells MSBuild to install packages from vcpkg.json to vcpkg_installed/
           msbuild.exe mailsync.sln /property:Configuration=Release;Platform=Win32 /p:VcpkgEnableManifest=true
+
+      # Drop zips for ABIs this build no longer uses, so the cache doesn't grow with every
+      # runner image update. A package's ABI hash is the SHA-256 of its vcpkg_abi_info.txt;
+      # if any installed package's zip isn't found that way, nothing is deleted.
+      - name: Prune vcpkg binary cache
+        shell: pwsh
+        run: |
+          $abis = @(Get-ChildItem vcpkg_installed -Recurse -Filter vcpkg_abi_info.txt |
+            ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash })
+          $zips = @(Get-ChildItem vcpkg-binary-cache -Recurse -Filter *.zip)
+          $used = @($zips | Where-Object { $abis -contains $_.BaseName })
+          if ($abis.Count -eq 0 -or $used.Count -ne $abis.Count) {
+            Write-Host "Not pruning: found $($used.Count) of $($abis.Count) installed packages in the binary cache"
+            exit 0
+          }
+          $stale = @($zips | Where-Object { $abis -notcontains $_.BaseName })
+          $stale | Remove-Item
+          Write-Host "Kept $($used.Count) packages, removed $($stale.Count) superseded"
+
+      - name: Compute vcpkg binary cache key
+        id: vcpkg-cache-key
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $names = @(Get-ChildItem vcpkg-binary-cache -Recurse -Filter *.zip | ForEach-Object Name | Sort-Object)
+          if ($names.Count -eq 0) { exit 0 }
+          $bytes = [Text.Encoding]::UTF8.GetBytes($names -join "`n")
+          $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).Substring(0, 16).ToLower()
+          "key=vcpkg-bin-x86-windows-$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Save vcpkg binary cache
+        if: ${{ !cancelled() && steps.vcpkg-cache-key.outputs.key != '' && steps.vcpkg-cache-key.outputs.key != steps.vcpkg-cache.outputs.cache-matched-key }}
+        uses: actions/cache/save@v6
+        with:
+          path: vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache-key.outputs.key }}
 
       - name: Copy build artifacts and dependencies
         shell: pwsh
