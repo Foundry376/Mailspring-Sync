@@ -10,6 +10,7 @@
 //
 
 #include "MailUtils.hpp"
+#include <algorithm>
 #include "MetadataExpirationWorker.hpp"
 #include "SyncException.hpp"
 #include "sha256.h"
@@ -58,7 +59,9 @@ static vector<string> unworthyPrefixes = {
     "list",
     "distribute",
     "catchall",
-    "catch-all"
+    "catch-all",
+    "mailer-daemon",
+    "postmaster"
 };
 
 bool create_directory(string dir) {
@@ -234,6 +237,33 @@ Address * MailUtils::addressFromContactJSON(json & j) {
         return Address::addressWithDisplayName(AS_MCSTR(j["name"].get<string>()), AS_MCSTR(j["email"].get<string>()));
     }
     return Address::addressWithMailbox(AS_MCSTR(j["email"].get<string>()));
+}
+
+/*
+ Two kinds of received-mail address that contactKeyForEmail's prefix list doesn't catch and
+ that nobody writes back to: a relay signing with a person's name ("Erin Hewgley via
+ DocuSign", "Mats Lewan via LinkedIn", Google Groups), and a reply token minted per message
+ ("reply+a1b2c3d4e5f6@reply.github.com", "monorail+v2.463707639@chromium.org"). Only the
+ ENVELOPE is in hand when contacts are counted, so List-Id, Precedence and Auto-Submitted
+ can't be consulted; this is the address-level approximation the review of Sync #178 asked
+ for, and it need not be exhaustive.
+ */
+bool MailUtils::isAutomatedSender(string name, string email) {
+    transform(name.begin(), name.end(), name.begin(), ::tolower);
+    if (name.find(" via ") != string::npos) {
+        return true;
+    }
+    // A reply token: "+" followed by eight or more characters that include a digit. People's
+    // own plus-addresses ("brian+lists") carry a word, not a token.
+    const string local = email.substr(0, email.find('@'));
+    const size_t plus = local.find('+');
+    if (plus != string::npos) {
+        const string tag = local.substr(plus + 1);
+        if (tag.size() >= 8 && any_of(tag.begin(), tag.end(), [](unsigned char ch) { return isdigit(ch); })) {
+            return true;
+        }
+    }
+    return false;
 }
 
 string MailUtils::contactKeyForEmail(string email) {

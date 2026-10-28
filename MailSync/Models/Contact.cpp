@@ -142,8 +142,16 @@ int Contact::refs() {
     return _data["refs"].get<int>();
 }
 
-void Contact::incrementRefs() {
-    _data["refs"] = refs() + 1;
+bool Contact::countMessage(bool sentByUser) {
+    int before = refs();
+    int after = before;
+    if (sentByUser) {
+        after = min(before + CONTACT_SENT_REF_WEIGHT, CONTACT_MAX_REFS);
+    } else if (before % CONTACT_SENT_REF_WEIGHT < CONTACT_SENT_REF_WEIGHT - 1) {
+        after = min(before + 1, CONTACT_MAX_REFS);
+    }
+    _data["refs"] = after;
+    return after != before;
 }
 
 void Contact::mutateCardInInfo(function<void(shared_ptr<VCard>)> yieldBlock) {

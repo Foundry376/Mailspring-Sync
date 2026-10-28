@@ -154,10 +154,10 @@ void ICalendar::LoadFromString(string icsData) {
 }
 
 /*
- A zone the system knows outranks the VTIMEZONE the object carries: the system's table is
- current, the object's is whatever its writer had. Google writes America/Vancouver as a fixed
- -07:00 since 1970, wrong every winter, and a table vendored with the code goes stale the same
- way (Mexico abolished DST in 2022). A name the system lacks is read through the object's own
+ A zone ICU knows outranks the VTIMEZONE the object carries: ICU reads the tzdata shipped with
+ the engine (Vendor/icu-tzdata), the object's is whatever its writer had. Google writes
+ America/Vancouver as a fixed -07:00 since 1970, wrong every winter, and invitations still give
+ Mexico City the DST it abolished in 2022. A name ICU lacks is read through the object's own
  VTIMEZONE (RFC 5545 section 3.2.19); UTC, GMT and Z need neither; anything else stays local.
 */
 void ICalendar::AttachTimeZone(Date &Value) const {

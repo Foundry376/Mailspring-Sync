@@ -1,0 +1,37 @@
+name: contacts-gmail-user-label
+description: >
+  Gmail files its one All Mail copy with X-GM-LABELS, and only the system label \Sent marks
+  mail the user sent. A user label that merely contains "sent" ("Presentations") does not:
+  Alice's two messages under it score 1 each as received mail, not 10 each as sent mail,
+  while Carol, written to once from Sent Mail, scores 10.
+source: "Message::_isIn matched any label containing the role name (Indent review of #178)"
+servers:
+  - {fake: gmail}
+mailboxes:
+  INBOX: {messages: 0}
+  "[Gmail]/Sent Mail": {messages: 0}
+  Presentations: {messages: 0}
+setup:
+  - server.append:
+      mailbox: INBOX
+      messages:
+        count: 2
+        sender: [Alice Example, alice@example.net]
+        to: "Harness Test <test@example.test>"
+  - server.labels: {mailbox: INBOX, uids: "1:2", add: ["Presentations"]}
+  - server.append:
+      mailbox: "[Gmail]/Sent Mail"
+      messages:
+        count: 1
+        sender: [Harness Test, test@example.test]
+        to: "Carol Copied <carol@example.net>"
+steps:
+  - wait: quiescent
+expect:
+  contacts:
+    mail:
+      alice@example.net: {name: Alice Example, refs: 2}
+      carol@example.net: {name: Carol Copied, refs: 10}
+      test@example.test: {name: Harness Test, refs: 12}
+  db_matches_server: {labels: true}
+  running: true
