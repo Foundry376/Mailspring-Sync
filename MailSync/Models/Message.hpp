@@ -137,7 +137,7 @@ public:
     bool isSentByUser(MailStore * store);
     bool isInInbox(MailStore * store);
     bool _isIn(MailStore * store, string role);
-    set<string> _labelRoles(MailStore * store);
+    set<string> _labelRoles();
 
     // X-GM-LABELS of the message's live copies (Gmail has one). Rebuilt alongside
     // "folders"; the client reads it as `labels`.
