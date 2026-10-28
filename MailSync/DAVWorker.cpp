@@ -172,6 +172,31 @@ static string normalizeHref(const string & href) {
     return result;
 }
 
+/*
+ Removes the rows of a resource that its latest copy no longer holds. Every VEVENT of a resource
+ is a row keyed by UID and RECURRENCE-ID, and the paths above only upsert: an exception the
+ organizer dropped, so that its occurrence rejoined the series, kept its row and was drawn at
+ the exception's time. A UID names one resource in a calendar (RFC 4791 section 4.1), so every
+ row of the UID belongs to the copy just served.
+*/
+void DAVWorker::removeRowsTheResourceDropped(string calendarId, const vector<ParsedCalEvent> & served) {
+    map<string, set<string>> held; // uid -> recurrence ids served now
+    for (auto & pe : served) {
+        held[pe.icsEvent->UID].insert(pe.icsEvent->RecurrenceId);
+    }
+    for (auto & byUid : held) {
+        auto rows = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("icsuid", byUid.first));
+        for (auto & row : rows) {
+            if (byUid.second.count(row->recurrenceId())) {
+                continue;
+            }
+            logger->info("Removed the row for occurrence {} of {}; the resource no longer holds it",
+                         row->recurrenceId(), byUid.first);
+            store->remove(row.get());
+        }
+    }
+}
+
 // Generate the CalDAV resource href for a new event that has no stored href yet.
 //
 // Exceptions are embedded inline in the master's VCALENDAR (RFC 4791 section 4.1), so all
@@ -1797,6 +1822,7 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
                     store->save(&event);
                 }
             }
+            removeRowsTheResourceDropped(calendarId, parsedEvents);
             transaction.commit();
         }
     }
@@ -2030,6 +2056,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                     // else: quietly ignore - event is outside our sync window
                 }
             }
+            removeRowsTheResourceDropped(calendarId, parsedEvents);
             transaction.commit();
         }
     }
@@ -2097,6 +2124,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                     }
                 }
             }
+            removeRowsTheResourceDropped(calendarId, parsedEvents);
             transaction.commit();
         }
     }
