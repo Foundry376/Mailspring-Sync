@@ -81,7 +81,8 @@ private:
 
 class Date {
 private:
-	const char Compare(const Date &OtherDate, TimeUnit FromPart = YEAR) const {
+	// An int, not a char: char is unsigned on Linux arm64, where -1 would compare as 255.
+	int Compare(const Date &OtherDate, TimeUnit FromPart = YEAR) const {
 		for (;FromPart <= SECOND; FromPart = (TimeUnit)(FromPart+1)) {
 			if (Data[FromPart] < OtherDate.Data[FromPart])
 				return -1;
