@@ -384,13 +384,9 @@ bool Message::hasIncomingCopy(MailStore * store) {
         if (role != "all") {
             return true;
         }
-        bool inInbox = false, outgoing = false;
-        for (auto & l : labels()) {
-            string name = l.get<string>();
-            inInbox = inInbox || name == "\\Inbox";
-            outgoing = outgoing || name == "\\Sent" || name == "\\Draft";
-        }
-        if (inInbox || !outgoing) {
+        auto roles = _labelRoles(store);
+        bool outgoing = roles.count("sent") || roles.count("drafts");
+        if (roles.count("inbox") || !outgoing) {
             return true;
         }
     }
@@ -406,27 +402,33 @@ bool Message::isInInbox(MailStore * store) {
 }
 
 // True when any copy is in a folder with the given role, or (Gmail) in All Mail
-// carrying a label whose name contains it.
+// carrying the label with that role.
 bool Message::_isIn(MailStore * store, string role) {
     for (auto & folderId : folderIds()) {
         string folderRoleName = folderRole(store, folderId);
         if (folderRoleName == role) {
             return true;
         }
-        if (folderRoleName != "all") {
-            continue;
-        }
-        // Gmail's All Mail copy is filed by X-GM-LABELS. Each resolves to its Label, as in
-        // Thread::adjustLabelRefs, so \Sent is sent and a user label "Presentations" is not.
-        auto allLabels = store->allLabelsCache(accountId());
-        for (auto & l : labels()) {
-            auto label = MailUtils::labelForXGMLabelName(l.get<string>(), allLabels);
-            if (label != nullptr && label->role() == role) {
-                return true;
-            }
+        if (folderRoleName == "all" && _labelRoles(store).count(role)) {
+            return true;
         }
     }
     return false;
+}
+
+// The roles of the labels Gmail files this message's All Mail copy under. Each X-GM-LABEL
+// resolves to its Label as in Thread::adjustLabelRefs, so \Sent is "sent", \Draft is
+// "drafts", and a user label such as "Presentations" has no role.
+set<string> Message::_labelRoles(MailStore * store) {
+    set<string> roles;
+    auto allLabels = store->allLabelsCache(accountId());
+    for (auto & l : labels()) {
+        auto label = MailUtils::labelForXGMLabelName(l.get<string>(), allLabels);
+        if (label != nullptr && !label->role().empty()) {
+            roles.insert(label->role());
+        }
+    }
+    return roles;
 }
 
 time_t Message::syncedAt() {
