@@ -49,6 +49,7 @@ public:
     static Address * addressFromContactJSON(json & j);
 
     static string contactKeyForEmail(string email);
+    static bool isAutomatedSender(string name, string email);
     static string contactNameFromHeader(string name, string email);
 
     static string localTimestampForTime(time_t time);

@@ -133,15 +133,17 @@ def tasks(conn: sqlite3.Connection) -> list:
 
 
 def contact(conn: sqlite3.Connection, source: str, *, email: Optional[str] = None, id: Optional[str] = None) -> Optional[dict]:
-    """One Contact row of `source` ('mail', 'carddav', ...) by email or id, with the content
-    of its ContactSearch row (`search`, None if it has none)."""
+    """One Contact row of `source` ('mail', 'carddav', ...) by email or id, with its `refs`
+    score, `hidden` flag and the content of its ContactSearch row (`search`, None if it has
+    none)."""
     where, value = ("email", email.lower()) if email is not None else ("id", id)
-    row = conn.execute(f"SELECT id, email, json_extract(data, '$.name') AS name FROM Contact "
+    row = conn.execute(f"SELECT id, email, json_extract(data, '$.name') AS name, refs, hidden FROM Contact "
                        f"WHERE source = ? AND {where} = ?", (source, value)).fetchone()
     if not row:
         return None
     search = conn.execute("SELECT content FROM ContactSearch WHERE content_id = ?", (row["id"],)).fetchone()
-    return {"id": row["id"], "email": row["email"], "name": row["name"], "search": search[0] if search else None}
+    return {"id": row["id"], "email": row["email"], "name": row["name"], "refs": row["refs"],
+            "hidden": bool(row["hidden"]), "search": search[0] if search else None}
 
 
 def thread_counts(conn: sqlite3.Connection) -> dict:

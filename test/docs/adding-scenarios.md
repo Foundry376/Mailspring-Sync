@@ -116,6 +116,8 @@ records outcomes for one binary and diffs two recordings (see
 | migration-v11-from-v10-db | 0df7864 -> eb246b6 -> V11 alone: prints "Running Migration", recounts a boolean `_u` and one V10 arithmetic turned into a wrong integer | fake (gmail) | pass (fails on eb246b6) |
 | contacts-from-sent-mail | found-in-mail contact names from old Apple Mail headers (`"<a@b>"`, `")"`, a quoted encoded-word); a later name fills a blank one | fake, dovecot | pass (fails on f7b0239) |
 | migration-v13-repairs-contacts | V13 repairs those names and CardDAV rows written with a grouped EMAIL or an empty FN | fake | pass |
+| contacts-from-received-mail | found-in-mail contacts from received mail's From/To/Cc, scored 10 per sent and 1 per received message; none from Junk, Trash, drafts or mass mail | fake, dovecot | pass (fails on 5b8f6bd) |
+| migration-v16-recounts-contacts | V16 rescores every mail contact from every message, keeping names and the hidden flag | fake | pass |
 
 Gaps worth filling next: iCloud / Outlook / NetEase behaviour needs recordings
 (`tools/record_personality.py`) before their quirks can be asserted; `--mode test` and the
