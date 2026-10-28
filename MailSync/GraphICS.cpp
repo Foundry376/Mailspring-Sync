@@ -611,9 +611,11 @@ static json recurrenceOf(const ICSVEvent & vevent, time_t utcOffset) {
 json GraphICS::eventForVEvent(const ICSVEvent & vevent, const string & startUTC) {
     const ICSProperty & start = vevent.property("DTSTART");
     bool allDay = start.param("VALUE") == "DATE";
+    // Graph keeps the organizer out of attendees; the client lists them as one once a meeting has guests.
+    string organizer = vevent.property("ORGANIZER").calAddress();
     json attendees = json::array();
     for (const auto & property : vevent.properties) {
-        if (property.name == "ATTENDEE") {
+        if (property.name == "ATTENDEE" && !equalsIgnoreCase(property.calAddress(), organizer)) {
             attendees.push_back(attendeeOf(property));
         }
     }
@@ -700,6 +702,17 @@ static json changedFields(const json & before, const json & after, const vector<
     return fields;
 }
 
+// Graph lists the series' start at `startUTC` before the edit. A moved series starts as far from
+// there as the edit moved it, so the UTC offset its UNTIL is read with stays the one Graph listed.
+static string movedStartUTC(const ICSVEvent & before, const ICSVEvent & after, const string & startUTC) {
+    if (startUTC == "") {
+        return "";
+    }
+    time_t moved = GraphICS::secondsAsUTC(extendedDateTime(after.property("DTSTART").value)) -
+                   GraphICS::secondsAsUTC(extendedDateTime(before.property("DTSTART").value));
+    return formatUTC(GraphICS::secondsAsUTC(startUTC) + moved, "%Y-%m-%dT%H:%M:%S");
+}
+
 vector<GraphEventChange> GraphICS::changesBetween(const string & before, const string & after, const string & startUTC) {
     vector<ICSVEvent> beforeVEvents = veventsOf(before);
     vector<ICSVEvent> afterVEvents = veventsOf(after);
@@ -710,7 +723,7 @@ vector<GraphEventChange> GraphICS::changesBetween(const string & before, const s
     }
 
     vector<GraphEventChange> changes;
-    json masterFields = eventForVEvent(*master, startUTC);
+    json masterFields = eventForVEvent(*master, previousMaster ? movedStartUTC(*previousMaster, *master, startUTC) : startUTC);
     bool reshaped = true;
     if (!previousMaster) {
         changes.push_back({GraphEventChange::Kind::Create, {}, masterFields});

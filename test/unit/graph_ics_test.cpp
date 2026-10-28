@@ -151,6 +151,12 @@ static string writesFor(const string & before, const string & after) {
     return stringJoin(lines, "\n");
 }
 
+// The fields the `index`th write sends.
+static json fieldsOfWrite(const string & before, const string & after, size_t index) {
+    vector<GraphEventChange> changes = GraphICS::changesBetween(before, after, SERIES_START_UTC);
+    return index < changes.size() ? changes[index].fields : json();
+}
+
 static string refusalFor(const string & before, const string & after) {
     try {
         GraphICS::changesBetween(before, after, SERIES_START_UTC);
@@ -542,6 +548,13 @@ int main() {
         expectJSON(mailto["attendees"][0], {{"type", "resource"}, {"emailAddress", {{"address", "room9@example.com"}, {"name", ""}}}},
                    "room, MAILTO in capitals");
         expectJSON(mailto["attendees"][1]["type"], "optional", "non-participant is optional");
+
+        // A new meeting as the client writes it once it has guests: the organizer is an attendee too.
+        json meeting = graphEvent(vcalendar("ORGANIZER;CN=Me:mailto:me@example.test\r\n"
+                                            "ATTENDEE;CN=Kim;PARTSTAT=NEEDS-ACTION:mailto:kim@example.com\r\n"
+                                            "ATTENDEE;CN=Me;PARTSTAT=ACCEPTED:mailto:Me@Example.test\r\n"));
+        expectJSON(meeting["attendees"], json::array({{{"type", "required"}, {"emailAddress", {{"address", "kim@example.com"}, {"name", "Kim"}}}}}),
+                   "the organizer isn't one of the attendees");
     }
     {
         // The Repeat control writes only FREQ; the rest comes from DTSTART, Wednesday 7 October.
@@ -579,15 +592,20 @@ int main() {
                                 {"start", {{"dateTime", "2026-10-05T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
                                 {"end", {{"dateTime", "2026-10-06T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}}}),
                         "all-day until a date", "2026-10-05T07:00:00.0000000");
-        // East of UTC an UNTIL lands on the UTC day before the local one.
+        // East of UTC the series' offset is added: without it the last day would read as the 29th.
         expectRoundTrip(series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}}, {"firstDayOfWeek", "sunday"}},
                                        {{"type", "endDate"}, {"startDate", "2026-10-05"}, {"endDate", "2026-11-30"}}),
                                {{"start", {{"dateTime", "2026-10-05T09:00:00.0000000"}, {"timeZone", "Tokyo Standard Time"}}},
                                 {"end", {{"dateTime", "2026-10-05T09:30:00.0000000"}, {"timeZone", "Tokyo Standard Time"}}}}),
                         "until a date east of UTC", "2026-10-05T00:00:00.0000000");
+        // At the series' offset, a 22:00 series' last start after daylight saving ends reads as 23:00.
+        expectRoundTrip(series(pattern({{"type", "daily"}, {"interval", 1}}, {{"type", "endDate"}, {"startDate", "2026-10-05"}, {"endDate", "2026-12-16"}}),
+                               {{"start", {{"dateTime", "2026-10-05T22:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                                {"end", {{"dateTime", "2026-10-05T22:30:00.0000000"}, {"timeZone", "Pacific Standard Time"}}}}),
+                        "an evening series until a date after daylight saving ends", "2026-10-06T05:00:00.0000000");
     }
     {
-        // An UNTIL exactly at the last occurrence's start, which daylight saving puts an hour later
+        // An UNTIL exactly at the last occurrence's start, which daylight saving puts an hour earlier
         // in UTC than the series' first: Monday 5 April 2027 at 09:00 Pacific daylight time.
         json e = graphEvent(vcalendar("DTSTART;TZID=Pacific Standard Time:20270104T090000\r\n"
                                       "DTEND;TZID=Pacific Standard Time:20270104T093000\r\n"
@@ -645,10 +663,17 @@ int main() {
                     "a new SEQUENCE alone writes nothing");
         expectEqual(writesFor(base, edited(base, "SUMMARY:Planning\r\n", "SUMMARY:Roadmap\r\n")), "update subject",
                     "a new title sends only the subject");
+        expectJSON(fieldsOfWrite(base, edited(base, "SUMMARY:Planning\r\n", "SUMMARY:Roadmap\r\n"), 0)["subject"], "Roadmap",
+                   "the new title is sent");
 
         string movedAgain = edited(edited(base, "DTSTART;TZID=Pacific Standard Time:20261019T100000", "DTSTART;TZID=Pacific Standard Time:20261019T110000"),
                                    "DTEND;TZID=Pacific Standard Time:20261019T103000", "DTEND;TZID=Pacific Standard Time:20261019T113000");
         expectEqual(writesFor(base, movedAgain), "occurrence 20261019T160000Z end,start", "an override moved again sends its times");
+        json movedAgainFields = fieldsOfWrite(base, movedAgain, 0);
+        expectJSON(movedAgainFields["start"], {{"dateTime", "2026-10-19T11:00:00"}, {"timeZone", "Pacific Standard Time"}},
+                   "an override moved again sends its new start");
+        expectJSON(movedAgainFields["end"], {{"dateTime", "2026-10-19T11:30:00"}, {"timeZone", "Pacific Standard Time"}},
+                   "an override moved again sends its new end");
         expectEqual(writesFor(base, edited(base, "SUMMARY:Planning (moved)", "SUMMARY:Planning (room 4)")),
                     "occurrence 20261019T160000Z subject", "an override retitled sends only its subject");
 
@@ -664,6 +689,8 @@ int main() {
                                                      "SUMMARY:Planning\r\nTRANSP:OPAQUE\r\nEND:VEVENT\r\nEND:VCALENDAR");
         expectEqual(writesFor(base, added), "occurrence 20261026T160000Z end,start",
                     "a new override sends its times and only the fields it changed from the series");
+        expectJSON(fieldsOfWrite(base, added, 0)["start"], {{"dateTime", "2026-10-26T14:00:00"}, {"timeZone", "Pacific Standard Time"}},
+                   "a new override sends its own start");
 
         expectEqual(writesFor(base, edited(base, "EXDATE;TZID=Pacific Standard Time:20261102T090000",
                                            "EXDATE;TZID=Pacific Standard Time:20261102T090000,20261109T090000")),
@@ -683,6 +710,10 @@ int main() {
         expectEqual(writesFor(base, seriesMoved),
                     "update end,isAllDay,recurrence,start\noccurrence 20261019T170000Z end,start,subject\ncancel Pacific Standard Time:20261102T100000",
                     "a series move re-applies its override and its cancelled date");
+        expectJSON(fieldsOfWrite(base, seriesMoved, 0)["start"], {{"dateTime", "2026-10-05T10:00:00"}, {"timeZone", "Pacific Standard Time"}},
+                   "a series move sends the new start");
+        expectJSON(fieldsOfWrite(base, seriesMoved, 1)["start"], {{"dateTime", "2026-10-19T10:00:00"}, {"timeZone", "Pacific Standard Time"}},
+                   "a series move re-applies its override's own start");
         expectEqual(writesFor(base, edited(seriesMoved, "SUMMARY:Planning\r\n", "SUMMARY:Roadmap\r\n")),
                     "update end,isAllDay,recurrence,start,subject\noccurrence 20261019T170000Z end,start,subject\ncancel Pacific Standard Time:20261102T100000",
                     "a series moved and retitled at once");
@@ -706,6 +737,25 @@ int main() {
                     "create attendees,body,end,isAllDay,location,recurrence,showAs,start,subject\n"
                     "occurrence 20261019T160000Z end,start,subject\ncancel Pacific Standard Time:20261102T090000",
                     "a new series is created, then its override and cancelled date");
+        json created = fieldsOfWrite("", base, 0);
+        expectJSON(created["subject"], "Planning", "a new series sends its title");
+        expectJSON(created["recurrence"]["pattern"]["daysOfWeek"], {"monday"}, "a new series sends its recurrence");
+    }
+    {
+        // The client leaves UNTIL alone when it moves a series.
+        json master = series(pattern({{"type", "daily"}, {"interval", 1}}, {{"type", "endDate"}, {"startDate", "2026-10-05"}, {"endDate", "2026-10-20"}}));
+        string base = GraphICS::icsForEvent(master, ME, SERIES_START_UTC);
+        string nextDay = edited(edited(base, "DTSTART;TZID=Pacific Standard Time:20261005T090000", "DTSTART;TZID=Pacific Standard Time:20261006T090000"),
+                                "DTEND;TZID=Pacific Standard Time:20261005T093000", "DTEND;TZID=Pacific Standard Time:20261006T093000");
+        expectJSON(fieldsOfWrite(base, nextDay, 0)["recurrence"]["range"],
+                   {{"type", "endDate"}, {"startDate", "2026-10-06"}, {"endDate", "2026-10-20"}}, "a series moved a day keeps its end date");
+
+        // The Repeat control set to none removes the RRULE.
+        json weekly = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}}, {"firstDayOfWeek", "sunday"}}));
+        string repeating = GraphICS::icsForEvent(weekly, ME, SERIES_START_UTC);
+        string single = edited(repeating, rruleOf(weekly) + "\r\n", "");
+        expectEqual(writesFor(repeating, single), "update end,isAllDay,recurrence,start", "a repeat removed sends the recurrence with the times");
+        expectJSON(fieldsOfWrite(repeating, single, 0)["recurrence"], json(), "a repeat removed sends no recurrence");
     }
     {
         string base = GraphICS::icsForEvent(event({

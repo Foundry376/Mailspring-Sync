@@ -81,6 +81,7 @@ public:
     // event) into `after` (the client's edit). Only fields the edit changed are sent, so what
     // iCalendar can't carry (an HTML body, showAs tentative, categories) survives. A change to the
     // series' times or recurrence re-applies every override and EXDATE, which the client moved with it.
+    // `startUTC`: the start of `before` as Graph lists it in UTC.
     static vector<GraphEventChange> changesBetween(const string & before, const string & after, const string & startUTC);
 
     // Whether Graph's `originalStart` is the occurrence `anchor` (a RECURRENCE-ID, or one EXDATE
