@@ -4,7 +4,8 @@ description: >
   its EXDATE along with it. Graph takes the series' new times and recurrence in one PATCH; the fake
   then drops the series' exception and cancellation, as Exchange may, so the engine applies both
   again at their new slots: the override's own subject and times, and the cancelled date. Read
-  back, the rows match the client's edit.
+  back, the rows match the client's edit. Made longer, the series is written again, and its
+  override found again in the series as it stands after that write.
 source: "https://learn.microsoft.com/en-us/graph/api/event-update; whether Exchange keeps exceptions when a series' times change is unverified"
 env:
   CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
@@ -55,16 +56,26 @@ steps:
         - ["EXDATE;TZID=Pacific Standard Time:20261102T090000", "EXDATE;TZID=Pacific Standard Time:20261102T100000"]
     as: move_series
   - wait: {task: move_series, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-standup|"
+      ics_replace: [["DTEND;TZID=Pacific Standard Time:20261005T101500", "DTEND;TZID=Pacific Standard Time:20261005T103000"]]
+    as: lengthen
+  - wait: {task: lengthen, timeout: 60}
 expect:
-  task_error: {move_series: null}
+  task_error: {move_series: null, lengthen: null}
   graph:
     event_writes:
       - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvStandup=$", [end, isAllDay, recurrence, start]]
       - [PATCH, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-10-19$", [end, start, subject]]
       - [DELETE, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-11-02$", []]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvStandup=$", [end, isAllDay, recurrence, start]]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-10-19$", [end, start, subject]]
+      - [DELETE, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-11-02$", []]
   events:
     "uid-standup|":
-      ics_has: ["DTSTART;TZID=Pacific Standard Time:20261005T100000", "EXDATE;TZID=Pacific Standard Time:20261102T100000"]
+      ics_has: ["DTSTART;TZID=Pacific Standard Time:20261005T100000", "DTEND;TZID=Pacific Standard Time:20261005T103000",
+                "EXDATE;TZID=Pacific Standard Time:20261102T100000"]
     "uid-standup|20261019T170000Z":
       ics_has: ["SUMMARY:Standup (moved)", "DTSTART;TZID=Pacific Standard Time:20261019T110000"]
   running: true

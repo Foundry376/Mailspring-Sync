@@ -392,14 +392,9 @@ bool MicrosoftCalendarWorker::organizedElsewhere(const string & ics) {
     return false;
 }
 
-vector<shared_ptr<Event>> MicrosoftCalendarWorker::rowsOf(const string & calendarId, const string & graphId) {
-    vector<shared_ptr<Event>> rows {};
-    for (auto & row : store->findAll<Event>(Query().equal("calendarId", calendarId))) {
-        if (row->href() == graphId) {
-            rows.push_back(row);
-        }
-    }
-    return rows;
+// The event's master and override rows, which share its UID.
+vector<shared_ptr<Event>> MicrosoftCalendarWorker::rowsOf(shared_ptr<Event> event) {
+    return store->findAll<Event>(Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()));
 }
 
 json MicrosoftCalendarWorker::listedEvent(const string & calendarPath, const string & graphId) {
@@ -494,7 +489,7 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
         store->remove(event.get());
         return event->id();
     }
-    vector<shared_ptr<Event>> rows = graphId == "" ? vector<shared_ptr<Event>>{event} : rowsOf(event->calendarId(), graphId);
+    vector<shared_ptr<Event>> rows = rowsOf(event);
 
     json calendar; // null while Graph hasn't listed it
     try {
@@ -522,7 +517,7 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
             if (guest && change.kind != GraphEventChange::Kind::CancelOccurrence) {
                 throw GraphEditRefused("not-organizer", "Only the organizer can change this meeting");
             }
-            if (onlineMeeting && change.fields.is_object() && change.fields.count("body")) {
+            if (onlineMeeting && change.fields.count("body")) {
                 // Text notes would replace the HTML body, and the join details in it
                 // (https://learn.microsoft.com/en-us/graph/api/event-update, "body property and online meetings").
                 throw GraphEditRefused("online-meeting-notes", "Notes of an online meeting can't be changed here");
@@ -604,7 +599,7 @@ void MicrosoftCalendarWorker::deleteEvent(shared_ptr<Event> event) {
         ThrowForGraphResponse(url, resp);
     }
     MailStoreTransaction transaction{store.get(), "deleteEvent"};
-    for (auto & row : rowsOf(event->calendarId(), event->href())) {
+    for (auto & row : rowsOf(event)) {
         store->remove(row.get());
     }
     transaction.commit();
