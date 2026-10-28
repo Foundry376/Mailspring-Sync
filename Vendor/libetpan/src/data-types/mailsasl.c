@@ -47,9 +47,10 @@
 #include <sasl/sasl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
 #if defined(WIN32) && !defined(LIBETPAN_REENTRANT)
-// Need windows.h for GetModuleFileNameA even in non-reentrant builds
+// Need windows.h for GetModuleFileNameW even in non-reentrant builds
 #include <windows.h>
 #endif
 
@@ -123,21 +124,33 @@ void mailsasl_ref(void)
     //
     // If SASL_PATH is set in the environment, use it (allows user override).
     // Otherwise, default to the executable's directory where plugins are deployed.
-    char *sasl_path = getenv("SASL_PATH");
-    if (sasl_path != NULL && sasl_path[0] != '\0') {
-      // User-specified path takes precedence
-      sasl_set_path(SASL_PATH_TYPE_PLUGIN, sasl_path);
+    //
+    // cyrus-sasl is built with UNICODE (vcpkg-overlay-ports/cyrus-sasl/portfile.cmake) and
+    // decodes the plugin path as UTF-8 (lib/windlopen.c), so pass UTF-8, not the ANSI code
+    // page: with a non-ASCII folder in the path no plugin loads and AUTH fails with
+    // SASL_NOMECH (296).
+    wchar_t plugin_dir[MAX_PATH];
+    int have_dir = 0;
+    const wchar_t *sasl_path = _wgetenv(L"SASL_PATH");
+    if (sasl_path != NULL && sasl_path[0] != L'\0') {
+      if (wcslen(sasl_path) < MAX_PATH) {
+        wcscpy_s(plugin_dir, MAX_PATH, sasl_path);
+        have_dir = 1;
+      }
     } else {
-      // Default to executable directory
-      char exe_path[MAX_PATH];
-      DWORD len = GetModuleFileNameA(NULL, exe_path, MAX_PATH);
+      DWORD len = GetModuleFileNameW(NULL, plugin_dir, MAX_PATH);
       if (len > 0 && len < MAX_PATH) {
-        // Strip filename to get directory
-        char *last_slash = strrchr(exe_path, '\\');
+        wchar_t *last_slash = wcsrchr(plugin_dir, L'\\');
         if (last_slash != NULL) {
-          *last_slash = '\0';
-          sasl_set_path(SASL_PATH_TYPE_PLUGIN, exe_path);
+          *last_slash = L'\0';
+          have_dir = 1;
         }
+      }
+    }
+    if (have_dir) {
+      char plugin_dir_utf8[MAX_PATH * 4];
+      if (WideCharToMultiByte(CP_UTF8, 0, plugin_dir, -1, plugin_dir_utf8, sizeof(plugin_dir_utf8), NULL, NULL) > 0) {
+        sasl_set_path(SASL_PATH_TYPE_PLUGIN, plugin_dir_utf8);
       }
     }
 #endif
