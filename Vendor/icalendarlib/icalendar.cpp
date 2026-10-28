@@ -6,6 +6,9 @@ void ICalendar::LoadFromString(string icsData) {
 	Component CurrentComponent = VCALENDAR, PrevComponent = VCALENDAR;
 	ICalendarEvent *NewEvent = NULL;
 	Alarm NewAlarm;
+	shared_ptr<VTimeZone> NewZone;
+	string NewZoneId;
+	TimeZoneObservance NewObservance;
 	// for getting some UIDs for events without them
 	unsigned int NoUID = 0;
 
@@ -21,6 +24,9 @@ void ICalendar::LoadFromString(string icsData) {
 			getline(File, NextLine);
 			if (NextLine[0] != '\t' && NextLine[0] != ' ')
 				break;
+			// Unfolding removes the CRLF and the one whitespace octet (RFC 5545 section 3.1).
+			if (!Line.empty() && Line.back() == '\r')
+				Line.pop_back();
 			Line += NextLine.substr(1);
 		}
 
@@ -29,8 +35,46 @@ void ICalendar::LoadFromString(string icsData) {
 				if (Line.find("BEGIN:VEVENT") == 0) {
 					NewEvent = new ICalendarEvent;
 					CurrentComponent = VEVENT;
+				} else if (Line.find("BEGIN:VTIMEZONE") == 0) {
+					NewZone = make_shared<VTimeZone>();
+					NewZoneId.clear();
+					CurrentComponent = VTIMEZONE;
 				}
 				break;
+
+			case VTIMEZONE:
+				if (GetPropertyName(Line) == "TZID") {
+					NewZoneId = GetProperty(Line);
+				} else if (Line.find("BEGIN:STANDARD") == 0 || Line.find("BEGIN:DAYLIGHT") == 0) {
+					NewObservance = TimeZoneObservance();
+					CurrentComponent = TZOBSERVANCE;
+				} else if (Line.find("END:VTIMEZONE") == 0) {
+					TimeZones[NewZoneId] = NewZone;
+					CurrentComponent = VCALENDAR;
+				}
+				break;
+
+			case TZOBSERVANCE: {
+				const string Name = GetPropertyName(Line);
+				if (Name == "DTSTART") {
+					NewObservance.DtStart = GetProperty(Line);
+				} else if (Name == "TZOFFSETFROM") {
+					NewObservance.OffsetFrom = GetProperty(Line);
+				} else if (Name == "TZOFFSETTO") {
+					NewObservance.OffsetTo = GetProperty(Line);
+				} else if (Name == "RRULE") {
+					NewObservance.RRule = GetProperty(Line);
+				} else if (Name == "RDATE") {
+					stringstream Values(GetProperty(Line));
+					string Value;
+					while (getline(Values, Value, ','))
+						NewObservance.RDates.push_back(Value);
+				} else if (Line.find("END:STANDARD") == 0 || Line.find("END:DAYLIGHT") == 0) {
+					NewZone->Observances.push_back(NewObservance);
+					CurrentComponent = VTIMEZONE;
+				}
+				break;
+			}
 
 			case VEVENT:
 				if (Line.find("UID") == 0) {
@@ -99,6 +143,33 @@ void ICalendar::LoadFromString(string icsData) {
 				break;
 		}
 	}
+
+	// A VTIMEZONE may follow the events that use it, so zones are attached once all are read.
+	for (ICalendarEvent *Event : Events) {
+		AttachTimeZone(Event->DtStart);
+		AttachTimeZone(Event->DtEnd);
+	}
+}
+
+/*
+ A zone ICU knows outranks the VTIMEZONE the object carries: ICU reads the tzdata shipped with
+ the engine (Vendor/icu-tzdata), the object's is whatever its writer had. Google writes
+ America/Vancouver as a fixed -07:00 since 1970, wrong every winter, and invitations still give
+ Mexico City the DST it abolished in 2022. A name ICU lacks is read through the object's own
+ VTIMEZONE (RFC 5545 section 3.2.19); UTC, GMT and Z need neither; anything else stays local.
+*/
+void ICalendar::AttachTimeZone(Date &Value) const {
+	if (Value.TzId.empty())
+		return;
+	if (Value.TzId == "UTC" || Value.TzId == "GMT" || Value.TzId == "Z") {
+		Value.IsUTC = true;
+		return;
+	}
+	if ((Value.Zone = SystemTimeZone::Named(Value.TzId)))
+		return;
+	auto Zone = TimeZones.find(Value.TzId);
+	if (Zone != TimeZones.end())
+		Value.Zone = Zone->second;
 }
 
 /*Event* ICalendar::GetEventByUID(char *UID) {

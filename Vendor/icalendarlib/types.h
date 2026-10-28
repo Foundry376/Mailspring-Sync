@@ -14,7 +14,7 @@ struct DeleteItem {
 
 // Custom data types
 
-typedef enum { VCALENDAR, VEVENT, VALARM } Component;
+typedef enum { VCALENDAR, VEVENT, VALARM, VTIMEZONE, TZOBSERVANCE } Component;
 typedef enum { DISPLAY=0, PROCEDURE, AUDIO, EMAIL } AlarmAction;
 
 struct Recurrence {

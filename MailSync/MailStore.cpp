@@ -122,7 +122,7 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA journal_size_limit = 67108864").executeStep();
 }
 
-static int CURRENT_VERSION = 14;
+static int CURRENT_VERSION = 15;
 static string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 30 * 24 * 60 * 60; // 30 days
 
@@ -213,7 +213,7 @@ void MailStore::recomputeEventTimes() {
 
     // The logger is null in migrate mode (see MailStoreTransaction.cpp), so this goes to the
     // same stream as the "Running Migration" line above.
-    cout << "\nMigration V12: " << updated << " events recomputed, " << skipped << " left as they were";
+    cout << "\nMigration V15: " << updated << " events recomputed, " << skipped << " left as they were";
     cout.flush();
 }
 
@@ -269,14 +269,14 @@ void MailStore::migrate() {
     if (version < 11) {
         _migrateToV11(version == 10);
     }
-    if (version < 12) {
-        recomputeEventTimes();
-    }
     if (version < 13) {
         _migrateToV13();
     }
     if (version < 14) {
         _migrateToV14(version == 0);
+    }
+    if (version < 15) {
+        recomputeEventTimes();
     }
 
     // Update the version flag. Note that we don't want to go from v3 back to v2

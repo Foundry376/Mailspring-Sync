@@ -10,6 +10,7 @@
 //
 
 #include <atomic>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <time.h>
@@ -48,9 +49,14 @@
 #include "ThreadUtils.h"
 #include "constants.h"
 #include "SPDLogExtensions.hpp"
+#include "date.h"
 
 #if defined(__linux__)
 #include "MailspringDynamicTidy.h"
+#endif
+
+#ifdef _WIN32
+#include <windows.h>
 #endif
 
 using namespace nlohmann;
@@ -71,6 +77,13 @@ shared_ptr<MetadataWorker> metadataWorker = nullptr;
 shared_ptr<MetadataExpirationWorker> metadataExpirationWorker = nullptr;
 
 std::atomic<bool> bgWorkerShouldMarkAll{true};
+
+// Whether ICU reads the zone files shipped beside the binary (see useShippedZoneFiles).
+static bool shippedZoneFiles = false;
+
+static string zoneDataDescription() {
+    return SystemTimeZone::DataVersion() + (shippedZoneFiles ? " (shipped)" : " (platform's own)");
+}
 
 std::thread * fgThread = nullptr;
 std::thread * bgThread = nullptr;
@@ -636,6 +649,7 @@ int runInstallCheck() {
         {"smtp_check", nullptr},
         {"tidy_check", nullptr},
         {"legacy_tls_check", nullptr},
+        {"tz_check", nullptr},
         {"log", nullptr}
     };
 
@@ -873,8 +887,27 @@ int runInstallCheck() {
         resp["tidy_check"] = {{"success", true}};
     }
 
+    // Step 5: Check the time zone data is current. Mexico City dropped DST in October 2022, so
+    // noon on 1 July 2026 there is UTC-06:00 only in tzdata 2022f or later.
+    string tzError = "";
+    string tzVersion = SystemTimeZone::DataVersion();
+    auto mexicoCity = SystemTimeZone::Named("America/Mexico_City");
+    Date july;
+    july = string("20260701T120000");
+    int offset = 0;
+    if (!mexicoCity || !mexicoCity->OffsetForWallClock(july.WallClockSeconds(), offset)) {
+        tzError = "America/Mexico_City is not in the time zone data";
+    } else if (offset != -6 * 3600) {
+        tzError = "time zone data " + tzVersion + " predates Mexico's 2022 change (offset " + to_string(offset) + ")";
+    }
+    if (tzError != "") {
+        resp["tz_check"] = {{"error", tzError}, {"version", tzVersion}, {"shipped", shippedZoneFiles}};
+    } else {
+        resp["tz_check"] = {{"success", true}, {"version", tzVersion}, {"shipped", shippedZoneFiles}};
+    }
+
     // Determine overall success
-    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "" && legacyTLSError == "");
+    bool success = (httpError == "" && imapError == "" && smtpError == "" && tidyError == "" && legacyTLSError == "" && tzError == "");
     if (!success) {
         resp["error"] = "One or more checks failed";
     }
@@ -1056,8 +1089,57 @@ void runListenOnMainThread(shared_ptr<Account> account) {
     }
 }
 
+/*
+ The directory holding the running binary, in a form ICU can open. On Windows ICU opens data
+ files with CreateFileA (umapfile.cpp), which reads a path in the ANSI code page, and argv[0]
+ has already lost any character outside it, as under a profile named in another script. The
+ directory's short (8.3) path is ASCII wherever the volume keeps short names.
+*/
+static string executableDirectory(const string & argv0) {
+#ifdef _WIN32
+    wchar_t path[4 * MAX_PATH];
+    DWORD length = GetModuleFileNameW(nullptr, path, 4 * MAX_PATH);
+    if (length > 0 && length < 4 * MAX_PATH) {
+        wstring directory(path, length);
+        directory = directory.substr(0, directory.find_last_of(L"\\/"));
+        wchar_t shortPath[4 * MAX_PATH];
+        DWORD shortLength = GetShortPathNameW(directory.c_str(), shortPath, 4 * MAX_PATH);
+        const wchar_t * chosen = (shortLength > 0 && shortLength < 4 * MAX_PATH) ? shortPath : directory.c_str();
+        BOOL lossy = FALSE;
+        int bytes = WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, chosen, -1, nullptr, 0, nullptr, &lossy);
+        if (bytes > 1 && !lossy) {
+            string narrow(bytes - 1, '\0');
+            WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, chosen, -1, &narrow[0], bytes, nullptr, nullptr);
+            return narrow;
+        }
+    }
+#endif
+    size_t separator = argv0.find_last_of("/\\");
+    return separator == string::npos ? "." : argv0.substr(0, separator);
+}
+
+/*
+ Points ICU at the zone files shipped in icu-tzdata/ beside the binary, so every platform reads
+ the same, current tzdata. Without them the static ICU 70 linked on Linux reads 2021a3, where
+ Mexico City still observes DST, unless the distro's tzdata ships /usr/share/zoneinfo-icu as
+ Ubuntu's does; vcpkg's ICU reads its release's and macOS's libicucore the OS's.
+ ICU_TIMEZONE_FILES_DIR, when set, is left to choose. Returns whether the shipped files are used.
+*/
+static bool useShippedZoneFiles(const string & argv0) {
+    if (getenv("ICU_TIMEZONE_FILES_DIR")) {
+        return false;
+    }
+    string directory = executableDirectory(argv0) + "/icu-tzdata";
+    if (!ifstream(directory + "/zoneinfo64.res").good()) {
+        return false;
+    }
+    SystemTimeZone::UseZoneFilesIn(directory);
+    return true;
+}
+
 int main(int argc, const char * argv[]) {
     SetThreadName("main");
+    shippedZoneFiles = useShippedZoneFiles(argv[0]);
 #ifndef _WIN32
     // A write to a connection the server has closed raises SIGPIPE on Linux, which kills the
     // process: a LOGOUT sent after a rejected login once the server dropped the connection
@@ -1249,6 +1331,7 @@ string exectuablePath = argv[0];
 
     if (mode == "sync") {
         spdlog::get("logger")->info("------------- Starting Sync ({}) ---------------", account->emailAddress());
+        spdlog::get("logger")->info("- Time zone data {}", zoneDataDescription());
 
         fgThread = nullptr; // started after background iteration
         bgThread = new std::thread([&]() {
