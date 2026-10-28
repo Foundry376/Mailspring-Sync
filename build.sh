@@ -24,13 +24,14 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   # Build universal binary for both arm64 and x86_64
   set -o pipefail && xcodebuild -scheme mailsync -configuration Release -destination 'generic/platform=macOS' ONLY_ACTIVE_ARCH=NO ARCHS="arm64 x86_64" "${SIGNING_ARGS[@]}" | xcpretty;
 
-  # the xcodebuild copies the build products to the APP_ROOT_DIR and codesigns
-  # them for us. We just need to tar them up and move them to the artifacts folder
+  # the xcodebuild copies the build products and the ICU time zone files to the
+  # APP_ROOT_DIR and codesigns them for us. We just need to tar them up and move
+  # them to the artifacts folder
   cd "$APP_ROOT_DIR"
   if [ -e "mailsync.dSYM.zip" ]; then
-    tar -czf "$APP_DIST_DIR/mailsync.tar.gz" mailsync.dSYM.zip mailsync
+    tar -czf "$APP_DIST_DIR/mailsync.tar.gz" mailsync.dSYM.zip mailsync icu-tzdata
   else
-    tar -czf "$APP_DIST_DIR/mailsync.tar.gz" mailsync
+    tar -czf "$APP_DIST_DIR/mailsync.tar.gz" mailsync icu-tzdata
   fi
 
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
@@ -57,6 +58,10 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   # copy build product into the client working directory.
   cp "$MAILSYNC_DIR/mailsync" "$APP_ROOT_DIR/mailsync.bin"
 
+  # mailsync reads time zones from these, beside its binary (see useShippedZoneFiles)
+  mkdir -p "$APP_ROOT_DIR/icu-tzdata"
+  cp "$MAILSYNC_DIR/Vendor/icu-tzdata/"*.res "$APP_ROOT_DIR/icu-tzdata/"
+
   # copy libsasl2 (and potentially others - just add to grep expression)
   # into the target directory since we don't want to depend on installed version
   ldd "$MAILSYNC_DIR/mailsync" | grep "=> /" | awk '{print $3}' | grep "libsasl2" | xargs -I '{}' cp -v '{}' "$APP_ROOT_DIR"
@@ -71,7 +76,7 @@ elif [[ "$OSTYPE" == "linux-gnu" ]]; then
 
   # Zip this stuff up so we can push it to S3 as a single artifacts
   cd "$APP_ROOT_DIR"
-  tar -czf "$APP_DIST_DIR/mailsync.tar.gz" --wildcards *.so* mailsync mailsync.bin
+  tar -czf "$APP_DIST_DIR/mailsync.tar.gz" --wildcards *.so* mailsync mailsync.bin icu-tzdata
 else
   echo "Mailsync does not build on $OSTYPE yet.";
 fi

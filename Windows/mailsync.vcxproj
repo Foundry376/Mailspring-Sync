@@ -63,6 +63,10 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>legacy_stdio_definitions.lib;libcurl.lib;libxml2.lib;zlib.lib;iconv.lib;dbghelp.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;Ws2_32.lib;Dnsapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /I /Q "$(ProjectDir)..\Vendor\icu-tzdata\*.res" "$(OutDir)icu-tzdata\"</Command>
+      <Message>Copy the ICU time zone files beside mailsync.exe</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -83,6 +87,10 @@
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>legacy_stdio_definitions.lib;libcurl.lib;libxml2.lib;zlib.lib;iconv.lib;dbghelp.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;Ws2_32.lib;Dnsapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /I /Q "$(ProjectDir)..\Vendor\icu-tzdata\*.res" "$(OutDir)icu-tzdata\"</Command>
+      <Message>Copy the ICU time zone files beside mailsync.exe</Message>
+    </PostBuildEvent>
     <!-- vcpkg's VcpkgAppLocalDeploy handles DLL copying automatically -->
   </ItemDefinitionGroup>
   <ItemGroup>

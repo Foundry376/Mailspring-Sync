@@ -72,6 +72,11 @@ IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
   add_executable(graph_ics_test EXCLUDE_FROM_ALL test/unit/graph_ics_test.cpp MailSync/GraphICS.cpp
     Vendor/StanfordCPPLib/strlib.cpp Vendor/StanfordCPPLib/error.cpp
     Vendor/icalendarlib/icalendar.cpp Vendor/icalendarlib/date.cpp Vendor/icalendarlib/types.cpp)
+  add_executable(tz_test EXCLUDE_FROM_ALL test/unit/tz_test.cpp
+    Vendor/icalendarlib/icalendar.cpp Vendor/icalendarlib/date.cpp Vendor/icalendarlib/types.cpp)
+  # icalendarlib's date.cpp reads zones through ICU
+  target_link_libraries(graph_ics_test icui18n icuuc icudata)
+  target_link_libraries(tz_test icui18n icuuc icudata)
 
   add_definitions(-DSQLITE_ENABLE_FTS5=1 -DHAVE_USLEEP=1 -DSQLITE_OMIT_LOAD_EXTENSION=1)
 
