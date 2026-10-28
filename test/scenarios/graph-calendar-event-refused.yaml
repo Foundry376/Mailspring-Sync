@@ -4,7 +4,9 @@ description: >
   them: one Graph refuses with a 400, one that would bring back a cancelled occurrence (Graph has
   no way to), and new notes on an online meeting, whose text would replace the HTML body and the
   join details in it. Each fails with its own key. The online meeting's title can still change.
-  A new event Graph refuses goes from the calendar, since no pass removes a row Graph never held.
+  An edit made while Graph won't list the calendars can't be read back either: the row loses its
+  changeKey, and the next pass reads Graph's copy over it. A new event Graph refuses goes from the
+  calendar, since no pass removes a row Graph never held.
 source: "https://learn.microsoft.com/en-us/graph/api/event-update (body property and online meetings)"
 env:
   CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
@@ -86,7 +88,16 @@ steps:
   - wait: {task: title, timeout: 60}
   - server.graph_failures:
       failures:
+        - {route: "^calendars$", method: GET, status: 400, code: ErrorInvalidRequest, times: 1}
         - {route: "^calendars/AAMkADefault=/events$", method: POST, status: 400, code: ErrorInvalidRequest, times: 1}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-planning|"
+      ics_replace:
+        - ["DTSTART;TZID=Pacific Standard Time:20261022T090000", "DTSTART;TZID=Pacific Standard Time:20261022T100000"]
+        - ["DTEND;TZID=Pacific Standard Time:20261022T093000", "DTEND;TZID=Pacific Standard Time:20261022T103000"]
+    as: unlisted
+  - wait: {task: unlisted, timeout: 60}
   - client.task:
       __cls: SyncbackEventTask
       calendar_of: Calendar
@@ -95,12 +106,15 @@ steps:
         ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:new-event@mailspring\r\nSUMMARY:Design review\r\nDTSTART;TZID=America/Chicago:20261021T140000\r\nDTEND;TZID=America/Chicago:20261021T150000\r\nDTSTAMP:20261013T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
     as: create
   - wait: {task: create, timeout: 60}
+  - client.sync_calendar: {}
+  - wait: {seconds: 3}
 expect:
   task_error:
     refused: "Invalid Response Code: 400"
     restore: cannot-restore-occurrence
     notes: online-meeting-notes
     title: null
+    unlisted: "Invalid Response Code: 400"
     create: "Invalid Response Code: 400"
   graph:
     event_writes:
@@ -108,7 +122,7 @@ expect:
   events:
     "uid-planning|":
       etag: "ck-planning-1"
-      ics_has: ["SUMMARY:Planning"]
+      ics_has: ["SUMMARY:Planning", "DTSTART;TZID=Pacific Standard Time:20261022T090000"]
     "uid-standup|":
       etag: "ck-standup-1"
       ics_has: ["EXDATE;TZID=Pacific Standard Time:20261102T090000"]

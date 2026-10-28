@@ -436,24 +436,37 @@ string MicrosoftCalendarWorker::occurrenceId(const string & calendarPath, const 
     return "";
 }
 
-// Graph's copy of the event, read and stored as the pass would, in place of `rows`.
+// Graph's copy of the event, read and stored as the pass would, in place of `rows`; returns the
+// master row's id. Failing that, or with no `calendar`, returns "" and leaves the rows to the next
+// pass: they lose their etag, and a new event's row takes Graph's id, so the pass reads it over them.
 string MicrosoftCalendarWorker::storeEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows) {
-    string path = JSONString(calendar, "id");
-    json entry = listedEvent(path, graphId);
-    vector<pair<json, json>> read = fetchEvents(path, {entry});
-    if (read.empty()) {
-        throw SyncException("invalid-graph-resp", "Graph event " + graphId + " could not be read back", true);
+    if (!calendar.is_null()) {
+        try {
+            string path = JSONString(calendar, "id");
+            json entry = listedEvent(path, graphId);
+            vector<pair<json, json>> read = fetchEvents(path, {entry});
+            if (read.empty()) {
+                throw SyncException("invalid-graph-resp", "Graph event " + graphId + " could not be read back", true);
+            }
+            string ics = GraphICS::icsForEvent(read.front().second, answeringFor(calendar), JSONString(JSONObject(entry, "start"), "dateTime"));
+            MailStoreTransaction transaction{store.get(), "storeEvent"};
+            string masterId = ingestEvent(MailUtils::idForCalendar(account->id(), path), entry, ics, rows);
+            transaction.commit();
+            return masterId;
+        } catch (std::exception & ex) {
+            logger->warn("-X Could not read event {} back: {}", graphId, ex.what());
+        }
     }
-    string ics = GraphICS::icsForEvent(read.front().second, answeringFor(calendar), JSONString(JSONObject(entry, "start"), "dateTime"));
-    MailStoreTransaction transaction{store.get(), "storeEvent"};
-    string masterId = ingestEvent(MailUtils::idForCalendar(account->id(), path), entry, ics, rows);
-    transaction.commit();
-    return masterId;
+    for (auto & row : rows) {
+        row->setHref(graphId);
+        row->setEtag("");
+        store->save(row.get());
+    }
+    return "";
 }
 
-// After a refused or failed write the rows still show the client's edit. They get Graph's copy
-// back, or failing that lose their etag so the next pass reads it. A new event's row goes, since
-// no pass removes a row Graph never held.
+// After a refused or failed write the rows still show the client's edit: they get Graph's copy
+// back. A new event's row goes, since no pass removes a row Graph never held.
 void MicrosoftCalendarWorker::restoreEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows) {
     if (graphId == "") {
         for (auto & row : rows) {
@@ -461,20 +474,10 @@ void MicrosoftCalendarWorker::restoreEvent(const json & calendar, const string &
         }
         return;
     }
-    try {
-        storeEvent(calendar, graphId, rows);
-    } catch (std::exception & ex) {
-        logger->warn("-X Could not read event {} back: {}", graphId, ex.what());
-        for (auto & row : rows) {
-            row->setEtag("");
-            store->save(row.get());
-        }
-    }
+    storeEvent(calendar, graphId, rows);
 }
 
 string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics, bool answer) {
-    json calendar = listedCalendar(event->calendarId());
-    string path = JSONString(calendar, "id");
     string graphId = event->href();
     if (graphId == "" && organizedElsewhere(ics)) {
         // Exchange put the invitation on the calendar when it arrived; the next pass brings it in.
@@ -482,13 +485,16 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
         store->remove(event.get());
         return event->id();
     }
-    if (graphId != "" && previousIcs == "") {
-        // Read as a new event, the edit would create a second one and invite its guests again.
-        throw SyncException("invalid-ics", "No copy of the event from before the edit", false);
-    }
     vector<shared_ptr<Event>> rows = graphId == "" ? vector<shared_ptr<Event>>{event} : rowsOf(event->calendarId(), graphId);
 
+    json calendar; // null while Graph hasn't listed it
     try {
+        calendar = listedCalendar(event->calendarId());
+        string path = JSONString(calendar, "id");
+        if (graphId != "" && previousIcs == "") {
+            // Read as a new event, the edit would create a second one and invite its guests again.
+            throw SyncException("invalid-ics", "No copy of the event from before the edit", false);
+        }
         string startUTC;
         bool onlineMeeting = false;
         bool guest = false;
@@ -497,12 +503,11 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
             startUTC = JSONString(JSONObject(listed, "start"), "dateTime");
             onlineMeeting = JSONBool(listed, "isOnlineMeeting");
             guest = !JSONBool(listed, "isOrganizer");
-            if (answer) {
-                logger->info("- Answer to {} goes to its organizer by email, not to Graph", graphId);
-                return storeEvent(calendar, graphId, rows);
-            }
         }
-        vector<GraphEventChange> changes = GraphICS::changesBetween(graphId == "" ? "" : previousIcs, ics, startUTC);
+        if (answer) {
+            logger->info("- Answer to {} goes to its organizer by email, not to Graph", graphId);
+        }
+        vector<GraphEventChange> changes = answer ? vector<GraphEventChange>{} : GraphICS::changesBetween(graphId == "" ? "" : previousIcs, ics, startUTC);
         for (const auto & change : changes) {
             // A guest's only edit is removing an occurrence, which declines it.
             if (guest && change.kind != GraphEventChange::Kind::CancelOccurrence) {
@@ -552,7 +557,6 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
             throw SyncException("invalid-graph-resp", "Graph created the event without an id", false);
         }
         logger->info("- Wrote {} changes to Graph event {}", changes.size(), graphId);
-        return storeEvent(calendar, graphId, rows);
 
     } catch (GraphEditRefused & ex) {
         restoreEvent(calendar, graphId, rows);
@@ -561,6 +565,10 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
         restoreEvent(calendar, graphId, rows);
         throw;
     }
+    // Graph holds the edit now: a failed read-back leaves the rows to the next pass rather than
+    // failing the task, which the user would then save again.
+    string masterId = storeEvent(calendar, graphId, rows);
+    return masterId != "" ? masterId : event->id();
 }
 
 void MicrosoftCalendarWorker::deleteEvent(shared_ptr<Event> event) {
