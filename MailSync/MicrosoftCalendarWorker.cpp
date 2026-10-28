@@ -150,7 +150,10 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
 
     map<string, vector<shared_ptr<Event>>> localByHref {};
     for (auto & row : store->findAll<Event>(Query().equal("calendarId", calendarId))) {
-        localByHref[row->href()].push_back(row);
+        // A row without a Graph id is a new event, which its create task replaces with Graph's copy.
+        if (row->href() != "") {
+            localByHref[row->href()].push_back(row);
+        }
     }
 
     vector<shared_ptr<Event>> removed {};
@@ -449,10 +452,14 @@ string MicrosoftCalendarWorker::storeEvent(const json & calendar, const string &
 }
 
 // After a refused or failed write the rows still show the client's edit. They get Graph's copy
-// back, or failing that lose their etag so the next pass reads it.
+// back, or failing that lose their etag so the next pass reads it. A new event's row goes, since
+// no pass removes a row Graph never held.
 void MicrosoftCalendarWorker::restoreEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows) {
     if (graphId == "") {
-        return; // a row Graph never held: the next pass removes it
+        for (auto & row : rows) {
+            store->remove(row.get());
+        }
+        return;
     }
     try {
         storeEvent(calendar, graphId, rows);

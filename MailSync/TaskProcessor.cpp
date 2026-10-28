@@ -1842,9 +1842,10 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
 
     if (account->syncsCalendarsViaGraph()) {
         string previousIcs = task->data().count("previousIcs") ? task->data()["previousIcs"].get<string>() : "";
-        // From the task, not the row: an earlier task's read-back can store Graph's copy over the row
-        // after this task's local phase, as when Undo follows a move.
-        string ics = task->data()["event"]["ics"].get<string>();
+        // An edit comes from its task: an earlier task's read-back can store Graph's copy over the row
+        // after this task's local phase, as when Undo follows a move. A new event comes from its row,
+        // which no read-back replaces and which holds any edit made since.
+        string ics = event->href() == "" ? event->icsData() : task->data()["event"]["ics"].get<string>();
         bool answer = task->data().count("rsvp") > 0;
         // A new event's rows take Graph's UID, and with it a new id.
         task->data()["event"]["id"] = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs, ics, answer);
