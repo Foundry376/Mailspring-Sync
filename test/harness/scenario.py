@@ -135,6 +135,7 @@ class ScenarioRun:
         self.earlier_deltas: list = []  # deltas from engine processes a `restart` stopped
         self.msg_counter = 1
         self.labels: dict = {}          # step labels -> values (task ids, snapshots)
+        self.queued_tasks: dict = {}    # task id -> the task as queued
         self.snapshots: dict = {}
         self.ignore_busy = (scenario.get("quiescence") or {}).get("ignore_busy", [])
         self.report: list = []          # human-readable trail of what happened
@@ -588,12 +589,14 @@ class ScenarioRun:
         by_key = {f"{r.get('icsuid')}|{r.get('rid', '')}": r for r in rows}
         if key not in by_key:
             raise ScenarioFailure(f"no Event row {key}; rows: {sorted(by_key)}")
-        row = by_key[key]
+        return self._edited_event(by_key[key], replacements, f"event {key}'s")
+
+    def _edited_event(self, event: dict, replacements: list, whose: str) -> dict:
         for old, new in replacements:
-            if row["ics"].count(old) != 1:
-                raise ScenarioFailure(f"event {key}: {old!r} is in its ICS {row['ics'].count(old)} times, not once")
-            row["ics"] = row["ics"].replace(old, new)
-        return row
+            if event["ics"].count(old) != 1:
+                raise ScenarioFailure(f"{old!r} is in {whose} ICS {event['ics'].count(old)} times, not once")
+            event["ics"] = event["ics"].replace(old, new)
+        return event
 
     def _calendar_json(self, name: str) -> dict:
         with self.ms.db() as c:
@@ -623,6 +626,10 @@ class ScenarioRun:
             if "event_of" in task:   # "<icsuid>|<recurrenceId>": that row as the client sends it, its ICS edited
                 task["event"] = self._event_json(task.pop("event_of"), task.pop("ics_replace", []))
                 task.setdefault("calendarId", task["event"]["cid"])
+            if "event_like" in task:   # the event an earlier task sent, its ICS edited, as Undo sends its snapshot
+                earlier = self.queued_tasks[self.labels[task.pop("event_like")]]
+                task["event"] = self._edited_event(dict(earlier["event"]), task.pop("ics_replace", []), "the earlier task's")
+                task.setdefault("calendarId", earlier["calendarId"])
             if "calendar_of" in task:   # a new event on the calendar with this name
                 calendar = self._calendar_json(task.pop("calendar_of"))
                 task["calendarId"] = calendar["id"]
@@ -643,6 +650,7 @@ class ScenarioRun:
                 draft.setdefault("__cls", "Message")
                 draft["files"] = [self._attachment_file(f) for f in draft.get("files") or []]
             task_id = self.ms.queue_task(task)
+            self.queued_tasks[task_id] = task
             self._note(f"queued {task['__cls']} as {task_id}")
             return task_id
         if op == "undo_task":

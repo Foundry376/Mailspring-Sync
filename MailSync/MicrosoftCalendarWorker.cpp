@@ -465,11 +465,11 @@ void MicrosoftCalendarWorker::restoreEvent(const json & calendar, const string &
     }
 }
 
-string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, bool answer) {
+string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics, bool answer) {
     json calendar = listedCalendar(event->calendarId());
     string path = JSONString(calendar, "id");
     string graphId = event->href();
-    if (graphId == "" && organizedElsewhere(event->icsData())) {
+    if (graphId == "" && organizedElsewhere(ics)) {
         // Exchange put the invitation on the calendar when it arrived; the next pass brings it in.
         logger->info("- Not creating event {}: someone else organizes it", event->icsUID());
         store->remove(event.get());
@@ -495,7 +495,7 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
                 return storeEvent(calendar, graphId, rows);
             }
         }
-        vector<GraphEventChange> changes = GraphICS::changesBetween(graphId == "" ? "" : previousIcs, event->icsData(), startUTC);
+        vector<GraphEventChange> changes = GraphICS::changesBetween(graphId == "" ? "" : previousIcs, ics, startUTC);
         for (const auto & change : changes) {
             // A guest's only edit is removing an occurrence, which declines it.
             if (guest && change.kind != GraphEventChange::Kind::CancelOccurrence) {
