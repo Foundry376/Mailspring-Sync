@@ -49,7 +49,7 @@ class MicrosoftCalendarWorker {
     vector<shared_ptr<Event>> rowsOf(const string & calendarId, const string & graphId);
     json listedEvent(const string & calendarPath, const string & graphId);
     json readSeries(const string & calendarPath, const string & graphId);
-    string occurrenceId(const string & calendarPath, const json & series, const ICSProperty & anchor);
+    json occurrenceOf(const string & calendarPath, const json & series, const ICSProperty & anchor);
     string storeEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows);
     void restoreEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows);
 

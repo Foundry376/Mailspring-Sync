@@ -637,10 +637,12 @@ class _Handler(BaseHTTPRequestHandler):
                 continue
             exception = exceptions.get(original)
             if exception:
-                item = {"id": exception["id"], "type": "exception", "start": exception["start"], "end": exception["end"]}
+                item = {"id": exception["id"], "type": "exception", "start": exception["start"], "end": exception["end"],
+                        "isCancelled": exception.get("isCancelled", False)}
             else:
                 item = {"id": f"AAMkOcc.{master['id']}.{local.date().isoformat()}", "type": "occurrence",
-                        "start": _zoned(local, master["start"]["timeZone"]), "end": _zoned(local + duration, master["start"]["timeZone"])}
+                        "start": _zoned(local, master["start"]["timeZone"]), "end": _zoned(local + duration, master["start"]["timeZone"]),
+                        "isCancelled": master.get("isCancelled", False)}
             if _instant(item["end"]) <= window[0] or _instant(item["start"]) >= window[1]:
                 continue
             item["originalStart"] = _offset_in_zone(original.strftime("%Y-%m-%dT%H:%M:%SZ"), zone)

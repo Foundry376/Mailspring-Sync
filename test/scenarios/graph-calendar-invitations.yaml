@@ -4,7 +4,8 @@ description: >
   occurrence, writes nothing to Graph: it reaches the organizer by email, and the rows keep Graph's
   copy. Any other guest edit is refused. A guest who deletes an occurrence, or the whole meeting,
   declines it through Graph with a response to the organizer, as Outlook and Google do, where a
-  DELETE would tell the organizer nothing. An emailed invitation the client adds to the calendar
+  DELETE would tell the organizer nothing. A meeting or occurrence the organizer cancelled is
+  deleted, as Outlook's "Remove from calendar" does: there is no one to answer. An emailed invitation the client adds to the calendar
   is not created: through Graph the user would become its organizer and Exchange would invite
   every guest, and Exchange has already put the invitation on the calendar.
 source: "https://learn.microsoft.com/en-us/graph/api/event-decline (sendResponse); https://learn.microsoft.com/en-us/graph/api/user-post-events (the signed-in user is the organizer of an event they create)"
@@ -38,7 +39,17 @@ servers:
             pattern: {type: weekly, interval: 1, daysOfWeek: [thursday], firstDayOfWeek: sunday}
             range: {type: noEnd, startDate: "2026-10-08", recurrenceTimeZone: Pacific Standard Time}
           cancelledOccurrences: []
-          exceptionOccurrences: []
+          exceptionOccurrences:
+            - id: "AAMkEvSyncX1="
+              type: exception
+              iCalUId: "uid-weekly-sync"
+              isCancelled: true
+              subject: "Canceled: Weekly sync"
+              originalStart: "2026-11-05T18:00:00Z"
+              start: {dateTime: "2026-11-05T10:00:00.0000000", timeZone: Pacific Standard Time}
+              end: {dateTime: "2026-11-05T10:30:00.0000000", timeZone: Pacific Standard Time}
+              isAllDay: false
+              lastModifiedDateTime: "2026-10-02T12:00:00Z"
         - id: "AAMkEvOffsite="
           changeKey: "ck-offsite-1"
           iCalUId: "uid-offsite"
@@ -47,6 +58,41 @@ servers:
           subject: Offsite
           start: {dateTime: "2026-10-23T09:00:00.0000000", timeZone: Pacific Standard Time}
           end: {dateTime: "2026-10-23T17:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          organizer: {emailAddress: {name: Pat Lee, address: pat@example.com}}
+          responseStatus: {response: notResponded}
+          attendees:
+            - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: test@example.test}}
+        - id: "AAMkEvDesign="
+          changeKey: "ck-design-1"
+          iCalUId: "uid-design-sync"
+          type: seriesMaster
+          isOrganizer: false
+          isCancelled: true
+          subject: "Canceled: Design sync"
+          start: {dateTime: "2026-10-06T15:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-06T15:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          organizer: {emailAddress: {name: Pat Lee, address: pat@example.com}}
+          responseStatus: {response: notResponded}
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [tuesday], firstDayOfWeek: sunday}
+            range: {type: noEnd, startDate: "2026-10-06", recurrenceTimeZone: Pacific Standard Time}
+          cancelledOccurrences: []
+          exceptionOccurrences: []
+        - id: "AAMkEvReview="
+          changeKey: "ck-review-1"
+          iCalUId: "uid-review"
+          type: singleInstance
+          isOrganizer: false
+          isCancelled: true
+          subject: "Canceled: Quarterly review"
+          start: {dateTime: "2026-10-26T13:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-26T14:00:00.0000000", timeZone: Pacific Standard Time}
           originalStartTimeZone: Pacific Standard Time
           isAllDay: false
           lastModifiedDateTime: "2026-10-02T12:00:00Z"
@@ -82,6 +128,21 @@ steps:
   - client.task: {__cls: DestroyEventTask, events_of: ["uid-offsite|"]}
     as: decline_all
   - wait: {task: decline_all, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-weekly-sync|"
+      ics_replace: [["RRULE:FREQ=WEEKLY;BYDAY=TH;WKST=SU", "RRULE:FREQ=WEEKLY;BYDAY=TH;WKST=SU\r\nEXDATE;TZID=Pacific Standard Time:20261105T100000"]]
+    as: remove_cancelled_one
+  - wait: {task: remove_cancelled_one, timeout: 60}
+  - client.task: {__cls: DestroyEventTask, events_of: ["uid-review|"]}
+    as: remove_cancelled
+  - wait: {task: remove_cancelled, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-design-sync|"
+      ics_replace: [["RRULE:FREQ=WEEKLY;BYDAY=TU;WKST=SU", "RRULE:FREQ=WEEKLY;BYDAY=TU;WKST=SU\r\nEXDATE;TZID=Pacific Standard Time:20261020T150000"]]
+    as: remove_cancelled_series_one
+  - wait: {task: remove_cancelled_series_one, timeout: 60}
   # The invitation header adds an emailed invitation it can't find on the calendar.
   - client.task:
       __cls: SyncbackEventTask
@@ -92,16 +153,23 @@ steps:
     as: add_invitation
   - wait: {task: add_invitation, timeout: 60}
 expect:
-  task_error: {answer: null, retitle: not-organizer, decline_one: null, decline_all: null, add_invitation: null}
+  task_error: {answer: null, retitle: not-organizer, decline_one: null, decline_all: null, remove_cancelled_one: null,
+               remove_cancelled: null, remove_cancelled_series_one: null, add_invitation: null}
   graph:
     event_writes:
       - [POST, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvSync=\\.2026-10-29/decline$", [sendResponse]]
       - [POST, "^calendars/AAMkADefault=/events/AAMkEvOffsite=/decline$", [sendResponse]]
+      - [DELETE, "^calendars/AAMkADefault=/events/AAMkEvSyncX1=$", []]
+      - [DELETE, "^calendars/AAMkADefault=/events/AAMkEvReview=$", []]
+      - [DELETE, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvDesign=\\.2026-10-20$", []]
     responses_sent: 2
   events:
     "uid-weekly-sync|":
       ics_has:
         - "SUMMARY:Weekly sync"
         - "EXDATE;TZID=Pacific Standard Time:20261029T100000"
+        - "EXDATE;TZID=Pacific Standard Time:20261105T100000"
         - "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test"
+    "uid-design-sync|":
+      ics_has: ["EXDATE;TZID=Pacific Standard Time:20261020T150000"]
   running: true
