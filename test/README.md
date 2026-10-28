@@ -93,6 +93,7 @@ Steps:
 | `at: {..., every: true}` | keep the hook armed instead of firing once, e.g. a folder whose STATUS fails on every pass (`orphan-sweep-with-unreadable-folder`) |
 | `server.flags: {..., per_message: true}` | one STORE per UID, so HIGHESTMODSEQ advances once per message - how a modseq gap larger than one grows on a real server (used by `modseq-truncation`) |
 | `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids (`{mailbox, uids}`, or `{header_message_ids: [...]}` for rows without a server placement such as a local draft), `threads: {mailbox, uids}` to their `threadIds`, `folder`/`labelsTo*` to Folder JSON, `sourceFolders: [paths]` to `sourceFolderIds` |
+| `client.task: {__cls: SyncbackEventTask, event_of: "icsuid\|rid", ics_replace: [[from, to]]}` | an edit of that Event row as the client sends it, each `from` (found exactly once) replaced in its ICS; `event_like: label` edits the event an earlier task sent instead, as Undo sends its snapshot; `calendar_of: name` makes `event` a new event on that calendar; `events_of: ["icsuid\|rid"]` gives a `DestroyEventTask` its rows (`graph-calendar-event-*`) |
 | `client.undo_task: {of: label}` | queue the undo of a completed task from its stored data, as `UndoRedoStore` does: for a `ChangeFolderTask` the engine-written `undoPlacements` become `restorePlacements` and the original destination its `sourceFolderIds` |
 | `client.need_bodies`, `client.wake`, `client.sync_calendar` | the other stdin commands (`sync_calendar` runs a calendar pass now, as the calendar's refresh does) |
 | `server.smtp_hold` / `server.smtp_release` | queue self-addressed SMTP deliveries, then deliver them, so the INBOX copy of a sent message arrives after the Sent copy; `smtp_release` takes `at:` like any server step (`rules-ready-inbox-copy-first`) |
@@ -136,7 +137,8 @@ last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], 
 [regex]}` (runs `--mode test`, the client's account-add check, and compares its JSON),
 `task_error: {label: key or null or {key, debuginfo: regex}}` (how a labelled task finished), `graph: {count, messages:
 [{recipients, headers, attachments}], drafts, upload_sessions, graph_mail_token_requests,
-graph_calendar_token_requests, distinct_tokens, requests: {regex: n}, max_request_bytes}` (what the fake Graph server sent and still holds), `local_search: {FTS5 query:
+graph_calendar_token_requests, distinct_tokens, requests: {regex: n}, max_request_bytes,
+event_writes: [[method, route regex, [field names]]], responses_sent}` (what the fake Graph server sent and still holds; `event_writes` every event POST, PATCH, DELETE and /decline in order, `responses_sent` the declines that told the organizer), `local_search: {FTS5 query:
 [thread subjects]}` (the threads a local search finds in `ThreadSearch`),
 `unfetched_bodies: {max: n}` (empty `MessageBody` rows reserving a fetch), `unchanged_since:
 snapshot`, `running`, `exit`. Any
@@ -456,7 +458,12 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   asked for, one at a time or 20 per `$batch`; the calendar scopes take their own token,
   refused only with `graph_calendars_consented: false`, and `graph_shared_mailbox_owner:
   address` makes the account a shared mailbox signed in as that address (`graph-calendars-*`,
-  `graph-calendar-events*`). It also answers the identity server's DAV host lookup as
+  `graph-calendar-events*`). Events are written through their calendar: POST (deduplicated on
+  `transactionId`), PATCH, DELETE and `/decline` of an event or an occurrence, whose ids come
+  from `/instances` (daily and weekly series); a PATCH to a series' times drops its exceptions
+  and cancellations. A calendar is writable (`canEdit`) and an event the mailbox's own
+  (`isOrganizer`) unless the fixture says otherwise (`graph-calendar-event-*`,
+  `graph-calendar-invitations`). It also answers the identity server's DAV host lookup as
   production does for a Microsoft account, sending CardDAV discovery to an Outlook on the web
   page that answers 401. The engine reaches it through `MS_GRAPH_URL`, `MS_OAUTH_TOKEN_URL`
   and `IDENTITY_SERVER`, which the server adds to the engine's environment

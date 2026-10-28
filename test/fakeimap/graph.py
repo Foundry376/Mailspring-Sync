@@ -32,8 +32,8 @@ event it already created, event-create), PATCH changes the fields it names and D
 PATCHing it makes it an exception, DELETEing it cancels it, and either moves the series' changeKey,
 as an Outlook.com account showed. A PATCH that moves a series' times or recurrence drops its
 exceptions and cancellations; whether Exchange does is unverified, and this is the case where the
-engine must apply them again. /instances expands daily and weekly series only. An event is the
-mailbox's own (`isOrganizer`) unless a scenario says otherwise. A guest's /decline (event-decline)
+engine must apply them again. /instances expands daily and weekly series only. A calendar is
+writable (`canEdit`) and an event is the mailbox's own (`isOrganizer`) unless a scenario says otherwise. A guest's /decline (event-decline)
 takes the event, or the occurrence, off the calendar, and counts a response to the organizer when
 `sendResponse` is true. Calendar and mail scopes are consented and tokened separately: a token for one is
 refused by the other's routes with 403, as Graph answers a token missing the permission a request
@@ -429,7 +429,7 @@ class _Handler(BaseHTTPRequestHandler):
         with srv.lock:
             calendars = list(srv.calendars)
         size = srv.calendars_page_size or max(len(calendars), 1)
-        body = {"value": [_selected(c, select) for c in calendars[skip:skip + size]]}
+        body = {"value": [_selected({"canEdit": True, **c}, select) for c in calendars[skip:skip + size]]}
         if skip + size < len(calendars):
             body["@odata.nextLink"] = f"{srv.url}/me/calendars?$select={select}&$skip={skip + size}"
         return self._reply(200, body)
