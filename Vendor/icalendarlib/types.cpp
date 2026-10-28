@@ -1,5 +1,6 @@
 #include "types.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 
@@ -151,13 +152,19 @@ time_t ICalendarEvent::EndUnix() const {
 		Days = Start.WithTime ? 0 : 1;
 		Seconds = 0;
 	}
+	// toUnix() is an int, so an end after January 2038 would wrap negative. Stopping the steps
+	// there also keeps a DURATION like P999999999W from running the loop for seconds.
+	Date Last;
+	Last = "20380101T000000Z";
 	// DatePart arithmetic takes a short; a span of years goes in steps.
-	while (Days > 0) {
+	while (Days > 0 && Start < Last) {
 		short Step = Days > 10000 ? 10000 : (short)Days;
 		Start[DAY] += Step;
 		Days -= Step;
 	}
-	return Start.toUnix() + Seconds;
+	if (!(Start < Last))
+		return Last.toUnix();
+	return min((time_t)Start.toUnix() + (time_t)Seconds, (time_t)Last.toUnix());
 }
 
 ICalendarEvent::operator string() const {

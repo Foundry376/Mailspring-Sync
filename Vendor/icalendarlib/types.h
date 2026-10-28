@@ -91,7 +91,7 @@ struct ICalendarEvent {
 	 The instant the event ends (RFC 5545 section 3.6.1): DTEND, else DTSTART plus DURATION, else
 	 the next day after a DATE start and the start itself after a DATE-TIME start. The weeks and
 	 days of a DURATION are nominal, so a day across a daylight-saving change is 23 or 25 hours;
-	 its time part is exact.
+	 its time part is exact. An end past the start of 2038 is reported as that instant.
 	*/
 	time_t EndUnix() const;
 

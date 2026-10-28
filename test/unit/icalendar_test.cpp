@@ -133,8 +133,14 @@ int main() {
                 "ends a DATE start DURATION days later");
     expectEqual(endOf("DTSTART;VALUE=DATE:20260301\r\nDURATION:P1H"), dayStart("20260302"),
                 "reads a malformed DURATION on a DATE start as none");
-    expectEqual(endOf("DTSTART;VALUE=DATE:20260101\r\nDURATION:P40000D"), dayStart("21350709"),
+    expectEqual(endOf("DTSTART;VALUE=DATE:19460101\r\nDURATION:P33000D"), dayStart("20360508"),
                 "adds a DURATION of more days than a short holds");
+    expectEqual(endOf("DTSTART;VALUE=DATE:20260101\r\nDURATION:P40000D"), utc(2038, 1, 1, 0, 0),
+                "ends a DURATION past 2037 at the start of 2038");
+    expectEqual(endOf("DTSTART;VALUE=DATE:20260101\r\nDURATION:P999999999W"), utc(2038, 1, 1, 0, 0),
+                "ends a DURATION of billions of days at the start of 2038");
+    expectEqual(endOf("DTSTART:20260301T100000Z\r\nDURATION:PT999999999H"), utc(2038, 1, 1, 0, 0),
+                "ends a DURATION of billions of hours at the start of 2038");
 
     ICalendar withAlarm("");
     ICalendarEvent * alarmed = eventIn(withAlarm, "DTSTART:20260301T100000Z\r\nDTEND:20260301T110000Z\r\n"
