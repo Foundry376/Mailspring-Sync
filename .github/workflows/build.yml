@@ -69,7 +69,7 @@ jobs:
 
       - name: Unit tests (Linux)
         if: runner.os == 'Linux'
-        run: make vcard_test graph_ics_test tz_test && ./vcard_test && ./graph_ics_test && ./tz_test Vendor/icu-tzdata
+        run: make vcard_test graph_ics_test tz_test icalendar_test && ./vcard_test && ./graph_ics_test && ./tz_test Vendor/icu-tzdata && ./icalendar_test
 
       - name: Verify universal binary architectures (macOS)
         if: runner.os == 'macOS'
