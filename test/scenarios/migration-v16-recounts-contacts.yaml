@@ -5,6 +5,8 @@ description: >
   (contacts-from-received-mail): the people who only wrote to the user appear, Carol's one
   sent message becomes 10 plus the three received with her, and it announces how many
   contacts it counted. A name the row already had and the hidden flag survive the recount.
+  The old score stays as a floor at the sent weight: the user's own contact, scored 2 as if a
+  second sent message had since been deleted, ends at 20 rather than the 13 the recount finds.
 source: "MailStore::_migrateToV16"
 servers:
   - {fake: dovecot}
@@ -40,12 +42,13 @@ steps:
         - db.sql:
             - "UPDATE Contact SET hidden = 1, data = json_set(data, '$.h', json('true'), '$.name', 'Carol Renamed') WHERE email = 'carol@example.net'"
             - "UPDATE ContactSearch SET content = 'carol example.net Carol Renamed' WHERE content_id = 'carol@example.net'"
+            - "UPDATE Contact SET refs = 2, data = json_set(data, '$.refs', 2) WHERE email = 'test@example.test'"
 expect:
   migrate_output: "Migration V16: 3 contacts counted from 4 messages"
   contacts:
     mail:
       alice@example.net: {name: Alice Example, refs: 3}
       carol@example.net: {name: Carol Renamed, refs: 13, hidden: true}
-      test@example.test: {name: Harness Test, refs: 13}
+      test@example.test: {name: Harness Test, refs: 20}
   db_matches_server: {}
   running: true

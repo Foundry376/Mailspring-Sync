@@ -581,10 +581,15 @@ void MailStore::_migrateToV14(bool freshDatabase) {
 }
 
 /*
- V15 recounts found-in-mail contacts from every message, because they now come from received
+ V16 recounts found-in-mail contacts from every message, because they now come from received
  mail as well as sent mail and `refs` scores the two (Contact::countMessage). Scores are reset
  first, so a run interrupted part-way starts over at the next launch; names and the hidden
  flag are kept. Each chunk commits on its own and deltas are dropped, as in V11.
+
+ The old score counted one per sent message, including messages since deleted or expunged that
+ no recount can see. It is kept as a floor at the sent weight, so nobody the user wrote to drops
+ to 0 and out of autocomplete. ContactRefsBeforeV16 holds it until the end, which is what lets an
+ interrupted run find the old scores again after the reset.
  */
 void MailStore::_migrateToV16() {
     vector<string> messageIds;
@@ -601,6 +606,9 @@ void MailStore::_migrateToV16() {
     cout << "\nRunning Migration";
     cout.flush();
 
+    SQLite::Statement(_db, "CREATE TABLE IF NOT EXISTS ContactRefsBeforeV16 AS SELECT id, refs FROM Contact "
+        "WHERE source = '" + CONTACT_SOURCE_MAIL + "' AND refs > 0").exec();
+
     SQLite::Statement reset(_db, "UPDATE Contact SET refs = 0, data = json_set(data, '$.refs', 0) WHERE source = ?");
     reset.bind(1, CONTACT_SOURCE_MAIL);
     reset.exec();
@@ -611,6 +619,19 @@ void MailStore::_migrateToV16() {
             MailProcessor::countContactsInOpenTransaction(this, message.get());
         }
         unsafeEraseTransactionDeltas();
+        transaction.commit();
+    }
+
+    {
+        MailStoreTransaction transaction{this, "_migrateToV16"};
+        SQLite::Statement keepSentScore(_db, "UPDATE Contact SET refs = MAX(refs, (SELECT MIN(b.refs * ?, ?) FROM "
+            "ContactRefsBeforeV16 b WHERE b.id = Contact.id)) WHERE id IN (SELECT id FROM ContactRefsBeforeV16)");
+        keepSentScore.bind(1, CONTACT_SENT_REF_WEIGHT);
+        keepSentScore.bind(2, CONTACT_MAX_REFS);
+        keepSentScore.exec();
+        SQLite::Statement(_db, "UPDATE Contact SET data = json_set(data, '$.refs', refs) "
+            "WHERE id IN (SELECT id FROM ContactRefsBeforeV16)").exec();
+        SQLite::Statement(_db, "DROP TABLE ContactRefsBeforeV16").exec();
         transaction.commit();
     }
 

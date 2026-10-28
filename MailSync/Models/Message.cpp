@@ -408,6 +408,9 @@ bool Message::isInInbox(MailStore * store) {
 // True when any copy is in a folder with the given role, or (Gmail) in All Mail
 // carrying a label whose name contains it.
 bool Message::_isIn(MailStore * store, string roleAlsoLabelName) {
+    // Gmail's All Mail copy is filed by X-GM-LABELS, whose system labels are \Inbox and \Sent.
+    // Only those match: a user label such as "Presentations" must not read as sent.
+    string systemLabel = "\\" + roleAlsoLabelName;
     for (auto & folderId : folderIds()) {
         string role = folderRole(store, folderId);
         if (role == roleAlsoLabelName) {
@@ -416,13 +419,13 @@ bool Message::_isIn(MailStore * store, string roleAlsoLabelName) {
         if (role != "all") {
             continue;
         }
-        string needle = roleAlsoLabelName;
         for (auto & l : labels()) {
             string ln = l.get<string>();
-            auto it = std::search(ln.begin(), ln.end(), needle.begin(), needle.end(), [](char ch1, char ch2) {
-                return std::toupper(ch1) == std::toupper(ch2);
-            });
-            if (it != ln.end()) {
+            bool same = ln.size() == systemLabel.size() &&
+                std::equal(ln.begin(), ln.end(), systemLabel.begin(), [](char ch1, char ch2) {
+                    return std::toupper(ch1) == std::toupper(ch2);
+                });
+            if (same) {
                 return true;
             }
         }
