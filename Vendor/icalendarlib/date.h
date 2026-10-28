@@ -52,15 +52,21 @@ private:
 };
 
 /*
- A zone in the operating system's time zone database: ICU's on Linux and Windows, CoreFoundation's
- on macOS. The system keeps its table current, which is why a zone found here outranks the
+ A zone in ICU's time zone database: the ICU linked on Linux and Windows, the system's libicucore
+ on macOS, so a name resolves to the same zone everywhere. Each reads the tzdata shipped with the
+ engine when it is installed (UseZoneFilesIn), which is why a zone found here outranks the
  VTIMEZONE an object carries (see ICalendar::AttachTimeZone).
 */
 class SystemTimeZone : public TimeZone {
 public:
-	/** The zone of an IANA name, or of a Windows name where ICU maps it; null when the system
-	    has no such zone. A zone is opened once and shared. */
+	/** The zone of an IANA name, or of a Windows name through CLDR's table; null when ICU has no
+	    such zone. A name is looked up once, found or not, and its zone shared. */
 	static shared_ptr<const TimeZone> Named(const string &TzId);
+	/** Reads zones from the ICU zone files (zoneinfo64.res and its companions) in Directory.
+	    Takes effect only before the first zone is opened. */
+	static void UseZoneFilesIn(const string &Directory);
+	/** The tzdata release zones are read from, e.g. "2026e"; empty if ICU can't say. */
+	static string DataVersion();
 	~SystemTimeZone();
 
 	bool OffsetForWallClock(int64_t Wall, int &Offset) const override;
@@ -69,7 +75,7 @@ private:
 	explicit SystemTimeZone(void *Handle) : Handle(Handle) {}
 	bool OffsetAt(int64_t Utc, int &Offset) const;
 
-	void *Handle; // a UCalendar, or a CFTimeZoneRef on macOS
+	void *Handle; // a UCalendar; ucal.h is not in the macOS SDK, so this header can't name it
 	mutable mutex Lock; // a UCalendar is positioned before it is read, so one reader at a time
 };
 
