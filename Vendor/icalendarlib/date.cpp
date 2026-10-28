@@ -566,15 +566,26 @@ string SystemTimeZone::DataVersion() {
 	return U_SUCCESS(Status) && Version ? Version : "";
 }
 
+// Names ICU lacks come from incoming calendar data, so only this many are remembered; past it an
+// unknown name is looked up each time it is read.
+static const size_t MaxRememberedMisses = 1000;
+
 shared_ptr<const TimeZone> SystemTimeZone::Named(const string &TzId) {
 	static map<string, shared_ptr<const TimeZone>> Zones;
+	static size_t Misses = 0;
 	static mutex ZonesLock;
 	lock_guard<mutex> Guard(ZonesLock);
 	auto Found = Zones.find(TzId);
 	if (Found != Zones.end())
 		return Found->second;
 	void *Handle = OpenSystemZone(TzId);
-	return Zones[TzId] = Handle ? shared_ptr<const TimeZone>(new SystemTimeZone(Handle)) : nullptr;
+	if (Handle)
+		return Zones[TzId] = shared_ptr<const TimeZone>(new SystemTimeZone(Handle));
+	if (Misses < MaxRememberedMisses) {
+		Misses++;
+		Zones[TzId] = nullptr;
+	}
+	return nullptr;
 }
 
 // The system gives the offset at an instant; the instant a wall clock means is the one whose
