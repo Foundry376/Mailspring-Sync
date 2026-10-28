@@ -22,15 +22,15 @@ string Event::TABLE_NAME = "Event";
 
 static Date DISTANT_FUTURE;
 
-Date endOf(ICalendarEvent *event)
+time_t endOf(ICalendarEvent *event)
 {
     if (event->RRule.IsEmpty())
     {
-        return !event->DtEnd.IsEmpty() ? event->DtEnd : event->DtStart;
+        return event->EndUnix();
     }
     if (!event->RRule.Until.IsEmpty())
     {
-        return event->RRule.Until;
+        return event->RRule.Until.toUnix();
     }
     if (event->RRule.Count > 0)
     {
@@ -38,7 +38,7 @@ Date endOf(ICalendarEvent *event)
     }
 
     DISTANT_FUTURE = "20370000T000000";
-    return DISTANT_FUTURE;
+    return DISTANT_FUTURE.toUnix();
 }
 
 // Calendar sync time range configuration
@@ -179,7 +179,7 @@ void Event::applyICSEventData(const string& etag, const string& href,
     setRecurrenceId(icsEvent->RecurrenceId);
     setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
     _data["rs"] = icsEvent->DtStart.toUnix();
-    _data["re"] = endOf(icsEvent).toUnix();
+    _data["re"] = endOf(icsEvent);
 
     // Populate transient search fields from the ICalendarEvent
     _searchTitle = icsEvent->Summary;

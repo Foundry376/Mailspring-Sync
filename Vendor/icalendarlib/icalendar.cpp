@@ -89,6 +89,8 @@ void ICalendar::LoadFromString(string icsData) {
 				} else if (Line.find("DTEND") == 0) {
 					NewEvent->DtEnd = GetProperty(Line);
 					NewEvent->DtEnd.TzId = GetParameter(Line, "TZID");
+				} else if (Line.find("DURATION") == 0) {
+					NewEvent->Duration = GetProperty(Line);
 				} else if (Line.find("DESCRIPTION") == 0) {
 					NewEvent->Description = GetProperty(Line);
 				} else if (Line.find("CATEGORIES") == 0) {

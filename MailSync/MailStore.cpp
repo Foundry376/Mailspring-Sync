@@ -122,7 +122,7 @@ MailStore::MailStore() :
     SQLite::Statement(_db, "PRAGMA journal_size_limit = 67108864").executeStep();
 }
 
-static int CURRENT_VERSION = 15;
+static int CURRENT_VERSION = 16;
 static string VACUUM_TIME_KEY = "VACUUM_TIME";
 static time_t VACUUM_INTERVAL = 30 * 24 * 60 * 60; // 30 days
 
@@ -193,7 +193,7 @@ void MailStore::recomputeEventTimes() {
             }
 
             int start = match->DtStart.toUnix();
-            int end = endOf(match).toUnix();
+            int end = endOf(match);
             data["rs"] = start;
             data["re"] = end;
 
@@ -213,7 +213,7 @@ void MailStore::recomputeEventTimes() {
 
     // The logger is null in migrate mode (see MailStoreTransaction.cpp), so this goes to the
     // same stream as the "Running Migration" line above.
-    cout << "\nMigration V15: " << updated << " events recomputed, " << skipped << " left as they were";
+    cout << "\nMigration V16: " << updated << " events recomputed, " << skipped << " left as they were";
     cout.flush();
 }
 
@@ -275,7 +275,8 @@ void MailStore::migrate() {
     if (version < 14) {
         _migrateToV14(version == 0);
     }
-    if (version < 15) {
+    // Rebuilt once for a database from before the newest change to how an event's times are read.
+    if (version < 16) {
         recomputeEventTimes();
     }
 

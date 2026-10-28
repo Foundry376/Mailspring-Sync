@@ -80,8 +80,11 @@ public:
     void afterRemove(MailStore * store);
 };
 
-// Helper function to calculate event end time (handles recurrence)
-Date endOf(ICalendarEvent *event);
+/*
+ When the stored span of an event ends: a one-off event's end instant, a series' UNTIL, and the
+ distant future for a series without one. The calendar's range query reads the columns this feeds.
+*/
+time_t endOf(ICalendarEvent *event);
 
 struct CalendarSyncRange {
     time_t start;

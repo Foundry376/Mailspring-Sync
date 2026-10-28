@@ -2019,7 +2019,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                     // New event from sync-token - only create if within our time range
                     // This prevents accumulating events outside the range when they're modified
                     time_t eventStart = pe.icsEvent->DtStart.toUnix();
-                    time_t eventEnd = endOf(pe.icsEvent).toUnix();
+                    time_t eventEnd = endOf(pe.icsEvent);
 
                     if (eventOverlapsRange(eventStart, eventEnd, range)) {
                         auto newEvent = make_shared<Event>(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
@@ -2087,7 +2087,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 } else {
                     // New event - only create if within our time range
                     time_t eventStart = pe.icsEvent->DtStart.toUnix();
-                    time_t eventEnd = endOf(pe.icsEvent).toUnix();
+                    time_t eventEnd = endOf(pe.icsEvent);
 
                     if (eventOverlapsRange(eventStart, eventEnd, range)) {
                         auto newEvent = make_shared<Event>(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);

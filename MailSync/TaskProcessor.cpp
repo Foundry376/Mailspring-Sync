@@ -1742,7 +1742,7 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
                 }
 
                 existing->_data["rs"] = matchingEvent->DtStart.toUnix();
-                existing->_data["re"] = endOf(matchingEvent).toUnix();
+                existing->_data["re"] = endOf(matchingEvent);
                 existing->_data["icsuid"] = matchingEvent->UID;
                 existing->setRecurrenceId(matchingEvent->RecurrenceId);
                 existing->setStatus(matchingEvent->Status.empty() ? "CONFIRMED" : matchingEvent->Status);
@@ -3267,9 +3267,11 @@ static time_t slotSeconds(Date value) {
     return value.toUnix();
 }
 
-static string readableSlot(Date start, Date end) {
-    time_t from = slotSeconds(start);
-    return readableSlot(from, end.IsEmpty() ? from : slotSeconds(end), !start.WithTime, start.TzId);
+static string readableSlot(ICalendarEvent * event) {
+    time_t from = slotSeconds(event->DtStart);
+    time_t to = event->DtEnd.IsEmpty() ? from + (event->EndUnix() - event->DtStart.toUnix())
+                                       : slotSeconds(event->DtEnd);
+    return readableSlot(from, to, !event->DtStart.WithTime, event->DtStart.TzId);
 }
 
 /*
@@ -3302,16 +3304,16 @@ static string currentSlotOfCountered(MailStore * store, string accountId, ICalen
         Date recurrenceId;
         recurrenceId = vevent->RecurrenceId;
         if (!countered.IsEmpty() && recurrenceId.toUnix() == countered.toUnix()) {
-            return readableSlot(vevent->DtStart, vevent->DtEnd);
+            return readableSlot(vevent);
         }
     }
     if (!master) {
         return "";
     }
     if (countered.IsEmpty()) {
-        return readableSlot(master->DtStart, master->DtEnd);
+        return readableSlot(master);
     }
-    time_t duration = master->DtEnd.IsEmpty() ? 0 : master->DtEnd.toUnix() - master->DtStart.toUnix();
+    time_t duration = master->EndUnix() - master->DtStart.toUnix();
     time_t from = slotSeconds(countered);
     return readableSlot(from, from + duration, !master->DtStart.WithTime, countered.TzId);
 }
@@ -3458,7 +3460,7 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
             humanReadableText += "\r\n\r\nCurrently: " + current;
         }
         humanReadableText += (current.empty() ? "\r\n\r\n" : "\r\n") +
-            string("Proposed: ") + readableSlot(event->DtStart, event->DtEnd);
+            string("Proposed: ") + readableSlot(event);
         if (task->data().count("comment")) {
             string comment = task->data()["comment"].get<string>();
             if (!comment.empty()) {

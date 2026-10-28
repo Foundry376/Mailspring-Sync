@@ -1,5 +1,8 @@
 #include "types.h"
 
+#include <cctype>
+#include <cstdlib>
+
 Recurrence::operator string() const {
 	char Temp[5];
 	string Text = "FREQ=";
@@ -92,6 +95,71 @@ Alarm::operator string() const {
 	return Text;
 }
 
+bool ParseDuration(const string &Value, long long &Days, long long &Seconds) {
+	static const string Units = "WDHMS";
+	Days = Seconds = 0;
+	size_t i = 0;
+	if (i < Value.size() && Value[i] == '+')
+		i++;
+	if (i >= Value.size() || Value[i] != 'P')
+		return false;
+	i++;
+	bool InTime = false;
+	int LastUnit = -1;
+	while (i < Value.size()) {
+		// A week count stands alone, and each unit may appear once, in descending order.
+		if (LastUnit == 0)
+			return false;
+		if (Value[i] == 'T') {
+			if (InTime)
+				return false;
+			InTime = true;
+			i++;
+			continue;
+		}
+		size_t Digits = i;
+		while (i < Value.size() && isdigit((unsigned char)Value[i]))
+			i++;
+		if (i == Digits || i - Digits > 9)
+			return false;
+		long long Count = atoll(Value.substr(Digits, i - Digits).c_str());
+		// At the end of the value this is its terminating null, which no unit matches.
+		char Unit = Value[i++];
+		size_t Rank = Units.find(Unit);
+		if (Rank == string::npos || (Rank >= 2) != InTime || (LastUnit >= 0 && Rank <= (size_t)LastUnit))
+			return false;
+		LastUnit = (int)Rank;
+		switch (Unit) {
+			case 'W': Days += 7 * Count; break;
+			case 'D': Days += Count; break;
+			case 'H': Seconds += 3600 * Count; break;
+			case 'M': Seconds += 60 * Count; break;
+			case 'S': Seconds += Count; break;
+		}
+	}
+	// "P" and "PT" name no unit; "P1DT" opens a time part and gives none.
+	return LastUnit >= 0 && (!InTime || LastUnit >= 2);
+}
+
+time_t ICalendarEvent::EndUnix() const {
+	Date End = DtEnd;
+	if (!End.IsEmpty())
+		return End.toUnix();
+	Date Start = DtStart;
+	long long Days = 0, Seconds = 0;
+	if (!ParseDuration(Duration, Days, Seconds)) {
+		Days = Start.WithTime ? 0 : 1;
+		Seconds = 0;
+	}
+	// DatePart arithmetic takes a short; a span of years goes in steps.
+	while (Days > 0) {
+		short Step = Days > 10000 ? 10000 : (short)Days;
+		Start[DAY] += Step;
+		Days -= Step;
+	}
+	return Start.toUnix() + Seconds;
+}
+
 ICalendarEvent::operator string() const {
 	string Text = "BEGIN:VEVENT";
 	Text += "\r\nUID:";
@@ -109,6 +177,9 @@ ICalendarEvent::operator string() const {
 	if (!DtEnd.IsEmpty()) {
 		Text += "\r\nDTEND:";
 		Text += DtEnd;
+	} else if (!Duration.empty()) {
+		Text += "\r\nDURATION:";
+		Text += Duration;
 	}
 	if (!Description.empty()) {
 		Text += "\r\nDESCRIPTION:";
