@@ -44,12 +44,12 @@ class MicrosoftCalendarWorker {
     string ingestEvent(const string & calendarId, const json & entry, const string & ics,
                        const vector<shared_ptr<Event>> & previousRows);
 
-    json listedCalendar(const string & calendarId);
+    json fetchCalendar(const string & calendarId);
     bool organizedElsewhere(const string & ics);
-    vector<shared_ptr<Event>> rowsOf(shared_ptr<Event> event);
-    json listedEvent(const string & calendarPath, const string & graphId);
-    json readSeries(const string & calendarPath, const string & graphId);
-    json occurrenceOf(const string & calendarPath, const json & series, const ICSProperty & anchor);
+    vector<shared_ptr<Event>> findRows(shared_ptr<Event> event);
+    json fetchEvent(const string & calendarPath, const string & graphId);
+    json fetchSeries(const string & calendarPath, const string & graphId);
+    json findOccurrence(const string & calendarPath, const json & series, const ICSProperty & anchor);
     string storeEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows);
     void restoreEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows);
 

@@ -269,8 +269,6 @@ string MicrosoftCalendarWorker::ingestEvent(const string & calendarId, const jso
                                                                      : store->find<Event>(Query().equal("id", id));
         if (existing) {
             existing->applyICSEventData(changeKey, graphId, ics, vevent);
-            // An edit made from the event as it was before its create wrote back the client's UID.
-            existing->_data["icsuid"] = vevent->UID;
             store->save(existing.get());
             kept.insert(existing->id());
         } else {
@@ -371,7 +369,7 @@ static GraphResponse deleteOrDecline(const string & url, bool decline, const str
     ThrowForGraphResponse(url, resp);
 }
 
-json MicrosoftCalendarWorker::listedCalendar(const string & calendarId) {
+json MicrosoftCalendarWorker::fetchCalendar(const string & calendarId) {
     auto calendar = store->find<Calendar>(Query().equal("id", calendarId));
     if (calendar) {
         for (const auto & remote : listCalendars()) {
@@ -397,11 +395,11 @@ bool MicrosoftCalendarWorker::organizedElsewhere(const string & ics) {
 }
 
 // The event's master and override rows, which share its UID.
-vector<shared_ptr<Event>> MicrosoftCalendarWorker::rowsOf(shared_ptr<Event> event) {
+vector<shared_ptr<Event>> MicrosoftCalendarWorker::findRows(shared_ptr<Event> event) {
     return store->findAll<Event>(Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()));
 }
 
-json MicrosoftCalendarWorker::listedEvent(const string & calendarPath, const string & graphId) {
+json MicrosoftCalendarWorker::fetchEvent(const string & calendarPath, const string & graphId) {
     string url = eventURL(calendarPath, graphId) + "?$select=" + EVENT_WRITE_FIELDS;
     GraphResponse resp = PerformGraphRequest("GET", url, tokenProvider()());
     if (!resp.ok()) {
@@ -411,8 +409,8 @@ json MicrosoftCalendarWorker::listedEvent(const string & calendarPath, const str
 }
 
 // The series as the pass reads it: its exceptions' originalStart in the series' zone.
-json MicrosoftCalendarWorker::readSeries(const string & calendarPath, const string & graphId) {
-    vector<pair<json, json>> read = fetchEvents(calendarPath, {listedEvent(calendarPath, graphId)});
+json MicrosoftCalendarWorker::fetchSeries(const string & calendarPath, const string & graphId) {
+    vector<pair<json, json>> read = fetchEvents(calendarPath, {fetchEvent(calendarPath, graphId)});
     if (read.empty()) {
         throw SyncException("invalid-graph-resp", "Graph event " + graphId + " could not be read", true);
     }
@@ -421,7 +419,7 @@ json MicrosoftCalendarWorker::readSeries(const string & calendarPath, const stri
 
 // The occurrence `anchor` names (its id and isCancelled), or null when the series has none there.
 // An exception is found by its originalStart wherever it moved; any other occurrence is at its slot.
-json MicrosoftCalendarWorker::occurrenceOf(const string & calendarPath, const json & series, const ICSProperty & anchor) {
+json MicrosoftCalendarWorker::findOccurrence(const string & calendarPath, const json & series, const ICSProperty & anchor) {
     for (const auto & exception : JSONArray(series, "exceptionOccurrences")) {
         if (GraphICS::namesOccurrence(anchor, JSONString(exception, "originalStart"))) {
             return exception;
@@ -451,7 +449,7 @@ string MicrosoftCalendarWorker::storeEvent(const json & calendar, const string &
     if (!calendar.is_null()) {
         try {
             string path = JSONString(calendar, "id");
-            json entry = listedEvent(path, graphId);
+            json entry = fetchEvent(path, graphId);
             vector<pair<json, json>> read = fetchEvents(path, {entry});
             if (read.empty()) {
                 throw SyncException("invalid-graph-resp", "Graph event " + graphId + " could not be read back", true);
@@ -493,11 +491,11 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
         store->remove(event.get());
         return event->id();
     }
-    vector<shared_ptr<Event>> rows = rowsOf(event);
+    vector<shared_ptr<Event>> rows = findRows(event);
 
     json calendar; // null while Graph hasn't listed it
     try {
-        calendar = listedCalendar(event->calendarId());
+        calendar = fetchCalendar(event->calendarId());
         string path = JSONString(calendar, "id");
         if (graphId != "" && previousIcs == "") {
             // Read as a new event, the edit would create a second one and invite its guests again.
@@ -507,7 +505,7 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
         bool onlineMeeting = false;
         bool guest = false;
         if (graphId != "") {
-            json listed = listedEvent(path, graphId);
+            json listed = fetchEvent(path, graphId);
             startUTC = JSONString(JSONObject(listed, "start"), "dateTime");
             onlineMeeting = JSONBool(listed, "isOnlineMeeting");
             guest = !JSONBool(listed, "isOrganizer");
@@ -543,9 +541,9 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
                 resp = PerformGraphRequest("PATCH", url, tokenProvider()(), change.fields.dump());
             } else {
                 if (series.is_null()) {
-                    series = readSeries(path, graphId);
+                    series = fetchSeries(path, graphId);
                 }
-                json occurrence = occurrenceOf(path, series, change.occurrence);
+                json occurrence = findOccurrence(path, series, change.occurrence);
                 if (occurrence.is_null()) {
                     logger->warn("-- No occurrence of {} at {} {}", graphId, change.occurrence.param("TZID"), change.occurrence.value);
                     continue;
@@ -603,7 +601,7 @@ void MicrosoftCalendarWorker::deleteEvent(shared_ptr<Event> event) {
         ThrowForGraphResponse(url, resp);
     }
     MailStoreTransaction transaction{store.get(), "deleteEvent"};
-    for (auto & row : rowsOf(event)) {
+    for (auto & row : findRows(event)) {
         store->remove(row.get());
     }
     transaction.commit();

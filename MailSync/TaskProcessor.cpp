@@ -1722,7 +1722,7 @@ static void _keepPreviousIcs(shared_ptr<Account> account, Task * task, Event * e
 static std::mutex replacedEventIdsMtx;
 static map<string, string> replacedEventIds;
 
-static string currentEventId(const string & id) {
+static string _currentEventId(const string & id) {
     lock_guard<mutex> lock(replacedEventIdsMtx);
     auto it = replacedEventIds.find(id);
     return it == replacedEventIds.end() ? id : it->second;
@@ -1733,7 +1733,7 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
     string calendarId = task->data()["calendarId"].get<string>();
 
     // Check if event already exists
-    string eventId = eventJSON.count("id") ? currentEventId(eventJSON["id"].get<string>()) : "";
+    string eventId = eventJSON.count("id") ? _currentEventId(eventJSON["id"].get<string>()) : "";
     shared_ptr<Event> existing = nullptr;
 
     if (eventId != "") {
@@ -1845,7 +1845,7 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
 }
 
 void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
-    string eventId = currentEventId(task->data()["event"]["id"].get<string>());
+    string eventId = _currentEventId(task->data()["event"]["id"].get<string>());
     auto event = store->find<Event>(Query().equal("id", eventId).equal("accountId", account->id()));
 
     if (event == nullptr) {
@@ -1879,7 +1879,7 @@ void TaskProcessor::performLocalDestroyEvent(Task * task) {
 void TaskProcessor::performRemoteDestroyEvent(Task * task) {
     vector<string> eventIds {};
     for (json & e : task->data()["events"]) {
-        eventIds.push_back(currentEventId(e["id"].get<string>()));
+        eventIds.push_back(_currentEventId(e["id"].get<string>()));
     }
 
     // findLargeSet empties eventIds (MailUtils::chunksOfVector erases from it).

@@ -77,7 +77,6 @@ Event::Event(string etag, string accountId, string calendarId, string ics, ICale
     : MailModel(MailUtils::idForEvent(accountId, calendarId, event->UID, event->RecurrenceId), accountId)
 {
     _data["cid"] = calendarId;
-    _data["icsuid"] = event->UID;
     applyICSEventData(etag, "", ics, event);
 }
 
@@ -176,6 +175,9 @@ void Event::applyICSEventData(const string& etag, const string& href,
         setHref(href);
     }
     setIcsData(icsData);
+    // An edit made from the client's copy of an event a Graph create has since replaced carries the
+    // client's UID; the row takes the UID its ICS holds again.
+    _data["icsuid"] = icsEvent->UID;
     setRecurrenceId(icsEvent->RecurrenceId);
     setStatus(icsEvent->Status.empty() ? "CONFIRMED" : icsEvent->Status);
     _data["rs"] = icsEvent->DtStart.toUnix();
