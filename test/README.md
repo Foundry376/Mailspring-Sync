@@ -141,7 +141,7 @@ last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], 
 `task_error: {label: key or null or {key, debuginfo: regex}}` (how a labelled task finished), `graph: {count, messages:
 [{recipients, headers, attachments}], drafts, upload_sessions, graph_mail_token_requests,
 graph_calendar_token_requests, distinct_tokens, requests: {regex: n}, max_request_bytes,
-event_writes: [[method, route regex, [field names]]], created_subjects, responses_sent}` (what the fake Graph server sent and still holds; `event_writes` every event POST, PATCH, DELETE and /decline in order, `created_subjects` the subject each new event was POSTed with, `responses_sent` the declines that told the organizer), `local_search: {FTS5 query:
+event_writes: [[method, route regex, [field names]]], created_subjects, responses_sent}` (what the fake Graph server sent and still holds; `event_writes` every event POST, PATCH, DELETE and answer in order, `created_subjects` the subject each new event was POSTed with, `responses_sent` the answers that told the organizer), `local_search: {FTS5 query:
 [thread subjects]}` (the threads a local search finds in `ThreadSearch`),
 `unfetched_bodies: {max: n}` (empty `MessageBody` rows reserving a fetch), `unchanged_since:
 snapshot`, `running`, `exit`. Any
@@ -464,11 +464,12 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   refused only with `graph_calendars_consented: false`, and `graph_shared_mailbox_owner:
   address` makes the account a shared mailbox signed in as that address (`graph-calendars-*`,
   `graph-calendar-events*`). Events are written through their calendar: POST (deduplicated on
-  `transactionId`), PATCH, DELETE and `/decline` of an event or an occurrence, whose ids come
-  from `/instances` (daily and weekly series); a PATCH to a series' times drops its exceptions
-  and cancellations. A calendar is writable (`canEdit`) and an event the mailbox's own
+  `transactionId`), PATCH, DELETE, and a guest's `/accept`, `/tentativelyAccept` (which set its
+  `responseStatus`) and `/decline` (which removes it) of an event or an occurrence, whose ids
+  come from `/instances` (daily and weekly series); a PATCH to a series' times drops its
+  exceptions and cancellations. A calendar is writable (`canEdit`) and an event the mailbox's own
   (`isOrganizer`) unless the fixture says otherwise (`graph-calendar-event-*`,
-  `graph-calendar-invitations`). It also answers the identity server's DAV host lookup as
+  `graph-calendar-invitations`, `graph-calendar-rsvp`). It also answers the identity server's DAV host lookup as
   production does for a Microsoft account, sending CardDAV discovery to an Outlook on the web
   page that answers 401. The engine reaches it through `MS_GRAPH_URL`, `MS_OAUTH_TOKEN_URL`
   and `IDENTITY_SERVER`, which the server adds to the engine's environment
