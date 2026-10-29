@@ -16,6 +16,7 @@
 #include "File.hpp"
 #include "Thread.hpp"
 #include "Placement.hpp"
+#include "constants.h"
 
 using namespace std;
 
@@ -384,13 +385,9 @@ bool Message::hasIncomingCopy(MailStore * store) {
         if (role != "all") {
             return true;
         }
-        bool inInbox = false, outgoing = false;
-        for (auto & l : labels()) {
-            string name = l.get<string>();
-            inInbox = inInbox || name == "\\Inbox";
-            outgoing = outgoing || name == "\\Sent" || name == "\\Draft";
-        }
-        if (inInbox || !outgoing) {
+        auto roles = _labelRoles();
+        bool outgoing = roles.count("sent") || roles.count("drafts");
+        if (roles.count("inbox") || !outgoing) {
             return true;
         }
     }
@@ -406,27 +403,32 @@ bool Message::isInInbox(MailStore * store) {
 }
 
 // True when any copy is in a folder with the given role, or (Gmail) in All Mail
-// carrying a label whose name contains it.
+// carrying the system label with that role.
 bool Message::_isIn(MailStore * store, string role) {
     for (auto & folderId : folderIds()) {
         string folderRoleName = folderRole(store, folderId);
         if (folderRoleName == role) {
             return true;
         }
-        if (folderRoleName != "all") {
-            continue;
-        }
-        // Gmail's All Mail copy is filed by X-GM-LABELS. Each resolves to its Label, as in
-        // Thread::adjustLabelRefs, so \Sent is sent and a user label "Presentations" is not.
-        auto allLabels = store->allLabelsCache(accountId());
-        for (auto & l : labels()) {
-            auto label = MailUtils::labelForXGMLabelName(l.get<string>(), allLabels);
-            if (label != nullptr && label->role() == role) {
-                return true;
-            }
+        if (folderRoleName == "all" && _labelRoles().count(role)) {
+            return true;
         }
     }
     return false;
+}
+
+// The roles of the Gmail system labels this message's All Mail copy carries. They come
+// from the X-GM-LABELS names, not the account's Labels: Sent Mail may be hidden from IMAP,
+// and a user label can take a role from its name ("Sent Items").
+set<string> Message::_labelRoles() {
+    set<string> roles;
+    for (auto & l : labels()) {
+        auto role = GMAIL_SYSTEM_LABEL_ROLES.find(l.get<string>());
+        if (role != GMAIL_SYSTEM_LABEL_ROLES.end()) {
+            roles.insert(role->second);
+        }
+    }
+    return roles;
 }
 
 time_t Message::syncedAt() {

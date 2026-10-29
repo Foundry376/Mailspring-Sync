@@ -485,7 +485,7 @@ class Session(socketserver.StreamRequestHandler):
             self.send(f'* {verb} (\\Noselect) "{self.store.delimiter}" ""'.encode())
         else:
             for mb in self.store.list():
-                if self._matches(full, mb.name):
+                if self._matches(full, mb.name) and mb.name not in self.srv.hidden_mailboxes:
                     self.send(self._list_line(verb, mb))
                     if self.p.has("duplicate-list-lines") and "\\Sent" in mb.attrs:
                         self.send(self._list_line(verb, mb))
@@ -501,7 +501,7 @@ class Session(socketserver.StreamRequestHandler):
             return
         args.token(); pattern = args.token() or "*"
         for mb in self.store.list():
-            if mb.subscribed and self._matches(pattern, mb.name):
+            if mb.subscribed and self._matches(pattern, mb.name) and mb.name not in self.srv.hidden_mailboxes:
                 self.send(self._list_line("LSUB", mb))
         self.ok(tag, "Lsub completed.")
 
@@ -1184,8 +1184,12 @@ class FakeImapServer:
 
     def __init__(self, personality="dovecot", store: Optional[Store] = None, host="127.0.0.1", port=0,
                  credentials: Optional[tuple] = ("test", "pass"), tls_context: Optional[ssl.SSLContext] = None,
-                 implicit_tls: bool = False, log_path: Optional[str] = None):
+                 implicit_tls: bool = False, log_path: Optional[str] = None,
+                 hidden_mailboxes: Optional[list] = None):
         self.personality = get_personality(personality) if isinstance(personality, str) else personality
+        # Left out of LIST and LSUB, as Gmail leaves a label whose "Show in IMAP" box is
+        # unchecked; its messages keep the label.
+        self.hidden_mailboxes = set(hidden_mailboxes or [])
         self.store = store or (GmailStore() if self.personality.gmail else Store(delimiter=self.personality.delimiter))
         if not self.store.mailboxes:
             for name, attrs in self.personality.mailboxes:

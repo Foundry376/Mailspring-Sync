@@ -1,0 +1,21 @@
+name: gmail-user-label-named-sent
+description: >
+  With Sent Mail hidden from IMAP, nothing flags a mailbox \Sent, so the folder-name table
+  gives the sent role to a user label called "Sent Items". Bob's message under that label is
+  still mail the user received: Bob scores 1, not the 10 of a person the user wrote to.
+source: "Indent review of #190: _isIn resolved X-GM-LABELS through the account's Labels"
+servers:
+  - {fake: gmail, hidden_mailboxes: ["[Gmail]/Sent Mail"]}
+mailboxes:
+  INBOX: {messages: {count: 1, sender: [Bob Builder, bob@example.net], to: "Harness Test <test@example.test>"}}
+  "Sent Items": {messages: 0}
+setup:
+  - server.labels: {mailbox: INBOX, uids: [1], add: ["Sent Items"]}
+steps:
+  - wait: quiescent
+expect:
+  contacts:
+    mail:
+      bob@example.net: {name: Bob Builder, refs: 1}
+      test@example.test: {name: Harness Test, refs: 1}
+  running: true

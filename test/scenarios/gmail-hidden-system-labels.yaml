@@ -1,0 +1,29 @@
+name: gmail-hidden-system-labels
+description: >
+  A Gmail user can uncheck "Show in IMAP" for Sent Mail and Drafts, so LIST never names them
+  and no Label for either is synced, while the messages still carry \Sent and \Draft in
+  X-GM-LABELS. The message the user sent to Carol is still sent mail (Carol scores 10) and
+  gets no rulesReady, and neither does the draft; Alice's message to the user gets it once.
+source: "Indent review of #190: hasIncomingCopy and _isIn resolved X-GM-LABELS through the account's Labels"
+servers:
+  - {fake: gmail, hidden_mailboxes: ["[Gmail]/Sent Mail", "[Gmail]/Drafts"]}
+mailboxes:
+  INBOX: {messages: {count: 1, sender: [Alice Example, alice@example.net], to: "Harness Test <test@example.test>"}}    # Message 1
+  "[Gmail]/Sent Mail": {messages: {count: 1, sender: [Harness Test, test@example.test], to: "Carol Copied <carol@example.net>"}}    # Message 2
+  "[Gmail]/Drafts": {messages: {count: 1, sender: [Harness Test, test@example.test], to: "Dave Draft <dave@example.net>"}, flags: ["\\Draft", "\\Seen"]}    # Message 3
+steps:
+  - wait: quiescent
+expect:
+  contacts:
+    mail:
+      alice@example.net: {name: Alice Example, refs: 1}
+      carol@example.net: {name: Carol Copied, refs: 10}
+      dave@example.net: null
+      test@example.test: {name: Harness Test, refs: 11}
+  rules_ready:
+    total: 1
+    messages:
+      "Message 1": {count: 1}
+      "Message 2": 0
+      "Message 3": 0
+  running: true
