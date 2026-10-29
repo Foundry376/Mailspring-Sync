@@ -3449,6 +3449,13 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
             "ICS COUNTER must contain the proposed DTSTART", false);
     }
 
+    // Exchange tells the organizer of an answer made on the user's copy, so a REPLY emailed beside
+    // it would be a second answer. An invitation Exchange never filed is still emailed.
+    if (method == "REPLY" && account->syncsCalendarsViaGraph() &&
+        MicrosoftCalendarWorker(account).answerEvent(ics, icsRSVPStatus)) {
+        return;
+    }
+
     // The ICalendar library returns attendee as "Name <email>" or just "email"
     auto emailOf = [](const string & attendeeInfo) {
         size_t emailStart = attendeeInfo.find('<');

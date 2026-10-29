@@ -586,9 +586,9 @@ void MicrosoftCalendarWorker::restoreEvent(const json & calendar, const string &
 
 string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics, bool answer) {
     if (answer) {
-        // It reaches the organizer by email. Read back, Graph's copy would show the meeting unanswered;
-        // the row keeps its etag, so no pass reads it again until the event changes on Graph.
-        logger->info("- Answer to {} goes to its organizer by email, not to Graph", event->href());
+        // The EventRSVPTask queued beside it answers through Graph and reads Graph's copy back. Read back
+        // here, possibly before that, Graph's copy would show the meeting unanswered.
+        logger->info("- Answer to {} is left to its EventRSVPTask", event->href());
         return event->id();
     }
     string graphId = event->href();

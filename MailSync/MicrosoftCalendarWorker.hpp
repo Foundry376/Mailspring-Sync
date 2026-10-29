@@ -64,7 +64,7 @@ public:
 
     // Makes Graph's copy of `event` match `ics`, the client's edit of `previousIcs` (unused for an
     // event Graph doesn't hold yet), then stores Graph's copy in its rows. Returns its master row's
-    // id. An `answer` to an invitation writes nothing and reads nothing: it reaches the organizer by email.
+    // id. An `answer` to an invitation writes nothing and reads nothing: answerEvent makes it.
     string writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics, bool answer);
 
     // Answers an invitation through Graph, which tells its organizer: `partstat` (ACCEPTED, TENTATIVE or
