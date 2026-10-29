@@ -427,49 +427,29 @@ string MailUtils::roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder) 
     return "";
 }
 
-string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
+// The folder's path without the namespace prefix or the delimiter that follows it.
+static string _pathInNamespace(string mainPrefix, IMAPFolder * folder) {
     string delimiter {folder->delimiter()};
     string path = string(folder->path()->UTF8Characters());
 
-    // Strip the namespace prefix if it's present
     if ((mainPrefix.size() > 0) && (path.size() > mainPrefix.size()) && (path.substr(0, mainPrefix.size()) == mainPrefix)) {
         path = path.substr(mainPrefix.size());
     }
-    
-    // Strip the delimiter if the delimiter is the first character after stripping prefix
     if (path.size() > 1 && path.substr(0, 1) == delimiter) {
         path = path.substr(1);
     }
+    return path;
+}
 
-    string unprefixedPath = path;
-    transform(path.begin(), path.end(), path.begin(), ::tolower);
-    transform(containerFolderPath.begin(), containerFolderPath.end(), containerFolderPath.begin(), ::tolower);
-
-    // In our [Mailspring] subfolder, folder names are roles:
-    // [mailspring]/snoozed = snoozed
-    // [mailspring]/XXX = xxx
-    string mailspringPrefix = MAILSPRING_FOLDER_PREFIX_V1 + delimiter;
-    transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
-    if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
-        return path.substr(mailspringPrefix.size());
-    }
-
-           mailspringPrefix = MAILSPRING_FOLDER_PREFIX_V2 + delimiter;
-    transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
-    if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
-        return path.substr(mailspringPrefix.size());
-    }
-
-    if (containerFolderPath != "") {
-           mailspringPrefix = containerFolderPath + delimiter;
-      transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
-      if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
-         return path.substr(mailspringPrefix.size());
-      }
+string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
+    string role = MailUtils::roleForMailspringFolder(containerFolderPath, mainPrefix, folder);
+    if (role != "") {
+        return role;
     }
 
     // COMMON_FOLDER_NAMES is keyed by lowercase UTF-8, but LIST returns non-ASCII names in
     // modified UTF-7 (RFC 3501 5.1.3), e.g. "Ko&AWE-" for "Koš".
+    string unprefixedPath = _pathInNamespace(mainPrefix, folder);
     String * name = AS_MCSTR(unprefixedPath);
     if (unprefixedPath.find('&') != string::npos) {
         String * decoded = name->mUTF7DecodedString();
@@ -482,6 +462,70 @@ string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPr
         return common->second;
     }
 
+    return "";
+}
+
+// In our Mailspring folders, folder names are roles: [Mailspring]/Snoozed is snoozed.
+string MailUtils::roleForMailspringFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
+    string delimiter {folder->delimiter()};
+    string path = _pathInNamespace(mainPrefix, folder);
+    transform(path.begin(), path.end(), path.begin(), ::tolower);
+
+    for (string prefix : {MAILSPRING_FOLDER_PREFIX_V1, MAILSPRING_FOLDER_PREFIX_V2, containerFolderPath}) {
+        if (prefix == "") {
+            continue;
+        }
+        prefix += delimiter;
+        transform(prefix.begin(), prefix.end(), prefix.begin(), ::tolower);
+        if (path.size() > prefix.size() && path.substr(0, prefix.size()) == prefix) {
+            return path.substr(prefix.size());
+        }
+    }
+    return "";
+}
+
+static string _roleForGmailSystemMailbox(IMAPFolder * folder) {
+    string path = string(folder->path()->UTF8Characters());
+    transform(path.begin(), path.end(), path.begin(), ::toupper);
+    if (path == "INBOX") {
+        return "inbox";
+    }
+    for (auto & mailbox : GMAIL_SYSTEM_MAILBOXES) {
+        if (folder->flags() & mailbox.listFlag) {
+            return mailbox.role;
+        }
+    }
+    return "";
+}
+
+/*
+ Roles for a Gmail LIST response, in the same order. Gmail's system mailboxes take theirs from
+ GMAIL_SYSTEM_MAILBOXES and INBOX from its name. The one role Gmail doesn't give is snoozed,
+ which goes to the first of Mailspring's Snoozed labels (a legacy [Mailspring]/Snoozed can sit
+ beside Mailspring/Snoozed). Every other label has none: labelForXGMLabelName resolves \Sent
+ through the role, and the client archives into an "archive" label in place of All Mail.
+*/
+vector<string> MailUtils::rolesForGmailFolders(string containerFolderPath, string mainPrefix, Array * folders) {
+    vector<string> result;
+    bool snoozedAssigned = false;
+    for (unsigned int ii = 0; ii < folders->count(); ii++) {
+        IMAPFolder * folder = (IMAPFolder *)folders->objectAtIndex(ii);
+        string role = _roleForGmailSystemMailbox(folder);
+        if (role == "" && !snoozedAssigned && MailUtils::roleForMailspringFolder(containerFolderPath, mainPrefix, folder) == "snoozed") {
+            role = "snoozed";
+            snoozedAssigned = true;
+        }
+        result.push_back(role);
+    }
+    return result;
+}
+
+string MailUtils::roleForGmailLabelName(const string & xgmLabel) {
+    for (auto & mailbox : GMAIL_SYSTEM_MAILBOXES) {
+        if (mailbox.xgmLabel != "" && mailbox.xgmLabel == xgmLabel) {
+            return mailbox.role;
+        }
+    }
     return "";
 }
 
@@ -508,27 +552,17 @@ shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_p
         }
     }
     
-    // \\Inbox should match INBOX
-    if (mlname.substr(0, 1) == "\\") {
-        mlname = mlname.substr(1, mlname.length() - 1);
-        transform(mlname.begin(), mlname.end(), mlname.begin(), ::tolower);
-
+    // A system label is shown by the Label with its role (GMAIL_SYSTEM_MAILBOXES): \Sent is
+    // "[Gmail]/Sent Mail" or its localized name, \Inbox is INBOX. None has it while the user
+    // hides that label from IMAP, which is expected and not worth a log line.
+    string role = MailUtils::roleForGmailLabelName(mlname);
+    if (role != "") {
         for (const auto & label : allLabels) {
-            string path(label->path());
-            transform(path.begin(), path.end(), path.begin(), ::tolower);
-            if (path.substr(0, 8) == "[gmail]/") {
-                path = path.substr(8, path.length() - 8);
-            }
-                
-            if (path == mlname) {
-                return label;
-            }
-            
-            // sent => [Gmail]/Sent Mail (sent), draft => [Gmail]/Drafts (drafts)
-            if ((label->role() == mlname) || (label->role() == mlname + "s")) {
+            if (label->role() == role) {
                 return label;
             }
         }
+        return shared_ptr<Label>{};
     }
 
     cout << "\n\nIMPORTANT --- Label not found: " << mlname;

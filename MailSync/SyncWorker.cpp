@@ -978,8 +978,13 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         // Eliminate folders the server listed more than once
         removeDuplicateFolders(remoteFolders);
 
-        // Find / create local folders and labels to match the remote ones
-        // Note: We don't assign roles, just create the objects here.
+        // Find / create local folders and labels to match the remote ones. Gmail decides every
+        // role, so each pass sets it again: a role the user or an older build gave a user label
+        // ("Sent Items") goes back to Gmail's. Elsewhere roles are assigned below.
+        vector<string> gmailRoles;
+        if (isGmail) {
+            gmailRoles = MailUtils::rolesForGmailFolders(containerFolderPath, mainPrefix, remoteFolders);
+        }
         for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
             string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
@@ -1018,69 +1023,78 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 foldersToSync.push_back(local);
             }
 
+            if (isGmail && local->role() != gmailRoles[ii]) {
+                local->setRole(gmailRoles[ii]);
+                if (local->version() > 0) {
+                    roleUpdates.push_back({remoteId, gmailRoles[ii]});
+                }
+            }
             allFoundCategories[remoteId] = local;
         }
 
-        for (auto role : MailUtils::roles()) {
-            bool found = false;
+        if (!isGmail) {
+            // Elsewhere a role is kept once assigned, which is what lets the user choose one.
+            for (auto role : MailUtils::roles()) {
+                bool found = false;
 
-            // If the role is already assigned, skip
-            for (auto it : allFoundCategories) {
-                if (it.second->role() == role) {
+                // If the role is already assigned, skip
+                for (auto it : allFoundCategories) {
+                    if (it.second->role() == role) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    continue;
+                }
+
+                // find a folder that matches the flags
+                for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
+                    IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+                    string cr = MailUtils::roleForFolderViaFlags(mainPrefix, remote);
+                    if (cr != role) {
+                        continue;
+                    }
+                    string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+                    if (!allFoundCategories.count(remoteId)) {
+                        logger->warn("-X found folder for role, couldn't find local object for {}", role);
+                        continue;
+                    }
+                    auto & cat = allFoundCategories[remoteId];
+                    cat->setRole(role);
+                    // If this is a newly created item, role is already set on the in-memory object.
+                    // For existing items, record the update to reload fresh inside the transaction.
+                    if (cat->version() > 0) {
+                        roleUpdates.push_back({remoteId, role});
+                    }
                     found = true;
                     break;
                 }
-            }
-            if (found) {
-                continue;
-            }
 
-            // find a folder that matches the flags
-            for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
-                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-                string cr = MailUtils::roleForFolderViaFlags(mainPrefix, remote);
-                if (cr != role) {
+                if (found) {
                     continue;
                 }
-                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
-                if (!allFoundCategories.count(remoteId)) {
-                    logger->warn("-X found folder for role, couldn't find local object for {}", role);
-                    continue;
-                }
-                auto & cat = allFoundCategories[remoteId];
-                cat->setRole(role);
-                // If this is a newly created item, role is already set on the in-memory object.
-                // For existing items, record the update to reload fresh inside the transaction.
-                if (cat->version() > 0) {
-                    roleUpdates.push_back({remoteId, role});
-                }
-                found = true;
-                break;
-            }
 
-            if (found) {
-                continue;
-            }
-
-            // find a folder that matches the name
-            for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
-                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-                string cr = MailUtils::roleForFolderViaPath(containerFolderPath, mainPrefix, remote);
-                if (cr != role) {
-                    continue;
+                // find a folder that matches the name
+                for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
+                    IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+                    string cr = MailUtils::roleForFolderViaPath(containerFolderPath, mainPrefix, remote);
+                    if (cr != role) {
+                        continue;
+                    }
+                    string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+                    if (!allFoundCategories.count(remoteId)) {
+                        logger->warn("-X found folder for role, couldn't find local object for {}", role);
+                        continue;
+                    }
+                    auto & cat = allFoundCategories[remoteId];
+                    cat->setRole(role);
+                    if (cat->version() > 0) {
+                        roleUpdates.push_back({remoteId, role});
+                    }
+                    found = true;
+                    break;
                 }
-                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
-                if (!allFoundCategories.count(remoteId)) {
-                    logger->warn("-X found folder for role, couldn't find local object for {}", role);
-                    continue;
-                }
-                auto & cat = allFoundCategories[remoteId];
-                cat->setRole(role);
-                if (cat->version() > 0) {
-                    roleUpdates.push_back({remoteId, role});
-                }
-                found = true;
-                break;
             }
         }
 

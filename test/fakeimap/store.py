@@ -482,6 +482,10 @@ class GmailStore(Store):
             mb = super().create(name, attrs, **kw)
             mb.gm_index = {}
             return mb
+        # A scenario names Sent Mail or Drafts to fill it; replacing the view would drop the
+        # \Sent or \Drafts attribute the personality gave it, which real Gmail always lists.
+        if name in self.mailboxes:
+            return self.mailboxes[name]
         label = GMAIL_SYSTEM_LABELS.get(name, name)
         backing = self.mailboxes.get("[Gmail]/All Mail")
         if backing is None:

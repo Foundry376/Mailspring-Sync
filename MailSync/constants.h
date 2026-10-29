@@ -463,15 +463,29 @@ static map<string, string> COMMON_FOLDER_NAMES = {
 };
 
 /*
- The roles of Gmail's system labels, by the names X-GM-LABELS gives them. The names are fixed
- by Gmail's IMAP extension (developers.google.com/gmail/imap/imap-extensions), so they hold
- when the user has hidden Sent Mail or Drafts from IMAP and no Label for it was synced, and a
- user label named "Sent" is not one of them.
+ Gmail's system mailboxes: the role each takes, the attribute LIST marks it with (RFC 6154, as
+ mailcore reads it), and the name X-GM-LABELS gives it on a message, empty for All Mail, which
+ is never a label. Gmail fixes both spellings (developers.google.com/gmail/imap/imap-extensions)
+ and they differ: LIST says \Drafts and \Flagged where a message says \Draft and \Starred.
+ On a Gmail account these are the only roles the server gives, to Labels and to messages alike:
+ a user label called "Sent Items" has none, and a message keeps \Sent while the user hides Sent
+ Mail from IMAP. INBOX carries no attribute; RFC 3501 reserves its name.
  */
-static map<string, string> GMAIL_SYSTEM_LABEL_ROLES = {
-    {"\\Inbox", "inbox"},
-    {"\\Sent", "sent"},
-    {"\\Draft", "drafts"},
+struct GmailSystemMailbox {
+    string role;
+    int listFlag;
+    string xgmLabel;
+};
+
+static vector<GmailSystemMailbox> GMAIL_SYSTEM_MAILBOXES = {
+    {"inbox", mailcore::IMAPFolderFlagInbox, "\\Inbox"},
+    {"sent", mailcore::IMAPFolderFlagSentMail, "\\Sent"},
+    {"drafts", mailcore::IMAPFolderFlagDrafts, "\\Draft"},
+    {"important", mailcore::IMAPFolderFlagImportant, "\\Important"},
+    {"starred", mailcore::IMAPFolderFlagStarred, "\\Starred"},
+    {"all", mailcore::IMAPFolderFlagAll, ""},
+    {"spam", mailcore::IMAPFolderFlagSpam, "\\Spam"},
+    {"trash", mailcore::IMAPFolderFlagTrash, "\\Trash"},
 };
 
 static map<int, string> LibEtPanCodeToTypeMap = {

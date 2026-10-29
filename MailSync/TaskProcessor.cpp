@@ -2493,12 +2493,20 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     logger->info("- Sending draft {}", draft.headerMessageId());
 
     // find the sent folder: folder OR label
+    bool isGmail = session->storedCapabilities()->containsIndex(IMAPCapabilityGmail);
+    bool sentIsGmailAllMail = false;
     auto sent = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "sent"));
     if (sent == nullptr) {
         sent = store->find<Label>(Query().equal("accountId", account->id()).equal("role", "sent"));
-        if (sent == nullptr) {
-            throw SyncException("no-sent-folder", "Mailspring doesn't know which folder to use for sent mail. Visit Preferences > Folders to assign a sent folder.", false);
-        }
+    }
+    if (sent == nullptr && isGmail) {
+        // The user can hide Sent Mail from IMAP. Gmail's SMTP still files the copy in All Mail
+        // with \Sent, and a copy appended there gets \Sent below.
+        sent = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "all"));
+        sentIsGmailAllMail = sent != nullptr;
+    }
+    if (sent == nullptr) {
+        throw SyncException("no-sent-folder", "Mailspring doesn't know which folder to use for sent mail. Visit Preferences > Folders to assign a sent folder.", false);
     }
     String * sentPath = AS_MCSTR(sent->path());
     logger->info("-- Identified `sent` folder: {}", sent->path());
@@ -2702,11 +2710,14 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         // If the user is on Gmail and the thread had labels, apply those same
         // labels to the new sent message. Otherwise the thread moves /only/ to
         // the sent folder.
-        if (session->storedCapabilities()->containsIndex(IMAPCapabilityGmail)) {
+        if (isGmail && sentFolderMessageUID != 0) {
+            Array * xgmValues = Array::array();
+            if (sentIsGmailAllMail) {
+                xgmValues->addObject(MCSTR("\\Sent"));
+            }
             if (draft.threadId() != "") {
                 auto thread = store->find<Thread>(Query().equal("id", draft.threadId()));
                 if (thread) {
-                    Array * xgmValues = Array::array();
                     for (auto & l : thread->labels()) {
                         string role = l["role"].get<string>();
                         if (role == "inbox" || role == "sent" || role == "drafts") { continue; }
@@ -2714,11 +2725,13 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                         logger->info("-- Will add label to new message: {}", xgm);
                         xgmValues->addObject(AS_MCSTR(xgm));
                     }
-                    session->storeLabelsByUID(sentPath, IndexSet::indexSetWithIndex(sentFolderMessageUID), IMAPStoreFlagsRequestKindAdd, xgmValues, &err);
-                    if (err != ErrorNone) {
-                        logger->error("-X IMAP Error: {}. Could not add labels to new message in sent folder. This means the thread may disappear from the inbox.", ErrorCodeToTypeMap[err]);
-                        err = ErrorNone;
-                    }
+                }
+            }
+            if (xgmValues->count() > 0) {
+                session->storeLabelsByUID(sentPath, IndexSet::indexSetWithIndex(sentFolderMessageUID), IMAPStoreFlagsRequestKindAdd, xgmValues, &err);
+                if (err != ErrorNone) {
+                    logger->error("-X IMAP Error: {}. Could not add labels to new message in sent folder. This means the thread may disappear from the inbox.", ErrorCodeToTypeMap[err]);
+                    err = ErrorNone;
                 }
             }
         }
