@@ -892,9 +892,10 @@ class ScenarioRun:
         return out
 
     def expect_folder_roles(self, arg: dict) -> list:
-        folders = self._named(self.ms.db_folders())
-        return [f"folder {path} has role {folders.get(path, {}).get('role')!r}, expected {role!r}"
-                for path, role in arg.items() if folders.get(path, {}).get("role") != role]
+        """{mailbox: role}: the role of that Folder or Label; "" for none, null for no row."""
+        roles = self._named(self.ms.db_roles())
+        return [f"folder {path} has role {roles.get(path)!r}, expected {role!r}"
+                for path, role in arg.items() if roles.get(path) != role]
 
     def expect_server_counts(self, arg: dict) -> list:
         truth = self.server.truth()

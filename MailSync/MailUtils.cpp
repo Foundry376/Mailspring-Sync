@@ -427,21 +427,47 @@ string MailUtils::roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder) 
     return "";
 }
 
-string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
+// The folder's path without the namespace prefix or the delimiter that follows it.
+static string _pathInNamespace(string mainPrefix, IMAPFolder * folder) {
     string delimiter {folder->delimiter()};
     string path = string(folder->path()->UTF8Characters());
 
-    // Strip the namespace prefix if it's present
     if ((mainPrefix.size() > 0) && (path.size() > mainPrefix.size()) && (path.substr(0, mainPrefix.size()) == mainPrefix)) {
         path = path.substr(mainPrefix.size());
     }
-    
-    // Strip the delimiter if the delimiter is the first character after stripping prefix
     if (path.size() > 1 && path.substr(0, 1) == delimiter) {
         path = path.substr(1);
     }
+    return path;
+}
 
-    string unprefixedPath = path;
+string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
+    string role = MailUtils::roleForMailspringFolder(containerFolderPath, mainPrefix, folder);
+    if (role != "") {
+        return role;
+    }
+
+    // COMMON_FOLDER_NAMES is keyed by lowercase UTF-8, but LIST returns non-ASCII names in
+    // modified UTF-7 (RFC 3501 5.1.3), e.g. "Ko&AWE-" for "Koš".
+    string unprefixedPath = _pathInNamespace(mainPrefix, folder);
+    String * name = AS_MCSTR(unprefixedPath);
+    if (unprefixedPath.find('&') != string::npos) {
+        String * decoded = name->mUTF7DecodedString();
+        if (decoded != nullptr) {
+            name = decoded;
+        }
+    }
+    auto common = COMMON_FOLDER_NAMES.find(name->lowercaseString()->UTF8Characters());
+    if (common != COMMON_FOLDER_NAMES.end()) {
+        return common->second;
+    }
+
+    return "";
+}
+
+string MailUtils::roleForMailspringFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
+    string delimiter {folder->delimiter()};
+    string path = _pathInNamespace(mainPrefix, folder);
     transform(path.begin(), path.end(), path.begin(), ::tolower);
     transform(containerFolderPath.begin(), containerFolderPath.end(), containerFolderPath.begin(), ::tolower);
 
@@ -468,20 +494,29 @@ string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPr
       }
     }
 
-    // COMMON_FOLDER_NAMES is keyed by lowercase UTF-8, but LIST returns non-ASCII names in
-    // modified UTF-7 (RFC 3501 5.1.3), e.g. "Ko&AWE-" for "Koš".
-    String * name = AS_MCSTR(unprefixedPath);
-    if (unprefixedPath.find('&') != string::npos) {
-        String * decoded = name->mUTF7DecodedString();
-        if (decoded != nullptr) {
-            name = decoded;
+    return "";
+}
+
+string MailUtils::roleForGmailFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
+    string path = string(folder->path()->UTF8Characters());
+    transform(path.begin(), path.end(), path.begin(), ::toupper);
+    if (path == "INBOX") {
+        return "inbox";
+    }
+    for (auto & mailbox : GMAIL_SYSTEM_MAILBOXES) {
+        if (folder->flags() & mailbox.listFlag) {
+            return mailbox.role;
         }
     }
-    auto common = COMMON_FOLDER_NAMES.find(name->lowercaseString()->UTF8Characters());
-    if (common != COMMON_FOLDER_NAMES.end()) {
-        return common->second;
-    }
+    return MailUtils::roleForMailspringFolder(containerFolderPath, mainPrefix, folder);
+}
 
+string MailUtils::roleForGmailLabelName(const string & xgmLabel) {
+    for (auto & mailbox : GMAIL_SYSTEM_MAILBOXES) {
+        if (mailbox.xgmLabel != "" && mailbox.xgmLabel == xgmLabel) {
+            return mailbox.role;
+        }
+    }
     return "";
 }
 
@@ -508,27 +543,17 @@ shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_p
         }
     }
     
-    // \\Inbox should match INBOX
-    if (mlname.substr(0, 1) == "\\") {
-        mlname = mlname.substr(1, mlname.length() - 1);
-        transform(mlname.begin(), mlname.end(), mlname.begin(), ::tolower);
-
+    // A system label is shown by the Label with its role (GMAIL_SYSTEM_MAILBOXES): \Sent is
+    // "[Gmail]/Sent Mail" or its localized name, \Inbox is INBOX. None has it while the user
+    // hides that label from IMAP, which is expected and not worth a log line.
+    string role = MailUtils::roleForGmailLabelName(mlname);
+    if (role != "") {
         for (const auto & label : allLabels) {
-            string path(label->path());
-            transform(path.begin(), path.end(), path.begin(), ::tolower);
-            if (path.substr(0, 8) == "[gmail]/") {
-                path = path.substr(8, path.length() - 8);
-            }
-                
-            if (path == mlname) {
-                return label;
-            }
-            
-            // sent => [Gmail]/Sent Mail (sent), draft => [Gmail]/Drafts (drafts)
-            if ((label->role() == mlname) || (label->role() == mlname + "s")) {
+            if (label->role() == role) {
                 return label;
             }
         }
+        return shared_ptr<Label>{};
     }
 
     cout << "\n\nIMPORTANT --- Label not found: " << mlname;

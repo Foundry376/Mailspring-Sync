@@ -1,0 +1,39 @@
+name: gmail-label-roles-from-list
+description: >
+  On Gmail every role comes from GMAIL_SYSTEM_MAILBOXES: the LIST attribute of each system
+  mailbox, INBOX by name, and Mailspring's own labels by their path. With Sent Mail hidden from
+  IMAP nothing is flagged \Sent, and the user label "Sent Items" still gets no role, though the
+  folder-name table would give it one. A role the user moves to a user label ("Receipts" as
+  Drafts) goes back to [Gmail]/Drafts on the next pass.
+source: "Gmail user labels named like system folders (Foundry376/Mailspring#992, #1244); Preferences > Folders role mapping"
+servers:
+  - {fake: gmail, hidden_mailboxes: ["[Gmail]/Sent Mail"]}
+mailboxes:
+  INBOX: {messages: 1}
+  "Sent Items": {messages: 0}
+  Receipts: {messages: 0}
+  "Mailspring/Snoozed": {messages: 0}
+steps:
+  - wait: quiescent
+  - assert:
+      folder_roles:
+        INBOX: inbox
+        "[Gmail]/All Mail": all
+        "[Gmail]/Drafts": drafts
+        "[Gmail]/Important": important
+        "[Gmail]/Starred": starred
+        "[Gmail]/Spam": spam
+        "[Gmail]/Trash": trash
+        "[Gmail]/Sent Mail": null
+        "Mailspring/Snoozed": snoozed
+        "Sent Items": ""
+        Receipts: ""
+  - client.task: {__cls: ChangeRoleMappingTask, path: Receipts, role: drafts}
+    as: remap
+  - wait: {task: remap, timeout: 30}
+  - assert:
+      folder_roles: {Receipts: drafts, "[Gmail]/Drafts": ""}
+  - sync: pass
+expect:
+  folder_roles: {Receipts: "", "[Gmail]/Drafts": drafts, "Sent Items": ""}
+  running: true

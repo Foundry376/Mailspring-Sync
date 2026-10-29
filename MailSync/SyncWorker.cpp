@@ -895,6 +895,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     }
 
     string mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
+    bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
     bool ensuredRoot = false;
     
     // create required Mailspring folders if they don't exist
@@ -915,7 +916,8 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         bool exists = false;
         for (int ii = ((int)remoteFolders->count()) - 1; ii >= 0; ii--) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-            string remoteRole = MailUtils::roleForFolder(containerFolderPath, mainPrefix, remote);
+            string remoteRole = isGmail ? MailUtils::roleForGmailFolder(containerFolderPath, mainPrefix, remote)
+                                        : MailUtils::roleForFolder(containerFolderPath, mainPrefix, remote);
             if (remoteRole == mailspringRole) {
                 exists = true;
                 break;
@@ -954,7 +956,6 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         // Phase 1: Read local state and compute diff OUTSIDE the transaction
         // to minimize write-lock hold time on the shared SQLite database.
         Query q = Query().equal("accountId", account->id());
-        bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
         auto unusedLocalFolders = store->findAllMap<Folder>(q, "id");
         auto unusedLocalLabels = store->findAllMap<Label>(q, "id");
         map<string, shared_ptr<Folder>> allFoundCategories {};
@@ -1021,66 +1022,85 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
             allFoundCategories[remoteId] = local;
         }
 
-        for (auto role : MailUtils::roles()) {
-            bool found = false;
+        if (isGmail) {
+            // Gmail decides every role (GMAIL_SYSTEM_MAILBOXES), so each pass sets it again: a
+            // role the user or an older build gave a user label ("Sent Items") goes back to Gmail's.
+            for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
+                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+                string role = MailUtils::roleForGmailFolder(containerFolderPath, mainPrefix, remote);
+                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+                auto found = allFoundCategories.find(remoteId);
+                if (found == allFoundCategories.end() || found->second->role() == role) {
+                    continue;
+                }
+                found->second->setRole(role);
+                if (found->second->version() > 0) {
+                    roleUpdates.push_back({remoteId, role});
+                }
+            }
+        } else {
+            // Elsewhere a role is kept once assigned, which is what lets the user choose one.
+            for (auto role : MailUtils::roles()) {
+                bool found = false;
 
-            // If the role is already assigned, skip
-            for (auto it : allFoundCategories) {
-                if (it.second->role() == role) {
+                // If the role is already assigned, skip
+                for (auto it : allFoundCategories) {
+                    if (it.second->role() == role) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    continue;
+                }
+
+                // find a folder that matches the flags
+                for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
+                    IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+                    string cr = MailUtils::roleForFolderViaFlags(mainPrefix, remote);
+                    if (cr != role) {
+                        continue;
+                    }
+                    string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+                    if (!allFoundCategories.count(remoteId)) {
+                        logger->warn("-X found folder for role, couldn't find local object for {}", role);
+                        continue;
+                    }
+                    auto & cat = allFoundCategories[remoteId];
+                    cat->setRole(role);
+                    // If this is a newly created item, role is already set on the in-memory object.
+                    // For existing items, record the update to reload fresh inside the transaction.
+                    if (cat->version() > 0) {
+                        roleUpdates.push_back({remoteId, role});
+                    }
                     found = true;
                     break;
                 }
-            }
-            if (found) {
-                continue;
-            }
 
-            // find a folder that matches the flags
-            for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
-                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-                string cr = MailUtils::roleForFolderViaFlags(mainPrefix, remote);
-                if (cr != role) {
+                if (found) {
                     continue;
                 }
-                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
-                if (!allFoundCategories.count(remoteId)) {
-                    logger->warn("-X found folder for role, couldn't find local object for {}", role);
-                    continue;
-                }
-                auto & cat = allFoundCategories[remoteId];
-                cat->setRole(role);
-                // If this is a newly created item, role is already set on the in-memory object.
-                // For existing items, record the update to reload fresh inside the transaction.
-                if (cat->version() > 0) {
-                    roleUpdates.push_back({remoteId, role});
-                }
-                found = true;
-                break;
-            }
 
-            if (found) {
-                continue;
-            }
-
-            // find a folder that matches the name
-            for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
-                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-                string cr = MailUtils::roleForFolderViaPath(containerFolderPath, mainPrefix, remote);
-                if (cr != role) {
-                    continue;
+                // find a folder that matches the name
+                for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
+                    IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+                    string cr = MailUtils::roleForFolderViaPath(containerFolderPath, mainPrefix, remote);
+                    if (cr != role) {
+                        continue;
+                    }
+                    string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
+                    if (!allFoundCategories.count(remoteId)) {
+                        logger->warn("-X found folder for role, couldn't find local object for {}", role);
+                        continue;
+                    }
+                    auto & cat = allFoundCategories[remoteId];
+                    cat->setRole(role);
+                    if (cat->version() > 0) {
+                        roleUpdates.push_back({remoteId, role});
+                    }
+                    found = true;
+                    break;
                 }
-                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
-                if (!allFoundCategories.count(remoteId)) {
-                    logger->warn("-X found folder for role, couldn't find local object for {}", role);
-                    continue;
-                }
-                auto & cat = allFoundCategories[remoteId];
-                cat->setRole(role);
-                if (cat->version() > 0) {
-                    roleUpdates.push_back({remoteId, role});
-                }
-                found = true;
-                break;
             }
         }
 
