@@ -4,10 +4,12 @@ description: >
   through Graph's accept, tentativelyAccept or decline, which tells the organizer, and no REPLY is
   emailed beside it: that would be a second answer. A REPLY naming an occurrence answers that
   occurrence, found by its RECURRENCE-ID in UTC (the calendar's) or in the organizer's zone (an
-  emailed invitation's). Graph's copy is then read back into the rows; after a refused answer the
-  rows get Graph's unanswered copy back in place of the answer the client already wrote. An
-  invitation none of the user's own calendars holds is emailed, as is one only a colleague's
-  calendar holds, and a COUNTER.
+  emailed invitation's). A series whose occurrence alone was answered stays unanswered, as Outlook
+  shows it, though Exchange then reports it tentatively accepted with no response time; a series
+  answer leaves an answered occurrence alone. Graph's copy is then read back into the rows; after a
+  refused answer the rows get Graph's unanswered copy back in place of the answer the client
+  already wrote. An invitation none of the user's own calendars holds is emailed, as is one only
+  a colleague's calendar holds, and a COUNTER.
 source: "https://learn.microsoft.com/en-us/graph/api/event-accept; https://learn.microsoft.com/en-us/graph/api/event-tentativelyaccept; https://learn.microsoft.com/en-us/graph/api/event-decline (sendResponse)"
 env:
   CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
@@ -95,24 +97,8 @@ mailboxes:
   INBOX: {messages: 1}
 steps:
   - wait: {log: "Microsoft calendar sync complete: 2 calendars", timeout: 90}
-  # The whole series, from the calendar.
-  - client.task:
-      __cls: EventRSVPTask
-      to: pat@example.com
-      subject: "Accepted: Weekly sync"
-      icsRSVPStatus: ACCEPTED
-      method: REPLY
-      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261008T100000\r\nDTEND;TZID=Pacific Standard Time:20261008T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
-    as: accept_series
-  - wait: {task: accept_series, timeout: 60}
-  - assert:
-      events:
-        "uid-weekly-sync|":
-          ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test"]
-        "uid-offsite|": {}
-        "uid-lunch|": {}
-        "uid-kim-review|": {}
-  # One occurrence, from the calendar, which names it in UTC.
+  # One occurrence of the unanswered series, from the calendar, which names it in UTC. Exchange then
+  # reports the series tentatively accepted with no response time; the rows show it unanswered, as Outlook does.
   - client.task:
       __cls: EventRSVPTask
       to: pat@example.com
@@ -125,9 +111,27 @@ steps:
   - assert:
       events:
         "uid-weekly-sync|":
-          ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test"]
+          ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test"]
         "uid-weekly-sync|20261022T170000Z":
           ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:test@example.test"]
+        "uid-offsite|": {}
+        "uid-lunch|": {}
+        "uid-kim-review|": {}
+  # The whole series, from the calendar. The occurrence keeps its own answer.
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Accepted: Weekly sync"
+      icsRSVPStatus: ACCEPTED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261008T100000\r\nDTEND;TZID=Pacific Standard Time:20261008T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: accept_series
+  - wait: {task: accept_series, timeout: 60}
+  - assert:
+      events:
+        "uid-weekly-sync|":
+          ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test", "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:test@example.test"]
+        "uid-weekly-sync|20261022T170000Z": {}
         "uid-offsite|": {}
         "uid-lunch|": {}
         "uid-kim-review|": {}
@@ -214,8 +218,8 @@ expect:
                refused: "Invalid Response Code: 500", not_filed: null, colleagues: null, counter: null}
   graph:
     event_writes:
-      - [POST, "^calendars/AAMkADefault=/events/AAMkEvSync=/accept$", [sendResponse]]
       - [POST, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvSync=\\.2026-10-22/tentativelyAccept$", [sendResponse]]
+      - [POST, "^calendars/AAMkADefault=/events/AAMkEvSync=/accept$", [sendResponse]]
       - [POST, "^calendars/AAMkADefault=/events/AAMkExc\\.AAMkEvSync=\\.2026-10-22/accept$", [sendResponse]]
       - [POST, "^calendars/AAMkADefault=/events/AAMkEvOffsite=/decline$", [sendResponse]]
     responses_sent: 4

@@ -282,6 +282,21 @@ int main() {
                    "own answer at the alias");
     }
     {
+        // Exchange reports a series tentatively accepted, with no response time, once one of its
+        // occurrences is answered (Office 365); an answer the user gave has its time.
+        auto answeredAt = [](const string & time) {
+            return GraphICS::icsForEvent(event({
+                {"responseStatus", {{"response", "tentativelyAccepted"}, {"time", time}}},
+                {"attendees", json::array({{{"type", "required"}, {"status", {{"response", "none"}}},
+                                            {"emailAddress", {{"name", "Me"}, {"address", "me@example.test"}}}}})},
+            }), ME, START_UTC);
+        };
+        expectLine(answeredAt("0001-01-01T00:00:00Z"), "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Me:mailto:me@example.test",
+                   "tentative without a response time");
+        expectLine(answeredAt("2026-10-29T15:56:21.253312-05:00"), "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Me:mailto:me@example.test",
+                   "tentative the user answered");
+    }
+    {
         // A meeting a Google user organized: Exchange's ID wraps the organizer's UID, which the
         // invitation carries ([MS-OXCICAL] 2.1.3.1.1.20.26), with or without a trailing NUL.
         expectLine(GraphICS::icsForEvent(event({{"iCalUId", "040000008200E00074C5B7101A82E00800000000000000000000000000000000000000002B0000007643616C2D556964010000003676713065316C726E6A35673863346D3361326240676F6F676C652E636F6D"}}), ME, START_UTC),

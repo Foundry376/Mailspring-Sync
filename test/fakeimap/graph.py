@@ -35,7 +35,9 @@ exceptions and cancellations; whether Exchange does is unverified, and this is t
 engine must apply them again. /instances expands daily and weekly series only. A calendar is
 writable (`canEdit`) and an event is the mailbox's own (`isOrganizer`) unless a scenario says otherwise. A guest's /accept and
 /tentativelyAccept (event-accept, event-tentativelyaccept) set the mailbox's `responseStatus` on the event, or on the
-occurrence, which becomes an exception; a series' answer isn't copied to its exceptions, which is unverified. A
+occurrence, which becomes an exception; a series' answer isn't copied to its exceptions. A tentative answer to
+one occurrence of an unanswered series also reports the series tentatively accepted, with no response time
+(0001-01-01), as Office 365 does. A
 guest's /decline (event-decline) takes the event, or the occurrence, off the calendar. Each answer counts a
 response to the organizer when `sendResponse` is true. Calendar and mail scopes are consented and tokened separately: a token for one is
 refused by the other's routes with 403, as Graph answers a token missing the permission a request
@@ -612,6 +614,8 @@ class _Handler(BaseHTTPRequestHandler):
             if "recurrence" in fields:
                 return self._error(400, "ErrorInvalidRequest", "An occurrence has no recurrence of its own.")
             exception = {**exception, "responseStatus": {"response": ANSWERS[answer]}} if answer else _with_fields(exception, fields)
+            if answer == "tentativelyAccept" and (master.get("responseStatus") or {}).get("response") in (None, "none", "notResponded"):
+                master["responseStatus"] = {"response": "tentativelyAccepted", "time": "0001-01-01T00:00:00Z"}
             master["exceptionOccurrences"] = exceptions + [exception]
             master["changeKey"] += "+"
             return self._reply(done) if answer else self._reply(200, exception)

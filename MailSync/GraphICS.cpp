@@ -262,6 +262,16 @@ static string partstatFor(const string & response) {
     return "NEEDS-ACTION";
 }
 
+// The mailbox's own answer, which its entry in `attendees` may not reflect. Answering one occurrence of
+// an unanswered series makes Exchange report the series as tentatively accepted with no response time
+// (0001-01-01), while Outlook still shows its other occurrences unanswered.
+static string mailboxResponse(const json & event) {
+    const json & status = JSONObject(event, "responseStatus");
+    string response = JSONString(status, "response");
+    bool neverAnswered = JSONString(status, "time").rfind("0001-01-01", 0) == 0;
+    return response == "tentativelyAccepted" && neverAnswered ? "notResponded" : response;
+}
+
 static string participant(const string & property, const string & params, const json & emailAddress) {
     string name = JSONString(emailAddress, "name");
     string cn = name == "" ? "" : ";CN=" + paramValue(name);
@@ -298,8 +308,7 @@ static void appendVEvent(string & ics, const json & event, const string & uid, c
         appendLine(ics, participant("ORGANIZER", "", organizer));
     }
 
-    // responseStatus is the mailbox's own answer; its entry in `attendees` may not reflect it.
-    string myResponse = JSONString(JSONObject(event, "responseStatus"), "response");
+    string myResponse = mailboxResponse(event);
     for (const auto & attendee : JSONArray(event, "attendees")) {
         const json & emailAddress = JSONObject(attendee, "emailAddress");
         string address = JSONString(emailAddress, "address");
