@@ -294,6 +294,10 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
     }
 
     vector<shared_ptr<Folder>> folders = foldersToSearch(request, gmail);
+    set<string> searchedFolderIds;
+    for (auto & folder : folders) {
+        searchedFolderIds.insert(folder->id());
+    }
     // The query itself stays out of the log: logs travel with crash reports.
     logger->info("Search {}: {} folder(s), {}", searchId, folders.size(), (gmail && gmailRaw != "") ? "X-GM-RAW" : fuzzy ? "FUZZY criteria" : "criteria");
 
@@ -364,7 +368,7 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
         vector<SearchMatch> candidates = candidatesToFetch(results, fetchLimit, progress);
         logger->info("Search {}: {} candidate(s), {} stored, {} to fetch", searchId, progress.candidates, progress.fetched, candidates.size());
         emit(resultJSON(searchId, results, limit, errors, "fetching", progress, false));
-        fetchCandidates(searchId, gen, candidates, results, limit, errors, progress);
+        fetchCandidates(searchId, gen, candidates, results, limit, errors, progress, searchedFolderIds);
         if (superseded(gen)) {
             logger->info("Search {} superseded", searchId);
             return;
@@ -423,7 +427,7 @@ vector<SearchMatch> SearchWorker::candidatesToFetch(SearchResults & results, siz
  thread. Progress is emitted after every batch so the client can re-run its local query.
  */
 void SearchWorker::fetchCandidates(string searchId, uint64_t gen, vector<SearchMatch> candidates, SearchResults & results,
-                                   size_t limit, json & errors, FetchProgress & progress) {
+                                   size_t limit, json & errors, FetchProgress & progress, const set<string> & searchedFolderIds) {
     map<string, vector<SearchMatch>> byFolder;
     for (auto & candidate : candidates) {
         byFolder[candidate.folderId].push_back(candidate);
@@ -518,7 +522,7 @@ void SearchWorker::fetchCandidates(string searchId, uint64_t gen, vector<SearchM
                     Data * data = (Data *)raw->objectForKey(Value::valueWithUnsignedIntValue(match.uid));
                     // A UID the server left out was expunged since the last scan; the message
                     // may still have a copy elsewhere.
-                    bool stored = data ? storeFetchedBody(match, data) : fetchFromAnotherCopy(match);
+                    bool stored = data ? storeFetchedBody(match, data) : fetchFromAnotherCopy(match, searchedFolderIds);
                     if (stored) {
                         progress.fetched++;
                     } else {
@@ -577,14 +581,22 @@ bool SearchWorker::storeFetchedBody(const SearchMatch & match, Data * data) {
 /*
  The copy the search found is gone from the server, and the foreground connection, which
  saw the expunge, has already dropped that placement: fetch whichever copies remain, one at
- a time, the way SyncWorker::syncMessageBody does.
+ a time, the way SyncWorker::syncMessageBody does. A copy in Spam or Trash is fetched only
+ when the search named that folder: the search bar leaves both out, so a candidate found
+ only there could never be shown, and the server may purge the copy at any time.
  */
-bool SearchWorker::fetchFromAnotherCopy(const SearchMatch & match) {
+bool SearchWorker::fetchFromAnotherCopy(const SearchMatch & match, const set<string> & searchedFolderIds) {
     auto message = store->find<Message>(Query().equal("id", match.messageId));
     if (message == nullptr) {
         return false;
     }
+    bool leftInSpamOrTrash = false;
     for (auto & copy : store->fetchableCopiesOfMessage(*message, nullptr)) {
+        const string role = copy.folder->role();
+        if ((role == "spam" || role == "trash") && !searchedFolderIds.count(copy.folder->id())) {
+            leftInSpamOrTrash = true;
+            continue;
+        }
         AutoreleasePool pool;
         ErrorCode err = ErrorCode::ErrorNone;
         String path(AS_MCSTR(copy.folder->path()));
@@ -598,7 +610,11 @@ bool SearchWorker::fetchFromAnotherCopy(const SearchMatch & match) {
         }
         return storeFetchedBody(match, data);
     }
-    logger->info("Search: no copy of message {} could be fetched", match.messageId);
+    if (leftInSpamOrTrash) {
+        logger->info("Search: the only copies of message {} are in Spam or Trash", match.messageId);
+    } else {
+        logger->info("Search: no copy of message {} could be fetched", match.messageId);
+    }
     return false;
 }
 
