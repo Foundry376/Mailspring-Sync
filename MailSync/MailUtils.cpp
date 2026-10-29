@@ -816,12 +816,14 @@ bool MailUtils::isVerboseLoggingEnabled() {
     return _verboseLogging;
 }
 
-class MailcoreSPDLogger : public ConnectionLogger {
-  public:
-    void log(string str) {
-        spdlog::get("logger")->info(str);
-    }
+// libetpan logs each 4 KB stream write, so a cap per record would still log a whole APPEND or
+// SMTP DATA and rotate the 5 MB log.
+static const size_t SENT_RUN_LOG_LIMIT = 4096;
 
+class MailcoreSPDLogger : public ConnectionLogger {
+    size_t _sentRunBytes = 0;
+
+  public:
     void log(void *sender, ConnectionLogType logType, Data *buffer) {
         string logTypeString{"unknown"};
         switch (logType)
@@ -854,7 +856,22 @@ class MailcoreSPDLogger : public ConnectionLogger {
         default:
             break;
         }
-        string msg = buffer != nullptr ? buffer->stringWithCharset("UTF-8")->UTF8Characters() : "";
+        string msg;
+        if (logType == ConnectionLogTypeSent) {
+            size_t logged = min(_sentRunBytes, SENT_RUN_LOG_LIMIT);
+            _sentRunBytes += buffer->length();
+            if (logged == SENT_RUN_LOG_LIMIT) {
+                return;
+            }
+            msg = buffer->stringWithCharset("UTF-8")->UTF8Characters();
+            msg.resize(min(msg.size(), SENT_RUN_LOG_LIMIT - logged));
+        } else {
+            if (_sentRunBytes > SENT_RUN_LOG_LIMIT) {
+                spdlog::get("logger")->info("sent [{} bytes not logged]", _sentRunBytes - SENT_RUN_LOG_LIMIT);
+            }
+            _sentRunBytes = 0;
+            msg = buffer != nullptr ? buffer->stringWithCharset("UTF-8")->UTF8Characters() : "";
+        }
         spdlog::get("logger")->info("{} {}", logTypeString, msg);
     }
 };

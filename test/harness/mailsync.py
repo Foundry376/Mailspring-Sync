@@ -416,8 +416,8 @@ class MailsyncProcess:
         if not self.log_path.exists():
             return
         with self._log_lock:   # the tailer thread and waiters both drain
-            # spdlog rotates at 5 MB (mailsync-<id>.log -> mailsync-<id>.1.log). --verbose
-            # logs every IMAP line, so a large mailbox rotates several times per run.
+            # spdlog rotates at 5 MB (mailsync-<id>.log -> mailsync-<id>.log.1). --verbose
+            # logs every received IMAP line, so a large mailbox rotates several times per run.
             if self.log_path.stat().st_size < self._log_pos:
                 rotated = self.log_path.with_name(self.log_path.name + ".1")
                 if rotated.exists():
