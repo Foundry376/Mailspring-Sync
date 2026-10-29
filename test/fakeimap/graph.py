@@ -33,9 +33,11 @@ PATCHing it makes it an exception, DELETEing it cancels it, and either moves the
 as an Outlook.com account showed. A PATCH that moves a series' times or recurrence drops its
 exceptions and cancellations; whether Exchange does is unverified, and this is the case where the
 engine must apply them again. /instances expands daily and weekly series only. A calendar is
-writable (`canEdit`) and an event is the mailbox's own (`isOrganizer`) unless a scenario says otherwise. A guest's /decline (event-decline)
-takes the event, or the occurrence, off the calendar, and counts a response to the organizer when
-`sendResponse` is true. Calendar and mail scopes are consented and tokened separately: a token for one is
+writable (`canEdit`) and an event is the mailbox's own (`isOrganizer`) unless a scenario says otherwise. A guest's /accept and
+/tentativelyAccept (event-accept, event-tentativelyaccept) set the mailbox's `responseStatus` on the event, or on the
+occurrence, which becomes an exception; a series' answer isn't copied to its exceptions, which is unverified. A
+guest's /decline (event-decline) takes the event, or the occurrence, off the calendar. Each answer counts a
+response to the organizer when `sendResponse` is true. Calendar and mail scopes are consented and tokened separately: a token for one is
 refused by the other's routes with 403, as Graph answers a token missing the permission a request
 needs.
 
@@ -100,6 +102,8 @@ def _in_zone(value: dict, zone: str) -> dict:
 WRITABLE_FIELDS = {"subject", "body", "location", "showAs", "attendees", "start", "end", "isAllDay", "recurrence",
                    "transactionId"}
 SERIES_TIMING = {"start", "end", "isAllDay", "recurrence"}
+# The responseStatus each answer action leaves.
+ANSWERS = {"accept": "accepted", "tentativelyAccept": "tentativelyAccepted", "decline": "declined"}
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 
@@ -326,9 +330,9 @@ class _Handler(BaseHTTPRequestHandler):
         m = re.match(r"^calendars/([^/]+)/events/([^/]+)/instances$", route)
         if m and self.command == "GET":
             return self._instances(unquote(m.group(1)), unquote(m.group(2)))
-        m = re.match(r"^calendars/([^/]+)/events/([^/]+)/decline$", route)
+        m = re.match(r"^calendars/([^/]+)/events/([^/]+)/(accept|tentativelyAccept|decline)$", route)
         if m and self.command == "POST":
-            return self._write_event(unquote(m.group(1)), unquote(m.group(2)), body)
+            return self._write_event(unquote(m.group(1)), unquote(m.group(2)), body, answer=m.group(3))
         m = re.match(r"^calendars/([^/]+)/events/([^/]+)$", route)
         if m and self.command == "GET":
             return self._event(unquote(m.group(1)), unquote(m.group(2)))
@@ -557,12 +561,11 @@ class _Handler(BaseHTTPRequestHandler):
                 return None, event, None, event_id[len(prefix):]
         return None, None, None, None
 
-    def _write_event(self, calendar_id: str, event_id: str, body: bytes):
-        """PATCH or DELETE an event or occurrence, or POST its /decline."""
+    def _write_event(self, calendar_id: str, event_id: str, body: bytes, answer: Optional[str] = None):
+        """PATCH or DELETE an event or occurrence, or POST an `answer` to it (a key of ANSWERS)."""
         srv: "FakeGraphServer" = self.server.owner
-        declining = self.command == "POST"
         fields = json.loads(body or b"{}") if self.command != "DELETE" else {}
-        refusal = None if declining else self._refused_fields(fields)
+        refusal = None if answer else self._refused_fields(fields)
         if refusal:
             return self._error(*refusal)
         route = urlparse(self.path).path[len("/v1.0/me/"):]
@@ -571,23 +574,23 @@ class _Handler(BaseHTTPRequestHandler):
             event, master, exception, slot = self._find_event(calendar_id, event_id)
             if event is None and master is None:
                 return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
-            if declining:
+            if answer:
                 if (event or master).get("isOrganizer", True):
-                    return self._error(400, "ErrorInvalidRequest", "The organizer can't decline their own meeting.")
+                    return self._error(400, "ErrorInvalidRequest", "The organizer can't respond to their own meeting.")
                 srv.responses_sent += 1 if fields.get("sendResponse") is True else 0
-            removing = self.command == "DELETE" or declining
-            done = 202 if declining else 204
+            removing = self.command == "DELETE" or answer == "decline"
+            done = 202 if answer else 204
             events = srv.events[calendar_id]
             if event is not None:
                 if removing:
                     events.remove(event)
                     return self._reply(done)
-                changed = _with_fields(event, fields)
+                changed = {**event, "responseStatus": {"response": ANSWERS[answer]}} if answer else _with_fields(event, fields)
                 changed["changeKey"] = event["changeKey"] + "+"
                 if event.get("type") == "seriesMaster" and SERIES_TIMING & set(fields):
                     changed.update({"cancelledOccurrences": [], "exceptionOccurrences": []})
                 events[events.index(event)] = changed
-                return self._reply(200, changed)
+                return self._reply(done) if answer else self._reply(200, changed)
 
             zone = master["start"]["timeZone"]
             if exception is None:
@@ -608,10 +611,10 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._reply(done)
             if "recurrence" in fields:
                 return self._error(400, "ErrorInvalidRequest", "An occurrence has no recurrence of its own.")
-            exception = _with_fields(exception, fields)
+            exception = {**exception, "responseStatus": {"response": ANSWERS[answer]}} if answer else _with_fields(exception, fields)
             master["exceptionOccurrences"] = exceptions + [exception]
             master["changeKey"] += "+"
-            return self._reply(200, exception)
+            return self._reply(done) if answer else self._reply(200, exception)
 
     def _instances(self, calendar_id: str, event_id: str):
         srv: "FakeGraphServer" = self.server.owner
@@ -789,10 +792,10 @@ class FakeGraphServer:
         self.events = {cid: [dict(e) for e in evs] for cid, evs in (events or {}).items()}
         self.events_page_size = events_page_size
         self.events_delay = 0.0   # seconds each events listing answers late; set by server.graph_events_delay
-        self.event_writes: list = []   # {method, route, fields}: each event POST, PATCH, DELETE and decline
+        self.event_writes: list = []   # {method, route, fields}: each event POST, PATCH, DELETE and answer
         self.created_events = 0
         self.created_subjects: list = []   # each created event's subject, as POSTed
-        self.responses_sent = 0   # declines with sendResponse, which Exchange emails to the organizer
+        self.responses_sent = 0   # answers with sendResponse, which Exchange emails to the organizer
         self.mail_tokens: set = set()
         self.graph_tokens: dict = {}   # Graph mail scopes: token -> expiry
         self.calendar_tokens: dict = {}   # token -> expiry
