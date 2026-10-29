@@ -763,7 +763,7 @@ vector<GraphEventChange> GraphICS::changesBetween(const string & before, const s
             }
         }
         if (!fields.empty()) {
-            changes.push_back({GraphEventChange::Kind::UpdateOccurrence, vevent->property("RECURRENCE-ID"), fields});
+            changes.push_back({GraphEventChange::Kind::UpdateOccurrence, vevent->property("RECURRENCE-ID"), fields, reshaped});
         }
     }
 

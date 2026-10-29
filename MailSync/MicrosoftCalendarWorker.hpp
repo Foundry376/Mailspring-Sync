@@ -16,6 +16,7 @@
 #include "Event.hpp"
 #include "GraphICS.hpp"
 #include "MailStore.hpp"
+#include "SyncException.hpp"
 
 #include <functional>
 #include <memory>
@@ -49,7 +50,9 @@ class MicrosoftCalendarWorker {
     vector<shared_ptr<Event>> findRows(shared_ptr<Event> event);
     json fetchEvent(const string & calendarPath, const string & graphId);
     json fetchSeries(const string & calendarPath, const string & graphId);
-    json findOccurrence(const string & calendarPath, const json & series, const ICSProperty & anchor);
+    vector<json> findOccurrences(const string & calendarPath, const json & series, const vector<GraphEventChange> & changes,
+                                 vector<SyncException> & failures);
+    void writeOccurrences(const string & calendarPath, const string & graphId, bool guest, const vector<GraphEventChange> & changes);
     string storeEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows);
     void restoreEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows);
 

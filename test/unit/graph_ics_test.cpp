@@ -157,6 +157,12 @@ static json fieldsOfWrite(const string & before, const string & after, size_t in
     return index < changes.size() ? changes[index].fields : json();
 }
 
+// Whether the `index`th write is an override written again only because the series changed.
+static bool reappliedWrite(const string & before, const string & after, size_t index) {
+    vector<GraphEventChange> changes = GraphICS::changesBetween(before, after, SERIES_START_UTC);
+    return index < changes.size() && changes[index].reapplied;
+}
+
 static string refusalFor(const string & before, const string & after) {
     try {
         GraphICS::changesBetween(before, after, SERIES_START_UTC);
@@ -714,6 +720,9 @@ int main() {
                    "a series move sends the new start");
         expectJSON(fieldsOfWrite(base, seriesMoved, 1)["start"], {{"dateTime", "2026-10-19T10:00:00"}, {"timeZone", "Pacific Standard Time"}},
                    "a series move re-applies its override's own start");
+        expect(reappliedWrite(base, seriesMoved, 1), "a series move marks its override re-applied");
+        expect(!reappliedWrite(base, movedAgain, 0), "an override the edit moved isn't re-applied");
+        expect(!reappliedWrite(base, added, 0), "an override the edit added isn't re-applied");
         expectEqual(writesFor(base, edited(seriesMoved, "SUMMARY:Planning\r\n", "SUMMARY:Roadmap\r\n")),
                     "update end,isAllDay,recurrence,start,subject\noccurrence 20261019T170000Z end,start,subject\ncancel Pacific Standard Time:20261102T100000",
                     "a series moved and retitled at once");

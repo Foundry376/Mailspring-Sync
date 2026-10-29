@@ -5,7 +5,11 @@ description: >
   then drops the series' exception and cancellation, as Exchange may, so the engine applies both
   again at their new slots: the override's own subject and times, and the cancelled date. Read
   back, the rows match the client's edit. Made longer, the series is written again, and its
-  override found again in the series as it stands after that write.
+  override found again in the series as it stands after that write. It's an online meeting whose
+  moved occurrence has notes of its own: an edit of those notes is refused, since text would
+  replace the join details, but a series change re-applies the occurrence without them rather than
+  refusing. When one re-applied write is refused, the others are still sent, and a refused
+  occurrence lookup fails the task too.
 source: "https://learn.microsoft.com/en-us/graph/api/event-update; whether Exchange keeps exceptions when a series' times change is unverified"
 env:
   CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
@@ -23,6 +27,8 @@ servers:
           iCalUId: "uid-standup"
           type: seriesMaster
           subject: Standup
+          body: {contentType: text, content: "Join the meeting"}
+          isOnlineMeeting: true
           start: {dateTime: "2026-10-05T09:00:00.0000000", timeZone: Pacific Standard Time}
           end: {dateTime: "2026-10-05T09:15:00.0000000", timeZone: Pacific Standard Time}
           originalStartTimeZone: Pacific Standard Time
@@ -37,6 +43,7 @@ servers:
               type: exception
               iCalUId: "uid-standup-x1"
               subject: Standup (moved)
+              body: {contentType: text, content: "Agenda for the moved one"}
               originalStart: "2026-10-19T16:00:00Z"
               start: {dateTime: "2026-10-19T11:00:00.0000000", timeZone: Pacific Standard Time}
               end: {dateTime: "2026-10-19T11:15:00.0000000", timeZone: Pacific Standard Time}
@@ -46,6 +53,12 @@ mailboxes:
   INBOX: {messages: 1}
 steps:
   - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-standup|"
+      ics_replace: [["DESCRIPTION:Agenda for the moved one", "DESCRIPTION:New agenda"]]
+    as: occurrence_notes
+  - wait: {task: occurrence_notes, timeout: 60}
   - client.task:
       __cls: SyncbackEventTask
       event_of: "uid-standup|"
@@ -62,8 +75,27 @@ steps:
       ics_replace: [["DTEND;TZID=Pacific Standard Time:20261005T101500", "DTEND;TZID=Pacific Standard Time:20261005T103000"]]
     as: lengthen
   - wait: {task: lengthen, timeout: 60}
+  - server.graph_failures:
+      failures:
+        - {route: "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-10-19$", method: PATCH, status: 400, code: ErrorInvalidRequest, times: 1}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-standup|"
+      ics_replace: [["DTEND;TZID=Pacific Standard Time:20261005T103000", "DTEND;TZID=Pacific Standard Time:20261005T104500"]]
+    as: lengthen_refused
+  - wait: {task: lengthen_refused, timeout: 60}
+  - server.graph_failures:
+      failures:
+        - {route: "^calendars/AAMkADefault=/events/AAMkEvStandup=/instances$", method: GET, status: 400, code: ErrorInvalidRequest, times: 1}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-standup|"
+      ics_replace: [["DTEND;TZID=Pacific Standard Time:20261005T104500", "DTEND;TZID=Pacific Standard Time:20261005T110000"]]
+    as: lookup_refused
+  - wait: {task: lookup_refused, timeout: 60}
 expect:
-  task_error: {move_series: null, lengthen: null}
+  task_error: {occurrence_notes: online-meeting-notes, move_series: null, lengthen: null, lengthen_refused: "Invalid Response Code: 400",
+               lookup_refused: "Invalid Response Code: 400"}
   graph:
     event_writes:
       - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvStandup=$", [end, isAllDay, recurrence, start]]
@@ -72,10 +104,11 @@ expect:
       - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvStandup=$", [end, isAllDay, recurrence, start]]
       - [PATCH, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-10-19$", [end, start, subject]]
       - [DELETE, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-11-02$", []]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvStandup=$", [end, isAllDay, recurrence, start]]
+      - [DELETE, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-11-02$", []]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvStandup=$", [end, isAllDay, recurrence, start]]
   events:
+    # The refused write and lookup leave the 19 October and 2 November occurrences as the series PATCHes did.
     "uid-standup|":
-      ics_has: ["DTSTART;TZID=Pacific Standard Time:20261005T100000", "DTEND;TZID=Pacific Standard Time:20261005T103000",
-                "EXDATE;TZID=Pacific Standard Time:20261102T100000"]
-    "uid-standup|20261019T170000Z":
-      ics_has: ["SUMMARY:Standup (moved)", "DTSTART;TZID=Pacific Standard Time:20261019T110000"]
+      ics_has: ["DTSTART;TZID=Pacific Standard Time:20261005T100000", "DTEND;TZID=Pacific Standard Time:20261005T110000"]
   running: true

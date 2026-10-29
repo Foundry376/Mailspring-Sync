@@ -56,6 +56,9 @@ struct GraphEventChange {
     ICSProperty occurrence;
     // Create, Update, UpdateOccurrence: the Graph fields to send.
     json fields;
+    // UpdateOccurrence: written again only because the series' times or recurrence changed, not
+    // because the edit touched the occurrence.
+    bool reapplied = false;
 };
 
 // Microsoft Graph events as the iCalendar resources Event rows hold; Graph has no iCalendar form.
