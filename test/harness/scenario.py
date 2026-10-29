@@ -908,10 +908,12 @@ class ScenarioRun:
                 if sorted(truth.get(mb, {})) != sorted(uids)]
 
     def expect_server_has(self, arg: dict) -> list:
-        """{mailbox: [Message-ID | {message_id, flags}]}: each message is in that mailbox on
-        the server, whatever the engine believes - what proves a task moved the message it was
+        """{mailbox: [Message-ID | {message_id, flags, labels}]}: each message is in that mailbox
+        on the server, whatever the engine believes - what proves a task moved the message it was
         asked to. With `flags`, some copy there carries exactly those tracked flags, which is
-        what tells a message's copies apart when they differ only in unread or starred."""
+        what tells a message's copies apart when they differ only in unread or starred. With
+        `labels` (Gmail), some copy carries at least those X-GM-LABELS, which is how to tell a
+        message is in a label hidden from IMAP."""
         truth = self.server.truth()
         problems = []
         for mb, wanted in arg.items():
@@ -924,6 +926,11 @@ class ScenarioRun:
                 elif isinstance(want, dict) and "flags" in want and set(want["flags"]) not in copies:
                     problems.append(f"server has {mid} in {mb} with flags {[sorted(c) for c in copies]}, "
                                     f"expected {sorted(want['flags'])}")
+                elif isinstance(want, dict) and "labels" in want:
+                    labelled = [set(v.get("labels", ())) for v in held if v["message_id"] == mid]
+                    if not any(set(want["labels"]) <= l for l in labelled):
+                        problems.append(f"server has {mid} in {mb} with labels {[sorted(l) for l in labelled]}, "
+                                        f"expected {sorted(want['labels'])}")
         return problems
 
     def expect_bodies(self, arg: dict) -> list:

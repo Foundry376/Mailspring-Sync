@@ -1,0 +1,66 @@
+name: gmail-send-sent-hidden
+description: >
+  With Sent Mail hidden from IMAP no Label has the sent role, so the send path files sent mail
+  in All Mail. A plain send finds the copy Gmail's SMTP filed there with \Sent; a tracked send
+  deletes the per-recipient copies, appends the untracked one to All Mail and labels it \Sent.
+  The user label "Sent Items" gets neither copy; when the name table made it the sent folder,
+  the sends left extra copies under it (All Mail 7, not 4).
+source: "Review of Foundry376/Mailspring-Sync#192: hidden Sent Mail left no sent role, and every send failed with no-sent-folder"
+servers:
+  - {fake: gmail, smtp: true, smtp_sent_copy: "[Gmail]/Sent Mail", hidden_mailboxes: ["[Gmail]/Sent Mail"]}
+mailboxes:
+  INBOX: {messages: 2}
+  "Sent Items": {messages: 0}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "gmail-hidden-sent-1@example.test"
+        subject: "Hello"
+        body: "<p>Hi</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: null
+    as: send1
+  - wait: {task: send1, timeout: 60}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "gmail-hidden-sent-2@example.test"
+        subject: "Tracked"
+        body: "<p>Hi</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "bob", email: "bob@example.net"}, {name: "carol", email: "carol@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        files: []
+        rthMsgId: ""
+        fwdMsgId: ""
+      perRecipientBodies: {self: "<p>Hi</p>", "bob@example.net": "<p>Hi<img src=\"https://t.example/bob\"></p>", "carol@example.net": "<p>Hi<img src=\"https://t.example/carol\"></p>"}
+    as: send2
+  - wait: {task: send2, timeout: 90}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  task_error: {send1: null, send2: null}
+  smtp: {count: 3}
+  server_has:
+    "[Gmail]/All Mail":
+      - {message_id: "gmail-hidden-sent-1@example.test", labels: ["\\Sent"]}
+      - {message_id: "gmail-hidden-sent-2@example.test", labels: ["\\Sent"]}
+  server_counts: {"[Gmail]/All Mail": 4}
+  log_present: ["Identified `sent` folder: \\[Gmail\\]/All Mail"]
+  counts: {"[Gmail]/All Mail": 4}
+  db_matches_server: {labels: true}
+  stable: {passes: 1}
+  running: true
