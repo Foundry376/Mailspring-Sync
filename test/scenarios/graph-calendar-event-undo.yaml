@@ -30,10 +30,8 @@ mailboxes:
   INBOX: {messages: 1}
 steps:
   - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
-  # Queued in the same millisecond, the two would get the same generated id.
   - client.task:
       __cls: SyncbackEventTask
-      id: task-move
       event_of: "uid-planning|"
       ics_replace:
         - ["DTSTART;TZID=Pacific Standard Time:20261022T090000", "DTSTART;TZID=Pacific Standard Time:20261022T140000"]
@@ -41,7 +39,6 @@ steps:
     as: move
   - client.task:
       __cls: SyncbackEventTask
-      id: task-undo
       event_like: move
       ics_replace:
         - ["DTSTART;TZID=Pacific Standard Time:20261022T140000", "DTSTART;TZID=Pacific Standard Time:20261022T090000"]

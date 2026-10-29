@@ -27,6 +27,7 @@ arrived within the settle window. The engine flushes its log ~1s after a line is
 that path costs ~3s per wait.
 """
 import contextlib
+import itertools
 import json
 import os
 import re
@@ -196,6 +197,7 @@ class MailsyncProcess:
         self.binary = self._launchable_binary(Path(binary).resolve() if binary else find_binary())
         self.proc: Optional[subprocess.Popen] = None
         self.state = ProcessState()
+        self._task_numbers = itertools.count(1)   # tasks queued in one millisecond still get distinct ids
         self._lock = threading.Lock()
         self._t0 = 0.0
         self._threads: list = []
@@ -337,7 +339,7 @@ class MailsyncProcess:
         """Queue a task the way Actions.queueTask does. `task` needs __cls and the fields
         that class's performLocal/performRemote read; id/accountId/status are filled in."""
         task = dict(task)
-        task.setdefault("id", f"task-{int(time.time() * 1000)}-{len(self.state.deltas)}")
+        task.setdefault("id", f"task-{int(time.time() * 1000)}-{next(self._task_numbers)}")
         task.setdefault("aid", self.account["id"])   # MailModel's JSON key for accountId
         task.setdefault("status", "local")
         task.setdefault("v", 0)
