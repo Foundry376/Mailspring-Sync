@@ -48,9 +48,10 @@ class MicrosoftCalendarWorker {
     json fetchCalendar(const string & calendarId);
     bool organizedElsewhere(const string & ics);
     vector<shared_ptr<Event>> findRows(shared_ptr<Event> event);
+    shared_ptr<Event> findInvitation(const string & uid);
     json fetchEvent(const string & calendarPath, const string & graphId);
     json fetchSeries(const string & calendarPath, const string & graphId);
-    vector<json> findOccurrences(const string & calendarPath, const json & series, const vector<GraphEventChange> & changes,
+    vector<json> findOccurrences(const string & calendarPath, const json & series, const vector<ICSProperty> & anchors,
                                  vector<SyncException> & failures);
     void writeOccurrences(const string & calendarPath, const string & graphId, bool guest, const vector<GraphEventChange> & changes);
     string storeEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows);
@@ -65,6 +66,12 @@ public:
     // event Graph doesn't hold yet), then stores Graph's copy in its rows. Returns its master row's
     // id. An `answer` to an invitation writes nothing and reads nothing: it reaches the organizer by email.
     string writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics, bool answer);
+
+    // Answers an invitation through Graph, which tells its organizer: `partstat` (ACCEPTED, TENTATIVE or
+    // DECLINED) for the occurrence the iTIP `reply`'s RECURRENCE-ID names, else for the whole event. Then
+    // stores Graph's copy in its rows. False, having sent nothing, when none of the user's own calendars
+    // holds the invitation, as when Exchange never filed it.
+    bool answerEvent(const string & reply, const string & partstat);
 
     // Deletes the event, or the whole series of a master row, and its rows. A guest declines it.
     void deleteEvent(shared_ptr<Event> event);
