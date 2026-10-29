@@ -526,6 +526,7 @@ class _Handler(BaseHTTPRequestHandler):
             event = next((e for e in events if fields.get("transactionId") and e.get("transactionId") == fields["transactionId"]), None)
             if event is None:
                 srv.created_events += 1
+                srv.created_subjects.append(fields.get("subject"))
                 n = srv.created_events
                 event = _with_fields({"id": f"AAMkEvCreated{n}=", "changeKey": f"ck-created-{n}", "iCalUId": f"uid-created-{n}",
                                       "isCancelled": False, "isOrganizer": True}, fields)
@@ -788,6 +789,7 @@ class FakeGraphServer:
         self.events_page_size = events_page_size
         self.event_writes: list = []   # {method, route, fields}: each event POST, PATCH, DELETE and decline
         self.created_events = 0
+        self.created_subjects: list = []   # each created event's subject, as POSTed
         self.responses_sent = 0   # declines with sendResponse, which Exchange emails to the organizer
         self.mail_tokens: set = set()
         self.graph_tokens: dict = {}   # Graph mail scopes: token -> expiry

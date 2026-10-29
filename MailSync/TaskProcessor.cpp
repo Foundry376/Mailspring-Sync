@@ -39,6 +39,7 @@
 #include <iomanip>
 #include <thread>
 #include <chrono>
+#include <mutex>
 
 #if defined(_MSC_VER)
 #include <direct.h>
@@ -1716,12 +1717,23 @@ static void _keepPreviousIcs(shared_ptr<Account> account, Task * task, Event * e
     }
 }
 
+// A Graph create gives the event Graph's UID, and with it a new row id. Tasks the client queued
+// before then, or built from the event it held, still carry the old id.
+static std::mutex replacedEventIdsMtx;
+static map<string, string> replacedEventIds;
+
+static string currentEventId(const string & id) {
+    lock_guard<mutex> lock(replacedEventIdsMtx);
+    auto it = replacedEventIds.find(id);
+    return it == replacedEventIds.end() ? id : it->second;
+}
+
 void TaskProcessor::performLocalSyncbackEvent(Task * task) {
     json & eventJSON = task->data()["event"];
     string calendarId = task->data()["calendarId"].get<string>();
 
     // Check if event already exists
-    string eventId = eventJSON.count("id") ? eventJSON["id"].get<string>() : "";
+    string eventId = eventJSON.count("id") ? currentEventId(eventJSON["id"].get<string>()) : "";
     shared_ptr<Event> existing = nullptr;
 
     if (eventId != "") {
@@ -1833,7 +1845,7 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
 }
 
 void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
-    string eventId = task->data()["event"]["id"].get<string>();
+    string eventId = currentEventId(task->data()["event"]["id"].get<string>());
     auto event = store->find<Event>(Query().equal("id", eventId).equal("accountId", account->id()));
 
     if (event == nullptr) {
@@ -1847,8 +1859,12 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
         // which no read-back replaces and which holds any edit made since.
         string ics = event->href() == "" ? event->icsData() : task->data()["event"]["ics"].get<string>();
         bool answer = task->data().count("rsvp") > 0;
-        // A new event's rows take Graph's UID, and with it a new id.
-        task->data()["event"]["id"] = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs, ics, answer);
+        string writtenId = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs, ics, answer);
+        if (writtenId != eventId) {
+            lock_guard<mutex> lock(replacedEventIdsMtx);
+            replacedEventIds[eventId] = writtenId;
+        }
+        task->data()["event"]["id"] = writtenId;
         return;
     }
     auto dav = make_shared<DAVWorker>(account);
@@ -1863,7 +1879,7 @@ void TaskProcessor::performLocalDestroyEvent(Task * task) {
 void TaskProcessor::performRemoteDestroyEvent(Task * task) {
     vector<string> eventIds {};
     for (json & e : task->data()["events"]) {
-        eventIds.push_back(e["id"].get<string>());
+        eventIds.push_back(currentEventId(e["id"].get<string>()));
     }
 
     // findLargeSet empties eventIds (MailUtils::chunksOfVector erases from it).

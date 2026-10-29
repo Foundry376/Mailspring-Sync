@@ -267,6 +267,8 @@ string MicrosoftCalendarWorker::ingestEvent(const string & calendarId, const jso
                                                                      : store->find<Event>(Query().equal("id", id));
         if (existing) {
             existing->applyICSEventData(changeKey, graphId, ics, vevent);
+            // An edit made from the event as it was before its create wrote back the client's UID.
+            existing->_data["icsuid"] = vevent->UID;
             store->save(existing.get());
             kept.insert(existing->id());
         } else {
