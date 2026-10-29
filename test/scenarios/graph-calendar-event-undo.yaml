@@ -1,0 +1,59 @@
+name: graph-calendar-event-undo
+description: >
+  A move and its Undo, queued back to back as when the user presses Undo straight away. Both local
+  phases run before the move reaches Graph, and the move's read-back then stores Graph's copy, at
+  the new time, over the row the Undo's local phase had put back. The Undo still sends its own
+  edit, taken from the task rather than the row, and the event ends where it started.
+source: "Outlook.com account, 2026-10-28: Undo straight after a move wrote nothing and left the event moved"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvPlanning="
+          changeKey: "ck-planning-1"
+          iCalUId: "uid-planning"
+          type: singleInstance
+          subject: Planning
+          start: {dateTime: "2026-10-22T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-22T09:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-planning|"
+      ics_replace:
+        - ["DTSTART;TZID=Pacific Standard Time:20261022T090000", "DTSTART;TZID=Pacific Standard Time:20261022T140000"]
+        - ["DTEND;TZID=Pacific Standard Time:20261022T093000", "DTEND;TZID=Pacific Standard Time:20261022T143000"]
+    as: move
+  - client.task:
+      __cls: SyncbackEventTask
+      event_like: move
+      ics_replace:
+        - ["DTSTART;TZID=Pacific Standard Time:20261022T140000", "DTSTART;TZID=Pacific Standard Time:20261022T090000"]
+        - ["DTEND;TZID=Pacific Standard Time:20261022T143000", "DTEND;TZID=Pacific Standard Time:20261022T093000"]
+    as: undo
+  - wait: {task: move, timeout: 60}
+  - wait: {task: undo, timeout: 60}
+expect:
+  task_error: {move: null, undo: null}
+  graph:
+    event_writes:
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvPlanning=$", [end, isAllDay, start]]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvPlanning=$", [end, isAllDay, start]]
+  events:
+    "uid-planning|":
+      etag: "ck-planning-1++"
+      ics_has: ["DTSTART;TZID=Pacific Standard Time:20261022T090000"]
+  running: true

@@ -1,0 +1,66 @@
+name: graph-calendar-event-update
+description: >
+  An edit to an Outlook event reaches Graph as the fields it changed. A new title is a PATCH of
+  `subject` alone, so what iCalendar can't carry survives: the event's tentative Show As reads as
+  OPAQUE, which the client sends back untouched. A new time sends `start` and `end`. After each
+  write the engine reads the event back, so the row holds Graph's copy and its new changeKey.
+source: "https://learn.microsoft.com/en-us/graph/api/event-update (properties left out of the request body keep their values)"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvPlanning="
+          changeKey: "ck-planning-1"
+          iCalUId: "uid-planning"
+          type: singleInstance
+          subject: Planning
+          body: {contentType: text, content: "Agenda"}
+          showAs: tentative
+          start: {dateTime: "2026-10-22T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-22T09:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-planning|"
+      ics_replace: [["SUMMARY:Planning", "SEQUENCE:1\r\nSUMMARY:Planning review"]]
+    as: retitle
+  - wait: {task: retitle, timeout: 60}
+  - assert:
+      events:
+        "uid-planning|":
+          etag: "ck-planning-1+"
+          href: "AAMkEvPlanning="
+          ics_has: ["SUMMARY:Planning review", "TRANSP:OPAQUE", "DESCRIPTION:Agenda"]
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-planning|"
+      ics_replace:
+        - ["DTSTART;TZID=Pacific Standard Time:20261022T090000", "DTSTART;TZID=Pacific Standard Time:20261022T100000"]
+        - ["DTEND;TZID=Pacific Standard Time:20261022T093000", "DTEND;TZID=Pacific Standard Time:20261022T103000"]
+    as: move
+  - wait: {task: move, timeout: 60}
+expect:
+  task_error: {retitle: null, move: null}
+  graph:
+    event_writes:
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvPlanning=$", [subject]]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvPlanning=$", [end, isAllDay, start]]
+  events:
+    "uid-planning|":
+      etag: "ck-planning-1++"
+      href: "AAMkEvPlanning="
+      ics_has: ["SUMMARY:Planning review", "DTSTART;TZID=Pacific Standard Time:20261022T100000", "TRANSP:OPAQUE"]
+  running: true

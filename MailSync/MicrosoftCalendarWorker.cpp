@@ -22,11 +22,13 @@
 #include <mutex>
 #include <set>
 
-static const string CALENDAR_FIELDS = "id,name,hexColor,owner,isDefaultCalendar";
+static const string CALENDAR_FIELDS = "id,name,hexColor,owner,isDefaultCalendar,canEdit";
 static const string EVENT_INDEX_FIELDS = "id,changeKey,type,start,end,recurrence,originalStartTimeZone";
 static const string EVENT_FIELDS = "id,iCalUId,type,subject,body,start,end,isAllDay,isCancelled,showAs,location,"
                                    "organizer,attendees,responseStatus,lastModifiedDateTime,recurrence,originalStart";
 static const string SERIES_FIELDS = EVENT_FIELDS + ",cancelledOccurrences,exceptionOccurrences";
+// A write reads its event as the pass lists it, with what a write must check besides.
+static const string EVENT_WRITE_FIELDS = EVENT_INDEX_FIELDS + ",isOnlineMeeting,isOrganizer";
 
 // Changed events read and stored together; PerformGraphBatch sends them 20 to a request.
 static const size_t EVENTS_PER_ROUND = 100;
@@ -62,21 +64,19 @@ MicrosoftCalendarWorker::MicrosoftCalendarWorker(shared_ptr<Account> account) :
 {
 }
 
-void MicrosoftCalendarWorker::run() {
-    lock_guard<mutex> pass(passMtx);
-    auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
+// Every calendar /me/calendars lists, once each.
+vector<json> MicrosoftCalendarWorker::listCalendars() {
     set<string> listedIds {};
     vector<json> listed {};
-
     PaginateGraphCollection(MicrosoftGraphURL() + "/me/calendars?$select=" + CALENDAR_FIELDS, tokenProvider(), [&](json & page) {
         for (const auto & remote : page["value"]) {
             // $skip paging repeats a calendar that shifted between page fetches.
-            if (listedIds.insert(MailUtils::idForCalendar(account->id(), JSONString(remote, "id"))).second) {
+            if (listedIds.insert(JSONString(remote, "id")).second) {
                 listed.push_back(remote);
             }
         }
     });
-    if (listedIds.empty()) {
+    if (listed.empty()) {
         // Graph always lists the default calendar; pruning on an empty listing would delete every one.
         throw SyncException("invalid-graph-resp", "/me/calendars listed no calendars", true);
     }
@@ -89,9 +89,25 @@ void MicrosoftCalendarWorker::run() {
             mailboxAddress = JSONString(JSONObject(remote, "owner"), "address");
         }
     }
+    return listed;
+}
+
+// responseStatus is the answer of the mailbox the calendar belongs to: in a colleague's, theirs.
+vector<string> MicrosoftCalendarWorker::answeringFor(const json & calendar) {
+    string owner = JSONString(JSONObject(calendar, "owner"), "address");
+    return owner == "" || equalsIgnoreCase(owner, mailboxAddress) ? vector<string>{account->emailAddress(), mailboxAddress}
+                                                                   : vector<string>{owner};
+}
+
+void MicrosoftCalendarWorker::run() {
+    lock_guard<mutex> pass(passMtx);
+    auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
+    vector<json> listed = listCalendars();
+    set<string> listedIds {};
     for (const auto & remote : listed) {
         string path = JSONString(remote, "id");
         string id = MailUtils::idForCalendar(account->id(), path);
+        listedIds.insert(id);
         auto it = local.find(id);
         upsertCalendar(it != local.end() ? it->second : nullptr, id, path, remote);
     }
@@ -120,11 +136,18 @@ void MicrosoftCalendarWorker::run() {
 void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
     string path = JSONString(calendar, "id");
     string calendarId = MailUtils::idForCalendar(account->id(), path);
-    // responseStatus is the answer of the mailbox the calendar belongs to: in a colleague's, theirs.
-    string owner = JSONString(JSONObject(calendar, "owner"), "address");
-    vector<string> answering = owner == "" || equalsIgnoreCase(owner, mailboxAddress)
-                             ? vector<string>{account->emailAddress(), mailboxAddress} : vector<string>{owner};
+    vector<string> answering = answeringFor(calendar);
     auto range = getCalendarSyncRange();
+    // Read before the listing: a write that stores its rows meanwhile isn't in the listing, and its
+    // rows mustn't be removed as if Graph had deleted the event.
+    map<string, vector<shared_ptr<Event>>> localByHref {};
+    for (auto & row : store->findAll<Event>(Query().equal("calendarId", calendarId))) {
+        // A row without a Graph id is a new event, which its create task replaces with Graph's copy.
+        if (row->href() != "") {
+            localByHref[row->href()].push_back(row);
+        }
+    }
+
     map<string, json> remote {}; // Graph id -> listed event
     string url = MicrosoftGraphURL() + "/me/calendars/" + URLEscape(path) + "/events?$select=" + EVENT_INDEX_FIELDS + "&$top=200";
     PaginateGraphCollection(url, tokenProvider(), [&](json & page) {
@@ -134,11 +157,6 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
             }
         }
     });
-
-    map<string, vector<shared_ptr<Event>>> localByHref {};
-    for (auto & row : store->findAll<Event>(Query().equal("calendarId", calendarId))) {
-        localByHref[row->href()].push_back(row);
-    }
 
     vector<shared_ptr<Event>> removed {};
     for (auto & pair : localByHref) {
@@ -180,11 +198,17 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
                  remote.size(), fetched, changedCount, removedCount);
 }
 
-// Through the event's calendar, as Graph reads one shared with the user (https://learn.microsoft.com/en-us/graph/outlook-get-shared-events-calendars).
+// An event through its calendar, as Graph reads one shared with the user
+// (https://learn.microsoft.com/en-us/graph/outlook-get-shared-events-calendars); relative to
+// MicrosoftGraphURL(), as $batch takes it.
+static string eventPath(const string & calendarPath, const string & graphId) {
+    return "/me/calendars/" + URLEscape(calendarPath) + "/events/" + URLEscape(graphId);
+}
+
 // A batched request carries one value per header of its own, so the preferences share one Prefer (RFC 7240 section 2).
 static json eventRequest(const string & calendarPath, const json & entry, const string & zone) {
     bool series = JSONString(entry, "type") == "seriesMaster";
-    string url = "/me/calendars/" + URLEscape(calendarPath) + "/events/" + URLEscape(JSONString(entry, "id")) +
+    string url = eventPath(calendarPath, JSONString(entry, "id")) +
                  "?$select=" + (series ? SERIES_FIELDS + "&$expand=exceptionOccurrences" : EVENT_FIELDS);
     string prefer = "IdType=\"ImmutableId\", outlook.timezone=\"" + zone + "\", outlook.body-content-type=\"text\"";
     return {{"method", "GET"}, {"url", url}, {"headers", {{"Prefer", prefer}}}};
@@ -226,9 +250,9 @@ vector<pair<json, json>> MicrosoftCalendarWorker::fetchEvents(const string & cal
 }
 
 // One row per VEVENT, keyed by UID and RECURRENCE-ID; rows of the event no longer in its ICS go.
-// Runs inside the caller's transaction.
-void MicrosoftCalendarWorker::ingestEvent(const string & calendarId, const json & entry, const string & ics,
-                                          const vector<shared_ptr<Event>> & previousRows) {
+// Runs inside the caller's transaction. Returns the master row's id.
+string MicrosoftCalendarWorker::ingestEvent(const string & calendarId, const json & entry, const string & ics,
+                                            const vector<shared_ptr<Event>> & previousRows) {
     string graphId = JSONString(entry, "id");
     string changeKey = JSONString(entry, "changeKey");
     map<string, shared_ptr<Event>> previousById {};
@@ -237,11 +261,15 @@ void MicrosoftCalendarWorker::ingestEvent(const string & calendarId, const json 
     }
     ICalendar cal(ics);
     set<string> kept {};
+    string masterId;
     for (auto vevent : cal.Events) {
         if (vevent->DtStart.IsEmpty()) {
             continue;
         }
         string id = MailUtils::idForEvent(account->id(), calendarId, vevent->UID, vevent->RecurrenceId);
+        if (vevent->RecurrenceId.empty()) {
+            masterId = id;
+        }
         auto previous = previousById.find(id);
         shared_ptr<Event> existing = previous != previousById.end() ? previous->second
                                                                      : store->find<Event>(Query().equal("id", id));
@@ -261,6 +289,7 @@ void MicrosoftCalendarWorker::ingestEvent(const string & calendarId, const json 
             store->remove(row.get());
         }
     }
+    return masterId;
 }
 
 void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const string & id, const string & path, const json & remote) {
@@ -268,8 +297,7 @@ void MicrosoftCalendarWorker::upsertCalendar(shared_ptr<Calendar> local, const s
     string color = JSONString(remote, "hexColor");
     string owner = JSONString(JSONObject(remote, "owner"), "address");
     string ownership = owner == "" ? "" : equalsIgnoreCase(owner, mailboxAddress) ? "mine" : "other";
-    // Read-only until event edits go through Graph: TaskProcessor writes events with DAVWorker.
-    bool readOnly = true;
+    bool readOnly = !JSONBool(remote, "canEdit");
 
     if (!local) {
         Calendar calendar(id, account->id());
@@ -313,4 +341,346 @@ std::function<string()> MicrosoftCalendarWorker::tokenProvider() {
     return [this]() {
         return SharedXOAuth2TokenManager()->partsForAccount(account, OAuthTokenAudience::MicrosoftGraphCalendars).accessToken;
     };
+}
+
+static string eventsURL(const string & calendarPath) {
+    return MicrosoftGraphURL() + "/me/calendars/" + URLEscape(calendarPath) + "/events";
+}
+
+static string eventURL(const string & calendarPath, const string & graphId) {
+    return MicrosoftGraphURL() + eventPath(calendarPath, graphId);
+}
+
+// A guest who deletes a meeting declines it, as Outlook and Google do: a DELETE would tell the
+// organizer nothing. A meeting its organizer cancelled has no one to answer, and is deleted as
+// Outlook's "Remove from calendar" does.
+static bool declinesOnDelete(bool guest, const json & event) {
+    return guest && !JSONBool(event, "isCancelled");
+}
+
+// A write as $batch takes it, to `path` from eventPath.
+static json writeRequest(const string & method, const string & path, const json & body = json()) {
+    json request = {{"method", method}, {"url", path},
+                    {"headers", {{"Prefer", "IdType=\"ImmutableId\""}, {"Content-Type", "application/json"}}}};
+    if (!body.is_null()) {
+        request["body"] = body;
+    }
+    return request;
+}
+
+// Removes the event or occurrence at `path`: a DELETE, or a decline that answers its organizer.
+// A guest's removals are retried only when throttled, since a second decline is a second email.
+static json removalRequest(const string & path, bool decline) {
+    return decline ? writeRequest("POST", path + "/decline", {{"sendResponse", true}}) : writeRequest("DELETE", path);
+}
+
+// Keeps the exception `raise` throws, to be thrown once the other writes have been tried.
+static void collectFailure(vector<SyncException> & failures, const std::function<void()> & raise) {
+    try {
+        raise();
+    } catch (SyncException & ex) {
+        failures.push_back(ex);
+    }
+}
+
+// A refused write as a task error: a 404 is the event deleted since the client last synced.
+[[noreturn]] static void throwForWrite(const string & url, const GraphResponse & resp) {
+    if (resp.status == 404) {
+        throw SyncException("not-found", url + " RETURNED " + GraphErrorDescription(resp), false);
+    }
+    ThrowForGraphResponse(url, resp);
+}
+
+json MicrosoftCalendarWorker::fetchCalendar(const string & calendarId) {
+    auto calendar = store->find<Calendar>(Query().equal("id", calendarId));
+    if (calendar) {
+        for (const auto & remote : listCalendars()) {
+            if (JSONString(remote, "id") == calendar->path()) {
+                return remote;
+            }
+        }
+    }
+    throw SyncException("no-calendar", "Graph no longer lists the event's calendar", false);
+}
+
+// The client makes a new event from an emailed invitation that isn't on the calendar yet. Created
+// through Graph, the user would become its organizer and Exchange would invite every guest. An
+// event the user makes in Mailspring names the sign-in address as its organizer, or none.
+bool MicrosoftCalendarWorker::organizedElsewhere(const string & ics) {
+    for (const auto & vevent : GraphICS::veventsOf(ics)) {
+        string organizer = vevent.property("ORGANIZER").calAddress();
+        if (organizer != "" && !equalsIgnoreCase(organizer, account->emailAddress())) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The event's master and override rows, which share its UID.
+vector<shared_ptr<Event>> MicrosoftCalendarWorker::findRows(shared_ptr<Event> event) {
+    return store->findAll<Event>(Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()));
+}
+
+json MicrosoftCalendarWorker::fetchEvent(const string & calendarPath, const string & graphId) {
+    string url = eventURL(calendarPath, graphId) + "?$select=" + EVENT_WRITE_FIELDS;
+    GraphResponse resp = PerformGraphRequest("GET", url, tokenProvider()());
+    if (!resp.ok()) {
+        throwForWrite(url, resp);
+    }
+    return resp.body;
+}
+
+// The series as the pass reads it: its exceptions' originalStart in the series' zone.
+json MicrosoftCalendarWorker::fetchSeries(const string & calendarPath, const string & graphId) {
+    vector<pair<json, json>> read = fetchEvents(calendarPath, {fetchEvent(calendarPath, graphId)});
+    if (read.empty()) {
+        throw SyncException("invalid-graph-resp", "Graph event " + graphId + " could not be read", true);
+    }
+    return read.front().second;
+}
+
+// The occurrence each change names (its id and isCancelled), or null where the series has none or
+// the lookup failed (added to `failures`). An exception is found by its originalStart wherever it
+// moved; any other occurrence through /instances around its slot, the lookups in one batch.
+vector<json> MicrosoftCalendarWorker::findOccurrences(const string & calendarPath, const json & series,
+                                                      const vector<GraphEventChange> & changes, vector<SyncException> & failures) {
+    vector<json> found(changes.size());
+    vector<size_t> lookedUp {};
+    vector<json> lookups {};
+    for (size_t i = 0; i < changes.size(); i++) {
+        const ICSProperty & anchor = changes[i].occurrence;
+        for (const auto & exception : JSONArray(series, "exceptionOccurrences")) {
+            if (GraphICS::namesOccurrence(anchor, JSONString(exception, "originalStart"))) {
+                found[i] = exception;
+                break;
+            }
+        }
+        if (found[i].is_null()) {
+            string zone = anchor.param("TZID") != "" ? anchor.param("TZID") : JSONString(JSONObject(series, "start"), "timeZone");
+            auto window = GraphICS::occurrenceWindow(anchor);
+            string path = eventPath(calendarPath, JSONString(series, "id")) + "/instances?startDateTime=" + window.first +
+                          "&endDateTime=" + window.second + "&$select=id,originalStart,isCancelled";
+            lookedUp.push_back(i);
+            lookups.push_back({{"method", "GET"}, {"url", path},
+                               {"headers", {{"Prefer", "IdType=\"ImmutableId\", outlook.timezone=\"" + zone + "\""}}}});
+        }
+    }
+    vector<GraphResponse> responses = PerformGraphBatch(lookups, tokenProvider());
+    for (size_t k = 0; k < lookedUp.size(); k++) {
+        const ICSProperty & anchor = changes[lookedUp[k]].occurrence;
+        if (!responses[k].ok()) {
+            string url = MicrosoftGraphURL() + JSONString(lookups[k], "url");
+            collectFailure(failures, [&]() { ThrowForGraphResponse(url, responses[k]); });
+            continue;
+        }
+        for (const auto & instance : JSONArray(responses[k].body, "value")) {
+            if (GraphICS::namesOccurrence(anchor, JSONString(instance, "originalStart"))) {
+                found[lookedUp[k]] = instance;
+                break;
+            }
+        }
+        if (found[lookedUp[k]].is_null()) {
+            logger->warn("-- No occurrence of {} at {} {}", JSONString(series, "id"), anchor.param("TZID"), anchor.value);
+        }
+    }
+    return found;
+}
+
+// Each override and EXDATE as a write of its occurrence, found in the series as it stands after the
+// event's own write: a change to the series' times can make Exchange drop its exceptions. The
+// lookups go as one batch and the writes as another. A refused write doesn't stop the rest, which
+// would leave a series change half applied; the first refusal is thrown once all have been tried.
+void MicrosoftCalendarWorker::writeOccurrences(const string & calendarPath, const string & graphId, bool guest,
+                                               const vector<GraphEventChange> & changes) {
+    if (changes.empty()) {
+        return;
+    }
+    vector<SyncException> failures {};
+    vector<json> occurrences = findOccurrences(calendarPath, fetchSeries(calendarPath, graphId), changes, failures);
+    vector<json> writes {};
+    for (size_t i = 0; i < changes.size(); i++) {
+        if (occurrences[i].is_null()) {
+            continue;
+        }
+        string path = eventPath(calendarPath, JSONString(occurrences[i], "id"));
+        writes.push_back(changes[i].kind == GraphEventChange::Kind::UpdateOccurrence
+                             ? writeRequest("PATCH", path, changes[i].fields)
+                             : removalRequest(path, declinesOnDelete(guest, occurrences[i])));
+    }
+    // A guest's writes are all removals.
+    vector<GraphResponse> responses = PerformGraphBatch(writes, tokenProvider(), guest ? GraphRetry::ThrottledOnly : GraphRetry::ThrottledOrUnavailable);
+    for (size_t i = 0; i < writes.size(); i++) {
+        if (!responses[i].ok()) {
+            string url = MicrosoftGraphURL() + JSONString(writes[i], "url");
+            collectFailure(failures, [&]() { throwForWrite(url, responses[i]); });
+        }
+    }
+    if (!failures.empty()) {
+        logger->warn("-X {} of {} occurrence writes to {} failed", failures.size(), changes.size(), graphId);
+        throw failures.front();
+    }
+}
+
+// Graph's copy of the event, read and stored as the pass would, in place of `rows`; returns the
+// master row's id. Failing that, or with no `calendar`, returns "" and leaves the rows to the next
+// pass: they lose their etag, and a new event's row takes Graph's id, so the pass reads it over them.
+string MicrosoftCalendarWorker::storeEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows) {
+    if (!calendar.is_null()) {
+        try {
+            string path = JSONString(calendar, "id");
+            json entry = fetchEvent(path, graphId);
+            vector<pair<json, json>> read = fetchEvents(path, {entry});
+            if (read.empty()) {
+                throw SyncException("invalid-graph-resp", "Graph event " + graphId + " could not be read back", true);
+            }
+            string ics = GraphICS::icsForEvent(read.front().second, answeringFor(calendar), JSONString(JSONObject(entry, "start"), "dateTime"));
+            MailStoreTransaction transaction{store.get(), "storeEvent"};
+            string masterId = ingestEvent(MailUtils::idForCalendar(account->id(), path), entry, ics, rows);
+            transaction.commit();
+            return masterId;
+        } catch (std::exception & ex) {
+            logger->warn("-X Could not read event {} back: {}", graphId, ex.what());
+        }
+    }
+    for (auto & row : rows) {
+        row->setHref(graphId);
+        row->setEtag("");
+        store->save(row.get());
+    }
+    return "";
+}
+
+// After a refused or failed write the rows still show the client's edit: they get Graph's copy
+// back. A new event's row goes, since no pass removes a row Graph never held.
+void MicrosoftCalendarWorker::restoreEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows) {
+    if (graphId == "") {
+        for (auto & row : rows) {
+            store->remove(row.get());
+        }
+        return;
+    }
+    storeEvent(calendar, graphId, rows);
+}
+
+string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics, bool answer) {
+    if (answer) {
+        // It reaches the organizer by email. Read back, Graph's copy would show the meeting unanswered;
+        // the row keeps its etag, so no pass reads it again until the event changes on Graph.
+        logger->info("- Answer to {} goes to its organizer by email, not to Graph", event->href());
+        return event->id();
+    }
+    string graphId = event->href();
+    if (graphId == "" && organizedElsewhere(ics)) {
+        // Exchange put the invitation on the calendar when it arrived; the next pass brings it in.
+        logger->info("- Not creating event {}: someone else organizes it", event->icsUID());
+        store->remove(event.get());
+        return event->id();
+    }
+    vector<shared_ptr<Event>> rows = findRows(event);
+
+    json calendar; // null while Graph hasn't listed it
+    try {
+        calendar = fetchCalendar(event->calendarId());
+        string path = JSONString(calendar, "id");
+        if (graphId != "" && previousIcs == "") {
+            // Read as a new event, the edit would create a second one and invite its guests again.
+            throw SyncException("invalid-ics", "No copy of the event from before the edit", false);
+        }
+        string startUTC;
+        bool onlineMeeting = false;
+        bool guest = false;
+        if (graphId != "") {
+            json listed = fetchEvent(path, graphId);
+            startUTC = JSONString(JSONObject(listed, "start"), "dateTime");
+            onlineMeeting = JSONBool(listed, "isOnlineMeeting");
+            guest = !JSONBool(listed, "isOrganizer");
+        }
+        vector<GraphEventChange> changes = GraphICS::changesBetween(graphId == "" ? "" : previousIcs, ics, startUTC);
+        for (auto & change : changes) {
+            // A guest's only edit is removing an occurrence, which declines it.
+            if (guest && change.kind != GraphEventChange::Kind::CancelOccurrence) {
+                throw GraphEditRefused("not-organizer", "Only the organizer can change this meeting");
+            }
+            if (onlineMeeting && change.fields.count("body")) {
+                // Text notes would replace the HTML body, and the join details in it
+                // (https://learn.microsoft.com/en-us/graph/api/event-update, "body property and online meetings").
+                if (!change.reapplied) {
+                    throw GraphEditRefused("online-meeting-notes", "Notes of an online meeting can't be changed here");
+                }
+                change.fields.erase("body"); // the occurrence's own notes; it keeps the series'
+            }
+        }
+
+        // The event's own write first (changesBetween puts it there): until it succeeds nothing has
+        // changed, and its refusal fails the task as it stands.
+        vector<GraphEventChange> occurrenceChanges {};
+        for (const auto & change : changes) {
+            string url;
+            GraphResponse resp;
+            if (change.kind == GraphEventChange::Kind::Create) {
+                json fields = change.fields;
+                fields["transactionId"] = event->icsUID(); // a retried POST then creates nothing new
+                url = eventsURL(path);
+                resp = PerformGraphRequest("POST", url, tokenProvider()(), fields.dump());
+                graphId = resp.ok() ? JSONString(resp.body, "id") : "";
+            } else if (change.kind == GraphEventChange::Kind::Update) {
+                url = eventURL(path, graphId);
+                resp = PerformGraphRequest("PATCH", url, tokenProvider()(), change.fields.dump());
+            } else {
+                occurrenceChanges.push_back(change);
+                continue;
+            }
+            if (!resp.ok()) {
+                throwForWrite(url, resp);
+            }
+        }
+        if (graphId == "") {
+            throw SyncException("invalid-graph-resp", "Graph created the event without an id", false);
+        }
+        writeOccurrences(path, graphId, guest, occurrenceChanges);
+        logger->info("- Wrote {} changes to Graph event {}", changes.size(), graphId);
+
+    } catch (GraphEditRefused & ex) {
+        restoreEvent(calendar, graphId, rows);
+        throw SyncException(ex.key, ex.what(), false);
+    } catch (SyncException & ex) {
+        restoreEvent(calendar, graphId, rows);
+        throw;
+    }
+    // Graph holds the edit now: a failed read-back leaves the rows to the next pass rather than
+    // failing the task, which the user would then save again.
+    string masterId = storeEvent(calendar, graphId, rows);
+    return masterId != "" ? masterId : event->id();
+}
+
+void MicrosoftCalendarWorker::deleteEvent(shared_ptr<Event> event) {
+    if (event->href() == "") {
+        store->remove(event.get()); // Graph never held it
+        return;
+    }
+    if (!event->recurrenceId().empty()) {
+        // An override row carries its series' id: deleting by it would take the whole series.
+        throw SyncException("shared-resource", "Cannot delete a single occurrence by deleting its series", false);
+    }
+    auto calendar = store->find<Calendar>(Query().equal("id", event->calendarId()));
+    if (!calendar) {
+        throw SyncException("no-calendar", "Calendar not found for event deletion", false);
+    }
+    string url = eventURL(calendar->path(), event->href());
+    GraphResponse listed = PerformGraphRequest("GET", url + "?$select=isOrganizer,isCancelled", tokenProvider()());
+    if (!listed.ok()) {
+        ThrowForGraphResponse(url, listed);
+    }
+    bool decline = declinesOnDelete(!JSONBool(listed.body, "isOrganizer"), listed.body);
+    GraphResponse resp = PerformGraphBatch({removalRequest(eventPath(calendar->path(), event->href()), decline)}, tokenProvider(),
+                                           decline ? GraphRetry::ThrottledOnly : GraphRetry::ThrottledOrUnavailable).front();
+    if (!resp.ok()) {
+        ThrowForGraphResponse(url, resp);
+    }
+    MailStoreTransaction transaction{store.get(), "deleteEvent"};
+    for (auto & row : findRows(event)) {
+        store->remove(row.get());
+    }
+    transaction.commit();
+    logger->info("- {} event {} on Graph", decline ? "Declined" : "Deleted", event->href());
 }

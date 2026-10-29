@@ -3,14 +3,16 @@ description: >
   An Office 365 account has no CalDAV, so its calendars come from Microsoft Graph with their
   own calendar-scoped token. That works for an account signed in before Graph sending, which
   granted the calendar scopes but not the mail ones. Every calendar /me/calendars lists,
-  across pages, becomes a read-only Calendar row (until event edits go through Graph) with
-  its colour and whether the account owns it: a calendar is the account's when its owner is the
+  across pages, becomes a Calendar row, writable where Graph says the user can edit it (canEdit:
+  their own, and a colleague's shared with edit rights; not Birthdays here), with its colour and
+  whether the account owns it: a calendar is the account's when its owner is the
   default calendar's, which is the mailbox's primary address even where the account signs in with
   an alias (as here), and wherever the default calendar falls in the listing. An event's
   responseStatus is the answer of the calendar's owner, so it lands on the account's own attendee
   entry (at either address) in its calendars, and on the colleague's in a calendar they share. A
-  calendar renamed on the server is renamed here; one the server stops listing is removed.
-source: "https://learn.microsoft.com/en-us/graph/api/user-list-calendars (calendar: id, name, hexColor, owner, isDefaultCalendar)"
+  calendar renamed or made read-only on the server follows here; one the server stops listing is
+  removed.
+source: "https://learn.microsoft.com/en-us/graph/api/user-list-calendars (calendar: id, name, hexColor, owner, isDefaultCalendar, canEdit)"
 env:
   CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
 servers:
@@ -52,11 +54,11 @@ servers:
             - {type: required, status: {response: none}, emailAddress: {name: Bob Builder, address: bob@example.net}}
             - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: harness.primary@example.test}}
     graph_calendars:
-      - {id: "AAMkADBirthdays=", name: Birthdays, hexColor: "", isDefaultCalendar: false,
+      - {id: "AAMkADBirthdays=", name: Birthdays, hexColor: "", isDefaultCalendar: false, canEdit: false,
          owner: {name: Harness Test, address: harness.primary@example.test}}
-      - {id: "AAMkADTeam=", name: Team, hexColor: "", isDefaultCalendar: false,
+      - {id: "AAMkADTeam=", name: Team, hexColor: "", isDefaultCalendar: false, canEdit: true,
          owner: {name: Bob Builder, address: bob@example.net}}
-      - {id: "AAMkADefault=", name: Calendar, hexColor: "#FF8C00", isDefaultCalendar: true,
+      - {id: "AAMkADefault=", name: Calendar, hexColor: "#FF8C00", isDefaultCalendar: true, canEdit: true,
          owner: {name: Harness Test, address: Harness.Primary@example.test}}
 mailboxes:
   INBOX: {messages: 1}
@@ -64,9 +66,9 @@ steps:
   - wait: {log: "Microsoft calendar sync complete: 3 calendars", timeout: 90}
   - assert:
       calendars:
-        Calendar: {path: "AAMkADefault=", color: "#ff8c00", read_only: true, owner: mine}
+        Calendar: {path: "AAMkADefault=", color: "#ff8c00", read_only: false, owner: mine}
         Birthdays: {path: "AAMkADBirthdays=", read_only: true, owner: mine}
-        Team: {path: "AAMkADTeam=", read_only: true, owner: other}
+        Team: {path: "AAMkADTeam=", read_only: false, owner: other}
       events:
         "uid-mine|":
           ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:harness.primary@example.test"]
@@ -75,7 +77,7 @@ steps:
                     "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:harness.primary@example.test"]
   - server.graph_calendars:
       calendars:
-        - {id: "AAMkADefault=", name: Work, hexColor: "#FF8C00", isDefaultCalendar: true,
+        - {id: "AAMkADefault=", name: Work, hexColor: "#FF8C00", isDefaultCalendar: true, canEdit: false,
            owner: {name: Harness Test, address: harness.primary@example.test}}
   - client.sync_calendar: {}
   - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 60}

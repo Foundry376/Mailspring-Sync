@@ -1,0 +1,79 @@
+name: graph-calendar-event-create-pending
+description: >
+  A new event waits for its create to reach Graph while the IMAP connection is slow to leave IDLE,
+  which every remote phase waits on. Meanwhile the user retitles the event and a calendar pass
+  runs. The pass leaves the event's row alone, since it has no Graph id yet, and the create sends
+  the row as it stands, retitle included. The create gives the event Graph's UID, and with it a
+  new row id; the retitle's own task, queued before that with the old id, still finds the event,
+  as does deleting a second new event created and deleted while waiting, and a later edit built
+  from the event as the client held it before the create.
+source: "TaskProcessor: a remote phase runs at least 300 ms after its local phase, on the foreground worker once it leaves IDLE"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=: []
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  - wait: {idle: true, timeout: 60}
+  - server.pause: {at: {hook: idle_tick, session: foreground, delay: 8}}
+  - client.task:
+      __cls: SyncbackEventTask
+      id: task-create
+      calendar_of: Calendar
+      event:
+        icsuid: "new-event@mailspring"
+        ics: "BEGIN:VCALENDAR\r\nPRODID:-//Mailspring//Calendar//EN\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:new-event@mailspring\r\nSUMMARY:Design review\r\nDTSTART;TZID=America/Chicago:20261021T140000\r\nDTEND;TZID=America/Chicago:20261021T150000\r\nTRANSP:OPAQUE\r\nDTSTAMP:20261013T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: create
+  - wait: {log: "\\[task-create\\] -- Succeeded. Changing status to `remote`", timeout: 10}
+  - client.task:
+      __cls: SyncbackEventTask
+      id: task-create-2
+      calendar_of: Calendar
+      event:
+        icsuid: "new-event-2@mailspring"
+        ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:new-event-2@mailspring\r\nSUMMARY:Budget review\r\nDTSTART;TZID=America/Chicago:20261022T100000\r\nDTEND;TZID=America/Chicago:20261022T110000\r\nDTSTAMP:20261013T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: create_2
+  - wait: {log: "\\[task-create-2\\] -- Succeeded. Changing status to `remote`", timeout: 10}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "new-event@mailspring|"
+      ics_replace: [["SUMMARY:Design review", "SUMMARY:Design review (Q4)"]]
+    as: retitle
+  - client.task: {__cls: DestroyEventTask, events_of: ["new-event-2@mailspring|"]}
+    as: delete
+  - client.sync_calendar: {}
+  - wait: {seconds: 1}
+  - wait: {task: create, timeout: 60}
+  - wait: {task: retitle, timeout: 60}
+  - wait: {task: delete, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_like: retitle
+      ics_replace: [["SUMMARY:Design review (Q4)", "SUMMARY:Design review (Q4 plan)"]]
+    as: stale_edit
+  - wait: {task: stale_edit, timeout: 60}
+expect:
+  task_error: {create: null, create_2: null, retitle: null, delete: null, stale_edit: null}
+  graph:
+    event_writes:
+      - [POST, "^calendars/AAMkADefault=/events$", [attendees, body, end, isAllDay, location, recurrence, showAs, start, subject, transactionId]]
+      - [POST, "^calendars/AAMkADefault=/events$", [attendees, body, end, isAllDay, location, recurrence, showAs, start, subject, transactionId]]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvCreated1=$", [subject]]
+      - [DELETE, "^calendars/AAMkADefault=/events/AAMkEvCreated2=$", []]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvCreated1=$", [subject]]
+    created_subjects: ["Design review (Q4)", "Budget review"]
+  events:
+    "uid-created-1|":
+      href: "AAMkEvCreated1="
+      ics_has: ["SUMMARY:Design review (Q4 plan)"]
+  log_count: {"Microsoft calendar sync complete": 2}
+  running: true

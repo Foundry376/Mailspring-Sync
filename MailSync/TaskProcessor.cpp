@@ -17,6 +17,7 @@
 #include "Message.hpp"
 #include "MailUtils.hpp"
 #include "DAVWorker.hpp"
+#include "MicrosoftCalendarWorker.hpp"
 #include "DAVUtils.hpp"
 #include "GoogleContactsWorker.hpp"
 #include "File.hpp"
@@ -28,6 +29,7 @@
 #include "SyncException.hpp"
 #include "NetworkRequestUtils.hpp"
 #include "XOAuth2TokenManager.hpp"
+#include "strlib.h"
 
 #include <sstream>
 #include <algorithm>
@@ -37,6 +39,7 @@
 #include <iomanip>
 #include <thread>
 #include <chrono>
+#include <mutex>
 
 #if defined(_MSC_VER)
 #include <direct.h>
@@ -1706,12 +1709,31 @@ void TaskProcessor::performRemoteSyncbackContact(Task * task) {
 }
 
 
+// Graph takes an edit as the fields it changed, not as a resource: performRemote compares the
+// client's ICS with the one the row held, which the local phase is about to replace.
+static void _keepPreviousIcs(shared_ptr<Account> account, Task * task, Event * existing) {
+    if (account->syncsCalendarsViaGraph()) {
+        task->data()["previousIcs"] = existing->icsData();
+    }
+}
+
+// A Graph create gives the event Graph's UID, and with it a new row id. Tasks the client queued
+// before then, or built from the event it held, still carry the old id.
+static std::mutex replacedEventIdsMtx;
+static map<string, string> replacedEventIds;
+
+static string _currentEventId(const string & id) {
+    lock_guard<mutex> lock(replacedEventIdsMtx);
+    auto it = replacedEventIds.find(id);
+    return it == replacedEventIds.end() ? id : it->second;
+}
+
 void TaskProcessor::performLocalSyncbackEvent(Task * task) {
     json & eventJSON = task->data()["event"];
     string calendarId = task->data()["calendarId"].get<string>();
 
     // Check if event already exists
-    string eventId = eventJSON.count("id") ? eventJSON["id"].get<string>() : "";
+    string eventId = eventJSON.count("id") ? _currentEventId(eventJSON["id"].get<string>()) : "";
     shared_ptr<Event> existing = nullptr;
 
     if (eventId != "") {
@@ -1721,6 +1743,7 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
     if (existing) {
         // UPDATE: Merge client changes into existing event
         if (eventJSON.count("ics")) {
+            _keepPreviousIcs(account, task, existing.get());
             existing->setIcsData(eventJSON["ics"].get<string>());
             // Re-parse ICS to update recurrence fields
             ICalendar cal(existing->icsData());
@@ -1806,6 +1829,7 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
                                     "send the whole resource",
                                     false);
             }
+            _keepPreviousIcs(account, task, existing.get());
             existing->applyICSEventData(existing->etag(), existing->href(), icsData, icsEvent);
             store->save(existing.get());
             task->data()["event"]["id"] = existing->id();
@@ -1821,13 +1845,28 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
 }
 
 void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
-    string eventId = task->data()["event"]["id"].get<string>();
+    string eventId = _currentEventId(task->data()["event"]["id"].get<string>());
     auto event = store->find<Event>(Query().equal("id", eventId).equal("accountId", account->id()));
 
     if (event == nullptr) {
         throw SyncException("not-found", "Event not found for syncback", false);
     }
 
+    if (account->syncsCalendarsViaGraph()) {
+        string previousIcs = task->data().count("previousIcs") ? task->data()["previousIcs"].get<string>() : "";
+        // An edit comes from its task: an earlier task's read-back can store Graph's copy over the row
+        // after this task's local phase, as when Undo follows a move. A new event comes from its row,
+        // which no read-back replaces and which holds any edit made since.
+        string ics = event->href() == "" ? event->icsData() : task->data()["event"]["ics"].get<string>();
+        bool answer = task->data().count("rsvp") > 0;
+        string writtenId = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs, ics, answer);
+        if (writtenId != eventId) {
+            lock_guard<mutex> lock(replacedEventIdsMtx);
+            replacedEventIds[eventId] = writtenId;
+        }
+        task->data()["event"]["id"] = writtenId;
+        return;
+    }
     auto dav = make_shared<DAVWorker>(account);
     dav->writeAndResyncEvent(event);
 }
@@ -1840,7 +1879,7 @@ void TaskProcessor::performLocalDestroyEvent(Task * task) {
 void TaskProcessor::performRemoteDestroyEvent(Task * task) {
     vector<string> eventIds {};
     for (json & e : task->data()["events"]) {
-        eventIds.push_back(e["id"].get<string>());
+        eventIds.push_back(_currentEventId(e["id"].get<string>()));
     }
 
     // findLargeSet empties eventIds (MailUtils::chunksOfVector erases from it).
@@ -1852,12 +1891,19 @@ void TaskProcessor::performRemoteDestroyEvent(Task * task) {
                      events.size(), requested);
     }
 
-    auto dav = make_shared<DAVWorker>(account);
+    std::function<void(shared_ptr<Event>)> deleteEvent;
+    if (account->syncsCalendarsViaGraph()) {
+        auto graph = make_shared<MicrosoftCalendarWorker>(account);
+        deleteEvent = [graph](shared_ptr<Event> event) { graph->deleteEvent(event); };
+    } else {
+        auto dav = make_shared<DAVWorker>(account);
+        deleteEvent = [dav](shared_ptr<Event> event) { dav->deleteEvent(event); };
+    }
     // One failure must not strand the rest: this loop is the only thing that removes these rows.
     vector<SyncException> failures {};
     for (auto & event : events) {
         try {
-            dav->deleteEvent(event);
+            deleteEvent(event);
         } catch (SyncException & ex) {
             bool gone = ex.key.find("404") != string::npos || ex.key.find("410") != string::npos;
             // Gone from the server's own href is what was asked; from a guessed one, maybe not.
@@ -2209,12 +2255,8 @@ static void _graphPrepareDraft(shared_ptr<Account> account, const string & messa
     }
 
     string wanted = from != nullptr ? _mcString(from->mailbox()) : "";
-    json sender = created.is_object() ? created.value("from", json()) : json();
-    string actual = sender.is_object() ? JSONString(sender.value("emailAddress", json()), "address") : "";
-    string wantedLower = wanted, actualLower = actual;
-    std::transform(wantedLower.begin(), wantedLower.end(), wantedLower.begin(), ::tolower);
-    std::transform(actualLower.begin(), actualLower.end(), actualLower.begin(), ::tolower);
-    if (wanted != "" && wantedLower != actualLower) {
+    string actual = JSONString(JSONObject(JSONObject(created, "from"), "emailAddress"), "address");
+    if (wanted != "" && !equalsIgnoreCase(wanted, actual)) {
         spdlog::get("logger")->info("-- Graph changed From to {}, restoring {}", actual, wanted);
         payload["from"] = {{"emailAddress", {{"name", _mcString(from->displayName())}, {"address", wanted}}}};
     }

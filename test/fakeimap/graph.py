@@ -24,7 +24,18 @@ its calendar, in the zone `Prefer: outlook.timezone` names (originalStart too, w
 offset, though the reference says UTC: observed on an Outlook.com account), with a text body only
 when asked for one, and a series' cancelledOccurrences / exceptionOccurrences only when selected
 and expanded (event-get). $batch runs up to 20 requests and answers them out of order
-(json-batching). Calendar and mail scopes are consented and tokened separately: a token for one is
+(json-batching).
+
+Events are written through their calendar: POST creates one (a repeated `transactionId` gets the
+event it already created, event-create), PATCH changes the fields it names and DELETE removes it
+(event-update, event-delete). An occurrence's id comes from /instances (event-list-instances):
+PATCHing it makes it an exception, DELETEing it cancels it, and either moves the series' changeKey,
+as an Outlook.com account showed. A PATCH that moves a series' times or recurrence drops its
+exceptions and cancellations; whether Exchange does is unverified, and this is the case where the
+engine must apply them again. /instances expands daily and weekly series only. A calendar is
+writable (`canEdit`) and an event is the mailbox's own (`isOrganizer`) unless a scenario says otherwise. A guest's /decline (event-decline)
+takes the event, or the occurrence, off the calendar, and counts a response to the organizer when
+`sendResponse` is true. Calendar and mail scopes are consented and tokened separately: a token for one is
 refused by the other's routes with 403, as Graph answers a token missing the permission a request
 needs.
 
@@ -39,12 +50,12 @@ import json
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage, Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 from urllib.parse import parse_qs, unquote, urlparse
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 UPLOAD_CHUNK_MULTIPLE = 320 * 1024
@@ -58,19 +69,85 @@ WINDOWS_ZONES = {"UTC": "UTC", "Pacific Standard Time": "America/Los_Angeles", "
                  "New Zealand Standard Time": "Pacific/Auckland", "W. Europe Standard Time": "Europe/Berlin"}
 
 
+def _zone(name: str) -> Optional[ZoneInfo]:
+    """A Windows zone name from WINDOWS_ZONES, or an IANA name, which Graph also accepts; None otherwise."""
+    try:
+        return ZoneInfo(WINDOWS_ZONES.get(name, name)) if name else None
+    except (ValueError, KeyError, ZoneInfoNotFoundError):
+        return None
+
+
 def _offset_in_zone(value: str, zone: str) -> str:
     """A DateTimeOffset ("2026-10-19T16:00:00Z") written in `zone` with its offset."""
     instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    return instant.astimezone(ZoneInfo(WINDOWS_ZONES[zone])).isoformat(timespec="seconds")
+    return instant.astimezone(_zone(zone)).isoformat(timespec="seconds")
+
+
+def _instant(value: dict) -> datetime:
+    """A Graph dateTimeTimeZone as an aware datetime."""
+    return datetime.fromisoformat(value["dateTime"][:19]).replace(tzinfo=_zone(value["timeZone"]))
 
 
 def _in_zone(value: dict, zone: str) -> dict:
     """A Graph dateTimeTimeZone moved into `zone`."""
     if value.get("timeZone") == zone:
         return dict(value)
-    local = datetime.fromisoformat(value["dateTime"][:19]).replace(tzinfo=ZoneInfo(WINDOWS_ZONES[value["timeZone"]]))
-    moved = local.astimezone(ZoneInfo(WINDOWS_ZONES[zone]))
+    moved = _instant(value).astimezone(_zone(zone))
     return {"dateTime": moved.strftime("%Y-%m-%dT%H:%M:%S.0000000"), "timeZone": zone}
+
+
+# The event fields the engine writes (event-update's list, plus transactionId on create).
+WRITABLE_FIELDS = {"subject", "body", "location", "showAs", "attendees", "start", "end", "isAllDay", "recurrence",
+                   "transactionId"}
+SERIES_TIMING = {"start", "end", "isAllDay", "recurrence"}
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def _utc(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def _zoned(moment: datetime, zone: str) -> dict:
+    return {"dateTime": moment.astimezone(_zone(zone)).strftime("%Y-%m-%dT%H:%M:%S.0000000"), "timeZone": zone}
+
+
+def _slots(master: dict, until: datetime):
+    """The local start of each occurrence of a daily or weekly series, up to `until`."""
+    zone = _zone(master["start"]["timeZone"])
+    first = datetime.fromisoformat(master["start"]["dateTime"][:19])
+    pattern, rng = master["recurrence"]["pattern"], master["recurrence"]["range"]
+    interval = pattern.get("interval", 1)
+    wanted = {WEEKDAYS.index(d) for d in pattern.get("daysOfWeek", [])}
+    end_date = datetime.fromisoformat(rng["endDate"]).date() if rng.get("type") == "endDate" else None
+    count = rng.get("numberOfOccurrences") if rng.get("type") == "numbered" else None
+    first_week = first.date() - timedelta(days=first.weekday())
+    produced, day = 0, first.date()
+    while day <= until.astimezone(zone).date() and (end_date is None or day <= end_date) and (count is None or produced < count):
+        if pattern["type"] == "daily":
+            match = (day - first.date()).days % interval == 0
+        elif pattern["type"] == "weekly":
+            match = day.weekday() in wanted and ((day - first_week).days // 7) % interval == 0
+        else:
+            raise ValueError(f"the fake expands daily and weekly series only, not {pattern['type']}")
+        if match:
+            produced += 1
+            yield datetime.combine(day, first.time(), tzinfo=zone)
+        day += timedelta(days=1)
+
+
+def _with_fields(event: dict, fields: dict) -> dict:
+    out = dict(event)
+    for name, value in fields.items():
+        if name == "attendees":
+            value = [{"type": a.get("type", "required"), "status": {"response": "none"},
+                      "emailAddress": a["emailAddress"]} for a in value]
+        out[name] = value
+    if "start" in fields:
+        out["originalStartTimeZone"] = fields["start"]["timeZone"]
+    if "recurrence" in fields and "originalStart" not in event:
+        out["type"] = "seriesMaster" if fields["recurrence"] else "singleInstance"
+    out["lastModifiedDateTime"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return out
 
 
 def _selected(resource: dict, select: str) -> dict:
@@ -244,9 +321,19 @@ class _Handler(BaseHTTPRequestHandler):
         m = re.match(r"^calendars/([^/]+)/events$", route)
         if m and self.command == "GET":
             return self._calendar_events(unquote(m.group(1)))
+        if m and self.command == "POST":
+            return self._create_event(unquote(m.group(1)), body, route)
+        m = re.match(r"^calendars/([^/]+)/events/([^/]+)/instances$", route)
+        if m and self.command == "GET":
+            return self._instances(unquote(m.group(1)), unquote(m.group(2)))
+        m = re.match(r"^calendars/([^/]+)/events/([^/]+)/decline$", route)
+        if m and self.command == "POST":
+            return self._write_event(unquote(m.group(1)), unquote(m.group(2)), body)
         m = re.match(r"^calendars/([^/]+)/events/([^/]+)$", route)
         if m and self.command == "GET":
             return self._event(unquote(m.group(1)), unquote(m.group(2)))
+        if m and self.command in ("PATCH", "DELETE"):
+            return self._write_event(unquote(m.group(1)), unquote(m.group(2)), body)
         if route == "mailFolders/sentitems" and self.command == "GET":
             return self._reply(200, {"id": SENT_ITEMS_ID})
         if route == "messages" and self.command == "POST":
@@ -342,7 +429,7 @@ class _Handler(BaseHTTPRequestHandler):
         with srv.lock:
             calendars = list(srv.calendars)
         size = srv.calendars_page_size or max(len(calendars), 1)
-        body = {"value": [_selected(c, select) for c in calendars[skip:skip + size]]}
+        body = {"value": [_selected({"canEdit": True, **c}, select) for c in calendars[skip:skip + size]]}
         if skip + size < len(calendars):
             body["@odata.nextLink"] = f"{srv.url}/me/calendars?$select={select}&$skip={skip + size}"
         return self._reply(200, body)
@@ -387,6 +474,7 @@ class _Handler(BaseHTTPRequestHandler):
         body = {"value": page}
         if skip + size < len(events):
             body["@odata.nextLink"] = f"{srv.url}/me/calendars/{calendar_id}/events?$select={select}&$skip={skip + size}"
+        time.sleep(srv.events_delay)   # answered late, with the events as they stood when asked
         return self._reply(200, body)
 
     def _event(self, calendar_id: str, event_id: str):
@@ -395,15 +483,16 @@ class _Handler(BaseHTTPRequestHandler):
         select = query.get("$select", [""])[0]
         expand = query.get("$expand", [""])[0].split(",")
         prefer = self._preferences()
-        if prefer.get("outlook.body-content-type") != "text":
+        if (not select or "body" in select.split(",")) and prefer.get("outlook.body-content-type") != "text":
             return self._error(400, "HarnessError", "event details must ask for a text body")
         zone = prefer.get("outlook.timezone", "UTC")
-        if zone not in WINDOWS_ZONES:
+        if _zone(zone) is None:
             return self._error(400, "TimeZoneNotSupportedException", f"A valid TimeZone value must be specified: {zone}")
         with srv.lock:
             event = next((dict(e) for e in srv.events.get(calendar_id, []) if e["id"] == event_id), None)
         if event is None:
             return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
+        event.setdefault("isOrganizer", True)
 
         def moved(e: dict) -> dict:
             out = {**e, "start": _in_zone(e["start"], zone), "end": _in_zone(e["end"], zone)}
@@ -416,6 +505,152 @@ class _Handler(BaseHTTPRequestHandler):
             if "exceptionOccurrences" not in expand:
                 del event["exceptionOccurrences"]
         return self._reply(200, _selected(event, select))
+
+    def _refused_fields(self, fields: dict) -> Optional[tuple]:
+        unknown = set(fields) - WRITABLE_FIELDS
+        if unknown:
+            return 400, "HarnessError", f"the engine writes no {sorted(unknown)}"
+        for key in ("start", "end"):
+            if key in fields and _zone(fields[key].get("timeZone", "")) is None:
+                return 400, "TimeZoneNotSupportedException", f"A valid TimeZone value must be specified: {fields[key].get('timeZone')}"
+        return None
+
+    def _create_event(self, calendar_id: str, body: bytes, route: str):
+        srv: "FakeGraphServer" = self.server.owner
+        fields = json.loads(body or b"{}")
+        refusal = self._refused_fields(fields)
+        if refusal:
+            return self._error(*refusal)
+        with srv.lock:
+            srv.event_writes.append({"method": "POST", "route": unquote(route), "fields": sorted(fields)})
+            events = srv.events.setdefault(calendar_id, [])
+            event = next((e for e in events if fields.get("transactionId") and e.get("transactionId") == fields["transactionId"]), None)
+            if event is None:
+                srv.created_events += 1
+                srv.created_subjects.append(fields.get("subject"))
+                n = srv.created_events
+                event = _with_fields({"id": f"AAMkEvCreated{n}=", "changeKey": f"ck-created-{n}", "iCalUId": f"uid-created-{n}",
+                                      "isCancelled": False, "isOrganizer": True}, fields)
+                if srv.mailbox:
+                    event["organizer"] = {"emailAddress": {"name": "", "address": srv.mailbox}}
+                if event.get("type") == "seriesMaster":
+                    event.update({"cancelledOccurrences": [], "exceptionOccurrences": []})
+                events.append(event)
+        failure = srv.failure_for(unquote(route), "POST", after=True)
+        if failure:
+            return self._reply(failure.get("status", 500), {"error": {"code": failure.get("code", "ErrorInternalServerError"),
+                               "message": failure.get("message", "Injected failure")}})
+        return self._reply(201, event)
+
+    def _find_event(self, calendar_id: str, event_id: str):
+        """(event, master, exception, slot date): the event itself, or an occurrence of a master,
+        as an exception or as the plain occurrence on that local date."""
+        srv: "FakeGraphServer" = self.server.owner
+        for event in srv.events.get(calendar_id, []):
+            if event["id"] == event_id:
+                return event, None, None, None
+            for exception in event.get("exceptionOccurrences") or []:
+                if exception["id"] == event_id:
+                    return None, event, exception, None
+            prefix = f"AAMkOcc.{event['id']}."
+            if event_id.startswith(prefix):
+                return None, event, None, event_id[len(prefix):]
+        return None, None, None, None
+
+    def _write_event(self, calendar_id: str, event_id: str, body: bytes):
+        """PATCH or DELETE an event or occurrence, or POST its /decline."""
+        srv: "FakeGraphServer" = self.server.owner
+        declining = self.command == "POST"
+        fields = json.loads(body or b"{}") if self.command != "DELETE" else {}
+        refusal = None if declining else self._refused_fields(fields)
+        if refusal:
+            return self._error(*refusal)
+        route = urlparse(self.path).path[len("/v1.0/me/"):]
+        with srv.lock:
+            srv.event_writes.append({"method": self.command, "route": unquote(route), "fields": sorted(fields)})
+            event, master, exception, slot = self._find_event(calendar_id, event_id)
+            if event is None and master is None:
+                return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
+            if declining:
+                if (event or master).get("isOrganizer", True):
+                    return self._error(400, "ErrorInvalidRequest", "The organizer can't decline their own meeting.")
+                srv.responses_sent += 1 if fields.get("sendResponse") is True else 0
+            removing = self.command == "DELETE" or declining
+            done = 202 if declining else 204
+            events = srv.events[calendar_id]
+            if event is not None:
+                if removing:
+                    events.remove(event)
+                    return self._reply(done)
+                changed = _with_fields(event, fields)
+                changed["changeKey"] = event["changeKey"] + "+"
+                if event.get("type") == "seriesMaster" and SERIES_TIMING & set(fields):
+                    changed.update({"cancelledOccurrences": [], "exceptionOccurrences": []})
+                events[events.index(event)] = changed
+                return self._reply(200, changed)
+
+            zone = master["start"]["timeZone"]
+            if exception is None:
+                start = datetime.combine(datetime.fromisoformat(slot).date(),
+                                         datetime.fromisoformat(master["start"]["dateTime"][:19]).time(), tzinfo=_zone(zone))
+                end = start + (_instant(master["end"]) - _instant(master["start"]))
+                exception = {k: master[k] for k in ("subject", "body", "location", "showAs", "attendees", "isAllDay",
+                                                    "isCancelled", "iCalUId") if k in master}
+                exception.update({"id": f"AAMkExc.{master['id']}.{slot}", "type": "exception",
+                                  "originalStart": start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                  "start": _zoned(start, zone), "end": _zoned(end, zone)})
+            exceptions = [x for x in master.get("exceptionOccurrences") or [] if x["id"] != exception["id"]]
+            if removing:
+                date = slot or _utc(exception["originalStart"]).astimezone(_zone(zone)).date().isoformat()
+                master["cancelledOccurrences"] = (master.get("cancelledOccurrences") or []) + [f"OID.{master['id']}.{date}"]
+                master["exceptionOccurrences"] = exceptions
+                master["changeKey"] += "+"
+                return self._reply(done)
+            if "recurrence" in fields:
+                return self._error(400, "ErrorInvalidRequest", "An occurrence has no recurrence of its own.")
+            exception = _with_fields(exception, fields)
+            master["exceptionOccurrences"] = exceptions + [exception]
+            master["changeKey"] += "+"
+            return self._reply(200, exception)
+
+    def _instances(self, calendar_id: str, event_id: str):
+        srv: "FakeGraphServer" = self.server.owner
+        query = parse_qs(urlparse(self.path).query)
+        select = query.get("$select", [""])[0]
+        if "startDateTime" not in query or "endDateTime" not in query:
+            return self._error(400, "ErrorInvalidParameter", "startDateTime and endDateTime are required.")
+        window = (_utc(query["startDateTime"][0]), _utc(query["endDateTime"][0]))
+        zone = self._preferences().get("outlook.timezone", "UTC")
+        if _zone(zone) is None:
+            return self._error(400, "TimeZoneNotSupportedException", f"A valid TimeZone value must be specified: {zone}")
+        with srv.lock:
+            master = next((dict(e) for e in srv.events.get(calendar_id, []) if e["id"] == event_id), None)
+        if master is None:
+            return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
+        if master.get("type") != "seriesMaster":
+            return self._error(400, "ErrorInvalidRequest", "Only a series master has instances.")
+        duration = _instant(master["end"]) - _instant(master["start"])
+        cancelled = {oid.rsplit(".", 1)[1] for oid in master.get("cancelledOccurrences") or []}
+        exceptions = {_utc(x["originalStart"]): x for x in master.get("exceptionOccurrences") or []}
+        value = []
+        for local in _slots(master, window[1] + duration):
+            original = local.astimezone(timezone.utc)
+            if local.date().isoformat() in cancelled:
+                continue
+            exception = exceptions.get(original)
+            if exception:
+                item = {"id": exception["id"], "type": "exception", "start": exception["start"], "end": exception["end"],
+                        "isCancelled": exception.get("isCancelled", False)}
+            else:
+                item = {"id": f"AAMkOcc.{master['id']}.{local.date().isoformat()}", "type": "occurrence",
+                        "start": _zoned(local, master["start"]["timeZone"]), "end": _zoned(local + duration, master["start"]["timeZone"]),
+                        "isCancelled": master.get("isCancelled", False)}
+            if _instant(item["end"]) <= window[0] or _instant(item["start"]) >= window[1]:
+                continue
+            item["originalStart"] = _offset_in_zone(original.strftime("%Y-%m-%dT%H:%M:%SZ"), zone)
+            item["start"], item["end"] = _in_zone(item["start"], zone), _in_zone(item["end"], zone)
+            value.append(_selected(item, select))
+        return self._reply(200, {"value": value})
 
     def _create(self, body: bytes):
         srv: "FakeGraphServer" = self.server.owner
@@ -553,6 +788,11 @@ class FakeGraphServer:
         self.calendars_delay = calendars_delay
         self.events = {cid: [dict(e) for e in evs] for cid, evs in (events or {}).items()}
         self.events_page_size = events_page_size
+        self.events_delay = 0.0   # seconds each events listing answers late; set by server.graph_events_delay
+        self.event_writes: list = []   # {method, route, fields}: each event POST, PATCH, DELETE and decline
+        self.created_events = 0
+        self.created_subjects: list = []   # each created event's subject, as POSTed
+        self.responses_sent = 0   # declines with sendResponse, which Exchange emails to the organizer
         self.mail_tokens: set = set()
         self.graph_tokens: dict = {}   # Graph mail scopes: token -> expiry
         self.calendar_tokens: dict = {}   # token -> expiry
