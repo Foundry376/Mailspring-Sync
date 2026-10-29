@@ -3,11 +3,11 @@ description: >
   On Gmail every role comes from GMAIL_SYSTEM_MAILBOXES: the LIST attribute of each system
   mailbox, INBOX by name, and Mailspring's own labels by their path. With Sent Mail hidden from
   IMAP nothing is flagged \Sent, and the user label "Sent Items" still gets no role, though the
-  folder-name table would give it one. A Mailspring label's path gives a role only if it is one
-  of MailUtils::roles() that no system mailbox holds, and only to the first such label in LIST
-  order: "Mailspring/Inbox" and "Mailspring/Receipts" get none, and the legacy
-  "[Mailspring]/Snoozed" none beside "Mailspring/Snoozed". A role the user moves to a user label
-  ("Receipts" as Drafts) goes back to [Gmail]/Drafts on the next pass.
+  folder-name table would give it one. Of Mailspring's own labels only the first Snoozed one
+  gets a role: "Mailspring/Sent" stays without one while Sent Mail is hidden, so \Sent can't
+  resolve to it, and "Mailspring/Archive" without one, so the client archives to All Mail. The
+  legacy "[Mailspring]/Snoozed" gets none beside "Mailspring/Snoozed". A role the user moves to
+  a user label ("Receipts" as Drafts) goes back to [Gmail]/Drafts on the next pass.
 source: "Gmail user labels named like system folders (Foundry376/Mailspring#992, #1244); Preferences > Folders role mapping"
 servers:
   - {fake: gmail, hidden_mailboxes: ["[Gmail]/Sent Mail"]}
@@ -19,6 +19,8 @@ mailboxes:
   "[Mailspring]/Snoozed": {messages: 0}
   "Mailspring/Inbox": {messages: 0}
   "Mailspring/Receipts": {messages: 0}
+  "Mailspring/Sent": {messages: 0}
+  "Mailspring/Archive": {messages: 0}
 steps:
   - wait: quiescent
   - assert:
@@ -35,6 +37,8 @@ steps:
         "[Mailspring]/Snoozed": ""
         "Mailspring/Inbox": ""
         "Mailspring/Receipts": ""
+        "Mailspring/Sent": ""
+        "Mailspring/Archive": ""
         "Sent Items": ""
         Receipts: ""
   - client.task: {__cls: ChangeRoleMappingTask, path: Receipts, role: drafts}

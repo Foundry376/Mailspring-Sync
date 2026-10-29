@@ -11,7 +11,6 @@
 
 #include "MailUtils.hpp"
 #include <algorithm>
-#include <set>
 #include "MetadataExpirationWorker.hpp"
 #include "SyncException.hpp"
 #include "sha256.h"
@@ -466,35 +465,22 @@ string MailUtils::roleForFolderViaPath(string containerFolderPath, string mainPr
     return "";
 }
 
+// In our Mailspring folders, folder names are roles: [Mailspring]/Snoozed is snoozed.
 string MailUtils::roleForMailspringFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
     string delimiter {folder->delimiter()};
     string path = _pathInNamespace(mainPrefix, folder);
     transform(path.begin(), path.end(), path.begin(), ::tolower);
-    transform(containerFolderPath.begin(), containerFolderPath.end(), containerFolderPath.begin(), ::tolower);
 
-    // In our [Mailspring] subfolder, folder names are roles:
-    // [mailspring]/snoozed = snoozed
-    // [mailspring]/XXX = xxx
-    string mailspringPrefix = MAILSPRING_FOLDER_PREFIX_V1 + delimiter;
-    transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
-    if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
-        return path.substr(mailspringPrefix.size());
+    for (string prefix : {MAILSPRING_FOLDER_PREFIX_V1, MAILSPRING_FOLDER_PREFIX_V2, containerFolderPath}) {
+        if (prefix == "") {
+            continue;
+        }
+        prefix += delimiter;
+        transform(prefix.begin(), prefix.end(), prefix.begin(), ::tolower);
+        if (path.size() > prefix.size() && path.substr(0, prefix.size()) == prefix) {
+            return path.substr(prefix.size());
+        }
     }
-
-           mailspringPrefix = MAILSPRING_FOLDER_PREFIX_V2 + delimiter;
-    transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
-    if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
-        return path.substr(mailspringPrefix.size());
-    }
-
-    if (containerFolderPath != "") {
-           mailspringPrefix = containerFolderPath + delimiter;
-      transform(mailspringPrefix.begin(), mailspringPrefix.end(), mailspringPrefix.begin(), ::tolower);
-      if (path.size() > mailspringPrefix.size() && path.substr(0, mailspringPrefix.size()) == mailspringPrefix) {
-         return path.substr(mailspringPrefix.size());
-      }
-    }
-
     return "";
 }
 
@@ -514,33 +500,22 @@ static string _roleForGmailSystemMailbox(IMAPFolder * folder) {
 
 /*
  Roles for a Gmail LIST response, in the same order. Gmail's system mailboxes take theirs from
- GMAIL_SYSTEM_MAILBOXES. Mailspring's own labels take one from their name, but only a role in
- roles() that no system mailbox holds, and only the first such label in LIST order:
- labelForXGMLabelName resolves \Sent and \Inbox through the role, so a second holder would
- capture them. Every other label has no role.
+ GMAIL_SYSTEM_MAILBOXES and INBOX from its name. The one role Gmail doesn't give is snoozed,
+ which goes to the first of Mailspring's Snoozed labels (a legacy [Mailspring]/Snoozed can sit
+ beside Mailspring/Snoozed). Every other label has none: labelForXGMLabelName resolves \Sent
+ through the role, and the client archives into an "archive" label in place of All Mail.
 */
 vector<string> MailUtils::rolesForGmailFolders(string containerFolderPath, string mainPrefix, Array * folders) {
     vector<string> result;
-    set<string> claimed;
+    bool snoozedAssigned = false;
     for (unsigned int ii = 0; ii < folders->count(); ii++) {
-        string role = _roleForGmailSystemMailbox((IMAPFolder *)folders->objectAtIndex(ii));
+        IMAPFolder * folder = (IMAPFolder *)folders->objectAtIndex(ii);
+        string role = _roleForGmailSystemMailbox(folder);
+        if (role == "" && !snoozedAssigned && MailUtils::roleForMailspringFolder(containerFolderPath, mainPrefix, folder) == "snoozed") {
+            role = "snoozed";
+            snoozedAssigned = true;
+        }
         result.push_back(role);
-        if (role != "") {
-            claimed.insert(role);
-        }
-    }
-
-    vector<string> known = MailUtils::roles();
-    for (unsigned int ii = 0; ii < folders->count(); ii++) {
-        if (result[ii] != "") {
-            continue;
-        }
-        string role = MailUtils::roleForMailspringFolder(containerFolderPath, mainPrefix, (IMAPFolder *)folders->objectAtIndex(ii));
-        if (role == "" || claimed.count(role) || find(known.begin(), known.end(), role) == known.end()) {
-            continue;
-        }
-        result[ii] = role;
-        claimed.insert(role);
     }
     return result;
 }

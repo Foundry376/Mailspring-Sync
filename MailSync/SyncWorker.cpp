@@ -895,7 +895,6 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
     }
 
     string mainPrefix = MailUtils::namespacePrefixOrBlank(&session);
-    bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
     bool ensuredRoot = false;
     
     // create required Mailspring folders if they don't exist
@@ -914,16 +913,12 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         transform(mailspringRole.begin(), mailspringRole.end(), mailspringRole.begin(), ::tolower);
 
         bool exists = false;
-        if (isGmail) {
-            auto gmailRoles = MailUtils::rolesForGmailFolders(containerFolderPath, mainPrefix, remoteFolders);
-            exists = find(gmailRoles.begin(), gmailRoles.end(), mailspringRole) != gmailRoles.end();
-        } else {
-            for (int ii = ((int)remoteFolders->count()) - 1; ii >= 0; ii--) {
-                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-                if (MailUtils::roleForFolder(containerFolderPath, mainPrefix, remote) == mailspringRole) {
-                    exists = true;
-                    break;
-                }
+        for (int ii = ((int)remoteFolders->count()) - 1; ii >= 0; ii--) {
+            IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+            string remoteRole = MailUtils::roleForFolder(containerFolderPath, mainPrefix, remote);
+            if (remoteRole == mailspringRole) {
+                exists = true;
+                break;
             }
         }
         if (!exists) {
@@ -959,6 +954,7 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         // Phase 1: Read local state and compute diff OUTSIDE the transaction
         // to minimize write-lock hold time on the shared SQLite database.
         Query q = Query().equal("accountId", account->id());
+        bool isGmail = session.storedCapabilities()->containsIndex(IMAPCapabilityGmail);
         auto unusedLocalFolders = store->findAllMap<Folder>(q, "id");
         auto unusedLocalLabels = store->findAllMap<Label>(q, "id");
         map<string, shared_ptr<Folder>> allFoundCategories {};
@@ -982,8 +978,13 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         // Eliminate folders the server listed more than once
         removeDuplicateFolders(remoteFolders);
 
-        // Find / create local folders and labels to match the remote ones
-        // Note: We don't assign roles, just create the objects here.
+        // Find / create local folders and labels to match the remote ones. Gmail decides every
+        // role, so each pass sets it again: a role the user or an older build gave a user label
+        // ("Sent Items") goes back to Gmail's. Elsewhere roles are assigned below.
+        vector<string> gmailRoles;
+        if (isGmail) {
+            gmailRoles = MailUtils::rolesForGmailFolders(containerFolderPath, mainPrefix, remoteFolders);
+        }
         for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
             IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
             string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
@@ -1022,27 +1023,16 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
                 foldersToSync.push_back(local);
             }
 
+            if (isGmail && local->role() != gmailRoles[ii]) {
+                local->setRole(gmailRoles[ii]);
+                if (local->version() > 0) {
+                    roleUpdates.push_back({remoteId, gmailRoles[ii]});
+                }
+            }
             allFoundCategories[remoteId] = local;
         }
 
-        if (isGmail) {
-            // Gmail decides every role (GMAIL_SYSTEM_MAILBOXES), so each pass sets it again: a
-            // role the user or an older build gave a user label ("Sent Items") goes back to Gmail's.
-            auto gmailRoles = MailUtils::rolesForGmailFolders(containerFolderPath, mainPrefix, remoteFolders);
-            for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
-                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-                string role = gmailRoles[ii];
-                string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
-                auto found = allFoundCategories.find(remoteId);
-                if (found == allFoundCategories.end() || found->second->role() == role) {
-                    continue;
-                }
-                found->second->setRole(role);
-                if (found->second->version() > 0) {
-                    roleUpdates.push_back({remoteId, role});
-                }
-            }
-        } else {
+        if (!isGmail) {
             // Elsewhere a role is kept once assigned, which is what lets the user choose one.
             for (auto role : MailUtils::roles()) {
                 bool found = false;
