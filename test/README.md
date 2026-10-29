@@ -98,6 +98,7 @@ Steps:
 | `client.need_bodies`, `client.wake`, `client.sync_calendar` | the other stdin commands (`sync_calendar` runs a calendar pass now, as the calendar's refresh does) |
 | `server.smtp_hold` / `server.smtp_release` | queue self-addressed SMTP deliveries, then deliver them, so the INBOX copy of a sent message arrives after the Sent copy; `smtp_release` takes `at:` like any server step (`rules-ready-inbox-copy-first`) |
 | `server.graph_calendars: {calendars: [...]}`, `server.graph_events: {calendar, events: [...]}`, `server.graph_failures: {failures: [...]}` | replace the calendars the fake Graph server lists, one calendar's events, or its injected errors (`graph-calendars-*`, `graph-calendar-events*`) |
+| `server.graph_events_delay: {seconds: n}` | answer each events listing n seconds late, with the events as they stood when it was asked, so a write lands mid-pass (`graph-calendar-event-create-during-pass`) |
 | `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
 | `db.sql: [statements]` | write the stopped engine's database (only under `restart: {before: [...]}`), to reproduce a stored state whose producing path is unknown; every derived layer must be written consistently |
 | `restart: {binary: path, before: [steps]}` | stop and relaunch on the same database, optionally with another build; `before:` runs steps while the engine is stopped (server state it did not watch happen) |

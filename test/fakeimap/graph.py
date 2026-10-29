@@ -474,6 +474,7 @@ class _Handler(BaseHTTPRequestHandler):
         body = {"value": page}
         if skip + size < len(events):
             body["@odata.nextLink"] = f"{srv.url}/me/calendars/{calendar_id}/events?$select={select}&$skip={skip + size}"
+        time.sleep(srv.events_delay)   # answered late, with the events as they stood when asked
         return self._reply(200, body)
 
     def _event(self, calendar_id: str, event_id: str):
@@ -787,6 +788,7 @@ class FakeGraphServer:
         self.calendars_delay = calendars_delay
         self.events = {cid: [dict(e) for e in evs] for cid, evs in (events or {}).items()}
         self.events_page_size = events_page_size
+        self.events_delay = 0.0   # seconds each events listing answers late; set by server.graph_events_delay
         self.event_writes: list = []   # {method, route, fields}: each event POST, PATCH, DELETE and decline
         self.created_events = 0
         self.created_subjects: list = []   # each created event's subject, as POSTed

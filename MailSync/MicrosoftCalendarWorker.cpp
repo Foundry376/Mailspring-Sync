@@ -138,6 +138,16 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
     string calendarId = MailUtils::idForCalendar(account->id(), path);
     vector<string> answering = answeringFor(calendar);
     auto range = getCalendarSyncRange();
+    // Read before the listing: a write that stores its rows meanwhile isn't in the listing, and its
+    // rows mustn't be removed as if Graph had deleted the event.
+    map<string, vector<shared_ptr<Event>>> localByHref {};
+    for (auto & row : store->findAll<Event>(Query().equal("calendarId", calendarId))) {
+        // A row without a Graph id is a new event, which its create task replaces with Graph's copy.
+        if (row->href() != "") {
+            localByHref[row->href()].push_back(row);
+        }
+    }
+
     map<string, json> remote {}; // Graph id -> listed event
     string url = MicrosoftGraphURL() + "/me/calendars/" + URLEscape(path) + "/events?$select=" + EVENT_INDEX_FIELDS + "&$top=200";
     PaginateGraphCollection(url, tokenProvider(), [&](json & page) {
@@ -147,14 +157,6 @@ void MicrosoftCalendarWorker::syncEvents(const json & calendar) {
             }
         }
     });
-
-    map<string, vector<shared_ptr<Event>>> localByHref {};
-    for (auto & row : store->findAll<Event>(Query().equal("calendarId", calendarId))) {
-        // A row without a Graph id is a new event, which its create task replaces with Graph's copy.
-        if (row->href() != "") {
-            localByHref[row->href()].push_back(row);
-        }
-    }
 
     vector<shared_ptr<Event>> removed {};
     for (auto & pair : localByHref) {

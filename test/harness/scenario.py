@@ -566,6 +566,8 @@ class ScenarioRun:
             self._graph().set_failures(arg["failures"])
         elif op == "graph_events":
             self._graph().set_events(arg["calendar"], arg["events"])
+        elif op == "graph_events_delay":
+            self._graph().events_delay = float(arg["seconds"])
         else:
             raise ScenarioFailure(f"unknown server op {op!r}")
 
