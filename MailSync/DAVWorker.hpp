@@ -25,15 +25,12 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <map>
 
 #include "spdlog/spdlog.h"
 
 using namespace std;
 
 typedef string ETAG;
-
-struct ParsedCalEvent;
 
 class DAVWorker {
     MailStore * store;
@@ -94,7 +91,6 @@ public:
 
     void runCalendars();
     void runForCalendar(string id, string name, string path);
-    void removeRowsTheResourceDropped(string calendarId, const vector<ParsedCalEvent> & served);
     bool runForCalendarWithSyncToken(string calendarId, string url, shared_ptr<Calendar> calendar, int retryCount = 0);
 
     void writeAndResyncEvent(shared_ptr<Event> event);
