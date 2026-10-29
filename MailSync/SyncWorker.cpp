@@ -914,13 +914,16 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         transform(mailspringRole.begin(), mailspringRole.end(), mailspringRole.begin(), ::tolower);
 
         bool exists = false;
-        for (int ii = ((int)remoteFolders->count()) - 1; ii >= 0; ii--) {
-            IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-            string remoteRole = isGmail ? MailUtils::roleForGmailFolder(containerFolderPath, mainPrefix, remote)
-                                        : MailUtils::roleForFolder(containerFolderPath, mainPrefix, remote);
-            if (remoteRole == mailspringRole) {
-                exists = true;
-                break;
+        if (isGmail) {
+            auto gmailRoles = MailUtils::rolesForGmailFolders(containerFolderPath, mainPrefix, remoteFolders);
+            exists = find(gmailRoles.begin(), gmailRoles.end(), mailspringRole) != gmailRoles.end();
+        } else {
+            for (int ii = ((int)remoteFolders->count()) - 1; ii >= 0; ii--) {
+                IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+                if (MailUtils::roleForFolder(containerFolderPath, mainPrefix, remote) == mailspringRole) {
+                    exists = true;
+                    break;
+                }
             }
         }
         if (!exists) {
@@ -1025,9 +1028,10 @@ vector<shared_ptr<Folder>> SyncWorker::syncFoldersAndLabels()
         if (isGmail) {
             // Gmail decides every role (GMAIL_SYSTEM_MAILBOXES), so each pass sets it again: a
             // role the user or an older build gave a user label ("Sent Items") goes back to Gmail's.
+            auto gmailRoles = MailUtils::rolesForGmailFolders(containerFolderPath, mainPrefix, remoteFolders);
             for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
                 IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
-                string role = MailUtils::roleForGmailFolder(containerFolderPath, mainPrefix, remote);
+                string role = gmailRoles[ii];
                 string remoteId = MailUtils::idForFolder(account->id(), string(remote->path()->UTF8Characters()));
                 auto found = allFoundCategories.find(remoteId);
                 if (found == allFoundCategories.end() || found->second->role() == role) {

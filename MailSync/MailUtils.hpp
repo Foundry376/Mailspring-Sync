@@ -70,7 +70,7 @@ public:
     static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
     static string roleForMailspringFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
-    static string roleForGmailFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
+    static vector<string> rolesForGmailFolders(string containerFolderPath, string mainPrefix, Array * folders);
     static string roleForGmailLabelName(const string & xgmLabel);
 
     static void setBaseIDVersion(time_t identityCreationDate);

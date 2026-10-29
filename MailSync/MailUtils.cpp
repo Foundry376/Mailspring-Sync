@@ -11,6 +11,7 @@
 
 #include "MailUtils.hpp"
 #include <algorithm>
+#include <set>
 #include "MetadataExpirationWorker.hpp"
 #include "SyncException.hpp"
 #include "sha256.h"
@@ -497,7 +498,7 @@ string MailUtils::roleForMailspringFolder(string containerFolderPath, string mai
     return "";
 }
 
-string MailUtils::roleForGmailFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder) {
+static string _roleForGmailSystemMailbox(IMAPFolder * folder) {
     string path = string(folder->path()->UTF8Characters());
     transform(path.begin(), path.end(), path.begin(), ::toupper);
     if (path == "INBOX") {
@@ -508,7 +509,40 @@ string MailUtils::roleForGmailFolder(string containerFolderPath, string mainPref
             return mailbox.role;
         }
     }
-    return MailUtils::roleForMailspringFolder(containerFolderPath, mainPrefix, folder);
+    return "";
+}
+
+/*
+ Roles for a Gmail LIST response, in the same order. Gmail's system mailboxes take theirs from
+ GMAIL_SYSTEM_MAILBOXES. Mailspring's own labels take one from their name, but only a role in
+ roles() that no system mailbox holds, and only the first such label in LIST order:
+ labelForXGMLabelName resolves \Sent and \Inbox through the role, so a second holder would
+ capture them. Every other label has no role.
+*/
+vector<string> MailUtils::rolesForGmailFolders(string containerFolderPath, string mainPrefix, Array * folders) {
+    vector<string> result;
+    set<string> claimed;
+    for (unsigned int ii = 0; ii < folders->count(); ii++) {
+        string role = _roleForGmailSystemMailbox((IMAPFolder *)folders->objectAtIndex(ii));
+        result.push_back(role);
+        if (role != "") {
+            claimed.insert(role);
+        }
+    }
+
+    vector<string> known = MailUtils::roles();
+    for (unsigned int ii = 0; ii < folders->count(); ii++) {
+        if (result[ii] != "") {
+            continue;
+        }
+        string role = MailUtils::roleForMailspringFolder(containerFolderPath, mainPrefix, (IMAPFolder *)folders->objectAtIndex(ii));
+        if (role == "" || claimed.count(role) || find(known.begin(), known.end(), role) == known.end()) {
+            continue;
+        }
+        result[ii] = role;
+        claimed.insert(role);
+    }
+    return result;
 }
 
 string MailUtils::roleForGmailLabelName(const string & xgmLabel) {
