@@ -484,6 +484,12 @@ void MicrosoftCalendarWorker::restoreEvent(const json & calendar, const string &
 }
 
 string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics, bool answer) {
+    if (answer) {
+        // It reaches the organizer by email. Read back, Graph's copy would show the meeting unanswered;
+        // the row keeps its etag, so no pass reads it again until the event changes on Graph.
+        logger->info("- Answer to {} goes to its organizer by email, not to Graph", event->href());
+        return event->id();
+    }
     string graphId = event->href();
     if (graphId == "" && organizedElsewhere(ics)) {
         // Exchange put the invitation on the calendar when it arrived; the next pass brings it in.
@@ -510,10 +516,7 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
             onlineMeeting = JSONBool(listed, "isOnlineMeeting");
             guest = !JSONBool(listed, "isOrganizer");
         }
-        if (answer) {
-            logger->info("- Answer to {} goes to its organizer by email, not to Graph", graphId);
-        }
-        vector<GraphEventChange> changes = answer ? vector<GraphEventChange>{} : GraphICS::changesBetween(graphId == "" ? "" : previousIcs, ics, startUTC);
+        vector<GraphEventChange> changes = GraphICS::changesBetween(graphId == "" ? "" : previousIcs, ics, startUTC);
         for (const auto & change : changes) {
             // A guest's only edit is removing an occurrence, which declines it.
             if (guest && change.kind != GraphEventChange::Kind::CancelOccurrence) {
