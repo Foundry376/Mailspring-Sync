@@ -89,15 +89,11 @@ string File::filename() {
     return _data["filename"].get<string>();
 }
 
-string File::safeFilename() {
-    regex e ("[\\/:|?*><\"#]");
-    return regex_replace (filename(), e, "-");
-}
-
 /*
  The name of the file inside its files/<id>/ directory. The client records the name it wrote a
  draft's attachment under (`localFilename`), so the engine never re-derives the client's
- sanitized name; files without one were written by the engine under safeFilename().
+ sanitized name. Files without one were written by the engine, which replaces the characters a
+ path can't hold; the client's File.safeDisplayName strips more, so the two don't agree.
 */
 string File::filenameOnDisk() {
     if (_data.count("localFilename") && _data["localFilename"].is_string()) {
@@ -107,7 +103,8 @@ string File::filenameOnDisk() {
             return name;
         }
     }
-    return safeFilename();
+    regex e ("[\\/:|?*><\"#]");
+    return regex_replace (filename(), e, "-");
 }
 
 string File::partId() {

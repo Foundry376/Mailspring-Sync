@@ -3,10 +3,10 @@ description: >
   The client writes a draft's attachment under its own sanitized name (File.safeDisplayName,
   which strips trailing spaces and prefixes Windows device names) and records it as
   `localFilename`. The engine must read the file under that name rather than re-deriving one
-  with safeFilename, which differs for these names: it read "notes.txt " and "CON.txt", found
-  nothing, and sent both as 0-byte attachments. Recipients get the name the user attached.
-  A File without `localFilename` is read under safeFilename as before, and a `localFilename`
-  that leaves the file's directory is ignored, so that draft fails as missing.
+  with its own sanitizer, which differs for these names: it read "notes.txt " and "CON.txt",
+  found nothing, and sent both as 0-byte attachments. Recipients get the name the user attached.
+  A File without `localFilename` is read under the engine's name as before, and a
+  `localFilename` that leaves the file's directory is ignored, so that draft fails as missing.
 source: File::filenameOnDisk; TaskProcessor::performRemoteSendDraft; client File.safeDisplayName
 servers:
   - {fake: dovecot, smtp: true}
