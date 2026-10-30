@@ -718,7 +718,7 @@ bool MicrosoftCalendarWorker::answerEvent(const string & reply, const string & p
     if (!event) {
         return false;
     }
-    const ICSProperty & occurrence = vevents.front().property("RECURRENCE-ID");
+    ICSProperty occurrence = GraphICS::occurrenceInUTC(vevents.front().property("RECURRENCE-ID"), reply);
     string graphId = event->href();
     vector<shared_ptr<Event>> rows = findRows(event);
 

@@ -97,15 +97,14 @@ mailboxes:
   INBOX: {messages: 1}
 steps:
   - wait: {log: "Microsoft calendar sync complete: 2 calendars", timeout: 90}
-  # One occurrence of the unanswered series, from the calendar, which names it in UTC. Exchange then
-  # reports the series tentatively accepted with no response time; the rows show it unanswered, as Outlook does.
+  # One occurrence of the unanswered series, from the calendar, which names it in the series' zone.
   - client.task:
       __cls: EventRSVPTask
       to: pat@example.com
       subject: "Tentative: Weekly sync"
       icsRSVPStatus: TENTATIVE
       method: REPLY
-      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261022T170000Z\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261022T100000\r\nDTEND;TZID=Pacific Standard Time:20261022T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID;TZID=Pacific Standard Time:20261022T100000\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261022T100000\r\nDTEND;TZID=Pacific Standard Time:20261022T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
     as: maybe_occurrence
   - wait: {task: maybe_occurrence, timeout: 60}
   - assert:
@@ -135,14 +134,14 @@ steps:
         "uid-offsite|": {}
         "uid-lunch|": {}
         "uid-kim-review|": {}
-  # The same occurrence, now an exception, from an emailed invitation that names it in the organizer's zone.
+  # The same occurrence, now an exception, from an emailed invitation in a custom zone Graph would refuse.
   - client.task:
       __cls: EventRSVPTask
       to: pat@example.com
       subject: "Accepted: Weekly sync"
       icsRSVPStatus: ACCEPTED
       method: REPLY
-      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Google Inc//Google Calendar 70.9054//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID;TZID=America/Los_Angeles:20261022T100000\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=America/Los_Angeles:20261022T100000\r\nDTEND;TZID=America/Los_Angeles:20261022T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Microsoft Corporation//Outlook 16.0 MIMEDIR//EN\r\nMETHOD:REPLY\r\nBEGIN:VTIMEZONE\r\nTZID:Customized Time Zone\r\nBEGIN:STANDARD\r\nDTSTART:16010101T000000\r\nTZOFFSETFROM:-0400\r\nTZOFFSETTO:-0400\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID;TZID=Customized Time Zone:20261022T130000\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Customized Time Zone:20261022T130000\r\nDTEND;TZID=Customized Time Zone:20261022T133000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
     as: accept_exception
   - wait: {task: accept_exception, timeout: 60}
   - client.task:

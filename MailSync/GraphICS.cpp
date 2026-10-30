@@ -809,3 +809,14 @@ pair<string, string> GraphICS::occurrenceWindow(const ICSProperty & anchor) {
     time_t at = secondsAsUTC(extendedDateTime(anchor.value));
     return {formatUTC(at - 86400, "%Y-%m-%dT%H:%M:%SZ"), formatUTC(at + 2 * 86400, "%Y-%m-%dT%H:%M:%SZ")};
 }
+
+ICSProperty GraphICS::occurrenceInUTC(const ICSProperty & recurrenceId, const string & ics) {
+    if (recurrenceId.param("TZID") == "") {
+        return recurrenceId;
+    }
+    Date at;
+    at = recurrenceId.value;
+    at.TzId = recurrenceId.param("TZID");
+    ICalendar(ics).AttachTimeZone(at);
+    return {recurrenceId.name, {}, at.Zone || at.IsUTC ? formatUTC(at.toUnix(), "%Y%m%dT%H%M%SZ") : recurrenceId.value};
+}

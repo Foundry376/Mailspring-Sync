@@ -94,6 +94,10 @@ public:
     // A UTC range (startDateTime, endDateTime for /instances) holding the occurrence `anchor` names.
     static pair<string, string> occurrenceWindow(const ICSProperty & anchor);
 
+    // A RECURRENCE-ID from the resource `ics` as an anchor Graph can look up: in UTC, since its TZID may be a
+    // name Graph refuses ("Customized Time Zone"), or without the TZID if neither ICU nor `ics` defines it.
+    static ICSProperty occurrenceInUTC(const ICSProperty & recurrenceId, const string & ics);
+
     // A Graph date-time or date ("2026-10-22T09:00:00.0000000", "2026-12-31") read as UTC.
     static time_t secondsAsUTC(const string & extended);
 };
