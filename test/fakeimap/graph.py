@@ -37,7 +37,7 @@ writable (`canEdit`) and an event is the mailbox's own (`isOrganizer`) unless a 
 /tentativelyAccept (event-accept, event-tentativelyaccept) set the mailbox's `responseStatus` on the event, or on the
 occurrence, which becomes an exception; a series' answer isn't copied to its exceptions. A tentative answer to
 one occurrence of an unanswered series also reports the series tentatively accepted, with no response time
-(0001-01-01), as Office 365 does. A
+(0001-01-01), as Office 365 does; whether accepting or declining one does is unverified. A
 guest's /decline (event-decline) takes the event, or the occurrence, off the calendar. Each answer counts a
 response to the organizer when `sendResponse` is true. Calendar and mail scopes are consented and tokened separately: a token for one is
 refused by the other's routes with 403, as Graph answers a token missing the permission a request
@@ -104,7 +104,6 @@ def _in_zone(value: dict, zone: str) -> dict:
 WRITABLE_FIELDS = {"subject", "body", "location", "showAs", "attendees", "start", "end", "isAllDay", "recurrence",
                    "transactionId"}
 SERIES_TIMING = {"start", "end", "isAllDay", "recurrence"}
-# The responseStatus each answer action leaves.
 ANSWERS = {"accept": "accepted", "tentativelyAccept": "tentativelyAccepted", "decline": "declined"}
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
@@ -567,6 +566,7 @@ class _Handler(BaseHTTPRequestHandler):
         """PATCH or DELETE an event or occurrence, or POST an `answer` to it (a key of ANSWERS)."""
         srv: "FakeGraphServer" = self.server.owner
         fields = json.loads(body or b"{}") if self.command != "DELETE" else {}
+        edit = {"responseStatus": {"response": ANSWERS[answer]}} if answer else fields
         refusal = None if answer else self._refused_fields(fields)
         if refusal:
             return self._error(*refusal)
@@ -587,7 +587,7 @@ class _Handler(BaseHTTPRequestHandler):
                 if removing:
                     events.remove(event)
                     return self._reply(done)
-                changed = {**event, "responseStatus": {"response": ANSWERS[answer]}} if answer else _with_fields(event, fields)
+                changed = _with_fields(event, edit)
                 changed["changeKey"] = event["changeKey"] + "+"
                 if event.get("type") == "seriesMaster" and SERIES_TIMING & set(fields):
                     changed.update({"cancelledOccurrences": [], "exceptionOccurrences": []})
@@ -613,7 +613,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._reply(done)
             if "recurrence" in fields:
                 return self._error(400, "ErrorInvalidRequest", "An occurrence has no recurrence of its own.")
-            exception = {**exception, "responseStatus": {"response": ANSWERS[answer]}} if answer else _with_fields(exception, fields)
+            exception = _with_fields(exception, edit)
             if answer == "tentativelyAccept" and (master.get("responseStatus") or {}).get("response") in (None, "none", "notResponded"):
                 master["responseStatus"] = {"response": "tentativelyAccepted", "time": "0001-01-01T00:00:00Z"}
             master["exceptionOccurrences"] = exceptions + [exception]

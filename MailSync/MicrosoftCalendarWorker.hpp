@@ -67,10 +67,8 @@ public:
     // event Graph doesn't hold yet), then stores Graph's copy in its rows. Returns its master row's id.
     string writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics);
 
-    // Answers an invitation through Graph, which tells its organizer: `partstat` (ACCEPTED, TENTATIVE or
-    // DECLINED) for the occurrence the iTIP `reply`'s RECURRENCE-ID names, else for the whole event. Then
-    // stores Graph's copy in its rows. False, having sent nothing, when none of the user's own calendars
-    // holds the invitation, as when Exchange never filed it.
+    // Answers an invitation through Graph, which tells its organizer: for the occurrence the iTIP `reply`
+    // names, else the whole event. False, having sent nothing, when none of the user's own calendars holds its UID.
     bool answerEvent(const string & reply, const string & partstat);
 
     // Deletes the event, or the whole series of a master row, and its rows. A guest declines it.

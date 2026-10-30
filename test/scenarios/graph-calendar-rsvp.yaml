@@ -3,13 +3,14 @@ description: >
   The client answers an invitation with a REPLY (EventRSVPTask). On an Outlook calendar it goes
   through Graph's accept, tentativelyAccept or decline, which tells the organizer, and no REPLY is
   emailed beside it: that would be a second answer. A REPLY naming an occurrence answers that
-  occurrence, found by its RECURRENCE-ID in UTC (the calendar's) or in the organizer's zone (an
-  emailed invitation's). A series whose occurrence alone was answered stays unanswered, as Outlook
-  shows it, though Exchange then reports it tentatively accepted with no response time; a series
-  answer leaves an answered occurrence alone. Graph's copy is then read back into the rows; after a
-  refused answer the rows get Graph's unanswered copy back in place of the answer the client
-  already wrote. An invitation none of the user's own calendars holds is emailed, as is one only
-  a colleague's calendar holds, and a COUNTER.
+  occurrence, in whatever zone it names it, even one only the invitation defines, which Graph would
+  refuse. A series whose occurrence alone was answered Maybe stays unanswered, as Outlook shows it,
+  though Exchange then reports it tentatively accepted with no response time; a series answer leaves
+  an answered occurrence alone. Graph's copy is then read back into the rows, except that a declined
+  meeting's rows go at once, since Graph no longer holds it. A refused answer, which is not retried
+  unless throttled since a second would be a second email, gives the rows Graph's unanswered copy back
+  in place of the answer the client already wrote. An invitation none of the user's own calendars
+  holds is emailed, as is one only a colleague's calendar holds, and a COUNTER.
 source: "https://learn.microsoft.com/en-us/graph/api/event-accept; https://learn.microsoft.com/en-us/graph/api/event-tentativelyaccept; https://learn.microsoft.com/en-us/graph/api/event-decline (sendResponse)"
 env:
   CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z

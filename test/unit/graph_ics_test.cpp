@@ -282,8 +282,6 @@ int main() {
                    "own answer at the alias");
     }
     {
-        // Exchange reports a series tentatively accepted, with no response time, once one of its
-        // occurrences is answered (Office 365); an answer the user gave has its time.
         auto answeredAt = [](const string & time) {
             return GraphICS::icsForEvent(event({
                 {"responseStatus", {{"response", "tentativelyAccepted"}, {"time", time}}},

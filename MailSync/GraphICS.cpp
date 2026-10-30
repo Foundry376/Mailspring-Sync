@@ -262,13 +262,12 @@ static string partstatFor(const string & response) {
     return "NEEDS-ACTION";
 }
 
-// The mailbox's own answer, which its entry in `attendees` may not reflect. Answering one occurrence of
-// an unanswered series makes Exchange report the series as tentatively accepted with no response time
-// (0001-01-01), while Outlook still shows its other occurrences unanswered.
+// The mailbox's own answer; its `attendees` entry may not reflect it. A Maybe on one occurrence of an unanswered
+// series makes Exchange report the series tentative with no response time, though Outlook shows it unanswered.
 static string mailboxResponse(const json & event) {
     const json & status = JSONObject(event, "responseStatus");
     string response = JSONString(status, "response");
-    bool neverAnswered = JSONString(status, "time").rfind("0001-01-01", 0) == 0;
+    bool neverAnswered = JSONString(status, "time").substr(0, 10) == "0001-01-01";
     return response == "tentativelyAccepted" && neverAnswered ? "notResponded" : response;
 }
 

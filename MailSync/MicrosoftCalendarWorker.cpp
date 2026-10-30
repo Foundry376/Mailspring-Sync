@@ -427,7 +427,7 @@ vector<shared_ptr<Event>> MicrosoftCalendarWorker::findRows(shared_ptr<Event> ev
 }
 
 // The master row of invitation `uid` that Graph holds, on a calendar that isn't someone else's: in a
-// colleague's, answering would speak for them. Null when there is none.
+// colleague's, answering would speak for them.
 shared_ptr<Event> MicrosoftCalendarWorker::findInvitation(const string & uid) {
     for (auto & row : store->findAll<Event>(Query().equal("accountId", account->id()).equal("icsuid", uid).equal("recurrenceId", ""))) {
         auto calendar = store->find<Calendar>(Query().equal("id", row->calendarId()));
@@ -464,10 +464,9 @@ json MicrosoftCalendarWorker::fetchSeries(const string & calendarPath, const str
     return read.front().second;
 }
 
-// The occurrence each anchor (a RECURRENCE-ID, or one EXDATE value) names, with its id and isCancelled,
-// or null where the series has none or the lookup failed (added to `failures`). An exception is found
-// by its originalStart wherever it moved; any other occurrence through /instances around its slot, the
-// lookups in one batch.
+// The occurrence each anchor names (its id and isCancelled), or null where the series has none or
+// the lookup failed (added to `failures`). An exception is found by its originalStart wherever it
+// moved; any other occurrence through /instances around its slot, the lookups in one batch.
 vector<json> MicrosoftCalendarWorker::findOccurrences(const string & calendarPath, const json & series,
                                                       const vector<ICSProperty> & anchors, vector<SyncException> & failures) {
     vector<json> found(anchors.size());

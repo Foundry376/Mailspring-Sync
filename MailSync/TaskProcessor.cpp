@@ -3456,7 +3456,7 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     }
 
     // Exchange tells the organizer of an answer made on the user's copy, so a REPLY emailed beside
-    // it would be a second answer. An invitation Exchange never filed is still emailed.
+    // it would be a second answer.
     if (method == "REPLY" && account->syncsCalendarsViaGraph() &&
         MicrosoftCalendarWorker(account).answerEvent(ics, icsRSVPStatus)) {
         return;
