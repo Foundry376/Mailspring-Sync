@@ -38,6 +38,7 @@
 #include <exception>
 #include <iomanip>
 #include <thread>
+#include <filesystem>
 #include <chrono>
 #include <mutex>
 
@@ -2589,9 +2590,13 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
 
     for (json & fileJSON : draft.files()) {
         File file{fileJSON};
-        string root = MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "files";
-        string path = MailUtils::pathForFile(root, &file, false);
-        
+        string path = MailUtils::pathForFile(MailUtils::filesRootPath(), &file, false);
+        // attachmentWithContentsOfFile reads a missing file as an empty attachment, which would go out as 0 bytes.
+        std::error_code ec;
+        if (!std::filesystem::exists(std::filesystem::u8path(path), ec)) {
+            throw SyncException("send-failed", "The attachment \"" + file.filename() + "\" is missing from Mailspring's files. Remove it from the draft and attach it again.", false);
+        }
+
 #ifdef _MSC_VER
         wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
         Attachment * a = Attachment::attachmentWithContentsOfFile(AS_WIDE_MCSTR(convert.from_bytes(path)));

@@ -1,0 +1,67 @@
+name: send-draft-attachment-missing
+description: >
+  A draft lists an attachment whose file is gone from the files directory: the body purge
+  removed the original message's files under a forwarded draft that still points at them, or
+  antivirus or a manual cleanup took the file. mailcore reads a missing file as an empty
+  attachment, so the message would go out with a 0-byte attachment and no error. The send
+  must fail instead, with send-failed naming the file, before anything reaches the server.
+  A draft whose attachment is on disk still sends.
+source: TaskProcessor::performRemoteSendDraft; Attachment::attachmentWithContentsOfFile; the review of Mailspring-Sync #182
+servers:
+  - {fake: dovecot, smtp: true}
+  - {fake: plain, smtp: true}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "missing-file@example.test"
+        subject: "Forwarded report"
+        body: "<p>See attached</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        # No `bytes`: the File JSON goes to the engine as given and nothing is written to disk.
+        files:
+          - {id: "0f1e2d3c4b5a69788796a5b4", __cls: File, v: 0, filename: "report.pdf", size: 52000, contentType: "application/pdf"}
+      perRecipientBodies: null
+    as: missing
+  - wait: {task: missing, timeout: 60}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "present-file@example.test"
+        subject: "Attached report"
+        body: "<p>See attached</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files:
+          - {filename: "summary.pdf", bytes: 52000, contentType: "application/pdf"}
+      perRecipientBodies: null
+    as: present
+  - wait: {task: present, timeout: 60}
+  - wait: {quiescent: true}
+expect:
+  task_error:
+    missing: {key: send-failed, debuginfo: "\"report\\.pdf\" is missing"}
+    present: null
+  smtp:
+    count: 1
+    messages:
+      - {recipients: ["bob@example.net"], headers: {Subject: "Attached report"}}
+  server_counts: {Sent: 1}
+  db_matches_server: {}
+  running: true

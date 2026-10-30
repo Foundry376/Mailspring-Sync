@@ -1,0 +1,29 @@
+name: body-purge-keeps-files-when-delete-fails
+description: >
+  The cache cleanup removes a purged body's attachment files only after its MessageBody row is
+  deleted. Here a trigger makes the DELETE throw, which ends the engine the way a kill between
+  the two steps would. The body stays, so its files must too: the client asks for a body only
+  when it is missing, and nothing downloads a single file again, so a body left without its
+  files would show broken attachments for good.
+source: SyncWorker::cleanMessageCache; the review of Mailspring-Sync #182
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX:
+    messages: {count: 2, attachment: [report.bin, "0123456789abcdef0123456789abcdef"], age_days: 120}
+steps:
+  - wait: quiescent
+  - client.need_bodies: {messages: {mailbox: INBOX, uids: [1, 2]}}
+  - wait: {log: "Fetching body for message", timeout: 30}
+  - wait: {quiescent: true}
+  - assert: {files: {INBOX: {1: true, 2: true}}}
+  - restart:
+      before:
+        - db.sql: "UPDATE MessageBody SET fetchedAt = datetime('now', '-20 days')"
+        - db.sql: "CREATE TRIGGER harness_refuse_body_delete BEFORE DELETE ON MessageBody BEGIN SELECT RAISE(ABORT, 'harness: delete refused'); END"
+  - wait: quiescent
+  # force_scans waits for quiescence, and returns when the engine dies instead.
+  - force_scans: {keys: [lastCleanup]}
+expect:
+  exit: {code: -6}   # SIGABRT: the refused DELETE's exception ends the engine
+  files: {INBOX: {1: true, 2: true}}

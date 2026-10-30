@@ -529,20 +529,32 @@ string MailUtils::roleForGmailLabelName(const string & xgmLabel) {
     return "";
 }
 
-string MailUtils::pathForFile(string root, File * file, bool create) {
-    string id = file->id();
+// files/<id[0:2]>/<id[2:4]>/<id>/, the layout the client's AttachmentStore reads.
+static vector<string> directoryLevelsForFile(string root, string id) {
     transform(id.begin(), id.end(), id.begin(), ::tolower);
-    
-    if (create && !create_directory(root)) { return ""; }
-    string path = root + FS_PATH_SEP + id.substr(0, 2);
-    if (create && !create_directory(path)) { return ""; }
-    path += FS_PATH_SEP + id.substr(2, 2);
-    if (create && !create_directory(path)) { return ""; }
-    path += FS_PATH_SEP + id;
-    if (create && !create_directory(path)) { return ""; }
-    
-    path += FS_PATH_SEP + file->safeFilename();
-    return path;
+    vector<string> levels { root };
+    for (const string & part : { id.substr(0, 2), id.substr(2, 2), id }) {
+        levels.push_back(levels.back() + FS_PATH_SEP + part);
+    }
+    return levels;
+}
+
+string MailUtils::filesRootPath() {
+    return getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "files";
+}
+
+string MailUtils::directoryForFile(string root, string fileId) {
+    return directoryLevelsForFile(root, fileId).back();
+}
+
+string MailUtils::pathForFile(string root, File * file, bool create) {
+    vector<string> levels = directoryLevelsForFile(root, file->id());
+    if (create) {
+        for (const string & level : levels) {
+            if (!create_directory(level)) { return ""; }
+        }
+    }
+    return levels.back() + FS_PATH_SEP + file->safeFilename();
 }
 
 shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> allLabels) {
