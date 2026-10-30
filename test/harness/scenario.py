@@ -904,6 +904,20 @@ class ScenarioRun:
     def expect_log_present(self, patterns) -> list:
         return [f"log does not contain /{p}/" for p in patterns if not self.ms.grep(p)]
 
+    def expect_log_order(self, patterns) -> list:
+        """[regex, ...]: a line matching each pattern, each after the line the one before matched,
+        e.g. the order of the commands a loop sends."""
+        lines = [l.msg for l in self.ms.log()]
+        i = 0
+        for n, pattern in enumerate(patterns):
+            rx = re.compile(pattern)
+            while i < len(lines) and not rx.search(lines[i]):
+                i += 1
+            if i == len(lines):
+                return [f"log order: no /{pattern}/ after /{patterns[n - 1]}/" if n else f"log order: no /{pattern}/"]
+            i += 1
+        return []
+
     def expect_log_count(self, arg: dict) -> list:
         """{regex: n} or {regex: {min: a, max: b}}: how many log lines match, which bounds a
         loop the engine is meant to take a known number of times (e.g. a draining backlog)."""
