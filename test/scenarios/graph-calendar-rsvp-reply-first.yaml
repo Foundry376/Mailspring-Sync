@@ -1,0 +1,63 @@
+name: graph-calendar-rsvp-reply-first
+description: >
+  The email header queues its REPLY before the calendar write beside it. A Decline takes the meeting
+  off the calendar, so the rows are gone when the write's remote phase runs; that is no error, since
+  the REPLY has already answered. The calendar listing answers late, so that both tasks are queued
+  before the decline lands.
+source: "https://learn.microsoft.com/en-us/graph/api/event-decline"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars_delay: 1
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvOffsite="
+          changeKey: "ck-offsite-1"
+          iCalUId: "uid-offsite"
+          type: singleInstance
+          isOrganizer: false
+          subject: Offsite
+          start: {dateTime: "2026-10-23T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-23T17:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          organizer: {emailAddress: {name: Pat Lee, address: pat@example.com}}
+          responseStatus: {response: notResponded}
+          attendees:
+            - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: test@example.test}}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Declined: Offsite"
+      icsRSVPStatus: DECLINED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-offsite\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261023T090000\r\nDTEND;TZID=Pacific Standard Time:20261023T170000\r\nSUMMARY:Offsite\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=DECLINED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: reply
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-offsite|"
+      ics_replace:
+        - ["PARTSTAT=NEEDS-ACTION;CN=Harness Test", "PARTSTAT=DECLINED;CN=Harness Test"]
+      rsvp: {email: test@example.test, status: DECLINED}
+    as: write
+  - wait: {task: reply, timeout: 60}
+  - wait: {task: write, timeout: 60}
+expect:
+  task_error: {reply: null, write: null}
+  graph:
+    event_writes:
+      - [POST, "^calendars/AAMkADefault=/events/AAMkEvOffsite=/decline$", [sendResponse]]
+    responses_sent: 1
+  events: {}
+  running: true

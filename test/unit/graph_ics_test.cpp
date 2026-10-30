@@ -282,6 +282,19 @@ int main() {
                    "own answer at the alias");
     }
     {
+        auto answeredAt = [](const string & time) {
+            return GraphICS::icsForEvent(event({
+                {"responseStatus", {{"response", "tentativelyAccepted"}, {"time", time}}},
+                {"attendees", json::array({{{"type", "required"}, {"status", {{"response", "none"}}},
+                                            {"emailAddress", {{"name", "Me"}, {"address", "me@example.test"}}}}})},
+            }), ME, START_UTC);
+        };
+        expectLine(answeredAt("0001-01-01T00:00:00Z"), "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Me:mailto:me@example.test",
+                   "tentative without a response time");
+        expectLine(answeredAt("2026-10-29T15:56:21.253312-05:00"), "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Me:mailto:me@example.test",
+                   "tentative the user answered");
+    }
+    {
         // A meeting a Google user organized: Exchange's ID wraps the organizer's UID, which the
         // invitation carries ([MS-OXCICAL] 2.1.3.1.1.20.26), with or without a trailing NUL.
         expectLine(GraphICS::icsForEvent(event({{"iCalUId", "040000008200E00074C5B7101A82E00800000000000000000000000000000000000000002B0000007643616C2D556964010000003676713065316C726E6A35673863346D3361326240676F6F676C652E636F6D"}}), ME, START_UTC),
@@ -814,6 +827,23 @@ int main() {
         auto window = GraphICS::occurrenceWindow(zoned);
         expectEqual(window.first, "2026-11-01T09:00:00Z", "window starts a day before");
         expectEqual(window.second, "2026-11-04T09:00:00Z", "window ends two days after");
+
+        const string invitation = "BEGIN:VCALENDAR\r\nBEGIN:VTIMEZONE\r\nTZID:Customized Time Zone\r\nBEGIN:STANDARD\r\n"
+                                  "DTSTART:16010101T000000\r\nTZOFFSETFROM:-0400\r\nTZOFFSETTO:-0400\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n"
+                                  "BEGIN:VTIMEZONE\r\nTZID:(UTC-03:00) Organizer Time\r\nBEGIN:STANDARD\r\n"
+                                  "DTSTART:16010101T000000\r\nTZOFFSETFROM:-0300\r\nTZOFFSETTO:-0300\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\nEND:VCALENDAR\r\n";
+        auto inUTC = [&](const string & zone, const string & value) {
+            return GraphICS::occurrenceInUTC({"RECURRENCE-ID", {{"TZID", zone}}, value}, invitation);
+        };
+        expectEqual(inUTC("America/Chicago", "20261022T130000").value, "20261022T180000Z", "IANA zone, daylight time");
+        expectEqual(inUTC("Central Standard Time", "20261105T130000").value, "20261105T190000Z", "Windows zone, standard time");
+        expectEqual(inUTC("Customized Time Zone", "20261022T130000").value, "20261022T170000Z", "zone only the invitation defines");
+        expectEqual(inUTC("(UTC-03:00) Organizer Time", "20261022T130000").value, "20261022T160000Z", "display name with a colon");
+        expectEqual(inUTC("America/Chicago", "20261022T130000").param("TZID"), "", "UTC has no TZID");
+        expectEqual(inUTC("Nowhere", "20261022T130000").value, "20261022T130000", "unknown zone keeps its wall clock");
+        expectEqual(inUTC("Nowhere", "20261022T130000").param("TZID"), "", "unknown zone's name is dropped");
+        expectEqual(GraphICS::occurrenceInUTC(utc, invitation).value, "20261019T160000Z", "UTC passes through");
+        expectEqual(GraphICS::occurrenceInUTC(date, invitation).param("VALUE"), "DATE", "a date passes through");
     }
 
     if (failures) {

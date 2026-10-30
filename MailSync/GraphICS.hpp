@@ -74,6 +74,9 @@ public:
     // attendee parameters, and splits a line at its first ':' even inside a quoted parameter.
     static vector<ICSVEvent> veventsOf(const string & ics);
 
+    // The series master: the VEVENT without a RECURRENCE-ID, or null.
+    static const ICSVEvent * masterOf(const vector<ICSVEvent> & vevents);
+
     // The Graph fields Mailspring edits, from one VEVENT: subject, body, location, start, end,
     // isAllDay, showAs, attendees and, unless it has a RECURRENCE-ID, recurrence (null without an
     // RRULE). `startUTC` as for icsForEvent, or "" for an event Graph doesn't hold yet. Refuses an
@@ -93,6 +96,10 @@ public:
 
     // A UTC range (startDateTime, endDateTime for /instances) holding the occurrence `anchor` names.
     static pair<string, string> occurrenceWindow(const ICSProperty & anchor);
+
+    // A RECURRENCE-ID from the resource `ics` as an anchor Graph can look up: in UTC, since its TZID may be a
+    // name Graph refuses ("Customized Time Zone"), or without the TZID if neither ICU nor `ics` defines it.
+    static ICSProperty occurrenceInUTC(const ICSProperty & recurrenceId, const string & ics);
 
     // A Graph date-time or date ("2026-10-22T09:00:00.0000000", "2026-12-31") read as UTC.
     static time_t secondsAsUTC(const string & extended);

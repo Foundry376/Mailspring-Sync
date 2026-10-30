@@ -368,10 +368,15 @@ static json writeRequest(const string & method, const string & path, const json 
     return request;
 }
 
+// A guest's answer to the event or occurrence at `path` (accept, tentativelyAccept or decline), which
+// Exchange sends the organizer. Answers are retried only when throttled, since a second is a second email.
+static json answerRequest(const string & path, const string & action) {
+    return writeRequest("POST", path + "/" + action, {{"sendResponse", true}});
+}
+
 // Removes the event or occurrence at `path`: a DELETE, or a decline that answers its organizer.
-// A guest's removals are retried only when throttled, since a second decline is a second email.
 static json removalRequest(const string & path, bool decline) {
-    return decline ? writeRequest("POST", path + "/decline", {{"sendResponse", true}}) : writeRequest("DELETE", path);
+    return decline ? answerRequest(path, "decline") : writeRequest("DELETE", path);
 }
 
 // Keeps the exception `raise` throws, to be thrown once the other writes have been tried.
@@ -421,6 +426,26 @@ vector<shared_ptr<Event>> MicrosoftCalendarWorker::findRows(shared_ptr<Event> ev
     return store->findAll<Event>(Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()));
 }
 
+// The master row of invitation `uid` that Graph holds, on a calendar that isn't someone else's: in a
+// colleague's, answering would speak for them.
+shared_ptr<Event> MicrosoftCalendarWorker::findInvitation(const string & uid) {
+    for (auto & row : store->findAll<Event>(Query().equal("accountId", account->id()).equal("icsuid", uid).equal("recurrenceId", ""))) {
+        auto calendar = store->find<Calendar>(Query().equal("id", row->calendarId()));
+        if (calendar && calendar->ownership() != "other" && row->href() != "") {
+            return row;
+        }
+    }
+    return nullptr;
+}
+
+void MicrosoftCalendarWorker::removeRows(const vector<shared_ptr<Event>> & rows) {
+    MailStoreTransaction transaction{store.get(), "removeRows"};
+    for (auto & row : rows) {
+        store->remove(row.get());
+    }
+    transaction.commit();
+}
+
 json MicrosoftCalendarWorker::fetchEvent(const string & calendarPath, const string & graphId) {
     string url = eventURL(calendarPath, graphId) + "?$select=" + EVENT_WRITE_FIELDS;
     GraphResponse resp = PerformGraphRequest("GET", url, tokenProvider()());
@@ -439,16 +464,16 @@ json MicrosoftCalendarWorker::fetchSeries(const string & calendarPath, const str
     return read.front().second;
 }
 
-// The occurrence each change names (its id and isCancelled), or null where the series has none or
+// The occurrence each anchor names (its id and isCancelled), or null where the series has none or
 // the lookup failed (added to `failures`). An exception is found by its originalStart wherever it
 // moved; any other occurrence through /instances around its slot, the lookups in one batch.
 vector<json> MicrosoftCalendarWorker::findOccurrences(const string & calendarPath, const json & series,
-                                                      const vector<GraphEventChange> & changes, vector<SyncException> & failures) {
-    vector<json> found(changes.size());
+                                                      const vector<ICSProperty> & anchors, vector<SyncException> & failures) {
+    vector<json> found(anchors.size());
     vector<size_t> lookedUp {};
     vector<json> lookups {};
-    for (size_t i = 0; i < changes.size(); i++) {
-        const ICSProperty & anchor = changes[i].occurrence;
+    for (size_t i = 0; i < anchors.size(); i++) {
+        const ICSProperty & anchor = anchors[i];
         for (const auto & exception : JSONArray(series, "exceptionOccurrences")) {
             if (GraphICS::namesOccurrence(anchor, JSONString(exception, "originalStart"))) {
                 found[i] = exception;
@@ -467,7 +492,7 @@ vector<json> MicrosoftCalendarWorker::findOccurrences(const string & calendarPat
     }
     vector<GraphResponse> responses = PerformGraphBatch(lookups, tokenProvider());
     for (size_t k = 0; k < lookedUp.size(); k++) {
-        const ICSProperty & anchor = changes[lookedUp[k]].occurrence;
+        const ICSProperty & anchor = anchors[lookedUp[k]];
         if (!responses[k].ok()) {
             string url = MicrosoftGraphURL() + JSONString(lookups[k], "url");
             collectFailure(failures, [&]() { ThrowForGraphResponse(url, responses[k]); });
@@ -496,7 +521,11 @@ void MicrosoftCalendarWorker::writeOccurrences(const string & calendarPath, cons
         return;
     }
     vector<SyncException> failures {};
-    vector<json> occurrences = findOccurrences(calendarPath, fetchSeries(calendarPath, graphId), changes, failures);
+    vector<ICSProperty> anchors {};
+    for (const auto & change : changes) {
+        anchors.push_back(change.occurrence);
+    }
+    vector<json> occurrences = findOccurrences(calendarPath, fetchSeries(calendarPath, graphId), anchors, failures);
     vector<json> writes {};
     for (size_t i = 0; i < changes.size(); i++) {
         if (occurrences[i].is_null()) {
@@ -554,21 +583,13 @@ string MicrosoftCalendarWorker::storeEvent(const json & calendar, const string &
 // back. A new event's row goes, since no pass removes a row Graph never held.
 void MicrosoftCalendarWorker::restoreEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows) {
     if (graphId == "") {
-        for (auto & row : rows) {
-            store->remove(row.get());
-        }
+        removeRows(rows);
         return;
     }
     storeEvent(calendar, graphId, rows);
 }
 
-string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics, bool answer) {
-    if (answer) {
-        // It reaches the organizer by email. Read back, Graph's copy would show the meeting unanswered;
-        // the row keeps its etag, so no pass reads it again until the event changes on Graph.
-        logger->info("- Answer to {} goes to its organizer by email, not to Graph", event->href());
-        return event->id();
-    }
+string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics) {
     string graphId = event->href();
     if (graphId == "" && organizedElsewhere(ics)) {
         // Exchange put the invitation on the calendar when it arrived; the next pass brings it in.
@@ -677,10 +698,58 @@ void MicrosoftCalendarWorker::deleteEvent(shared_ptr<Event> event) {
     if (!resp.ok()) {
         ThrowForGraphResponse(url, resp);
     }
-    MailStoreTransaction transaction{store.get(), "deleteEvent"};
-    for (auto & row : findRows(event)) {
-        store->remove(row.get());
-    }
-    transaction.commit();
+    removeRows(findRows(event));
     logger->info("- {} event {} on Graph", decline ? "Declined" : "Deleted", event->href());
+}
+
+bool MicrosoftCalendarWorker::answerEvent(const string & reply, const string & partstat) {
+    static const map<string, string> ACTIONS {{"ACCEPTED", "accept"}, {"TENTATIVE", "tentativelyAccept"}, {"DECLINED", "decline"}};
+    auto action = ACTIONS.find(partstat);
+    vector<ICSVEvent> vevents = GraphICS::veventsOf(reply);
+    if (action == ACTIONS.end() || vevents.empty()) {
+        throw SyncException("invalid-ics", "Graph has no answer for a REPLY of " + partstat, false);
+    }
+    const ICSVEvent * master = GraphICS::masterOf(vevents);
+    const ICSVEvent & vevent = master ? *master : vevents.front();
+    shared_ptr<Event> event = findInvitation(vevent.property("UID").value);
+    if (!event) {
+        return false;
+    }
+    ICSProperty occurrence = GraphICS::occurrenceInUTC(vevent.property("RECURRENCE-ID"), reply);
+    string graphId = event->href();
+    vector<shared_ptr<Event>> rows = findRows(event);
+
+    json calendar; // null while Graph hasn't listed it
+    try {
+        calendar = fetchCalendar(event->calendarId());
+        string path = JSONString(calendar, "id");
+        string answered = graphId;
+        if (occurrence.value != "") {
+            vector<SyncException> failures {};
+            json found = findOccurrences(path, fetchSeries(path, graphId), {occurrence}, failures).front();
+            if (!failures.empty()) {
+                throw failures.front();
+            }
+            if (found.is_null()) {
+                throw SyncException("not-found", "Graph event " + graphId + " has no occurrence at " + occurrence.value, false);
+            }
+            answered = JSONString(found, "id");
+        }
+        GraphResponse resp = PerformGraphBatch({answerRequest(eventPath(path, answered), action->second)}, tokenProvider(),
+                                               GraphRetry::ThrottledOnly).front();
+        if (!resp.ok()) {
+            throwForWrite(eventURL(path, answered), resp);
+        }
+    } catch (SyncException & ex) {
+        // The client's SyncbackEventTask has already written the answer into the rows.
+        restoreEvent(calendar, graphId, rows);
+        throw;
+    }
+    logger->info("- Answered {} on Graph event {}", action->second, graphId);
+    if (partstat == "DECLINED" && occurrence.value == "") {
+        removeRows(rows); // Exchange takes a declined meeting off the calendar
+    } else {
+        storeEvent(calendar, graphId, rows);
+    }
+    return true;
 }
