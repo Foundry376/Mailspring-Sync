@@ -714,11 +714,13 @@ bool MicrosoftCalendarWorker::answerEvent(const string & reply, const string & p
     if (action == ACTIONS.end() || vevents.empty()) {
         throw SyncException("invalid-ics", "Graph has no answer for a REPLY of " + partstat, false);
     }
-    shared_ptr<Event> event = findInvitation(vevents.front().property("UID").value);
+    const ICSVEvent * master = GraphICS::masterOf(vevents);
+    const ICSVEvent & vevent = master ? *master : vevents.front();
+    shared_ptr<Event> event = findInvitation(vevent.property("UID").value);
     if (!event) {
         return false;
     }
-    ICSProperty occurrence = GraphICS::occurrenceInUTC(vevents.front().property("RECURRENCE-ID"), reply);
+    ICSProperty occurrence = GraphICS::occurrenceInUTC(vevent.property("RECURRENCE-ID"), reply);
     string graphId = event->href();
     vector<shared_ptr<Event>> rows = findRows(event);
 
@@ -728,19 +730,15 @@ bool MicrosoftCalendarWorker::answerEvent(const string & reply, const string & p
         string path = JSONString(calendar, "id");
         string answered = graphId;
         if (occurrence.value != "") {
-            // An invitation to one occurrence alone is an event of its own on Graph, answered as a whole.
-            json series = fetchSeries(path, graphId);
-            if (JSONString(series, "type") == "seriesMaster") {
-                vector<SyncException> failures {};
-                json found = findOccurrences(path, series, {occurrence}, failures).front();
-                if (!failures.empty()) {
-                    throw failures.front();
-                }
-                if (found.is_null()) {
-                    throw SyncException("not-found", "Graph event " + graphId + " has no occurrence at " + occurrence.value, false);
-                }
-                answered = JSONString(found, "id");
+            vector<SyncException> failures {};
+            json found = findOccurrences(path, fetchSeries(path, graphId), {occurrence}, failures).front();
+            if (!failures.empty()) {
+                throw failures.front();
             }
+            if (found.is_null()) {
+                throw SyncException("not-found", "Graph event " + graphId + " has no occurrence at " + occurrence.value, false);
+            }
+            answered = JSONString(found, "id");
         }
         GraphResponse resp = PerformGraphBatch({answerRequest(eventPath(path, answered), action->second)}, tokenProvider(),
                                                GraphRetry::ThrottledOnly).front();

@@ -116,14 +116,14 @@ steps:
         "uid-offsite|": {}
         "uid-lunch|": {}
         "uid-kim-review|": {}
-  # The whole series, from the calendar. The occurrence keeps its own answer.
+  # The whole series, its answered occurrence's VEVENT first. The occurrence keeps its own answer.
   - client.task:
       __cls: EventRSVPTask
       to: pat@example.com
       subject: "Accepted: Weekly sync"
       icsRSVPStatus: ACCEPTED
       method: REPLY
-      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261008T100000\r\nDTEND;TZID=Pacific Standard Time:20261008T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261022T170000Z\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261022T100000\r\nDTEND;TZID=Pacific Standard Time:20261022T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261008T100000\r\nDTEND;TZID=Pacific Standard Time:20261008T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
     as: accept_series
   - wait: {task: accept_series, timeout: 60}
   - assert:

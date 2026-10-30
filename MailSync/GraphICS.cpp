@@ -646,8 +646,7 @@ json GraphICS::eventForVEvent(const ICSVEvent & vevent, const string & startUTC)
     return event;
 }
 
-// The series master: the VEVENT without a RECURRENCE-ID.
-static const ICSVEvent * masterOf(const vector<ICSVEvent> & vevents) {
+const ICSVEvent * GraphICS::masterOf(const vector<ICSVEvent> & vevents) {
     for (const auto & vevent : vevents) {
         if (vevent.property("RECURRENCE-ID").name.empty()) {
             return &vevent;
