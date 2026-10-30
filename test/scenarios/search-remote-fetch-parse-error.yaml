@@ -27,24 +27,24 @@ steps:
   - server.copy: {mailbox: Projects, uids: [1, 2], to: Kept}
   - sync: pass
   - wait: {counts: {Projects: 2, Kept: 2}, timeout: 30}
-  # A refused batch retried alone, where message 1 does not parse: message 2 reconnects
-  # through connect() and is stored, as is the next batch.
-  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: INBOX}, code: SERVERBUG, text: "Fetch failed"}
-  - server.garble: {at: {hook: before_command, command: "^UID FETCH 1 BODY\\.PEEK", mailbox: INBOX}}
+  # A refused batch retried alone, where its newest message (UID 3) does not parse: UID 2
+  # reconnects through connect() and is stored, as is the next batch.
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 2:3 BODY\\.PEEK", mailbox: INBOX}, code: SERVERBUG, text: "Fetch failed"}
+  - server.garble: {at: {hook: before_command, command: "^UID FETCH 3 BODY\\.PEEK", mailbox: INBOX}}
   - client.search: {criteria: [subject, Message], folders: [INBOX], fetchLimit: 100}
     as: parsed_alone
   - wait: {seconds: 5}
   # The same, with the login after the parse error rejected (1 the search's, 2 the retry's).
-  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: Archive}, code: SERVERBUG, text: "Fetch failed"}
-  - server.garble: {at: {hook: before_command, command: "^UID FETCH 1 BODY\\.PEEK", mailbox: Archive}}
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 2:3 BODY\\.PEEK", mailbox: Archive}, code: SERVERBUG, text: "Fetch failed"}
+  - server.garble: {at: {hook: before_command, command: "^UID FETCH 3 BODY\\.PEEK", mailbox: Archive}}
   - server.reject: {at: {hook: before_command, command: "^LOGIN", nth: 3}, code: AUTHENTICATIONFAILED, text: "LOGIN Rate limit hit", close: true}
   - client.search: {criteria: [subject, Message], folders: [Archive], fetchLimit: 100}
     as: retry_login_rejected
   - wait: {seconds: 5}
   # A batch that does not parse after the search's one reconnect is skipped whole, and the
   # next batch logs in through connect().
-  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: Sent}, code: SERVERBUG, text: "Fetch failed"}
-  - server.garble: {at: {hook: before_command, command: "^UID FETCH 3:4 BODY\\.PEEK", mailbox: Sent}}
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 4:5 BODY\\.PEEK", mailbox: Sent}, code: SERVERBUG, text: "Fetch failed"}
+  - server.garble: {at: {hook: before_command, command: "^UID FETCH 2:3 BODY\\.PEEK", mailbox: Sent}}
   - server.reject: {at: {hook: before_command, command: "^LOGIN", nth: 3}, code: AUTHENTICATIONFAILED, text: "LOGIN Rate limit hit", close: true}
   - client.search: {criteria: [subject, Message], folders: [Sent], fetchLimit: 100}
     as: batch_login_rejected
@@ -83,8 +83,8 @@ expect:
     copy_login_rejected: {error: ErrorAuthentication}
     refused_alone: {candidates: 2, fetched: 1, skipped: 1, phase: done, folder_errors: 1}
   log_count:
-    'Search search-\S+: fetching message \S+ \(INBOX UID 1\) alone failed: ErrorParse, skipped': 1
-    'Search search-\S+: fetching message \S+ \(Archive UID 1\) alone failed: ErrorParse, skipped': 1
+    'Search search-\S+: fetching message \S+ \(INBOX UID 3\) alone failed: ErrorParse, skipped': 1
+    'Search search-\S+: fetching message \S+ \(Archive UID 3\) alone failed: ErrorParse, skipped': 1
     'Search search-\S+: fetching 2 message\(s\) from Sent failed: ErrorParse': 1
     'Search search-\S+: sizing \S+ failed: ErrorParse': 1
     'Search login rejected, not retrying': 4

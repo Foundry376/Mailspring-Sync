@@ -19,13 +19,13 @@ mailboxes:
   Notes: {messages: {count: 3, age_days: 120}}
 steps:
   - wait: quiescent
-  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: INBOX}, code: SERVERBUG, text: "Fetch failed"}
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 2:3 BODY\\.PEEK", mailbox: INBOX}, code: SERVERBUG, text: "Fetch failed"}
   - server.reject: {at: {hook: before_command, command: "^UID FETCH 2 BODY\\.PEEK", mailbox: INBOX}, code: SERVERBUG, text: "Fetch failed"}
   - client.search: {criteria: [subject, Message], folders: [INBOX], fetchLimit: 100}
     as: one_refused
   - wait: {log: 'Search search-\S+: fetched 1 message\(s\) .* 2 of 3 stored', timeout: 30}
   - wait: {quiescent: true}
-  - server.desync: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: Archive}}
+  - server.desync: {at: {hook: before_command, command: "^UID FETCH 2:3 BODY\\.PEEK", mailbox: Archive}}
   - client.search: {criteria: [subject, Message], folders: [Archive], fetchLimit: 100}
     as: desynced
   - wait: {log: 'Search search-\S+: fetched 1 message\(s\) .* 3 of 3 stored', timeout: 30}
@@ -35,7 +35,7 @@ steps:
     as: all_refused
   - wait: {log: 'Search search-\S+: fetched 1 message\(s\) .* 0 of 3 stored', timeout: 30}
   - wait: {quiescent: true}
-  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: Notes}, code: SERVERBUG, text: "Fetch failed"}
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 2:3 BODY\\.PEEK", mailbox: Notes}, code: SERVERBUG, text: "Fetch failed"}
   - server.drop_connections: {at: {hook: before_command, command: "^UID FETCH 2 BODY\\.PEEK", mailbox: Notes}}
   - client.search: {criteria: [subject, Message], folders: [Notes], fetchLimit: 100}
     as: dropped_in_retry

@@ -1,7 +1,8 @@
 name: search-remote-fetch-batch-bytes
 description: >
   A batch also closes on bytes: with the batch limit held to 600 bytes and messages of
-  about 400, each of three candidates goes in its own UID FETCH.
+  about 400, each of three candidates goes in its own UID FETCH. A message over the batch
+  limit but under the message limit is fetched alone, in a batch of its own.
 source: "MailSync/SearchWorker.cpp (fetchCandidates)"
 servers:
   - {fake: dovecot}
@@ -9,14 +10,17 @@ env:
   SEARCH_FETCH_BATCH_BYTES: "600"
 mailboxes:
   INBOX: {messages: {count: 3, age_days: 120}}
+setup:
+  - server.append: {mailbox: INBOX, messages: {subject: Message padded, age_days: 120, body_lines: 50}}
 steps:
   - wait: quiescent
   - client.search: {criteria: [subject, Message], fetchLimit: 100}
     as: fetch
-  - wait: {log: 'Search search-\S+: fetched 1 message\(s\) .* 3 of 3 stored', timeout: 30}
+  - wait: {log: 'Search search-\S+: fetched 1 message\(s\) .* 4 of 4 stored', timeout: 30}
 expect:
   search:
-    fetch: {candidates: 3, fetched: 3, skipped: 0, phase: done, fetch_events: {min: 1}}
+    fetch: {candidates: 4, fetched: 4, skipped: 0, phase: done, fetch_events: {min: 1}}
   log_count:
-    'sent \d+ UID FETCH [0-9]+ BODY\.PEEK\[\]': 3
+    'sent \d+ UID FETCH [0-9]+ BODY\.PEEK\[\]': 4
+    'Search search-\S+: fetched 1 message\(s\) \([1-9][0-9]* bytes\)': 4
   running: true
