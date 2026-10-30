@@ -37,7 +37,7 @@ public:
     File(SQLite::Statement & query);
   
     string filename();
-    string safeFilename();
+    string filenameOnDisk();
     string partId();
     json & contentId();
     void setContentId(string s);

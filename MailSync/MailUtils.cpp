@@ -554,7 +554,7 @@ string MailUtils::pathForFile(string root, File * file, bool create) {
             if (!create_directory(level)) { return ""; }
         }
     }
-    return levels.back() + FS_PATH_SEP + file->safeFilename();
+    return levels.back() + FS_PATH_SEP + file->filenameOnDisk();
 }
 
 shared_ptr<Label> MailUtils::labelForXGMLabelName(string mlname, vector<shared_ptr<Label>> allLabels) {

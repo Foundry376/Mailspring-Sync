@@ -1,0 +1,72 @@
+name: send-draft-local-filename
+description: >
+  The client writes a draft's attachment under its own sanitized name (File.safeDisplayName,
+  which strips trailing spaces and prefixes Windows device names) and records it as
+  `localFilename`. The engine must read the file under that name rather than re-deriving one
+  with its own sanitizer, which differs for these names: it read "notes.txt " and "CON.txt",
+  found nothing, and sent both as 0-byte attachments. Recipients get the name the user attached.
+  A File without `localFilename` is read under the engine's name as before, and a
+  `localFilename` that leaves the file's directory is ignored, so that draft fails as missing.
+source: File::filenameOnDisk; TaskProcessor::performRemoteSendDraft; client File.safeDisplayName
+servers:
+  - {fake: dovecot, smtp: true}
+  - {fake: plain, smtp: true}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "local-filename@example.test"
+        subject: "Sanitized names"
+        body: "<p>See attached</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        files:
+          - {filename: "notes.txt ", localFilename: "notes.txt", bytes: 11111, contentType: "text/plain"}
+          - {filename: "CON.txt", localFilename: "_CON.txt", bytes: 22222, contentType: "text/plain"}
+          - {filename: "control.txt", bytes: 33333, contentType: "text/plain"}
+      perRecipientBodies: null
+    as: named
+  - wait: {task: named, timeout: 60}
+  - client.task:
+      __cls: SendDraftTask
+      draft:
+        hMsgId: "escaping-filename@example.test"
+        subject: "Escaping name"
+        body: "<p>See attached</p>"
+        plaintext: false
+        from: [{name: "Harness Test", email: "test@example.test"}]
+        to: [{name: "Bob Builder", email: "bob@example.net"}]
+        cc: []
+        bcc: []
+        replyTo: []
+        rthMsgId: ""
+        fwdMsgId: ""
+        # The bytes are written one level up, where the engine must not look.
+        files:
+          - {filename: "escape.txt", localFilename: "../escape.txt", bytes: 4444, contentType: "text/plain"}
+      perRecipientBodies: null
+    as: escaping
+  - wait: {task: escaping, timeout: 60}
+  - wait: {quiescent: true}
+expect:
+  task_error:
+    named: null
+    escaping: {key: send-failed, debuginfo: "\"escape\\.txt\" is missing"}
+  smtp:
+    count: 1
+    messages:
+      - recipients: ["bob@example.net"]
+        headers: {Subject: "Sanitized names"}
+        attachments: {"notes.txt ": 11111, "CON.txt": 22222, "control.txt": 33333}
+  server_counts: {Sent: 1}
+  db_matches_server: {}
+  running: true
