@@ -2604,6 +2604,9 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         Attachment * a = Attachment::attachmentWithContentsOfFile(AS_MCSTR(path));
 #endif
 
+        // mailcore names the attachment after the path, whose last part is the name on disk.
+        a->setFilename(AS_MCSTR(file.filename()));
+
         if (file.contentId().is_string()) {
             a->setContentID(AS_MCSTR(file.contentId().get<string>()));
             a->setInlineAttachment(true);

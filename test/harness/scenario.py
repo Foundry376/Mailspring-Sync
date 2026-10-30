@@ -15,6 +15,8 @@ runs against it, and what must be true afterwards. See test/README.md for the vo
       db_matches_server: {}
       stable: {passes: 1}
 """
+import email
+import email.utils
 import hashlib
 import json
 import os
@@ -721,19 +723,22 @@ class ScenarioRun:
         return found[-1] if found else None
 
     def _attachment_file(self, spec: dict) -> dict:
-        """A draft attachment given as {filename, bytes, contentType?, contentId?}: write that
-        many pseudo-random bytes where the engine's MailUtils::pathForFile looks for the file
-        and return the File JSON the client would send."""
+        """A draft attachment given as {filename, bytes, localFilename?, contentType?, contentId?}:
+        write that many pseudo-random bytes in the file's directory under `localFilename` (the
+        name the client records for what it wrote), or `filename` without one, and return the
+        File JSON the client would send."""
         if "bytes" not in spec:
             return spec
         file_id = spec.get("id") or hashlib.sha1(spec["filename"].encode()).hexdigest()[:24]
         folder = self.ms.config_dir / "files" / file_id[0:2] / file_id[2:4] / file_id
         folder.mkdir(parents=True, exist_ok=True)
         data = random.Random(file_id).randbytes(int(spec["bytes"]))
-        (folder / spec["filename"]).write_bytes(data)
+        (folder / spec.get("localFilename", spec["filename"])).write_bytes(data)
         out = {"id": file_id, "__cls": "File", "aid": self.ms.account["id"], "v": 0,
                "filename": spec["filename"], "size": len(data),
                "contentType": spec.get("contentType", "application/octet-stream")}
+        if "localFilename" in spec:
+            out["localFilename"] = spec["localFilename"]
         if spec.get("contentId"):
             out["contentId"] = spec["contentId"]
         return out
@@ -1074,7 +1079,8 @@ class ScenarioRun:
         return [f"placements changed since snapshot {name}: " + "; ".join(changes[:6])] if changes else []
 
     def expect_smtp(self, arg: dict) -> list:
-        """What the fake SMTP server received: count, recipients, headers."""
+        """What the fake SMTP server received: count, recipients, headers, and `attachments`
+        ({filename: decoded size}, every MIME part that names a file)."""
         smtp = getattr(self.server, "smtp", None)
         if smtp is None:
             return ["scenario expects SMTP but the server has no SMTP endpoint"]
@@ -1092,6 +1098,15 @@ class ScenarioRun:
             for h, v in (want.get("headers") or {}).items():
                 if m.header(h) != v:
                     out.append(f"SMTP message {i} header {h} = {m.header(h)!r}, expected {v!r}")
+            if "attachments" in want:
+                got = {}
+                for part in email.message_from_bytes(m.raw).walk():
+                    # Not get_filename(): it strips whitespace, which hides a trailing space the engine sent.
+                    raw = part.get_param("filename", None, "content-disposition") or part.get_param("name")
+                    if raw:
+                        got[email.utils.collapse_rfc2231_value(raw)] = len(part.get_payload(decode=True) or b"")
+                if got != want["attachments"]:
+                    out.append(f"SMTP message {i} attachments {got} != {want['attachments']}")
         return out
 
     def expect_graph(self, arg: dict) -> list:
