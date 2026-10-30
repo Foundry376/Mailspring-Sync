@@ -3,8 +3,12 @@ description: >
   A candidate whose searched copy vanished is fetched from another copy, but not from Spam or
   Trash: the search bar leaves those folders out, so their candidates can never be shown, and
   their copies may be purged by the server at any time. A search that names Spam or Trash
-  itself still fetches from them.
-source: "MailSync/SearchWorker.cpp (fetchFromAnotherCopy); the review of Mailspring-Sync #173"
+  itself still fetches from them, on the batch path and in the retry of a refused batch.
+source: "MailSync/SearchWorker.cpp (fetchFromAnotherCopy); the reviews of Mailspring-Sync #173 and #184"
+# A search session that kept INBOX selected misses mail appended since its last command (Dovecot
+# 2.3 too), so each stage waits for the idle disconnect and starts on a fresh SELECT.
+env:
+  SEARCH_IDLE_DISCONNECT: "1"
 servers:
   - {fake: dovecot}
 mailboxes:
@@ -30,17 +34,35 @@ steps:
   - sync: pass
   - wait: {counts: {INBOX: 1, Junk: 2}, timeout: 30}
   - server.expunge: {mailbox: INBOX, uids: [4], at: {hook: before_command, command: "^UID FETCH [0-9:,]+ \\(UID RFC822\\.SIZE\\)", mailbox: INBOX}}
+  - wait: {log: "Search connection idle, disconnecting", count: 1, timeout: 15}
   - client.search: {criteria: [and, [unread], [subject, Message]], folders: [INBOX, Junk], fetchLimit: 100}
     as: named
   - wait: {log: 'Search \S+: 1 candidate\(s\), 0 stored, 1 to fetch', timeout: 30}
+  - wait: {quiescent: true}
+  # The same through the one-at-a-time retry of a refused batch: a fifth message, unread only in
+  # INBOX, with read copies in Junk and Trash. Its Junk copy is fetched and its Trash copy is not.
+  - server.append: {mailbox: INBOX, messages: {count: 1, age_days: 120}}
+  - server.copy: {mailbox: INBOX, uids: [5], to: Junk}
+  - server.copy: {mailbox: INBOX, uids: [5], to: Trash}
+  - server.flags: {mailbox: INBOX, uids: [5], remove: ["\\Seen"]}
+  - sync: pass
+  - wait: {counts: {INBOX: 1, Junk: 3, Trash: 2}, timeout: 30}
+  - server.expunge: {mailbox: INBOX, uids: [5], at: {hook: before_command, command: "^UID FETCH [0-9:,]+ \\(UID RFC822\\.SIZE\\)", mailbox: INBOX}}
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 5 BODY\\.PEEK", mailbox: INBOX}, code: SERVERBUG, text: "Fetch failed"}
+  - wait: {log: "Search connection idle, disconnecting", count: 2, timeout: 15}
+  - client.search: {criteria: [and, [unread], [subject, Message]], folders: [INBOX, Junk], fetchLimit: 100}
+    as: named_retried
+  - wait: {log: 'Search \S+: retrying 1 message\(s\) from INBOX one at a time', timeout: 30}
   - wait: {quiescent: true}
 expect:
   search:
     fetch: {candidates: 3, fetched: 1, skipped: 2, phase: done}
     named: {candidates: 1, fetched: 1, skipped: 0, phase: done}
+    named_retried: {candidates: 1, fetched: 1, skipped: 0, phase: done, folder_errors: 0}
   log_count:
     'Search: the only copies of message \S+ are in Spam or Trash': 2
   local_search:
     '"body of message 2"': [Message 2]
     '"body of message 4"': [Message 4]
+    '"body of message 5"': [Message 5]
   running: true

@@ -200,16 +200,18 @@ class FakeServer(Server):
 
     # fake-only scripting
     def at(self, hook: str, fn, once: bool = True, session: Optional[str] = None,
-           command: Optional[str] = None, mailbox: Optional[str] = None):
+           command: Optional[str] = None, mailbox: Optional[str] = None, nth: int = 1):
         """Run fn(session) at a protocol moment: idle_start, idle_tick, before_fetch_body,
         before_command, after_command. Filters narrow which occasion counts: `session` is
         "foreground" (a connection that has idled - the engine's IDLE worker) or "background"
         (one that never has), `command` a regex on the command line (e.g. "UID FETCH 1:\\*")
-        for before/after_command, `mailbox` the session's selected mailbox."""
+        for before/after_command, `mailbox` the session's selected mailbox, and `nth` skips the
+        first nth-1 occasions that pass the other filters (e.g. the third LOGIN)."""
         rx = re.compile(command) if command else None
         # A once-hook is removed only after fn returns, and fn may hold its session (`delay`),
         # so another session's matching occasion must not run it again meanwhile.
         claim = threading.Lock()
+        seen = [0]
 
         def wrapped(sess, a, b):
             if session == "foreground" and not sess.has_idled:
@@ -224,6 +226,9 @@ class FakeServer(Server):
                     line += " " + b.decode("utf-8", "replace").strip()
                 if not rx.search(line):
                     return False
+            seen[0] += 1
+            if seen[0] < nth:
+                return False
             if once and not claim.acquire(blocking=False):
                 return False
             fn(sess)

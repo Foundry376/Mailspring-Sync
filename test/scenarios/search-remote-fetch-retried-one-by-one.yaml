@@ -1,0 +1,55 @@
+name: search-remote-fetch-retried-one-by-one
+description: >
+  What the one-at-a-time retry of a refused batch costs and limits. A message the server
+  refuses alone is the only one lost from its batch. A BAD that leaves the stream out of step
+  (the Yahoo lesson) is answered by the reconnect, and the retry runs on the fresh connection.
+  The reconnect is the search's only one: when the server refuses every fetch, the retry skips
+  each message, and a later batch that fails is skipped whole: nothing reconnects again. A
+  connection that drops during the retry fails the search, as a second drop does elsewhere.
+  A folder is recorded in `errors` only when a message was still lost to it after the retry.
+source: "MailSync/SearchWorker.cpp (fetchCandidates); the review of Mailspring-Sync #184"
+servers:
+  - {fake: dovecot}
+env:
+  SEARCH_FETCH_BATCH_MESSAGES: "2"
+mailboxes:
+  INBOX: {messages: {count: 3, age_days: 120}}
+  Archive: {messages: {count: 3, age_days: 120}}
+  Sent: {messages: {count: 3, age_days: 120}}
+  Notes: {messages: {count: 3, age_days: 120}}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: INBOX}, code: SERVERBUG, text: "Fetch failed"}
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 2 BODY\\.PEEK", mailbox: INBOX}, code: SERVERBUG, text: "Fetch failed"}
+  - client.search: {criteria: [subject, Message], folders: [INBOX], fetchLimit: 100}
+    as: one_refused
+  - wait: {log: 'Search search-\S+: fetched 1 message\(s\) .* 2 of 3 stored', timeout: 30}
+  - wait: {quiescent: true}
+  - server.desync: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: Archive}}
+  - client.search: {criteria: [subject, Message], folders: [Archive], fetchLimit: 100}
+    as: desynced
+  - wait: {log: 'Search search-\S+: fetched 1 message\(s\) .* 3 of 3 stored', timeout: 30}
+  - wait: {quiescent: true}
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH [0-9:]+ BODY\\.PEEK", mailbox: Sent, every: true}, code: SERVERBUG, text: "Fetch failed"}
+  - client.search: {criteria: [subject, Message], folders: [Sent], fetchLimit: 100}
+    as: all_refused
+  - wait: {log: 'Search search-\S+: fetched 1 message\(s\) .* 0 of 3 stored', timeout: 30}
+  - wait: {quiescent: true}
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: Notes}, code: SERVERBUG, text: "Fetch failed"}
+  - server.drop_connections: {at: {hook: before_command, command: "^UID FETCH 2 BODY\\.PEEK", mailbox: Notes}}
+  - client.search: {criteria: [subject, Message], folders: [Notes], fetchLimit: 100}
+    as: dropped_in_retry
+expect:
+  search:
+    one_refused: {candidates: 3, fetched: 2, skipped: 1, phase: done, folder_errors: 1}
+    desynced: {candidates: 3, fetched: 3, skipped: 0, phase: done, folder_errors: 0}
+    all_refused: {candidates: 3, fetched: 0, skipped: 3, phase: done, folder_errors: 2}
+    dropped_in_retry: {error: ErrorConnection}
+  log_count:
+    'Search search-\S+: retrying 2 message\(s\) from \S+ one at a time on a fresh connection': 4
+    'alone failed: .*, skipped': 3
+    'Search search-\S+: fetching 1 message\(s\) from Sent failed': 1
+  local_search:
+    '"body of message 1"': [Message 1]
+    '"body of message 3"': [Message 3]
+  running: true

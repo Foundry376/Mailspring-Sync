@@ -363,7 +363,12 @@ class ScenarioRun:
         if "quiescent" in arg:
             self.ms.wait_quiescent(timeout=float(arg.get("timeout", 180)), settle=float(arg.get("settle", 2.0)),
                                    ignore_busy=self.ignore_busy)
-        if "log" in arg:
+        if "log" in arg and "count" in arg:
+            # The nth match, for a line the engine logs again on each pass (an idle disconnect).
+            n = int(arg["count"])
+            self.ms.wait_for(lambda: len(self.ms.grep(arg["log"])) >= n, float(arg.get("timeout", 60)),
+                             f"{n} log lines /{arg['log']}/")
+        elif "log" in arg:
             self.ms.wait_for_log(arg["log"], timeout=float(arg.get("timeout", 60)))
         if "counts" in arg:
             self.ms.wait_for(lambda: not self.expect_counts(arg["counts"]), float(arg.get("timeout", 60)),
@@ -510,6 +515,8 @@ class ScenarioRun:
                     session.reject_next = (arg.get("code"), arg.get("text", "Command failed."), bool(arg.get("close")))
                 elif op == "desync":
                     session.desynced = True
+                elif op == "garble":
+                    session.garble_next = True
                 else:
                     self._server_op(op, arg)
                 if delay:
