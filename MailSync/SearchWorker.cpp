@@ -247,6 +247,15 @@ void SearchWorker::disconnect() {
     connected = false;
 }
 
+// After a parse error mailcore marks the session to log in again implicitly at the next
+// command (MCIMAPSession.cpp, fetchMessagesRawByUID), past connect()'s backoff and token
+// refresh. Dropping it here sends the next command through connect() instead.
+void SearchWorker::disconnectAfterParseError(ErrorCode err) {
+    if (err == ErrorCode::ErrorParse) {
+        disconnect();
+    }
+}
+
 void SearchWorker::perform(const json & request, uint64_t gen) {
     string searchId = request["searchId"].get<string>();
     size_t limit = SEARCH_DEFAULT_LIMIT;
@@ -474,6 +483,7 @@ void SearchWorker::fetchCandidates(string searchId, uint64_t gen, vector<SearchM
             }
             if (err != ErrorCode::ErrorNone || headers == nullptr) {
                 logger->warn("Search {}: sizing {} failed: {}, skipping its {} candidate(s)", searchId, folder->path(), ErrorCodeToTypeMap[err], matches.size());
+                disconnectAfterParseError(err);
                 errors.push_back({{"folderId", folder->id()}, {"error", ErrorCodeToTypeMap[err]}});
                 progress.skipped += matches.size();
                 continue;
@@ -515,21 +525,26 @@ void SearchWorker::fetchCandidates(string searchId, uint64_t gen, vector<SearchM
             }
             if (err != ErrorCode::ErrorNone || raw == nullptr) {
                 // A NO, a BAD or a parse error. After a BAD the stream may be out of step with the
-                // server (Yahoo), and after a parse error mailcore logs in again implicitly, past
-                // connect()'s backoff and token refresh: the batch is retried one message at a
-                // time on a fresh connection, the search's one reconnect, so one message the
-                // server refuses or libetpan cannot parse costs only itself. A batch that fails
-                // after that reconnect is skipped.
+                // server (Yahoo): the batch is retried one message at a time on a fresh connection,
+                // the search's one reconnect, so one message the server refuses or libetpan cannot
+                // parse costs only itself. A batch that fails after that reconnect is skipped.
                 logger->warn("Search {}: fetching {} message(s) from {} failed: {}", searchId, batch.size(), folder->path(), ErrorCodeToTypeMap[err]);
-                errors.push_back({{"folderId", folder->id()}, {"error", ErrorCodeToTypeMap[err]}});
                 if (reconnected) {
+                    errors.push_back({{"folderId", folder->id()}, {"error", ErrorCodeToTypeMap[err]}});
                     progress.skipped += batch.size();
+                    disconnectAfterParseError(err);
                 } else {
                     reconnected = true;
                     disconnect();
-                    connect();
                     logger->info("Search {}: retrying {} message(s) from {} one at a time on a fresh connection", searchId, batch.size(), folder->path());
+                    bool skippedAlone = false;
                     for (auto & match : batch) {
+                        if (superseded(gen)) {
+                            return;
+                        }
+                        if (!connected) {
+                            connect();
+                        }
                         ErrorCode one = ErrorCode::ErrorNone;
                         HashMap * single = session.fetchMessagesRawByUID(&path, IndexSet::indexSetWithIndex(match.uid), nullptr, &one);
                         if (one == ErrorCode::ErrorConnection) {
@@ -539,14 +554,20 @@ void SearchWorker::fetchCandidates(string searchId, uint64_t gen, vector<SearchM
                         if (one != ErrorCode::ErrorNone || single == nullptr) {
                             logger->warn("Search {}: fetching message {} ({} UID {}) alone failed: {}, skipped", searchId, match.messageId, folder->path(), match.uid, ErrorCodeToTypeMap[one]);
                             progress.skipped++;
+                            skippedAlone = true;
+                            disconnectAfterParseError(one);
                             continue;
                         }
                         Data * data = (Data *)single->objectForKey(Value::valueWithUnsignedIntValue(match.uid));
-                        if (data ? storeFetchedBody(match, data) : fetchFromAnotherCopy(match)) {
+                        if (data ? storeFetchedBody(match, data) : fetchFromAnotherCopy(match, searchedFolderIds)) {
                             progress.fetched++;
                         } else {
                             progress.skipped++;
                         }
+                    }
+                    // The folder is an error only if the retry still lost a message to the server.
+                    if (skippedAlone) {
+                        errors.push_back({{"folderId", folder->id()}, {"error", ErrorCodeToTypeMap[err]}});
                     }
                 }
             } else {
@@ -632,12 +653,16 @@ bool SearchWorker::fetchFromAnotherCopy(const SearchMatch & match, const set<str
         AutoreleasePool pool;
         ErrorCode err = ErrorCode::ErrorNone;
         String path(AS_MCSTR(copy.folder->path()));
+        if (!connected) {
+            connect();
+        }
         Data * data = session.fetchMessageByUID(&path, copy.uid, nullptr, &err);
         if (err == ErrorCode::ErrorConnection) {
             disconnect();
             throw SyncException(err, "search fetch copy " + copy.folder->path());
         }
         if (err != ErrorCode::ErrorNone || data == nullptr) {
+            disconnectAfterParseError(err);
             continue;
         }
         return storeFetchedBody(match, data);

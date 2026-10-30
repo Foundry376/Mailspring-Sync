@@ -6,7 +6,8 @@ description: >
   The reconnect is the search's only one: when the server refuses every fetch, the retry skips
   each message, and a later batch that fails is skipped whole: nothing reconnects again. A
   connection that drops during the retry fails the search, as a second drop does elsewhere.
-source: "MailSync/SearchWorker.cpp (fetchCandidates)"
+  A folder is recorded in `errors` only when a message was still lost to it after the retry.
+source: "MailSync/SearchWorker.cpp (fetchCandidates); the review of Mailspring-Sync #184"
 servers:
   - {fake: dovecot}
 env:
@@ -41,7 +42,7 @@ steps:
 expect:
   search:
     one_refused: {candidates: 3, fetched: 2, skipped: 1, phase: done, folder_errors: 1}
-    desynced: {candidates: 3, fetched: 3, skipped: 0, phase: done, folder_errors: 1}
+    desynced: {candidates: 3, fetched: 3, skipped: 0, phase: done, folder_errors: 0}
     all_refused: {candidates: 3, fetched: 0, skipped: 3, phase: done, folder_errors: 2}
     dropped_in_retry: {error: ErrorConnection}
   log_count:

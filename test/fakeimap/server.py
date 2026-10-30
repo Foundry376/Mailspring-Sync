@@ -138,6 +138,7 @@ class Session(socketserver.StreamRequestHandler):
         self.commands: list = []
         self.reject_next: Optional[tuple] = None  # (code, text, close): answer the next command NO, set by a hook
         self.desynced = False  # set by a hook: this and every later command is answered BAD, like a stream out of step
+        self.garble_next = False  # set by a hook: the next command's answer is a response line libetpan cannot parse
         self.pending: list = []              # StoreEvents not yet reported
         self.recent_uids: set = set()        # \Recent messages this session claimed
         self.sent_vanished = False           # a VANISHED went out during the current command
@@ -313,6 +314,11 @@ class Session(socketserver.StreamRequestHandler):
         self.srv.fire("before_command", self, cmd, args.rest())
         if self.desynced:
             self.send(tag + b" BAD [CLIENTBUG] Command is not a valid IMAP command")
+            return True
+        if self.garble_next:
+            self.garble_next = False
+            self.send(b"* 1 FETCH (UID ?)")
+            self.ok(tag, "Fetch completed (0.001 + 0.000 secs).")
             return True
         if self.reject_next is not None:
             # Only for commands without literals: the arguments are never read.

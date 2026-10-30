@@ -1,8 +1,8 @@
 name: search-remote-fetch-refused
 description: >
-  The server refuses a body fetch with NO. The folder is recorded in `errors`, and the batch
-  is fetched again one message at a time on a fresh connection, the search's one reconnect,
-  so every candidate is still stored when the refusal was one-off.
+  The server refuses a body fetch with NO. The batch is fetched again one message at a time on
+  a fresh connection, the search's one reconnect, so every candidate is still stored when the
+  refusal was one-off, and the folder is not recorded in `errors`: nothing was lost to it.
 source: "MailSync/SearchWorker.cpp (fetchCandidates)"
 servers:
   - {fake: dovecot}
@@ -16,7 +16,7 @@ steps:
   - wait: {log: 'Search search-\S+: fetched 3 message\(s\) .* 3 of 3 stored', timeout: 30}
 expect:
   search:
-    fetch: {candidates: 3, fetched: 3, skipped: 0, phase: done, folder_errors: 1}
+    fetch: {candidates: 3, fetched: 3, skipped: 0, phase: done, folder_errors: 0}
   log_present:
     - 'Search search-\S+: fetching 3 message\(s\) from INBOX failed'
     - 'Search search-\S+: retrying 3 message\(s\) from INBOX one at a time on a fresh connection'

@@ -1,0 +1,93 @@
+name: search-remote-fetch-parse-error
+description: >
+  After a response libetpan cannot parse, mailcore would log in again by itself at the next
+  command, past connect()'s login backoff and token refresh. Every fetch in the body phase
+  that carries on after a parse error goes through connect() instead: the retry of a refused
+  batch, the next batch, the next folder's sizing and the next copy of an expunged candidate.
+  The message that broke the parse costs only itself, and a login the server then rejects
+  ends the search rather than being tried again for each remaining message. The rejected
+  LOGIN is counted from the search's own first one.
+source: "MailSync/SearchWorker.cpp (disconnectAfterParseError); Vendor/mailcore2 MCIMAPSession.cpp (fetchMessagesRawByUID, connectIfNeeded); the review of Mailspring-Sync #184"
+servers:
+  - {fake: dovecot}
+env:
+  SEARCH_FETCH_BATCH_MESSAGES: "2"
+  SEARCH_IDLE_DISCONNECT: "2"
+  SEARCH_LOGIN_BACKOFF: "3"
+mailboxes:
+  INBOX: {messages: {count: 3, age_days: 120}}
+  Archive: {messages: {count: 3, age_days: 120}}
+  Sent: {messages: {count: 5, age_days: 120}}
+  Notes: {messages: {count: 1, age_days: 120}}
+  Lists: {messages: {count: 1, age_days: 120}}
+  Projects: {messages: {count: 2, age_days: 120}}
+steps:
+  - wait: quiescent
+  - server.create_mailbox: {name: Kept}
+  - server.copy: {mailbox: Projects, uids: [1, 2], to: Kept}
+  - sync: pass
+  - wait: {counts: {Projects: 2, Kept: 2}, timeout: 30}
+  # A refused batch retried alone, where message 1 does not parse: message 2 reconnects
+  # through connect() and is stored, as is the next batch.
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: INBOX}, code: SERVERBUG, text: "Fetch failed"}
+  - server.garble: {at: {hook: before_command, command: "^UID FETCH 1 BODY\\.PEEK", mailbox: INBOX}}
+  - client.search: {criteria: [subject, Message], folders: [INBOX], fetchLimit: 100}
+    as: parsed_alone
+  - wait: {seconds: 5}
+  # The same, with the login after the parse error rejected (1 the search's, 2 the retry's).
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: Archive}, code: SERVERBUG, text: "Fetch failed"}
+  - server.garble: {at: {hook: before_command, command: "^UID FETCH 1 BODY\\.PEEK", mailbox: Archive}}
+  - server.reject: {at: {hook: before_command, command: "^LOGIN", nth: 3}, code: AUTHENTICATIONFAILED, text: "LOGIN Rate limit hit", close: true}
+  - client.search: {criteria: [subject, Message], folders: [Archive], fetchLimit: 100}
+    as: retry_login_rejected
+  - wait: {seconds: 5}
+  # A batch that does not parse after the search's one reconnect is skipped whole, and the
+  # next batch logs in through connect().
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: Sent}, code: SERVERBUG, text: "Fetch failed"}
+  - server.garble: {at: {hook: before_command, command: "^UID FETCH 3:4 BODY\\.PEEK", mailbox: Sent}}
+  - server.reject: {at: {hook: before_command, command: "^LOGIN", nth: 3}, code: AUTHENTICATIONFAILED, text: "LOGIN Rate limit hit", close: true}
+  - client.search: {criteria: [subject, Message], folders: [Sent], fetchLimit: 100}
+    as: batch_login_rejected
+  - wait: {seconds: 5}
+  # Sizing the first folder does not parse: the second folder's sizing logs in through connect().
+  - server.garble: {at: {hook: before_command, command: "^UID FETCH 1 \\(UID RFC822\\.SIZE\\)"}}
+  - server.reject: {at: {hook: before_command, command: "^LOGIN", nth: 2}, code: AUTHENTICATIONFAILED, text: "LOGIN Rate limit hit", close: true}
+  - client.search: {criteria: [subject, Message], folders: [Notes, Lists], fetchLimit: 100}
+    as: sizing_login_rejected
+  - wait: {seconds: 5}
+  # Both candidates are expunged, and fetching the first one's other copy does not parse: the
+  # second one's copy logs in through connect().
+  - server.expunge: {mailbox: Projects, uids: [1, 2], at: {hook: before_command, command: "^UID FETCH [0-9:,]+ \\(UID RFC822\\.SIZE\\)", mailbox: Projects}}
+  - server.garble: {at: {hook: before_command, command: "^UID FETCH [0-9]+ ", mailbox: Kept}}
+  - server.reject: {at: {hook: before_command, command: "^LOGIN", nth: 2}, code: AUTHENTICATIONFAILED, text: "LOGIN Rate limit hit", close: true}
+  - client.search: {criteria: [subject, Message], folders: [Projects], fetchLimit: 100}
+    as: copy_login_rejected
+  - wait: {log: 'Search search-\d+-4 failed', timeout: 10}
+  - wait: {seconds: 5}
+  # Only a parse error drops the connection: a message refused alone with NO leaves it open, so
+  # the third LOGIN never comes and the rest of the batch is stored.
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:2 BODY\\.PEEK", mailbox: Lists}, code: SERVERBUG, text: "Fetch failed"}
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1 BODY\\.PEEK", mailbox: Lists}, code: SERVERBUG, text: "Fetch failed"}
+  - server.append: {mailbox: Lists, messages: {count: 1, age_days: 120}}
+  - sync: pass
+  - wait: {counts: {Lists: 2}, timeout: 30}
+  - server.reject: {at: {hook: before_command, command: "^LOGIN", nth: 3}, code: AUTHENTICATIONFAILED, text: "LOGIN Rate limit hit", close: true}
+  - client.search: {criteria: [subject, Message], folders: [Lists], fetchLimit: 100}
+    as: refused_alone
+expect:
+  search:
+    parsed_alone: {candidates: 3, fetched: 2, skipped: 1, phase: done, folder_errors: 1}
+    retry_login_rejected: {error: ErrorAuthentication}
+    batch_login_rejected: {error: ErrorAuthentication}
+    sizing_login_rejected: {error: ErrorAuthentication}
+    copy_login_rejected: {error: ErrorAuthentication}
+    refused_alone: {candidates: 2, fetched: 1, skipped: 1, phase: done, folder_errors: 1}
+  log_count:
+    'Search search-\S+: fetching message \S+ \(INBOX UID 1\) alone failed: ErrorParse, skipped': 1
+    'Search search-\S+: fetching message \S+ \(Archive UID 1\) alone failed: ErrorParse, skipped': 1
+    'Search search-\S+: fetching 2 message\(s\) from Sent failed: ErrorParse': 1
+    'Search search-\S+: sizing \S+ failed: ErrorParse': 1
+    'Search login rejected, not retrying': 4
+  local_search:
+    '"body of message 2"': [Message 2]
+  running: true
