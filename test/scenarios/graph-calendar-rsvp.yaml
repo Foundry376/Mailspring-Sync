@@ -23,7 +23,7 @@ servers:
       - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
       - {id: "AAMkADKim=", name: Kim Lee, owner: {name: Kim Lee, address: kim@example.com}}
     graph_failures:
-      - {route: "^calendars/AAMkADefault=/events/AAMkEvLunch=/accept$", method: POST, status: 500, code: ErrorInternalServerError, times: 1}
+      - {route: "^calendars/AAMkADefault=/events/AAMkEvLunch=/accept$", method: POST, status: 503, code: ServiceUnavailable, times: 1}
     graph_events:
       AAMkADefault=:
         - id: "AAMkEvSync="
@@ -153,6 +153,15 @@ steps:
       ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-offsite\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261023T090000\r\nDTEND;TZID=Pacific Standard Time:20261023T170000\r\nSUMMARY:Offsite\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=DECLINED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
     as: decline
   - wait: {task: decline, timeout: 60}
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Declined: Weekly sync"
+      icsRSVPStatus: DECLINED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID;TZID=Pacific Standard Time:20261029T100000\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261029T100000\r\nDTEND;TZID=Pacific Standard Time:20261029T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=DECLINED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: decline_occurrence
+  - wait: {task: decline_occurrence, timeout: 60}
   # As the calendar answers: the row first, then the REPLY, which Graph refuses.
   - client.task:
       __cls: SyncbackEventTask
@@ -205,19 +214,20 @@ steps:
       subject: "New time proposed: Weekly sync"
       method: COUNTER
       comment: "Could we meet an hour later?"
-      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:COUNTER\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261029T170000Z\r\nDTSTAMP:20261013T120000Z\r\nDTSTART:20261029T180000Z\r\nDTEND:20261029T183000Z\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:COUNTER\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261105T180000Z\r\nDTSTAMP:20261013T120000Z\r\nDTSTART:20261105T190000Z\r\nDTEND:20261105T193000Z\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
     as: counter
   - wait: {task: counter, timeout: 60}
 expect:
-  task_error: {accept_series: null, maybe_occurrence: null, accept_exception: null, decline: null, answer_lunch_row: null,
-               refused: "Invalid Response Code: 500", not_filed: null, colleagues: null, counter: null}
+  task_error: {accept_series: null, maybe_occurrence: null, accept_exception: null, decline: null, decline_occurrence: null, answer_lunch_row: null,
+               refused: "Invalid Response Code: 503", not_filed: null, colleagues: null, counter: null}
   graph:
     event_writes:
       - [POST, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvSync=\\.2026-10-22/tentativelyAccept$", [sendResponse]]
       - [POST, "^calendars/AAMkADefault=/events/AAMkEvSync=/accept$", [sendResponse]]
       - [POST, "^calendars/AAMkADefault=/events/AAMkExc\\.AAMkEvSync=\\.2026-10-22/accept$", [sendResponse]]
       - [POST, "^calendars/AAMkADefault=/events/AAMkEvOffsite=/decline$", [sendResponse]]
-    responses_sent: 4
+      - [POST, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvSync=\\.2026-10-29/decline$", [sendResponse]]
+    responses_sent: 5
   smtp:
     count: 3
     messages:
@@ -226,7 +236,7 @@ expect:
       - {recipients: ["pat@example.com"], headers: {Subject: "New time proposed: Weekly sync"}}
   events:
     "uid-weekly-sync|":
-      ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test"]
+      ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test", "EXDATE;TZID=Pacific Standard Time:20261029T100000"]
     "uid-weekly-sync|20261022T170000Z": {}
     "uid-lunch|":
       ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test"]
