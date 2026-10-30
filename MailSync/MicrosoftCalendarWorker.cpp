@@ -438,6 +438,14 @@ shared_ptr<Event> MicrosoftCalendarWorker::findInvitation(const string & uid) {
     return nullptr;
 }
 
+void MicrosoftCalendarWorker::removeRows(const vector<shared_ptr<Event>> & rows) {
+    MailStoreTransaction transaction{store.get(), "removeRows"};
+    for (auto & row : rows) {
+        store->remove(row.get());
+    }
+    transaction.commit();
+}
+
 json MicrosoftCalendarWorker::fetchEvent(const string & calendarPath, const string & graphId) {
     string url = eventURL(calendarPath, graphId) + "?$select=" + EVENT_WRITE_FIELDS;
     GraphResponse resp = PerformGraphRequest("GET", url, tokenProvider()());
@@ -576,21 +584,13 @@ string MicrosoftCalendarWorker::storeEvent(const json & calendar, const string &
 // back. A new event's row goes, since no pass removes a row Graph never held.
 void MicrosoftCalendarWorker::restoreEvent(const json & calendar, const string & graphId, const vector<shared_ptr<Event>> & rows) {
     if (graphId == "") {
-        for (auto & row : rows) {
-            store->remove(row.get());
-        }
+        removeRows(rows);
         return;
     }
     storeEvent(calendar, graphId, rows);
 }
 
-string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics, bool answer) {
-    if (answer) {
-        // The EventRSVPTask queued beside it answers through Graph and reads Graph's copy back. Read back
-        // here, possibly before that, Graph's copy would show the meeting unanswered.
-        logger->info("- Answer to {} is left to its EventRSVPTask", event->href());
-        return event->id();
-    }
+string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics) {
     string graphId = event->href();
     if (graphId == "" && organizedElsewhere(ics)) {
         // Exchange put the invitation on the calendar when it arrived; the next pass brings it in.
@@ -699,11 +699,7 @@ void MicrosoftCalendarWorker::deleteEvent(shared_ptr<Event> event) {
     if (!resp.ok()) {
         ThrowForGraphResponse(url, resp);
     }
-    MailStoreTransaction transaction{store.get(), "deleteEvent"};
-    for (auto & row : findRows(event)) {
-        store->remove(row.get());
-    }
-    transaction.commit();
+    removeRows(findRows(event));
     logger->info("- {} event {} on Graph", decline ? "Declined" : "Deleted", event->href());
 }
 
@@ -751,6 +747,10 @@ bool MicrosoftCalendarWorker::answerEvent(const string & reply, const string & p
         throw;
     }
     logger->info("- Answered {} on Graph event {}", action->second, graphId);
-    storeEvent(calendar, graphId, rows);
+    if (partstat == "DECLINED" && occurrence.value == "") {
+        removeRows(rows); // Exchange takes a declined meeting off the calendar
+    } else {
+        storeEvent(calendar, graphId, rows);
+    }
     return true;
 }

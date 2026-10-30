@@ -49,6 +49,7 @@ class MicrosoftCalendarWorker {
     bool organizedElsewhere(const string & ics);
     vector<shared_ptr<Event>> findRows(shared_ptr<Event> event);
     shared_ptr<Event> findInvitation(const string & uid);
+    void removeRows(const vector<shared_ptr<Event>> & rows);
     json fetchEvent(const string & calendarPath, const string & graphId);
     json fetchSeries(const string & calendarPath, const string & graphId);
     vector<json> findOccurrences(const string & calendarPath, const json & series, const vector<ICSProperty> & anchors,
@@ -63,9 +64,8 @@ public:
     void run();
 
     // Makes Graph's copy of `event` match `ics`, the client's edit of `previousIcs` (unused for an
-    // event Graph doesn't hold yet), then stores Graph's copy in its rows. Returns its master row's
-    // id. An `answer` to an invitation writes nothing and reads nothing: answerEvent makes it.
-    string writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics, bool answer);
+    // event Graph doesn't hold yet), then stores Graph's copy in its rows. Returns its master row's id.
+    string writeEvent(shared_ptr<Event> event, const string & previousIcs, const string & ics);
 
     // Answers an invitation through Graph, which tells its organizer: `partstat` (ACCEPTED, TENTATIVE or
     // DECLINED) for the occurrence the iTIP `reply`'s RECURRENCE-ID names, else for the whole event. Then

@@ -1845,6 +1845,13 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
 }
 
 void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
+    // Graph takes an answer through the EventRSVPTask beside this one, which stores the outcome: a read-back
+    // here could show the meeting unanswered, and a declined meeting's rows may already be gone.
+    if (account->syncsCalendarsViaGraph() && task->data().count("rsvp")) {
+        logger->info("- Answer to event {} is left to its EventRSVPTask", task->data()["event"]["id"].get<string>());
+        return;
+    }
+
     string eventId = _currentEventId(task->data()["event"]["id"].get<string>());
     auto event = store->find<Event>(Query().equal("id", eventId).equal("accountId", account->id()));
 
@@ -1858,8 +1865,7 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
         // after this task's local phase, as when Undo follows a move. A new event comes from its row,
         // which no read-back replaces and which holds any edit made since.
         string ics = event->href() == "" ? event->icsData() : task->data()["event"]["ics"].get<string>();
-        bool answer = task->data().count("rsvp") > 0;
-        string writtenId = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs, ics, answer);
+        string writtenId = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs, ics);
         if (writtenId != eventId) {
             lock_guard<mutex> lock(replacedEventIdsMtx);
             replacedEventIds[eventId] = writtenId;

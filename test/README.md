@@ -469,7 +469,7 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   come from `/instances` (daily and weekly series); a PATCH to a series' times drops its
   exceptions and cancellations. A calendar is writable (`canEdit`) and an event the mailbox's own
   (`isOrganizer`) unless the fixture says otherwise (`graph-calendar-event-*`,
-  `graph-calendar-invitations`, `graph-calendar-rsvp`). It also answers the identity server's DAV host lookup as
+  `graph-calendar-invitations`, `graph-calendar-rsvp*`). It also answers the identity server's DAV host lookup as
   production does for a Microsoft account, sending CardDAV discovery to an Outlook on the web
   page that answers 401. The engine reaches it through `MS_GRAPH_URL`, `MS_OAUTH_TOKEN_URL`
   and `IDENTITY_SERVER`, which the server adds to the engine's environment

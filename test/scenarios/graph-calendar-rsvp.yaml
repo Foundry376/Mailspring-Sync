@@ -166,7 +166,6 @@ steps:
       events:
         "uid-weekly-sync|": {}
         "uid-weekly-sync|20261022T170000Z": {}
-        "uid-offsite|": {}
         "uid-lunch|":
           ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test"]
         "uid-kim-review|": {}
@@ -209,9 +208,6 @@ steps:
       ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:COUNTER\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261029T170000Z\r\nDTSTAMP:20261013T120000Z\r\nDTSTART:20261029T180000Z\r\nDTEND:20261029T183000Z\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
     as: counter
   - wait: {task: counter, timeout: 60}
-  # Graph no longer lists the declined meeting.
-  - client.sync_calendar: {}
-  - wait: {seconds: 3}
 expect:
   task_error: {accept_series: null, maybe_occurrence: null, accept_exception: null, decline: null, answer_lunch_row: null,
                refused: "Invalid Response Code: 500", not_filed: null, colleagues: null, counter: null}
