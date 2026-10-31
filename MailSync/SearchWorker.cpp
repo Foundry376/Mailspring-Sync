@@ -256,6 +256,21 @@ void SearchWorker::disconnectAfterParseError(ErrorCode err) {
     }
 }
 
+// mailcore sends no SELECT for the folder already selected, and Dovecot brings a selected
+// view up to date only at the end of a command, so a SEARCH there misses mail that arrived
+// since this session's last command. A NOOP first syncs the view, as Thunderbird does before
+// searching a selected folder (nsImapProtocol::FindAppendedMessageUid).
+IndexSet * SearchWorker::searchFolder(shared_ptr<Folder> folder, IMAPSearchExpression * expression, ErrorCode * err) {
+    String * selected = session.currentFolder();
+    if (selected != NULL && selected->caseInsensitiveCompare(AS_MCSTR(folder->path())) == 0) {
+        session.noop(err);
+        if (*err != ErrorCode::ErrorNone) {
+            return NULL;
+        }
+    }
+    return session.search(AS_MCSTR(folder->path()), expression, err);
+}
+
 void SearchWorker::perform(const json & request, uint64_t gen) {
     string searchId = request["searchId"].get<string>();
     size_t limit = SEARCH_DEFAULT_LIMIT;
@@ -330,7 +345,7 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
 
         auto started = chrono::steady_clock::now();
         ErrorCode err = ErrorCode::ErrorNone;
-        IndexSet * uids = session.search(AS_MCSTR(folder->path()), expression, &err);
+        IndexSet * uids = searchFolder(folder, expression, &err);
         // The SELECT failed: a folder deleted or renamed since the last folder sync.
         if (err == ErrorCode::ErrorNonExistantFolder) {
             logger->warn("Search {} in {} failed: {}", searchId, folder->path(), ErrorCodeToTypeMap[err]);
@@ -343,7 +358,7 @@ void SearchWorker::perform(const json & request, uint64_t gen) {
             disconnect();
             connect();
             err = ErrorCode::ErrorNone;
-            uids = session.search(AS_MCSTR(folder->path()), expression, &err);
+            uids = searchFolder(folder, expression, &err);
         }
         if (err != ErrorCode::ErrorNone) {
             disconnect();
