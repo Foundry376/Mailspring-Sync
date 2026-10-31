@@ -25,7 +25,8 @@
 static const string CALENDAR_FIELDS = "id,name,hexColor,owner,isDefaultCalendar,canEdit";
 static const string EVENT_INDEX_FIELDS = "id,changeKey,type,start,end,recurrence,originalStartTimeZone";
 static const string EVENT_FIELDS = "id,iCalUId,type,subject,body,start,end,isAllDay,isCancelled,showAs,location,"
-                                   "organizer,attendees,responseStatus,lastModifiedDateTime,recurrence,originalStart";
+                                   "organizer,attendees,responseStatus,lastModifiedDateTime,recurrence,originalStart,"
+                                   "isReminderOn,reminderMinutesBeforeStart";
 static const string SERIES_FIELDS = EVENT_FIELDS + ",cancelledOccurrences,exceptionOccurrences";
 // A write reads its event as the pass lists it, with what a write must check besides.
 static const string EVENT_WRITE_FIELDS = EVENT_INDEX_FIELDS + ",isOnlineMeeting,isOrganizer";

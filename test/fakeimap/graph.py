@@ -28,7 +28,8 @@ and expanded (event-get). $batch runs up to 20 requests and answers them out of 
 
 Events are written through their calendar: POST creates one (a repeated `transactionId` gets the
 event it already created, event-create), PATCH changes the fields it names and DELETE removes it
-(event-update, event-delete). An occurrence's id comes from /instances (event-list-instances):
+(event-update, event-delete); an event created without `isReminderOn` gets Outlook's default reminder,
+15 minutes. An occurrence's id comes from /instances (event-list-instances):
 PATCHing it makes it an exception, DELETEing it cancels it, and either moves the series' changeKey,
 as an Outlook.com account showed. A PATCH that moves a series' times or recurrence drops its
 exceptions and cancellations; whether Exchange does is unverified, and this is the case where the
@@ -98,7 +99,7 @@ def _in_zone(value: dict, zone: str) -> dict:
 
 # The event fields the engine writes (event-update's list, plus transactionId on create).
 WRITABLE_FIELDS = {"subject", "body", "location", "showAs", "attendees", "start", "end", "isAllDay", "recurrence",
-                   "transactionId"}
+                   "isReminderOn", "reminderMinutesBeforeStart", "transactionId"}
 SERIES_TIMING = {"start", "end", "isAllDay", "recurrence"}
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
@@ -530,7 +531,8 @@ class _Handler(BaseHTTPRequestHandler):
                 srv.created_subjects.append(fields.get("subject"))
                 n = srv.created_events
                 event = _with_fields({"id": f"AAMkEvCreated{n}=", "changeKey": f"ck-created-{n}", "iCalUId": f"uid-created-{n}",
-                                      "isCancelled": False, "isOrganizer": True}, fields)
+                                      "isCancelled": False, "isOrganizer": True, "isReminderOn": True,
+                                      "reminderMinutesBeforeStart": 15}, fields)
                 if srv.mailbox:
                     event["organizer"] = {"emailAddress": {"name": "", "address": srv.mailbox}}
                 if event.get("type") == "seriesMaster":
@@ -595,7 +597,8 @@ class _Handler(BaseHTTPRequestHandler):
                                          datetime.fromisoformat(master["start"]["dateTime"][:19]).time(), tzinfo=_zone(zone))
                 end = start + (_instant(master["end"]) - _instant(master["start"]))
                 exception = {k: master[k] for k in ("subject", "body", "location", "showAs", "attendees", "isAllDay",
-                                                    "isCancelled", "iCalUId") if k in master}
+                                                    "isCancelled", "iCalUId", "isReminderOn", "reminderMinutesBeforeStart")
+                             if k in master}
                 exception.update({"id": f"AAMkExc.{master['id']}.{slot}", "type": "exception",
                                   "originalStart": start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                                   "start": _zoned(start, zone), "end": _zoned(end, zone)})

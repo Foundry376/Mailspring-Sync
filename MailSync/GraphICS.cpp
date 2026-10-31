@@ -315,6 +315,16 @@ static void appendVEvent(string & ics, const json & event, const string & uid, c
                     : ";ROLE=REQ-PARTICIPANT";
         appendLine(ics, participant("ATTENDEE", role + ";PARTSTAT=" + partstatFor(response), emailAddress));
     }
+
+    // Graph counts an all-day event's minutes from its midnight start, as a TRIGGER relative to a
+    // DATE DTSTART does (RFC 5545 section 3.8.6.3). A DISPLAY alarm needs a DESCRIPTION (section 3.6.6).
+    if (JSONBool(event, "isReminderOn")) {
+        appendLine(ics, "BEGIN:VALARM");
+        appendLine(ics, "ACTION:DISPLAY");
+        appendLine(ics, "DESCRIPTION:" + escapeText(JSONString(event, "subject")));
+        appendLine(ics, "TRIGGER:-PT" + to_string(JSONInt(event, "reminderMinutesBeforeStart")) + "M");
+        appendLine(ics, "END:VALARM");
+    }
     appendLine(ics, "END:VEVENT");
 }
 
@@ -360,7 +370,7 @@ string ICSProperty::calAddress() const {
     return value.size() >= 7 && equalsIgnoreCase(value.substr(0, 7), "mailto:") ? value.substr(7) : value;
 }
 
-const ICSProperty & ICSVEvent::property(const string & name) const {
+const ICSProperty & ICSComponent::property(const string & name) const {
     static const ICSProperty none;
     for (const auto & property : properties) {
         if (property.name == name) {
@@ -423,9 +433,12 @@ vector<ICSVEvent> GraphICS::veventsOf(const string & ics) {
     for (const auto & line : unfoldedLines(ics)) {
         ICSProperty property = propertyOf(line);
         if (property.name == "BEGIN") {
+            bool inVEvent = !open.empty() && open.back() == "VEVENT";
             open.push_back(toUpperCase(property.value));
             if (open.back() == "VEVENT") {
                 vevents.emplace_back();
+            } else if (open.back() == "VALARM" && inVEvent) {
+                vevents.back().alarms.emplace_back();
             }
         } else if (property.name == "END") {
             if (!open.empty()) { // the task's ICS is whatever a client queued
@@ -433,6 +446,8 @@ vector<ICSVEvent> GraphICS::veventsOf(const string & ics) {
             }
         } else if (!open.empty() && open.back() == "VEVENT") {
             vevents.back().properties.push_back(property);
+        } else if (open.size() >= 2 && open.back() == "VALARM" && open[open.size() - 2] == "VEVENT") {
+            vevents.back().alarms.back().properties.push_back(property);
         }
     }
     return vevents;
@@ -608,6 +623,24 @@ static json recurrenceOf(const ICSVEvent & vevent, time_t utcOffset) {
     return {{"pattern", pattern}, {"range", range}};
 }
 
+// Graph holds one reminder, minutes before the start; the client edits the first VALARM. No VALARM
+// turns it off, a new event's too: Outlook would otherwise give it the default reminder the
+// client's editor showed as "None". A trigger Graph has no form for (at a set time, from the end,
+// after the start) gives no fields, so an edit leaves Graph's reminder as it is.
+static json reminderOf(const ICSVEvent & vevent) {
+    if (vevent.alarms.empty()) {
+        return {{"isReminderOn", false}};
+    }
+    const ICSProperty & trigger = vevent.alarms.front().property("TRIGGER");
+    bool before = !trigger.value.empty() && trigger.value[0] == '-';
+    long long days = 0, seconds = 0;
+    if (trigger.param("VALUE") == "DATE-TIME" || trigger.param("RELATED") == "END" ||
+        !ParseDuration(before ? trigger.value.substr(1) : trigger.value, days, seconds) || (!before && days + seconds > 0)) {
+        return json::object();
+    }
+    return {{"isReminderOn", true}, {"reminderMinutesBeforeStart", (days * 86400 + seconds) / 60}};
+}
+
 json GraphICS::eventForVEvent(const ICSVEvent & vevent, const string & startUTC) {
     const ICSProperty & start = vevent.property("DTSTART");
     bool allDay = start.param("VALUE") == "DATE";
@@ -629,6 +662,7 @@ json GraphICS::eventForVEvent(const ICSVEvent & vevent, const string & startUTC)
         {"showAs", vevent.property("TRANSP").value == "TRANSPARENT" ? "free" : "busy"},
         {"attendees", attendees},
     };
+    event.update(reminderOf(vevent));
     if (vevent.property("RECURRENCE-ID").name.empty()) {
         time_t utcOffset = startUTC == "" || start.param("TZID") == ""
                          ? 0 : secondsAsUTC(extendedDateTime(start.value)) - secondsAsUTC(startUTC);
@@ -677,7 +711,10 @@ static map<string, ICSProperty> exdatesOf(const ICSVEvent * master) {
     return exdates;
 }
 
-static const vector<string> DESCRIPTIVE_FIELDS = {"subject", "body", "location", "showAs", "attendees"};
+// An occurrence can hold a reminder of its own ([MS-OXOCAL] 2.2.1.44.2, ARO_REMINDERDELTA and
+// ARO_REMINDER), so an override writes one like its other fields.
+static const vector<string> DESCRIPTIVE_FIELDS = {"subject", "body", "location", "showAs", "attendees",
+                                                  "isReminderOn", "reminderMinutesBeforeStart"};
 static const vector<string> TIMING_FIELDS = {"start", "end", "isAllDay", "recurrence"};
 
 // Attendees as Graph tells them apart; a name the client spelled differently is no change.
@@ -689,10 +726,14 @@ static set<pair<string, string>> attendeesOf(const json & event) {
     return attendees;
 }
 
-// The fields among `names` whose value differs in `after`, with that value.
+// The fields among `names` whose value differs in `after`, with that value. One `after` leaves out
+// (a reminder's minutes while it's off, a reminder Graph can't express) is left as Graph holds it.
 static json changedFields(const json & before, const json & after, const vector<string> & names) {
     json fields = json::object();
     for (const auto & name : names) {
+        if (!after.count(name)) {
+            continue;
+        }
         bool same = name == "attendees" ? attendeesOf(before) == attendeesOf(after)
                                         : before.value(name, json()) == after.value(name, json());
         if (!same) {

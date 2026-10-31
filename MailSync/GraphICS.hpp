@@ -34,12 +34,17 @@ struct ICSProperty {
     string calAddress() const;
 };
 
-// A VEVENT's own properties, in order; a VALARM's inside it are left out.
-struct ICSVEvent {
+// The properties of one iCalendar component, in order.
+struct ICSComponent {
     vector<ICSProperty> properties;
 
     // The first property with this name, or an empty one.
     const ICSProperty & property(const string & name) const;
+};
+
+// A VEVENT's own properties, and each VALARM inside it apart from them.
+struct ICSVEvent : ICSComponent {
+    vector<ICSComponent> alarms;
 };
 
 // An edit Graph has no way to make. `key` is the task error the client looks up.
@@ -75,15 +80,17 @@ public:
     static vector<ICSVEvent> veventsOf(const string & ics);
 
     // The Graph fields Mailspring edits, from one VEVENT: subject, body, location, start, end,
-    // isAllDay, showAs, attendees and, unless it has a RECURRENCE-ID, recurrence (null without an
-    // RRULE). `startUTC` as for icsForEvent, or "" for an event Graph doesn't hold yet. Refuses an
-    // RRULE that patternedRecurrence can't express.
+    // isAllDay, showAs, attendees, the reminder (isReminderOn, and reminderMinutesBeforeStart while
+    // it's on) and, unless it has a RECURRENCE-ID, recurrence (null without an RRULE). `startUTC` as
+    // for icsForEvent, or "" for an event Graph doesn't hold yet. Refuses an RRULE that
+    // patternedRecurrence can't express.
     static json eventForVEvent(const ICSVEvent & vevent, const string & startUTC);
 
     // The Graph writes that turn the resource `before` (the row as the user saw it, "" for a new
     // event) into `after` (the client's edit). Only fields the edit changed are sent, so what
-    // iCalendar can't carry (an HTML body, showAs tentative, categories) survives. A change to the
-    // series' times or recurrence re-applies every override and EXDATE, which the client moved with it.
+    // iCalendar can't carry (an HTML body, showAs tentative, categories) and a reminder the edit
+    // left alone survive. A change to the series' times or recurrence re-applies every override and
+    // EXDATE, which the client moved with it.
     // `startUTC`: the start of `before` as Graph lists it in UTC.
     static vector<GraphEventChange> changesBetween(const string & before, const string & after, const string & startUTC);
 
