@@ -23,6 +23,7 @@
 #include "Calendar.hpp"
 #include "NetworkRequestUtils.hpp"
 #include "icalendar.h"
+#include "GraphICS.hpp"
 
 #include <string>
 #include <set>
@@ -2275,6 +2276,30 @@ bool DAVWorker::storeServerCopy(const string & calendarId, const string & calend
     return !resources.empty();
 }
 
+// Each ATTENDEE's PARTSTAT, keyed by occurrence (its RECURRENCE-ID, "" for the series) and address.
+static map<string, string> answersIn(const string & ics) {
+    map<string, string> answers;
+    for (const auto & vevent : GraphICS::veventsOf(ics)) {
+        string occurrence = vevent.property("RECURRENCE-ID").value;
+        for (const auto & property : vevent.properties) {
+            if (property.name != "ATTENDEE") continue;
+            string partstat = lowercased(property.param("PARTSTAT"));
+            answers[occurrence + " " + lowercased(property.calAddress())] = partstat == "" ? "needs-action" : partstat;
+        }
+    }
+    return answers;
+}
+
+// Whether `stored` gives an attendee of `written` a different answer.
+static bool answersChanged(const string & written, const string & stored) {
+    auto storedAnswers = answersIn(stored);
+    for (const auto & [key, partstat] : answersIn(written)) {
+        auto it = storedAnswers.find(key);
+        if (it != storedAnswers.end() && it->second != partstat) return true;
+    }
+    return false;
+}
+
 void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsData) {
     // 1. Find the calendar to get its URL
     auto calendar = store->find<Calendar>(Query().equal("id", event->calendarId()));
@@ -2323,11 +2348,24 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsD
 
     // 4. Read back the server's version (with its new etag) into every row of the series, so the
     // exceptions this write added or dropped show without waiting for the next sync.
-    if (storeServerCopy(event->calendarId(), calendarUrl, href)) {
-        logger->info("Event syncback complete.");
-    } else {
+    if (!storeServerCopy(event->calendarId(), calendarUrl, href)) {
         logger->warn("Event syncback: received empty response from server");
+        return;
     }
+
+    // 5. Yahoo stores a new resource with every ATTENDEE at NEEDS-ACTION whatever the PUT said, and
+    // keeps an answer only when it is written over the stored resource (measured October 2026;
+    // SCHEDULE-AGENT=CLIENT, METHOD and STATUS make no difference). A created copy that lost an
+    // answer is written once more over the copy the server holds.
+    if (existingEtag == "") {
+        auto stored = store->find<Event>(Query().equal("id", event->id()));
+        if (stored && answersChanged(icsData, stored->icsData())) {
+            logger->info("- {} changed the answers it was created with; writing them again", href);
+            performICSRequest(fullUrl, "PUT", icsData, stored->etag());
+            storeServerCopy(event->calendarId(), calendarUrl, href);
+        }
+    }
+    logger->info("Event syncback complete.");
 }
 
 void DAVWorker::deleteEvent(shared_ptr<Event> event) {
