@@ -1883,6 +1883,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
     // Read before the listing, so storeResource can tell the rows a task writes while it runs.
     CalendarRowEtags listed = etagsByUID(store->findAll<Event>(Query().equal("calendarId", calendarId)));
     vector<string> keptHrefs; // resources storeResource left alone
+    bool deletionLeft = false; // a deletion left alone, which a later pass must list again
 
     // RFC 6578 pagination: loop until we get all results
     // Server returns 507 status when results are truncated
@@ -2086,12 +2087,15 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         set<string> deletedMasterUIDs;
 
         for (auto & e : rows) {
-            if (deletedHrefSet.count(normalizeHref(e->href())) && !writtenSinceListing(e->icsUID())) {
-                if (e->recurrenceId().empty()) {
-                    deletedMasterUIDs.insert(e->icsUID());
-                }
-                eventsToDelete.push_back(e);
+            if (!deletedHrefSet.count(normalizeHref(e->href()))) continue;
+            if (writtenSinceListing(e->icsUID())) {
+                deletionLeft = true;
+                continue;
             }
+            if (e->recurrenceId().empty()) {
+                deletedMasterUIDs.insert(e->icsUID());
+            }
+            eventsToDelete.push_back(e);
         }
 
         // Cascade: remove exceptions whose master was deleted
@@ -2132,7 +2136,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
     }
 
     // Store final sync-token for next sync
-    if (keptAgain) {
+    if (keptAgain || deletionLeft) {
         logger->info("Not storing sync-token: a kept event is listed again on the next sync");
     } else if (syncToken != "" && syncToken != calendar->syncToken()) {
         calendar->setSyncToken(syncToken);
