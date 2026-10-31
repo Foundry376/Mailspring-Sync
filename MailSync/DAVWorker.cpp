@@ -2266,7 +2266,7 @@ bool DAVWorker::storeServerCopy(const string & calendarId, const string & calend
     return !resources.empty();
 }
 
-void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
+void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsData) {
     // 1. Find the calendar to get its URL
     auto calendar = store->find<Calendar>(Query().equal("id", event->calendarId()));
     if (!calendar) {
@@ -2274,7 +2274,6 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
     }
 
     string calendarUrl = resolvedCalendarURL(calendar->path());
-    string icsData = event->icsData();
     string href = event->href();
     string existingEtag = event->etag();
 

@@ -1853,12 +1853,13 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
         throw SyncException("not-found", "Event not found for syncback", false);
     }
 
+    // An edit comes from its task: a sync, or an earlier task's read-back, can store the server's copy
+    // over the row after this task's local phase, as when Undo follows a move. A new event comes from
+    // its row, which neither replaces and which holds any edit made since.
+    string ics = event->href() == "" ? event->icsData() : task->data()["event"]["ics"].get<string>();
+
     if (account->syncsCalendarsViaGraph()) {
         string previousIcs = task->data().count("previousIcs") ? task->data()["previousIcs"].get<string>() : "";
-        // An edit comes from its task: an earlier task's read-back can store Graph's copy over the row
-        // after this task's local phase, as when Undo follows a move. A new event comes from its row,
-        // which no read-back replaces and which holds any edit made since.
-        string ics = event->href() == "" ? event->icsData() : task->data()["event"]["ics"].get<string>();
         bool answer = task->data().count("rsvp") > 0;
         string writtenId = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs, ics, answer);
         if (writtenId != eventId) {
@@ -1869,7 +1870,7 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
         return;
     }
     auto dav = make_shared<DAVWorker>(account);
-    dav->writeAndResyncEvent(event);
+    dav->writeAndResyncEvent(event, ics);
 }
 
 void TaskProcessor::performLocalDestroyEvent(Task * task) {
