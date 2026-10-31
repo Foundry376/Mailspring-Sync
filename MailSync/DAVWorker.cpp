@@ -1883,8 +1883,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
     // Read before the listing, so storeResource can tell the rows a task writes while it runs.
     auto heldRows = store->findAll<Event>(Query().equal("calendarId", calendarId));
     CalendarRowEtags listed = etagsByUID(heldRows);
-    // A resource left alone is not listed again after the token moves past it.
-    bool keptAny = false;
+    vector<string> keptHrefs; // resources storeResource left alone
 
     // RFC 6578 pagination: loop until we get all results
     // Server returns 507 status when results are truncated
@@ -2034,7 +2033,9 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
 
         MailStoreTransaction transaction{store, "syncToken:direct"};
         for (auto & resource : resources) {
-            keptAny |= !storeResource(store, logger, account->id(), calendarId, resource, &range, &listed);
+            if (!storeResource(store, logger, account->id(), calendarId, resource, &range, &listed)) {
+                keptHrefs.push_back(resource.href);
+            }
         }
         transaction.commit();
     }
@@ -2056,7 +2057,9 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
             auto resources = resourcesIn(icsDoc, logger);
             MailStoreTransaction transaction{store, "syncToken:multiget"};
             for (auto & resource : resources) {
-                keptAny |= !storeResource(store, logger, account->id(), calendarId, resource, &range, &listed);
+                if (!storeResource(store, logger, account->id(), calendarId, resource, &range, &listed)) {
+                    keptHrefs.push_back(resource.href);
+                }
             }
             transaction.commit();
         }
@@ -2101,8 +2104,29 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         transaction.commit();
     }
 
+    // A resource left alone holds a task's write, but the listing's copy can also hold a later change
+    // by another client, which the next sync wouldn't list once the token moves past it. Each is read
+    // again now, and stored unless a task wrote it again meanwhile; then the token is held instead.
+    bool keptAgain = false;
+    if (!keptHrefs.empty()) {
+        CalendarRowEtags current = etagsByUID(store->findAll<Event>(Query().equal("calendarId", calendarId)));
+        string payload = "";
+        for (auto & icsHref : keptHrefs) {
+            payload += "<d:href>" + xmlEscape(icsHref) + "</d:href>";
+        }
+        auto icsDoc = performXMLRequest(url, "REPORT",
+            "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
+            "<d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
+        auto resources = resourcesIn(icsDoc, logger);
+        MailStoreTransaction transaction{store, "syncToken:kept"};
+        for (auto & resource : resources) {
+            keptAgain |= !storeResource(store, logger, account->id(), calendarId, resource, &range, &current);
+        }
+        transaction.commit();
+    }
+
     // Store final sync-token for next sync
-    if (keptAny) {
+    if (keptAgain) {
         logger->info("Not storing sync-token: a kept event is listed again on the next sync");
     } else if (syncToken != "" && syncToken != calendar->syncToken()) {
         calendar->setSyncToken(syncToken);
