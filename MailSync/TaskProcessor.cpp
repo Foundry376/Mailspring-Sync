@@ -1873,7 +1873,12 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
     }
     auto dav = make_shared<DAVWorker>(account);
     string baseEtag = task->data().count("baseEtag") ? task->data()["baseEtag"].get<string>() : event->etag();
-    dav->writeAndResyncEvent(event, ics, baseEtag);
+    // The address a new copy of an invitation was answered as can be one of the account's aliases.
+    set<string> ownAddresses{account->emailAddress()};
+    if (task->data().count("createdAnswer")) {
+        ownAddresses.insert(task->data()["createdAnswer"]["email"].get<string>());
+    }
+    dav->writeAndResyncEvent(event, ics, baseEtag, ownAddresses);
 }
 
 void TaskProcessor::performLocalDestroyEvent(Task * task) {

@@ -2327,12 +2327,16 @@ static map<string, string> answersIn(const string & ics) {
     return answers;
 }
 
-// Whether `stored` gives an attendee of `written` a different answer.
-static bool answersChanged(const string & written, const string & stored) {
+// Whether `stored` puts one of `ownAddresses` back at NEEDS-ACTION where `written` answered. Other
+// attendees are left out: a scheduling server can answer for them, as a room auto-accepts.
+static bool ownAnswerReset(const string & written, const string & stored, const set<string> & ownAddresses) {
+    set<string> own;
+    for (const auto & address : ownAddresses) own.insert(lowercased(address));
     auto storedAnswers = answersIn(stored);
     for (const auto & [key, partstat] : answersIn(written)) {
+        if (!own.count(key.substr(key.find(' ') + 1)) || partstat == "needs-action") continue;
         auto it = storedAnswers.find(key);
-        if (it != storedAnswers.end() && it->second != partstat) return true;
+        if (it != storedAnswers.end() && it->second == "needs-action") return true;
     }
     return false;
 }
@@ -2374,7 +2378,7 @@ static bool isOwnWrite(shared_ptr<Event> event, const string & etag) {
  edit was not made on, as when a sync stores an organizer's update between the task's phases, and the
  write is refused as an etag-conflict rather than put over it.
 */
-void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsData, const string & baseEtag) {
+void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsData, const string & baseEtag, const set<string> & ownAddresses) {
     // 1. Find the calendar to get its URL
     auto calendar = store->find<Calendar>(Query().equal("id", event->calendarId()));
     if (!calendar) {
@@ -2435,13 +2439,18 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsD
 
     // 5. Yahoo stores a new resource with every ATTENDEE at NEEDS-ACTION whatever the PUT said, and
     // keeps an answer only when it is written over the stored resource (measured October 2026;
-    // SCHEDULE-AGENT=CLIENT, METHOD and STATUS make no difference). A created copy that lost an
-    // answer is written once more over the copy the server holds.
-    if (existingEtag == "" && stored && answersChanged(icsData, stored->icsData())) {
-        logger->info("- {} changed the answers it was created with; writing them again", href);
-        performICSRequest(fullUrl, "PUT", icsData, stored->etag());
-        storeServerCopy(event->calendarId(), calendarUrl, href);
-        stored = store->find<Event>(Query().equal("id", event->id()));
+    // SCHEDULE-AGENT=CLIENT, METHOD and STATUS make no difference). A created copy that lost our
+    // answer is written once more over the copy the server holds. The event exists either way, so a
+    // failure here loses only the answer and the task still succeeds.
+    if (existingEtag == "" && stored && ownAnswerReset(icsData, stored->icsData(), ownAddresses)) {
+        logger->info("- {} reset the answer it was created with; writing it again", href);
+        try {
+            performICSRequest(fullUrl, "PUT", icsData, stored->etag());
+            storeServerCopy(event->calendarId(), calendarUrl, href);
+            stored = store->find<Event>(Query().equal("id", event->id()));
+        } catch (std::exception & ex) {
+            logger->warn("-X Could not write the answer to {} again: {}", href, ex.what());
+        }
     }
     if (stored) {
         recordOwnWrite(event, stored->etag());
