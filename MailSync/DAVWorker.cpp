@@ -258,9 +258,12 @@ static bool storeResource(MailStore * store, shared_ptr<spdlog::logger> logger, 
                 existing->second->applyICSEventData(resource.etag, resource.href, resource.icsData, vevent);
                 store->save(existing->second.get());
             } else if (!newRowsWithin || eventOverlapsRange(vevent->DtStart.toUnix(), endOf(vevent), *newRowsWithin)) {
-                Event event(resource.etag, accountId, calendarId, resource.icsData, vevent);
-                event.setHref(resource.href);
-                store->save(&event);
+                auto event = make_shared<Event>(resource.etag, accountId, calendarId, resource.icsData, vevent);
+                event->setHref(resource.href);
+                store->save(event.get());
+                // A resource can repeat a RECURRENCE-ID (two masters, two overrides of one occurrence);
+                // the repeat updates this row rather than inserting its id again.
+                rowsByRecurrenceId[vevent->RecurrenceId] = event;
             }
         }
         for (auto & row : rows) {
