@@ -2073,11 +2073,21 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
             deletedHrefSet.insert(normalizeHref(href));
         }
 
-        // href is in the JSON data column (not directly queryable), so the calendar's rows are scanned,
-        // as they stand in the transaction: a task's read-back during the pass can add an exception
-        // row. A UID a task wrote since the listing is left alone, as storeResource leaves it.
+        // href is in the JSON data column (not directly queryable), so the calendar's rows are scanned
+        // for the UIDs deleted, outside the write lock. Those UIDs' rows are judged as they stand in
+        // the transaction: a task's read-back during the pass can add an exception row. A UID a task
+        // wrote since the listing is left alone, as storeResource leaves it.
+        set<string> deletedUIDSet;
+        for (auto & e : store->findAll<Event>(Query().equal("calendarId", calendarId))) {
+            if (deletedHrefSet.count(normalizeHref(e->href()))) deletedUIDSet.insert(e->icsUID());
+        }
+        vector<string> deletedUIDs(deletedUIDSet.begin(), deletedUIDSet.end());
         MailStoreTransaction transaction{store, "syncToken:deletions"};
-        auto rows = store->findAll<Event>(Query().equal("calendarId", calendarId));
+        vector<shared_ptr<Event>> rows;
+        for (auto & chunk : MailUtils::chunksOfVector(deletedUIDs, 500)) {
+            auto chunkRows = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("icsuid", chunk));
+            rows.insert(rows.end(), chunkRows.begin(), chunkRows.end());
+        }
         CalendarRowEtags current = etagsByUID(rows);
         auto writtenSinceListing = [&](const string & uid) {
             auto before = listed.count(uid) ? listed.at(uid) : map<string, string>{};
