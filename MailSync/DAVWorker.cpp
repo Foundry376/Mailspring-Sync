@@ -222,8 +222,10 @@ static vector<ParsedCalResource> resourcesIn(shared_ptr<DavXML> doc, shared_ptr<
  `listed` holds the rows as they stood before the server listed its changes. A UID whose rows differ
  from those is left alone: a task stored them since, from its own write, and the listing's copy can
  predate that write (a multiget of a few events on iCloud can take 30 seconds).
+
+ Returns false when it left a UID alone.
 */
-static void storeResource(MailStore * store, shared_ptr<spdlog::logger> logger, const string & accountId,
+static bool storeResource(MailStore * store, shared_ptr<spdlog::logger> logger, const string & accountId,
                           const string & calendarId, const ParsedCalResource & resource,
                           const CalendarSyncRange * newRowsWithin, const CalendarRowEtags * listed) {
     map<string, vector<ICalendarEvent *>> veventsByUID {};
@@ -232,12 +234,14 @@ static void storeResource(MailStore * store, shared_ptr<spdlog::logger> logger, 
             veventsByUID[vevent->UID].push_back(vevent);
         }
     }
+    bool storedAll = true;
     for (auto & [uid, vevents] : veventsByUID) {
         auto rows = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("icsuid", uid));
         if (listed) {
             auto before = listed->count(uid) ? listed->at(uid) : map<string, string>{};
             if (etagsByUID(rows)[uid] != before) {
                 logger->info("- Kept {}: written since the server listed its changes", uid);
+                storedAll = false;
                 continue;
             }
         }
@@ -265,6 +269,7 @@ static void storeResource(MailStore * store, shared_ptr<spdlog::logger> logger, 
             }
         }
     }
+    return storedAll;
 }
 
 // Generate the CalDAV resource href for a new event that has no stored href yet.
@@ -1874,6 +1879,8 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
     // Read before the listing, so storeResource can tell the rows a task writes while it runs.
     auto heldRows = store->findAll<Event>(Query().equal("calendarId", calendarId));
     CalendarRowEtags listed = etagsByUID(heldRows);
+    // A resource left alone is not listed again after the token moves past it.
+    bool keptAny = false;
 
     // RFC 6578 pagination: loop until we get all results
     // Server returns 507 status when results are truncated
@@ -2023,7 +2030,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
 
         MailStoreTransaction transaction{store, "syncToken:direct"};
         for (auto & resource : resources) {
-            storeResource(store, logger, account->id(), calendarId, resource, &range, &listed);
+            keptAny |= !storeResource(store, logger, account->id(), calendarId, resource, &range, &listed);
         }
         transaction.commit();
     }
@@ -2045,7 +2052,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
             auto resources = resourcesIn(icsDoc, logger);
             MailStoreTransaction transaction{store, "syncToken:multiget"};
             for (auto & resource : resources) {
-                storeResource(store, logger, account->id(), calendarId, resource, &range, &listed);
+                keptAny |= !storeResource(store, logger, account->id(), calendarId, resource, &range, &listed);
             }
             transaction.commit();
         }
@@ -2091,7 +2098,9 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
     }
 
     // Store final sync-token for next sync
-    if (syncToken != "" && syncToken != calendar->syncToken()) {
+    if (keptAny) {
+        logger->info("Not storing sync-token: a kept event is listed again on the next sync");
+    } else if (syncToken != "" && syncToken != calendar->syncToken()) {
         calendar->setSyncToken(syncToken);
         store->save(calendar.get());
         logger->info("Stored new sync-token for calendar");
