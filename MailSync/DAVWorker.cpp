@@ -46,12 +46,15 @@ struct ParsedContact {
     bool isGroup;
 };
 
-struct ParsedCalEvent {
+struct ParsedCalResource {
     string etag;
     string href;
     string icsData;
-    ICalendarEvent * icsEvent; // owned by a corresponding ICalendar kept alive in parsedCalendars
+    shared_ptr<ICalendar> cal;
 };
+
+// The rows of each UID in a calendar: icsUID -> RECURRENCE-ID -> etag.
+typedef map<string, map<string, string>> CalendarRowEtags;
 
 static string firstPropVal(json attrs, string key, string fallback = "") {
     if (!attrs.count(key)) return fallback;
@@ -172,25 +175,94 @@ static string normalizeHref(const string & href) {
     return result;
 }
 
-/*
- Removes the rows of each served UID whose RECURRENCE-ID the served copy no longer holds, such as
- an exception the organizer dropped so its occurrence rejoined the series. A UID names one
- resource in a calendar (RFC 4791 section 4.1), so every row of the UID belongs to that copy.
-*/
-static void removeDroppedOccurrences(MailStore * store, shared_ptr<spdlog::logger> logger,
-                                     const string & calendarId, const vector<ParsedCalEvent> & served) {
-    map<string, set<string>> held; // uid -> recurrence ids served now
-    for (auto & pe : served) {
-        held[pe.icsEvent->UID].insert(pe.icsEvent->RecurrenceId);
+static CalendarRowEtags etagsByUID(const vector<shared_ptr<Event>> & rows) {
+    CalendarRowEtags etags {};
+    for (auto & row : rows) {
+        etags[row->icsUID()][row->recurrenceId()] = row->etag();
     }
-    for (auto & byUid : held) {
-        auto rows = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("icsuid", byUid.first));
-        for (auto & row : rows) {
-            if (byUid.second.count(row->recurrenceId())) {
+    return etags;
+}
+
+// The calendar resources in a calendar-multiget response. Responses without a body are skipped.
+static vector<ParsedCalResource> resourcesIn(shared_ptr<DavXML> doc, shared_ptr<spdlog::logger> logger) {
+    vector<ParsedCalResource> resources {};
+    doc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
+        auto etag = doc->nodeContentAtXPath(".//D:getetag/text()", node);
+        auto icsData = doc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
+
+        // Skip empty responses (Google sometimes returns empty data)
+        if (etag == "" || icsData == "") {
+            if (etag != "") {
+                logger->info("Received calendar event {} with an empty body", etag);
+            }
+            return;
+        }
+
+        auto cal = make_shared<ICalendar>(icsData);
+        if (cal->Events.empty()) return;
+
+        auto href = doc->nodeContentAtXPath(".//D:href/text()", node);
+        for (auto icsEvent : cal->Events) {
+            if (icsEvent->DtStart.IsEmpty()) {
+                logger->info("Received calendar event with no start time: {} ({} bytes)", href, icsData.size());
+            }
+        }
+        resources.push_back({etag, href, icsData, cal});
+    }));
+    return resources;
+}
+
+/*
+ Stores a served copy of a calendar resource in the rows of its UID: a row per VEVENT, keyed by
+ RECURRENCE-ID, and the rows of occurrences the copy no longer holds removed, such as an exception
+ the organizer dropped so its occurrence rejoined the series. A UID names one resource in a calendar
+ (RFC 4791 section 4.1), so every row of the UID belongs to that copy. A VEVENT without a row gets
+ one only if it overlaps `newRowsWithin`, when given. Runs inside the caller's transaction.
+
+ `listed` holds the rows as they stood before the server listed its changes. A UID whose rows differ
+ from those is left alone: a task stored them since, from its own write, and the listing's copy can
+ predate that write (a multiget of a few events on iCloud can take 30 seconds).
+*/
+static void storeResource(MailStore * store, shared_ptr<spdlog::logger> logger, const string & accountId,
+                          const string & calendarId, const ParsedCalResource & resource,
+                          const CalendarSyncRange * newRowsWithin, const CalendarRowEtags * listed) {
+    map<string, vector<ICalendarEvent *>> veventsByUID {};
+    for (auto vevent : resource.cal->Events) {
+        if (!vevent->DtStart.IsEmpty()) {
+            veventsByUID[vevent->UID].push_back(vevent);
+        }
+    }
+    for (auto & [uid, vevents] : veventsByUID) {
+        auto rows = store->findAll<Event>(Query().equal("calendarId", calendarId).equal("icsuid", uid));
+        if (listed) {
+            auto before = listed->count(uid) ? listed->at(uid) : map<string, string>{};
+            if (etagsByUID(rows)[uid] != before) {
+                logger->info("- Kept {}: written since the server listed its changes", uid);
                 continue;
             }
-            logger->info("Removed occurrence {} of {}: no longer in its resource", row->recurrenceId(), byUid.first);
-            store->remove(row.get());
+        }
+        map<string, shared_ptr<Event>> rowsByRecurrenceId {};
+        for (auto & row : rows) {
+            rowsByRecurrenceId[row->recurrenceId()] = row;
+        }
+        set<string> served {};
+        for (auto vevent : vevents) {
+            served.insert(vevent->RecurrenceId);
+            auto existing = rowsByRecurrenceId.find(vevent->RecurrenceId);
+            if (existing != rowsByRecurrenceId.end()) {
+                existing->second->applyICSEventData(resource.etag, resource.href, resource.icsData, vevent);
+                store->save(existing->second.get());
+            } else if (!newRowsWithin || eventOverlapsRange(vevent->DtStart.toUnix(), endOf(vevent), *newRowsWithin)) {
+                Event event(resource.etag, accountId, calendarId, resource.icsData, vevent);
+                event.setHref(resource.href);
+                store->save(&event);
+            }
+        }
+        for (auto & row : rows) {
+            if (!served.count(row->recurrenceId())) {
+                logger->info("Removed occurrence {} of {}: no longer in its resource", row->recurrenceId(), uid);
+                store->remove(row.get());
+            }
         }
     }
 }
@@ -1640,6 +1712,20 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
     // Get time range for filtering events (RFC 4791 section 7.8)
     auto range = getCalendarSyncRange();
 
+    // Read before the listing, so storeResource can tell the rows a task writes while it runs.
+    // Local: href -> (icsUID, etag) - for comparison and stable ID lookup
+    CalendarRowEtags listed {};
+    map<string, pair<string, string>> local {};
+    {
+        auto rows = store->findAll<Event>(Query().equal("calendarId", calendarId));
+        listed = etagsByUID(rows);
+        for (auto & row : rows) {
+            if (row->href() != "") {
+                local[normalizeHref(row->href())] = make_pair(row->icsUID(), row->etag());
+            }
+        }
+    }
+
     // Remote: href -> etag (from server)
     map<string, string> remote {};
     {
@@ -1689,23 +1775,6 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
             auto href = eventEtagsDoc->nodeContentAtXPath(".//D:href/text()", node);
             remote[normalizeHref(href)] = string(etag.c_str());
         }));
-    }
-
-    // Local: href -> (icsUID, etag) - for comparison and stable ID lookup
-    map<string, pair<string, string>> local {};
-    {
-        SQLite::Statement findEvents(store->db(), "SELECT data, icsuid, etag FROM Event WHERE calendarId = ?");
-        findEvents.bind(1, calendarId);
-        while (findEvents.executeStep()) {
-            string dataStr = findEvents.getColumn("data").getString();
-            json data = json::parse(dataStr);
-            string href = data.count("href") ? data["href"].get<string>() : "";
-            string icsuid = findEvents.getColumn("icsuid").getString();
-            string etag = findEvents.getColumn("etag").getString();
-            if (href != "") {
-                local[normalizeHref(href)] = make_pair(icsuid, etag);
-            }
-        }
     }
 
     // Identify new, updated, and deleted events by comparing hrefs
@@ -1761,68 +1830,13 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
         // Fetch the data (rate limiting is now handled in performXMLRequest)
         auto icsDoc = performXMLRequest(url, "REPORT", "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\"><d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
 
-        // Phase 1: Parse ICS data OUTSIDE the transaction
-        vector<shared_ptr<ICalendar>> parsedCalendars;
-        vector<ParsedCalEvent> parsedEvents;
-
-        icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
-            auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-            auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
-
-            // Skip empty responses (Google sometimes returns empty data)
-            if (etag == "" || icsData == "") {
-                if (etag != "") {
-                    logger->info("Received calendar event {} with an empty body", etag);
-                }
-                return;
-            }
-
-            auto cal = make_shared<ICalendar>(icsData);
-            if (cal->Events.empty()) return;
-            parsedCalendars.push_back(cal);
-
-            auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
-
-            // Process ALL VEVENTs in the ICS file (master + any recurrence exceptions)
-            for (auto icsEvent : cal->Events) {
-                if (icsEvent->DtStart.IsEmpty()) {
-                    logger->info("Received calendar event with no start time: {} ({} bytes)",
-                                 href, icsData.size());
-                    continue;
-                }
-                parsedEvents.push_back({etag, href, icsData, icsEvent});
-            }
-        }));
-
-        // Phase 2: DB operations INSIDE a short transaction
-        {
-            MailStoreTransaction transaction{store, "runForCalendar:insertions"};
-            for (auto & pe : parsedEvents) {
-                string icsUID = pe.icsEvent->UID;
-                string recurrenceId = pe.icsEvent->RecurrenceId;
-
-                // Look up existing event by icsUID + recurrenceId to update in place
-                // Master events have empty recurrenceId, exceptions have the occurrence date
-                auto query = Query().equal("calendarId", calendarId).equal("icsuid", icsUID);
-                if (!recurrenceId.empty()) {
-                    query.equal("recurrenceId", recurrenceId);
-                } else {
-                    query.equal("recurrenceId", "");
-                }
-                auto existing = store->find<Event>(query);
-
-                if (existing) {
-                    existing->applyICSEventData(pe.etag, pe.href, pe.icsData, pe.icsEvent);
-                    store->save(existing.get());
-                } else {
-                    auto event = Event(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
-                    event.setHref(pe.href);
-                    store->save(&event);
-                }
-            }
-            removeDroppedOccurrences(store, logger, calendarId, parsedEvents);
-            transaction.commit();
+        // Parse outside the transaction, then store in a short one
+        auto resources = resourcesIn(icsDoc, logger);
+        MailStoreTransaction transaction{store, "runForCalendar:insertions"};
+        for (auto & resource : resources) {
+            storeResource(store, logger, account->id(), calendarId, resource, nullptr, &listed);
         }
+        transaction.commit();
     }
 }
 
@@ -1856,6 +1870,10 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
     vector<string> neededHrefs;
     vector<string> deletedHrefs;
     map<string, pair<string, string>> directData; // href -> (etag, icsData)
+
+    // Read before the listing, so storeResource can tell the rows a task writes while it runs.
+    auto heldRows = store->findAll<Event>(Query().equal("calendarId", calendarId));
+    CalendarRowEtags listed = etagsByUID(heldRows);
 
     // RFC 6578 pagination: loop until we get all results
     // Server returns 507 status when results are truncated
@@ -1989,74 +2007,25 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         return false;
     }
 
-    // Pre-load all events for this calendar into an in-memory map.
-    // This avoids per-event store->find() queries inside write transactions.
-    // Key: "icsUID\0recurrenceId" (null separator avoids ambiguity)
-    map<string, shared_ptr<Event>> existingEvents;
-    {
-        auto allEvents = store->findAll<Event>(Query().equal("calendarId", calendarId));
-        for (auto & e : allEvents) {
-            string key = e->icsUID() + '\0' + e->recurrenceId();
-            existingEvents[key] = e;
-        }
-    }
+    // A new event is stored only within our time range, so rows outside it don't accumulate as they change
+    auto range = getCalendarSyncRange();
 
     // Process direct data (from incremental sync with full calendar-data)
     if (!directData.empty()) {
-        // Phase 1: Parse ICS data OUTSIDE the transaction
-        vector<shared_ptr<ICalendar>> parsedCalendars;
-        vector<ParsedCalEvent> parsedEvents;
-
+        // Parse outside the transaction, then store in a short one
+        vector<ParsedCalResource> resources;
         for (auto & pair : directData) {
-            string href = pair.first;
             string icsData = pair.second.second;
-            if (icsData == "") continue;
-
             auto cal = make_shared<ICalendar>(icsData);
             if (cal->Events.empty()) continue;
-            parsedCalendars.push_back(cal);
-
-            string etag = pair.second.first;
-            for (auto icsEvent : cal->Events) {
-                if (icsEvent->DtStart.IsEmpty()) continue;
-                parsedEvents.push_back({etag, href, icsData, icsEvent});
-            }
+            resources.push_back({pair.second.first, pair.first, icsData, cal});
         }
 
-        // Phase 2: DB operations INSIDE a short transaction
-        if (!parsedEvents.empty()) {
-            auto range = getCalendarSyncRange();
-            MailStoreTransaction transaction{store, "syncToken:direct"};
-            for (auto & pe : parsedEvents) {
-                string icsUID = pe.icsEvent->UID;
-                string recurrenceId = pe.icsEvent->RecurrenceId;
-
-                // Look up existing event from pre-loaded map
-                string key = icsUID + '\0' + recurrenceId;
-                auto it = existingEvents.find(key);
-                auto existing = (it != existingEvents.end()) ? it->second : nullptr;
-
-                if (existing) {
-                    existing->applyICSEventData(pe.etag, pe.href, pe.icsData, pe.icsEvent);
-                    store->save(existing.get());
-                } else {
-                    // New event from sync-token - only create if within our time range
-                    // This prevents accumulating events outside the range when they're modified
-                    time_t eventStart = pe.icsEvent->DtStart.toUnix();
-                    time_t eventEnd = endOf(pe.icsEvent);
-
-                    if (eventOverlapsRange(eventStart, eventEnd, range)) {
-                        auto newEvent = make_shared<Event>(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
-                        newEvent->setHref(pe.href);
-                        store->save(newEvent.get());
-                        existingEvents[key] = newEvent;
-                    }
-                    // else: quietly ignore - event is outside our sync window
-                }
-            }
-            removeDroppedOccurrences(store, logger, calendarId, parsedEvents);
-            transaction.commit();
+        MailStoreTransaction transaction{store, "syncToken:direct"};
+        for (auto & resource : resources) {
+            storeResource(store, logger, account->id(), calendarId, resource, &range, &listed);
         }
+        transaction.commit();
     }
 
     // Fetch needed items (from initial sync) using multiget in chunks
@@ -2073,56 +2042,11 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
                 "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
                 "<d:prop><d:getetag /><c:calendar-data /></d:prop>" + payload + "</c:calendar-multiget>");
 
-            // Phase 1: Parse ICS data OUTSIDE the transaction
-            vector<shared_ptr<ICalendar>> parsedCalendars;
-            vector<ParsedCalEvent> parsedEvents;
-
-            icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
-                auto etag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-                auto icsData = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
-                if (icsData == "" || etag == "") return;
-
-                auto cal = make_shared<ICalendar>(icsData);
-                if (cal->Events.empty()) return;
-                parsedCalendars.push_back(cal);
-
-                auto href = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
-
-                for (auto icsEvent : cal->Events) {
-                    if (icsEvent->DtStart.IsEmpty()) continue;
-                    parsedEvents.push_back({etag, href, icsData, icsEvent});
-                }
-            }));
-
-            // Phase 2: DB operations INSIDE a short transaction
-            auto range = getCalendarSyncRange();
+            auto resources = resourcesIn(icsDoc, logger);
             MailStoreTransaction transaction{store, "syncToken:multiget"};
-            for (auto & pe : parsedEvents) {
-                string icsUID = pe.icsEvent->UID;
-                string recurrenceId = pe.icsEvent->RecurrenceId;
-
-                // Look up existing event from pre-loaded map
-                string key = icsUID + '\0' + recurrenceId;
-                auto it = existingEvents.find(key);
-                auto existing = (it != existingEvents.end()) ? it->second : nullptr;
-
-                if (existing) {
-                    existing->applyICSEventData(pe.etag, pe.href, pe.icsData, pe.icsEvent);
-                    store->save(existing.get());
-                } else {
-                    // New event - only create if within our time range
-                    time_t eventStart = pe.icsEvent->DtStart.toUnix();
-                    time_t eventEnd = endOf(pe.icsEvent);
-
-                    if (eventOverlapsRange(eventStart, eventEnd, range)) {
-                        auto newEvent = make_shared<Event>(pe.etag, account->id(), calendarId, pe.icsData, pe.icsEvent);
-                        newEvent->setHref(pe.href);
-                        store->save(newEvent.get());
-                        existingEvents[key] = newEvent;
-                    }
-                }
+            for (auto & resource : resources) {
+                storeResource(store, logger, account->id(), calendarId, resource, &range, &listed);
             }
-            removeDroppedOccurrences(store, logger, calendarId, parsedEvents);
             transaction.commit();
         }
     }
@@ -2135,13 +2059,11 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
             deletedHrefSet.insert(normalizeHref(href));
         }
 
-        // Use the pre-loaded existingEvents map to find events to delete by href.
-        // href is in the JSON data column (not directly queryable), so we scan the map.
+        // href is in the JSON data column (not directly queryable), so we scan the rows read before the listing.
         vector<shared_ptr<Event>> eventsToDelete;
         set<string> deletedMasterUIDs;
 
-        for (auto & pair : existingEvents) {
-            auto & e = pair.second;
+        for (auto & e : heldRows) {
             if (deletedHrefSet.count(normalizeHref(e->href()))) {
                 if (e->recurrenceId().empty()) {
                     deletedMasterUIDs.insert(e->icsUID());
@@ -2152,8 +2074,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
 
         // Cascade: remove exceptions whose master was deleted
         if (!deletedMasterUIDs.empty()) {
-            for (auto & pair : existingEvents) {
-                auto & e = pair.second;
+            for (auto & e : heldRows) {
                 if (deletedHrefSet.count(normalizeHref(e->href()))) continue;
                 if (!e->recurrenceId().empty() && deletedMasterUIDs.count(e->icsUID())) {
                     eventsToDelete.push_back(e);
