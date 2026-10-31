@@ -65,8 +65,8 @@ expect:
   task_error: {create: null, create_2: null, retitle: null, delete: null, stale_edit: null}
   graph:
     event_writes:
-      - [POST, "^calendars/AAMkADefault=/events$", [attendees, body, end, isAllDay, location, recurrence, showAs, start, subject, transactionId]]
-      - [POST, "^calendars/AAMkADefault=/events$", [attendees, body, end, isAllDay, location, recurrence, showAs, start, subject, transactionId]]
+      - [POST, "^calendars/AAMkADefault=/events$", [attendees, body, end, isAllDay, isReminderOn, location, recurrence, showAs, start, subject, transactionId]]
+      - [POST, "^calendars/AAMkADefault=/events$", [attendees, body, end, isAllDay, isReminderOn, location, recurrence, showAs, start, subject, transactionId]]
       - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvCreated1=$", [subject]]
       - [DELETE, "^calendars/AAMkADefault=/events/AAMkEvCreated2=$", []]
       - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvCreated1=$", [subject]]

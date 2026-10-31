@@ -35,7 +35,7 @@ expect:
   task_error: {create: null}
   graph:
     event_writes:
-      - [POST, "^calendars/AAMkADefault=/events$", [attendees, body, end, isAllDay, location, recurrence, showAs, start, subject, transactionId]]
+      - [POST, "^calendars/AAMkADefault=/events$", [attendees, body, end, isAllDay, isReminderOn, location, recurrence, showAs, start, subject, transactionId]]
   events:
     "uid-created-1|":
       etag: "ck-created-1"

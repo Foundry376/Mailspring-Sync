@@ -549,8 +549,48 @@ int main() {
                    {"emailAddress", {{"address", "team@example.com"}, {"name", "Team: Design; Ops"}}}}}),
                    "quoted name holding ':' and ';'");
         expectJSON(e["recurrence"], json(), "no RRULE");
+        expectJSON(e["isReminderOn"], true, "an alarm is a reminder");
+        expectJSON(e["reminderMinutesBeforeStart"], 15, "the alarm's minutes before the start");
         vector<ICSVEvent> vevents = GraphICS::veventsOf(vcalendar("BEGIN:VALARM\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\n"));
         expect(!vevents.empty() && vevents.front().property("TRIGGER").name.empty(), "an alarm's properties aren't the event's");
+        expect(!vevents.empty() && vevents.front().alarms.size() == 1 && vevents.front().alarms.front().property("TRIGGER").value == "-PT15M",
+               "the alarm's own properties");
+    }
+    {
+        // The client's alert options, Google's spelling of one, and the first of several alarms.
+        auto reminderFor = [](const string & alarms) {
+            json e = graphEvent(vcalendar("DTSTART;TZID=America/Chicago:20261022T090000\r\nDTEND;TZID=America/Chicago:20261022T093000\r\n" + alarms));
+            json reminder = json::object();
+            for (const string name : {"isReminderOn", "reminderMinutesBeforeStart"}) {
+                if (e.count(name)) {
+                    reminder[name] = e[name];
+                }
+            }
+            return reminder;
+        };
+        auto alarm = [](const string & trigger) {
+            return "BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Budget\r\n" + trigger + "\r\nEND:VALARM\r\n";
+        };
+        expectJSON(reminderFor(""), {{"isReminderOn", false}}, "no alarm turns the reminder off");
+        expectJSON(reminderFor(alarm("TRIGGER:-PT5M")), {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 5}}, "5 minutes");
+        expectJSON(reminderFor(alarm("TRIGGER:-PT2H")), {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 120}}, "2 hours");
+        expectJSON(reminderFor(alarm("TRIGGER:-P2D")), {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 2880}}, "2 days");
+        expectJSON(reminderFor(alarm("TRIGGER:-P1W")), {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 10080}}, "1 week");
+        expectJSON(reminderFor(alarm("TRIGGER;RELATED=START:-P0DT0H10M0S")), {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 10}},
+                   "Google's 10 minutes");
+        expectJSON(reminderFor(alarm("TRIGGER:PT0S")), {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 0}}, "at the start");
+        expectJSON(reminderFor(alarm("TRIGGER:-PT30M") + alarm("TRIGGER:-P1D")), {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 30}},
+                   "the first of two alarms");
+        expectJSON(reminderFor(alarm("TRIGGER;VALUE=DATE-TIME:20261022T130000Z")), json::object(), "a set time has no Graph form");
+        expectJSON(reminderFor(alarm("TRIGGER;RELATED=END:-PT5M")), json::object(), "before the end has no Graph form");
+        expectJSON(reminderFor(alarm("TRIGGER:PT5M")), json::object(), "after the start has no Graph form");
+
+        json allDay = graphEvent(vcalendar("DTSTART;VALUE=DATE:20261022\r\nDTEND;VALUE=DATE:20261023\r\n" + alarm("TRIGGER:-PT1080M")));
+        expectJSON(allDay["reminderMinutesBeforeStart"], 1080, "an all-day reminder counts back from midnight");
+
+        json read = graphEvent(GraphICS::icsForEvent(event({{"isReminderOn", true}, {"reminderMinutesBeforeStart", 45}}), ME, START_UTC));
+        expectJSON(read["isReminderOn"], true, "reminder round trip");
+        expectJSON(read["reminderMinutesBeforeStart"], 45, "reminder minutes round trip");
     }
     {
         json utc = graphEvent(vcalendar("DTSTART:20261022T160000Z\r\nDTEND:20261022T170000Z\r\nTRANSP:TRANSPARENT\r\n"));
@@ -783,7 +823,7 @@ int main() {
                     "a series made longer re-applies its override and its cancelled date");
         expectEqual(refusalFor("", base), "", "nothing refused");
         expectEqual(writesFor("", base),
-                    "create attendees,body,end,isAllDay,location,recurrence,showAs,start,subject\n"
+                    "create attendees,body,end,isAllDay,isReminderOn,location,recurrence,showAs,start,subject\n"
                     "occurrence 20261019T160000Z end,start,subject\ncancel Pacific Standard Time:20261102T090000",
                     "a new series is created, then its override and cancelled date");
         json created = fieldsOfWrite("", base, 0);
@@ -835,6 +875,59 @@ int main() {
                     "a repeat added sends the recurrence with the times");
         expectEqual(refusalFor(base, edited(base, "TRANSP:OPAQUE", "RRULE:FREQ=HOURLY\r\nTRANSP:OPAQUE")), "unsupported-recurrence",
                     "a repeat Graph can't express is refused");
+    }
+    {
+        // The alert is sent only when the edit changed it, so an edit elsewhere leaves Outlook's.
+        string base = GraphICS::icsForEvent(event({{"isReminderOn", true}, {"reminderMinutesBeforeStart", 15}}), ME, START_UTC);
+        const string alarm = "BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Planning\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\n";
+        expectEqual(writesFor(base, edited(base, "SUMMARY:Planning\r\n", "SUMMARY:Roadmap\r\n")), "update subject",
+                    "a new title leaves the reminder alone");
+        expectEqual(writesFor(base, edited(base, "TRIGGER:-PT15M", "TRIGGER:-PT1H")), "update reminderMinutesBeforeStart",
+                    "a new alert sends its minutes");
+        expectJSON(fieldsOfWrite(base, edited(base, "TRIGGER:-PT15M", "TRIGGER:-PT1H"), 0)["reminderMinutesBeforeStart"], 60,
+                   "an hour is 60 minutes");
+        expectEqual(writesFor(base, edited(base, "TRIGGER:-PT15M", "TRIGGER;RELATED=START:-P0DT0H15M0S")), "",
+                    "the same alert spelled differently is no change");
+        expectEqual(writesFor(base, edited(base, alarm, "")), "update isReminderOn", "None turns the reminder off");
+        expectJSON(fieldsOfWrite(base, edited(base, alarm, ""), 0), {{"isReminderOn", false}}, "None sends no minutes");
+        expectEqual(writesFor(base, edited(base, "TRIGGER:-PT15M", "TRIGGER;VALUE=DATE-TIME:20261022T150000Z")), "",
+                    "an alarm Graph can't hold leaves its reminder");
+
+        string none = GraphICS::icsForEvent(event({}), ME, START_UTC);
+        string added = edited(none, "END:VEVENT", alarm + "END:VEVENT");
+        expectEqual(writesFor(none, added), "update isReminderOn,reminderMinutesBeforeStart", "an alert added turns the reminder on");
+        expectJSON(fieldsOfWrite(none, added, 0), {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 15}}, "an alert added sends both");
+
+        // A new event without an alert turns Outlook's default reminder off.
+        json created = fieldsOfWrite("", vcalendar("DTSTART;VALUE=DATE:20261022\r\nDTEND;VALUE=DATE:20261023\r\n"), 0);
+        expectJSON(created["isReminderOn"], false, "a new event without an alarm has no reminder");
+        expect(!created.count("reminderMinutesBeforeStart"), "a new event without an alarm sends no minutes");
+        json withAlert = fieldsOfWrite("", added, 0);
+        expectJSON(withAlert["reminderMinutesBeforeStart"], 15, "a new event with an alarm sends its minutes");
+    }
+    {
+        // An occurrence's own alert is written to that occurrence; one copied from the series isn't.
+        json master = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}}, {"firstDayOfWeek", "sunday"}}),
+                             {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 10},
+                              {"exceptionOccurrences", json::array({event({
+                                  {"type", "exception"},
+                                  {"originalStart", "2026-10-19T16:00:00Z"},
+                                  {"start", {{"dateTime", "2026-10-19T10:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                                  {"end", {{"dateTime", "2026-10-19T10:30:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                                  {"isReminderOn", true}, {"reminderMinutesBeforeStart", 5},
+                              })})}});
+        string base = GraphICS::icsForEvent(master, ME, SERIES_START_UTC);
+        expectEqual(writesFor(base, edited(base, "TRIGGER:-PT5M", "TRIGGER:-PT30M")), "occurrence 20261019T160000Z reminderMinutesBeforeStart",
+                    "an override's new alert");
+
+        const string override = "BEGIN:VEVENT\r\nUID:x\r\nRECURRENCE-ID:20261026T160000Z\r\n"
+                                "DTSTART;TZID=Pacific Standard Time:20261026T140000\r\nDTEND;TZID=Pacific Standard Time:20261026T143000\r\n"
+                                "SUMMARY:Planning\r\nTRANSP:OPAQUE\r\n";
+        const string seriesAlarm = "BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Planning\r\nTRIGGER:-PT10M\r\nEND:VALARM\r\n";
+        expectEqual(writesFor(base, edited(base, "END:VCALENDAR", override + seriesAlarm + "END:VEVENT\r\nEND:VCALENDAR")),
+                    "occurrence 20261026T160000Z end,start", "a new override with the series' alert sends only its times");
+        expectEqual(writesFor(base, edited(base, "END:VCALENDAR", override + "END:VEVENT\r\nEND:VCALENDAR")),
+                    "occurrence 20261026T160000Z end,isReminderOn,start", "a new override without an alert turns its reminder off");
     }
 
     // Finding the occurrence an override or an EXDATE names among Graph's.

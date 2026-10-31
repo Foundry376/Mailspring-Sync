@@ -1296,8 +1296,8 @@ class ScenarioRun:
         return out
 
     def expect_events(self, arg: dict) -> list:
-        """Event rows, and no others: `{"<icsuid>|<recurrenceId>": {key: value, ics_has: [lines]}}`
-        checks keys of the row's JSON (`href`, `etag`, `status`) and lines its ICS must hold."""
+        """Event rows, and no others: `{"<icsuid>|<recurrenceId>": {key: value, ics_has: [lines], ics_lacks: [text]}}`
+        checks keys of the row's JSON (`href`, `etag`, `status`), lines its ICS must hold and text it must not."""
         with self.ms.db() as c:
             rows = [json.loads(r[0]) for r in c.execute("SELECT data FROM Event").fetchall()]
         keys = sorted(f"{row.get('icsuid')}|{row.get('rid', '')}" for row in rows)
@@ -1314,6 +1314,9 @@ class ScenarioRun:
             for line in want.pop("ics_has", []):
                 if line not in lines:
                     out.append(f"event {key}: no ICS line {line!r} in {lines}")
+            for text in want.pop("ics_lacks", []):
+                if text in (row.get("ics") or ""):
+                    out.append(f"event {key}: ICS holds {text!r}: {lines}")
             for k, v in want.items():
                 if row.get(k) != v:
                     out.append(f"event {key}: {k} {row.get(k)!r}, expected {v!r}")

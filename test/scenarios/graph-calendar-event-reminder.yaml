@@ -1,0 +1,128 @@
+name: graph-calendar-event-reminder
+description: >
+  An Outlook event's reminder is its VALARM, and the client's alert reaches Graph only when the user
+  changed it. A new title is a PATCH of `subject` alone, so the event keeps the 15-minute reminder
+  Outlook gave it; a new alert is a PATCH of `reminderMinutesBeforeStart`, and None one of
+  `isReminderOn`. A new timed event is POSTed with the client's default alert, 10 minutes; a new
+  all-day event, which the client gives none, is POSTed with `isReminderOn` false so Outlook's
+  default reminder doesn't appear on it. One occurrence of a series given its own alert is a PATCH
+  of that occurrence, which holds a reminder of its own.
+source: "https://learn.microsoft.com/en-us/graph/api/resources/event (isReminderOn, reminderMinutesBeforeStart); https://learn.microsoft.com/en-us/graph/api/event-update; [MS-OXOCAL] 2.2.1.44.2 (an exception's ReminderDelta and ReminderSet)"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvPlanning="
+          changeKey: "ck-planning-1"
+          iCalUId: "uid-planning"
+          type: singleInstance
+          subject: Planning
+          start: {dateTime: "2026-10-22T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-22T09:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          isReminderOn: true
+          reminderMinutesBeforeStart: 15
+          lastModifiedDateTime: "2026-10-01T12:00:00Z"
+        - id: "AAMkEvStandup="
+          changeKey: "ck-standup-1"
+          iCalUId: "uid-standup"
+          type: seriesMaster
+          subject: Standup
+          start: {dateTime: "2026-10-05T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-05T09:15:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          isReminderOn: true
+          reminderMinutesBeforeStart: 10
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [monday], firstDayOfWeek: sunday}
+            range: {type: noEnd, startDate: "2026-10-05", recurrenceTimeZone: Pacific Standard Time}
+          cancelledOccurrences: []
+          exceptionOccurrences: []
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 90}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-planning|"
+      ics_replace: [["SUMMARY:Planning", "SEQUENCE:1\r\nSUMMARY:Planning review"]]
+    as: retitle
+  - wait: {task: retitle, timeout: 60}
+  - assert:
+      events:
+        "uid-planning|": {ics_has: ["SUMMARY:Planning review", "TRIGGER:-PT15M"]}
+        "uid-standup|": {ics_has: ["TRIGGER:-PT10M"]}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-planning|"
+      ics_replace: [["TRIGGER:-PT15M", "TRIGGER:-PT1H"]]
+    as: hour_before
+  - wait: {task: hour_before, timeout: 60}
+  - assert:
+      events:
+        "uid-planning|": {ics_has: ["TRIGGER:-PT60M"]}
+        "uid-standup|": {}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-planning|"
+      ics_replace: [["BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Planning review\r\nTRIGGER:-PT60M\r\nEND:VALARM\r\n", ""]]
+    as: no_alert
+  - wait: {task: no_alert, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      calendar_of: Calendar
+      event:
+        icsuid: "timed@mailspring"
+        ics: "BEGIN:VCALENDAR\r\nPRODID:-//Mailspring//Calendar//EN\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:timed@mailspring\r\nSUMMARY:Design review\r\nDTSTART;TZID=America/Chicago:20261021T140000\r\nDTEND;TZID=America/Chicago:20261021T150000\r\nTRANSP:OPAQUE\r\nDTSTAMP:20261013T120000Z\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Design review\r\nTRIGGER:-PT10M\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: create_timed
+  - wait: {task: create_timed, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      calendar_of: Calendar
+      event:
+        icsuid: "all-day@mailspring"
+        ics: "BEGIN:VCALENDAR\r\nPRODID:-//Mailspring//Calendar//EN\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:all-day@mailspring\r\nSUMMARY:Offsite\r\nDTSTART;VALUE=DATE:20261023\r\nDTEND;VALUE=DATE:20261024\r\nTRANSP:TRANSPARENT\r\nDTSTAMP:20261013T120000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: create_all_day
+  - wait: {task: create_all_day, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-standup|"
+      ics_replace:
+        - ["END:VCALENDAR", "BEGIN:VEVENT\r\nUID:uid-standup\r\nRECURRENCE-ID:20261026T160000Z\r\nDTSTART;TZID=Pacific Standard Time:20261026T090000\r\nDTEND;TZID=Pacific Standard Time:20261026T091500\r\nSUMMARY:Standup\r\nTRANSP:OPAQUE\r\nSEQUENCE:1\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Standup\r\nTRIGGER:-PT30M\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR"]
+    as: occurrence_alert
+  - wait: {task: occurrence_alert, timeout: 60}
+expect:
+  task_error: {retitle: null, hour_before: null, no_alert: null, create_timed: null, create_all_day: null, occurrence_alert: null}
+  graph:
+    event_writes:
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvPlanning=$", [subject]]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvPlanning=$", [reminderMinutesBeforeStart]]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvPlanning=$", [isReminderOn]]
+      - [POST, "^calendars/AAMkADefault=/events$", [attendees, body, end, isAllDay, isReminderOn, location, recurrence, reminderMinutesBeforeStart, showAs, start, subject, transactionId]]
+      - [POST, "^calendars/AAMkADefault=/events$", [attendees, body, end, isAllDay, isReminderOn, location, recurrence, showAs, start, subject, transactionId]]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvStandup=\\.2026-10-26$", [end, reminderMinutesBeforeStart, start]]
+  events:
+    "uid-planning|":
+      etag: "ck-planning-1+++"
+      ics_has: ["SUMMARY:Planning review"]
+      ics_lacks: ["VALARM"]
+    "uid-created-1|":
+      ics_has: ["SUMMARY:Design review", "TRIGGER:-PT10M"]
+    "uid-created-2|":
+      ics_has: ["SUMMARY:Offsite", "DTSTART;VALUE=DATE:20261023"]
+      ics_lacks: ["VALARM"]
+    "uid-standup|":
+      ics_has: ["TRIGGER:-PT10M"]
+    "uid-standup|20261026T160000Z":
+      ics_has: ["DTSTART;TZID=Pacific Standard Time:20261026T090000", "TRIGGER:-PT30M"]
+  running: true
