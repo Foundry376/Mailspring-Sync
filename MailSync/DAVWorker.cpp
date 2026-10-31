@@ -2248,6 +2248,24 @@ string DAVWorker::performICSRequest(string _url, string method, string icsData, 
     return result;
 }
 
+// Reads the resource at `href` and stores it in the rows of its UID, as a sync would. Returns
+// false when the server returned no copy of it.
+bool DAVWorker::storeServerCopy(const string & calendarId, const string & calendarUrl, const string & href) {
+    auto icsDoc = performXMLRequest(calendarUrl, "REPORT",
+        "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
+        "<d:prop><d:getetag /><c:calendar-data /></d:prop>"
+        "<d:href>" + xmlEscape(href) + "</d:href>"
+        "</c:calendar-multiget>");
+    auto resources = resourcesIn(icsDoc, logger);
+    MailStoreTransaction transaction{store, "storeServerCopy"};
+    for (auto & resource : resources) {
+        storeResource(store, logger, account->id(), calendarId, resource, nullptr, nullptr);
+        logger->info("- Stored the server's copy of {} (etag {})", href, resource.etag);
+    }
+    transaction.commit();
+    return !resources.empty();
+}
+
 void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
     // 1. Find the calendar to get its URL
     auto calendar = store->find<Calendar>(Query().equal("id", event->calendarId()));
@@ -2272,6 +2290,21 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
     try {
         performICSRequest(fullUrl, "PUT", icsData, existingEtag);
     } catch (SyncException & e) {
+        // The rows still hold the edit the server refused, and a refusal leaves the calendar's ctag
+        // unchanged, so no sync would replace them. They take the server's copy back; a new event the
+        // server never held loses its rows, which no sync would remove.
+        try {
+            bool held = storeServerCopy(event->calendarId(), calendarUrl, href);
+            if (!held && event->href() == "" && existingEtag == "") {
+                MailStoreTransaction transaction{store, "writeAndResyncEvent"};
+                for (auto & row : store->findAll<Event>(Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()))) {
+                    store->remove(row.get());
+                }
+                transaction.commit();
+            }
+        } catch (std::exception & ex) {
+            logger->warn("-X Could not read event {} back: {}", href, ex.what());
+        }
         if (e.key.find("412") != string::npos) {
             // Precondition failed - etag conflict, throw a more descriptive error
             throw SyncException("etag-conflict", "Event was modified by another client. Please refresh and try again.", false);
@@ -2279,51 +2312,13 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event) {
         throw;
     }
 
-    // 4. Read back the event to get the server's version (with new etag)
-    auto icsDoc = performXMLRequest(calendarUrl, "REPORT",
-        "<c:calendar-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">"
-        "<d:prop><d:getetag /><c:calendar-data /></d:prop>"
-        "<d:href>" + xmlEscape(href) + "</d:href>"
-        "</c:calendar-multiget>");
-
-    // 5. Parse response and update local event
-    // Note: Event ID is now based on icsUID + recurrenceId (stable), so no ID regeneration is needed
-    icsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
-        auto newEtag = icsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
-        auto icsResponse = icsDoc->nodeContentAtXPath(".//caldav:calendar-data/text()", node);
-        auto hrefResponse = icsDoc->nodeContentAtXPath(".//D:href/text()", node);
-
-        if (icsResponse != "" && newEtag != "") {
-            ICalendar cal(icsResponse);
-            if (!cal.Events.empty()) {
-                // Find the VEVENT that matches the event we're syncing (by recurrenceId)
-                // Server response may contain master + exceptions in one ICS file
-                string eventRecurrenceId = event->recurrenceId();
-                ICalendarEvent* matchingEvent = nullptr;
-
-                for (auto icsEvent : cal.Events) {
-                    if (icsEvent->RecurrenceId == eventRecurrenceId) {
-                        matchingEvent = icsEvent;
-                        break;
-                    }
-                }
-
-                // Fall back to first event if no match (e.g., new master event)
-                if (!matchingEvent) {
-                    matchingEvent = cal.Events.front();
-                }
-
-                // Update local event with server data
-                event->applyICSEventData(newEtag, hrefResponse, icsResponse, matchingEvent);
-                event->_data["icsuid"] = matchingEvent->UID;
-
-                store->save(event.get());
-                logger->info("Event syncback complete. New etag: {}", newEtag);
-            }
-        } else {
-            logger->warn("Event syncback: received empty response from server");
-        }
-    }));
+    // 4. Read back the server's version (with its new etag) into every row of the series, so the
+    // exceptions this write added or dropped show without waiting for the next sync.
+    if (storeServerCopy(event->calendarId(), calendarUrl, href)) {
+        logger->info("Event syncback complete.");
+    } else {
+        logger->warn("Event syncback: received empty response from server");
+    }
 }
 
 void DAVWorker::deleteEvent(shared_ptr<Event> event) {
