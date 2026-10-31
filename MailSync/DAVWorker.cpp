@@ -2303,6 +2303,15 @@ static bool answersChanged(const string & written, const string & stored) {
     return false;
 }
 
+// Whether a request failed with a refusal that holds on retry: a 4xx other than 408 (timeout) and
+// 429 (rate limit). A network error or a 5xx says nothing about whether the server took the write.
+static bool refusedByServer(const SyncException & e) {
+    const string prefix = "Invalid Response Code: ";
+    if (e.key.rfind(prefix, 0) != 0) return false;
+    int status = atoi(e.key.c_str() + prefix.size());
+    return status >= 400 && status < 500 && status != 408 && status != 429;
+}
+
 void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsData) {
     // 1. Find the calendar to get its URL
     auto calendar = store->find<Calendar>(Query().equal("id", event->calendarId()));
@@ -2327,12 +2336,13 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsD
         performICSRequest(fullUrl, "PUT", icsData, existingEtag);
     } catch (SyncException & e) {
         // The rows still hold the edit the server refused, and a refusal leaves the calendar's ctag
-        // unchanged, so no sync would replace them. They take the server's copy back; rows the server
-        // never held are removed, which no sync would do. Rows with an href or etag came from the
-        // server: a new occurrence row can join a series held at an href other than the one tried.
+        // unchanged, so no sync would replace them. They take the server's copy back; when the server
+        // refused a new event, rows it never held are removed, which no sync would do. Rows with an
+        // href or etag came from the server: a new occurrence row can join a series held at an href
+        // other than the one tried. A new event that failed for another reason keeps its rows.
         try {
             bool held = storeServerCopy(event->calendarId(), calendarUrl, href);
-            if (!held && event->href() == "" && existingEtag == "") {
+            if (!held && refusedByServer(e) && event->href() == "" && existingEtag == "") {
                 MailStoreTransaction transaction{store, "writeAndResyncEvent"};
                 for (auto & row : store->findAll<Event>(Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()))) {
                     if (row->href() == "" && row->etag() == "") store->remove(row.get());
