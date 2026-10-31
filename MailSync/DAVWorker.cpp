@@ -1881,8 +1881,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
     map<string, pair<string, string>> directData; // href -> (etag, icsData)
 
     // Read before the listing, so storeResource can tell the rows a task writes while it runs.
-    auto heldRows = store->findAll<Event>(Query().equal("calendarId", calendarId));
-    CalendarRowEtags listed = etagsByUID(heldRows);
+    CalendarRowEtags listed = etagsByUID(store->findAll<Event>(Query().equal("calendarId", calendarId)));
     vector<string> keptHrefs; // resources storeResource left alone
 
     // RFC 6578 pagination: loop until we get all results
@@ -2065,7 +2064,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         }
     }
 
-    // Delete removed items - identify deletions outside the transaction, then remove inside
+    // Delete removed items
     if (!deletedHrefs.empty()) {
         // Build a set of normalized hrefs for O(1) lookup
         set<string> deletedHrefSet;
@@ -2073,12 +2072,21 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
             deletedHrefSet.insert(normalizeHref(href));
         }
 
-        // href is in the JSON data column (not directly queryable), so we scan the rows read before the listing.
+        // href is in the JSON data column (not directly queryable), so the calendar's rows are scanned,
+        // as they stand in the transaction: a task's read-back during the pass can add an exception
+        // row. A UID a task wrote since the listing is left alone, as storeResource leaves it.
+        MailStoreTransaction transaction{store, "syncToken:deletions"};
+        auto rows = store->findAll<Event>(Query().equal("calendarId", calendarId));
+        CalendarRowEtags current = etagsByUID(rows);
+        auto writtenSinceListing = [&](const string & uid) {
+            auto before = listed.count(uid) ? listed.at(uid) : map<string, string>{};
+            return current[uid] != before;
+        };
         vector<shared_ptr<Event>> eventsToDelete;
         set<string> deletedMasterUIDs;
 
-        for (auto & e : heldRows) {
-            if (deletedHrefSet.count(normalizeHref(e->href()))) {
+        for (auto & e : rows) {
+            if (deletedHrefSet.count(normalizeHref(e->href())) && !writtenSinceListing(e->icsUID())) {
                 if (e->recurrenceId().empty()) {
                     deletedMasterUIDs.insert(e->icsUID());
                 }
@@ -2088,7 +2096,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
 
         // Cascade: remove exceptions whose master was deleted
         if (!deletedMasterUIDs.empty()) {
-            for (auto & e : heldRows) {
+            for (auto & e : rows) {
                 if (deletedHrefSet.count(normalizeHref(e->href()))) continue;
                 if (!e->recurrenceId().empty() && deletedMasterUIDs.count(e->icsUID())) {
                     eventsToDelete.push_back(e);
@@ -2096,8 +2104,6 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
             }
         }
 
-        // Short transaction: only remove() calls
-        MailStoreTransaction transaction{store, "syncToken:deletions"};
         for (auto & e : eventsToDelete) {
             store->remove(e.get());
         }
