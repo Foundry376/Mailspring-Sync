@@ -1034,26 +1034,30 @@ void runListenOnMainThread(shared_ptr<Account> account) {
             }
 
             if (type == "sync-calendar") {
-                static atomic<bool> runningCalendarSync { false };
-                bool expected = false;
-                if (runningCalendarSync.compare_exchange_strong(expected, true)) {
+                // Requests not yet served. One arriving during a pass may follow a write the pass
+                // listed too early to see, so it earns one more pass, shared with any others.
+                static atomic<int> calendarSyncRequests { 0 };
+                if (calendarSyncRequests++ == 0) {
                     std::thread([account]() {
                         SetThreadName("calendar");
-                        try {
-                            // Calendars only: contact sync spends a separate, scarcer API
-                            // quota and has no ctag early-out, so it keeps its own cadence
-                            // rather than riding every manual calendar refresh.
-                            if (account->syncsCalendarsViaGraph()) {
-                                MicrosoftCalendarWorker(account).run();
-                            } else {
-                                DAVWorker(account).runCalendars();
+                        int served;
+                        do {
+                            served = calendarSyncRequests;
+                            try {
+                                // Calendars only: contact sync spends a separate, scarcer API
+                                // quota and has no ctag early-out, so it keeps its own cadence
+                                // rather than riding every manual calendar refresh.
+                                if (account->syncsCalendarsViaGraph()) {
+                                    MicrosoftCalendarWorker(account).run();
+                                } else {
+                                    DAVWorker(account).runCalendars();
+                                }
+                            } catch (...) {
+                                // A refresh failing must not take the process down; the periodic
+                                // worker retries on its own schedule.
+                                exceptions::logCurrentExceptionWithStackTrace();
                             }
-                        } catch (...) {
-                            // A refresh failing must not take the process down; the periodic
-                            // worker retries on its own schedule.
-                            exceptions::logCurrentExceptionWithStackTrace();
-                        }
-                        runningCalendarSync = false;
+                        } while ((calendarSyncRequests -= served) > 0);
                     }).detach();
                 }
             }
