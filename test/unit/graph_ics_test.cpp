@@ -582,6 +582,10 @@ int main() {
         expectJSON(reminderFor(alarm("TRIGGER:-PT30M") + alarm("TRIGGER:-P1D")), {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 30}},
                    "the first of two alarms");
         expectJSON(reminderFor(alarm("TRIGGER;VALUE=DATE-TIME:20261022T130000Z")), json::object(), "a set time has no Graph form");
+        string none = "BEGIN:VALARM\r\nACTION:NONE\r\nTRIGGER;VALUE=DATE-TIME:19760401T005545Z\r\nEND:VALARM\r\n";
+        expectJSON(reminderFor(none), {{"isReminderOn", false}}, "the placeholder for None turns the reminder off");
+        expectJSON(reminderFor(none + alarm("TRIGGER:-PT15M")), {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 15}},
+                   "the first alarm other than the placeholder");
         expectJSON(reminderFor(alarm("TRIGGER;RELATED=END:-PT5M")), json::object(), "before the end has no Graph form");
         expectJSON(reminderFor(alarm("TRIGGER:PT5M")), json::object(), "after the start has no Graph form");
 

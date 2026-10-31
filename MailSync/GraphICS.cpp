@@ -625,13 +625,17 @@ static json recurrenceOf(const ICSVEvent & vevent, time_t utcOffset) {
 
 // Graph holds one reminder, minutes before the start; the client edits the first VALARM. No VALARM
 // turns it off, a new event's too: Outlook would otherwise give it the default reminder the
-// client's editor showed as "None". A trigger Graph has no form for (at a set time, from the end,
-// after the start) gives no fields, so an edit leaves Graph's reminder as it is.
+// client's editor showed as "None". So does an alarm of ACTION:NONE, which the client writes for
+// "None" so CalDAV servers don't apply their default (draft-daboo-valarm-extensions section 11).
+// A trigger Graph has no form for (at a set time, from the end, after the start) gives no fields,
+// so an edit leaves Graph's reminder as it is.
 static json reminderOf(const ICSVEvent & vevent) {
-    if (vevent.alarms.empty()) {
+    auto alarm = find_if(vevent.alarms.begin(), vevent.alarms.end(),
+                         [](const ICSComponent & a) { return !equalsIgnoreCase(a.property("ACTION").value, "NONE"); });
+    if (alarm == vevent.alarms.end()) {
         return {{"isReminderOn", false}};
     }
-    const ICSProperty & trigger = vevent.alarms.front().property("TRIGGER");
+    const ICSProperty & trigger = alarm->property("TRIGGER");
     bool before = !trigger.value.empty() && trigger.value[0] == '-';
     long long days = 0, seconds = 0;
     if (trigger.param("VALUE") == "DATE-TIME" || trigger.param("RELATED") == "END" ||
