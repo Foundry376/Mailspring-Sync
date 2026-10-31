@@ -3614,10 +3614,11 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
         if (!line.empty() && line.back() == '\r') {
             line.pop_back();
         }
-        // Skip Content-Type and Content-Transfer-Encoding headers (we'll add our own)
+        // Skip the MIME headers we write below for the multipart body
         string lowerLine = line;
         transform(lowerLine.begin(), lowerLine.end(), lowerLine.begin(), ::tolower);
-        if (lowerLine.find("content-type:") == 0 || lowerLine.find("content-transfer-encoding:") == 0) {
+        if (lowerLine.find("content-type:") == 0 || lowerLine.find("content-transfer-encoding:") == 0 ||
+            lowerLine.find("mime-version:") == 0) {
             continue;
         }
         newHeaders += line + "\r\n";
