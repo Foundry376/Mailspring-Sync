@@ -2290,14 +2290,15 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsD
         performICSRequest(fullUrl, "PUT", icsData, existingEtag);
     } catch (SyncException & e) {
         // The rows still hold the edit the server refused, and a refusal leaves the calendar's ctag
-        // unchanged, so no sync would replace them. They take the server's copy back; a new event the
-        // server never held loses its rows, which no sync would remove.
+        // unchanged, so no sync would replace them. They take the server's copy back; rows the server
+        // never held are removed, which no sync would do. Rows with an href or etag came from the
+        // server: a new occurrence row can join a series held at an href other than the one tried.
         try {
             bool held = storeServerCopy(event->calendarId(), calendarUrl, href);
             if (!held && event->href() == "" && existingEtag == "") {
                 MailStoreTransaction transaction{store, "writeAndResyncEvent"};
                 for (auto & row : store->findAll<Event>(Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()))) {
-                    store->remove(row.get());
+                    if (row->href() == "" && row->etag() == "") store->remove(row.get());
                 }
                 transaction.commit();
             }
