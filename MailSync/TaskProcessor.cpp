@@ -1745,6 +1745,8 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
         // UPDATE: Merge client changes into existing event
         if (eventJSON.count("ics")) {
             _keepPreviousIcs(account, task, existing.get());
+            // The server copy the edit was made on, which a sync can replace before the remote phase.
+            task->data()["baseEtag"] = existing->etag();
             existing->setIcsData(eventJSON["ics"].get<string>());
             // Re-parse ICS to update recurrence fields
             ICalendar cal(existing->icsData());
@@ -1870,7 +1872,8 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
         return;
     }
     auto dav = make_shared<DAVWorker>(account);
-    dav->writeAndResyncEvent(event, ics);
+    string baseEtag = task->data().count("baseEtag") ? task->data()["baseEtag"].get<string>() : event->etag();
+    dav->writeAndResyncEvent(event, ics, baseEtag);
 }
 
 void TaskProcessor::performLocalDestroyEvent(Task * task) {

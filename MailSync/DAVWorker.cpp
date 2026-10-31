@@ -2312,7 +2312,29 @@ static bool refusedByServer(const SyncException & e) {
     return status >= 400 && status < 500 && status != 408 && status != 429;
 }
 
-void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsData) {
+// Resource URL -> the etag of the copy our last write to it left, read back after the write.
+static mutex ownWritesMtx;
+static map<string, string> ownWrites;
+
+static void recordOwnWrite(const string & url, const string & etag) {
+    lock_guard<mutex> lock(ownWritesMtx);
+    ownWrites[url] = etag;
+}
+
+static bool isOwnWrite(const string & url, const string & etag) {
+    lock_guard<mutex> lock(ownWritesMtx);
+    auto it = ownWrites.find(url);
+    return it != ownWrites.end() && it->second == etag;
+}
+
+/*
+ Writes `icsData`, the edit a task made on the server copy with etag `baseEtag`. A PUT replaces the
+ whole resource, so it goes over that copy or over one our own earlier write left (the second of two
+ quick edits is made on the first, before the first's read-back). Any other copy holds a change the
+ edit was not made on, as when a sync stores an organizer's update between the task's phases, and the
+ write is refused as an etag-conflict rather than put over it.
+*/
+void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsData, const string & baseEtag) {
     // 1. Find the calendar to get its URL
     auto calendar = store->find<Calendar>(Query().equal("id", event->calendarId()));
     if (!calendar) {
@@ -2330,6 +2352,10 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsD
     }
 
     string fullUrl = replacePath(calendarUrl, href);
+    if (existingEtag != baseEtag && !isOwnWrite(fullUrl, existingEtag)) {
+        logger->info("- {} changed on the server since the edit was made (etag {}, now {})", href, baseEtag, existingEtag);
+        throw SyncException("etag-conflict", "Event was modified by another client. Please refresh and try again.", false);
+    }
 
     // 3. Perform PUT request (create or update)
     try {
@@ -2365,18 +2391,20 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsD
         logger->warn("Event syncback: received empty response from server");
         return;
     }
+    auto stored = store->find<Event>(Query().equal("id", event->id()));
 
     // 5. Yahoo stores a new resource with every ATTENDEE at NEEDS-ACTION whatever the PUT said, and
     // keeps an answer only when it is written over the stored resource (measured October 2026;
     // SCHEDULE-AGENT=CLIENT, METHOD and STATUS make no difference). A created copy that lost an
     // answer is written once more over the copy the server holds.
-    if (existingEtag == "") {
-        auto stored = store->find<Event>(Query().equal("id", event->id()));
-        if (stored && answersChanged(icsData, stored->icsData())) {
-            logger->info("- {} changed the answers it was created with; writing them again", href);
-            performICSRequest(fullUrl, "PUT", icsData, stored->etag());
-            storeServerCopy(event->calendarId(), calendarUrl, href);
-        }
+    if (existingEtag == "" && stored && answersChanged(icsData, stored->icsData())) {
+        logger->info("- {} changed the answers it was created with; writing them again", href);
+        performICSRequest(fullUrl, "PUT", icsData, stored->etag());
+        storeServerCopy(event->calendarId(), calendarUrl, href);
+        stored = store->find<Event>(Query().equal("id", event->id()));
+    }
+    if (stored) {
+        recordOwnWrite(fullUrl, stored->etag());
     }
     logger->info("Event syncback complete.");
 }
