@@ -1745,6 +1745,8 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
         // UPDATE: Merge client changes into existing event
         if (eventJSON.count("ics")) {
             _keepPreviousIcs(account, task, existing.get());
+            // The server copy the edit was made on, which a sync can replace before the remote phase.
+            task->data()["baseEtag"] = existing->etag();
             existing->setIcsData(eventJSON["ics"].get<string>());
             // Re-parse ICS to update recurrence fields
             ICalendar cal(existing->icsData());
@@ -1853,12 +1855,13 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
         throw SyncException("not-found", "Event not found for syncback", false);
     }
 
+    // An edit comes from its task: a sync, or an earlier task's read-back, can store the server's copy
+    // over the row after this task's local phase, as when Undo follows a move. A new event comes from
+    // its row, which neither replaces and which holds any edit made since.
+    string ics = event->href() == "" ? event->icsData() : task->data()["event"]["ics"].get<string>();
+
     if (account->syncsCalendarsViaGraph()) {
         string previousIcs = task->data().count("previousIcs") ? task->data()["previousIcs"].get<string>() : "";
-        // An edit comes from its task: an earlier task's read-back can store Graph's copy over the row
-        // after this task's local phase, as when Undo follows a move. A new event comes from its row,
-        // which no read-back replaces and which holds any edit made since.
-        string ics = event->href() == "" ? event->icsData() : task->data()["event"]["ics"].get<string>();
         bool answer = task->data().count("rsvp") > 0;
         string writtenId = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs, ics, answer);
         if (writtenId != eventId) {
@@ -1869,7 +1872,13 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
         return;
     }
     auto dav = make_shared<DAVWorker>(account);
-    dav->writeAndResyncEvent(event);
+    string baseEtag = task->data().count("baseEtag") ? task->data()["baseEtag"].get<string>() : event->etag();
+    // The address a new copy of an invitation was answered as can be one of the account's aliases.
+    set<string> ownAddresses{account->emailAddress()};
+    if (task->data().count("createdAnswer")) {
+        ownAddresses.insert(task->data()["createdAnswer"]["email"].get<string>());
+    }
+    dav->writeAndResyncEvent(event, ics, baseEtag, ownAddresses);
 }
 
 void TaskProcessor::performLocalDestroyEvent(Task * task) {

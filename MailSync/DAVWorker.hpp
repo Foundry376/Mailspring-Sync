@@ -93,7 +93,8 @@ public:
     void runForCalendar(string id, string name, string path);
     bool runForCalendarWithSyncToken(string calendarId, string url, shared_ptr<Calendar> calendar, int retryCount = 0);
 
-    void writeAndResyncEvent(shared_ptr<Event> event);
+    bool storeServerCopy(const string & calendarId, const string & calendarUrl, const string & href);
+    void writeAndResyncEvent(shared_ptr<Event> event, const string & icsData, const string & baseEtag, const set<string> & ownAddresses);
     void deleteEvent(shared_ptr<Event> event);
 
     const string getAuthorizationHeader();
