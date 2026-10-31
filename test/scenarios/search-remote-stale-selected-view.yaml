@@ -1,0 +1,28 @@
+name: search-remote-stale-selected-view
+description: >
+  A second search on the folder the search session still has selected sees mail that arrived
+  since the first. mailcore sends no SELECT for an already-selected folder, and Dovecot updates
+  a selected view only at the end of a command, so the engine sends a NOOP before that SEARCH.
+source: "MailSync/SearchWorker.cpp (searchFolder); RFC 3501 6.1.2; Thunderbird nsImapProtocol::FindAppendedMessageUid"
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+  - {cyrus: xapian}
+mailboxes:
+  INBOX: {messages: {count: 2, age_days: 120}}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [subject, Message], folders: [INBOX]}
+    as: first
+  - wait: {log: 'Search \S+ in INBOX: 2 match\(es\)', timeout: 30}
+  - wait: {quiescent: true}
+  - server.append: {mailbox: INBOX, messages: {count: 1, age_days: 120}}
+  - client.search: {criteria: [subject, Message], folders: [INBOX]}
+    as: second
+  - wait: {log: 'Search \S+ in INBOX: [0-9]+ match\(es\)', count: 2, timeout: 30}
+  - wait: {quiescent: true}
+expect:
+  log_count:
+    'Search \S+ in INBOX: 3 match\(es\)': 1
+    'Search connection idle, disconnecting': 0
+  running: true
