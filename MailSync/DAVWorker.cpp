@@ -2342,18 +2342,24 @@ static bool refusedByServer(const SyncException & e) {
     return status >= 400 && status < 500 && status != 408 && status != 429;
 }
 
-// Resource URL -> the etag of the copy our last write to it left, read back after the write.
+// A resource (calendar id and UID, which name one resource: RFC 4791 section 4.1) -> the etag of the
+// copy our last write to it left. Not keyed by URL: a server can spell the href it stores differently
+// from the one a new event was PUT to (iCloud returns "@" as "%40").
 static mutex ownWritesMtx;
 static map<string, string> ownWrites;
 
-static void recordOwnWrite(const string & url, const string & etag) {
-    lock_guard<mutex> lock(ownWritesMtx);
-    ownWrites[url] = etag;
+static string resourceKey(shared_ptr<Event> event) {
+    return event->calendarId() + " " + event->icsUID();
 }
 
-static bool isOwnWrite(const string & url, const string & etag) {
+static void recordOwnWrite(shared_ptr<Event> event, const string & etag) {
     lock_guard<mutex> lock(ownWritesMtx);
-    auto it = ownWrites.find(url);
+    ownWrites[resourceKey(event)] = etag;
+}
+
+static bool isOwnWrite(shared_ptr<Event> event, const string & etag) {
+    lock_guard<mutex> lock(ownWritesMtx);
+    auto it = ownWrites.find(resourceKey(event));
     return it != ownWrites.end() && it->second == etag;
 }
 
@@ -2382,7 +2388,7 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsD
     }
 
     string fullUrl = replacePath(calendarUrl, href);
-    if (existingEtag != baseEtag && !isOwnWrite(fullUrl, existingEtag)) {
+    if (existingEtag != baseEtag && !isOwnWrite(event, existingEtag)) {
         logger->info("- {} changed on the server since the edit was made (etag {}, now {})", href, baseEtag, existingEtag);
         throw SyncException("etag-conflict", "Event was modified by another client. Please refresh and try again.", false);
     }
@@ -2434,7 +2440,7 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsD
         stored = store->find<Event>(Query().equal("id", event->id()));
     }
     if (stored) {
-        recordOwnWrite(fullUrl, stored->etag());
+        recordOwnWrite(event, stored->etag());
     }
     logger->info("Event syncback complete.");
 }
