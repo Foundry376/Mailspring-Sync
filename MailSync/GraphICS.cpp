@@ -315,6 +315,16 @@ static void appendVEvent(string & ics, const json & event, const string & uid, c
                     : ";ROLE=REQ-PARTICIPANT";
         appendLine(ics, participant("ATTENDEE", role + ";PARTSTAT=" + partstatFor(response), emailAddress));
     }
+
+    // Graph counts an all-day event's minutes from its midnight start, as a TRIGGER relative to a
+    // DATE DTSTART does (RFC 5545 section 3.8.6.3). A DISPLAY alarm needs a DESCRIPTION (section 3.6.6).
+    if (JSONBool(event, "isReminderOn")) {
+        appendLine(ics, "BEGIN:VALARM");
+        appendLine(ics, "ACTION:DISPLAY");
+        appendLine(ics, "DESCRIPTION:" + escapeText(JSONString(event, "subject")));
+        appendLine(ics, "TRIGGER:-PT" + to_string(JSONInt(event, "reminderMinutesBeforeStart")) + "M");
+        appendLine(ics, "END:VALARM");
+    }
     appendLine(ics, "END:VEVENT");
 }
 

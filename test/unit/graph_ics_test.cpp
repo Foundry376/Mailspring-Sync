@@ -302,6 +302,46 @@ int main() {
         }
     }
     {
+        // Outlook's reminder is a display alarm that many minutes before the start.
+        string ics = GraphICS::icsForEvent(event({{"isReminderOn", true}, {"reminderMinutesBeforeStart", 15}}), ME, START_UTC);
+        expect(ics.find("\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Planning\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\nEND:VEVENT\r\n") != string::npos,
+               "reminder as a VALARM", ics);
+        ICalendar cal(ics);
+        if (!cal.Events.empty()) {
+            expectEqual(cal.Events.front()->Description, "", "the alarm's DESCRIPTION isn't the event's");
+            expect(cal.Events.front()->Alarms->size() == 1, "parsed alarm");
+        }
+
+        expect(GraphICS::icsForEvent(event({{"isReminderOn", false}, {"reminderMinutesBeforeStart", 15}}), ME, START_UTC)
+                   .find("VALARM") == string::npos, "a reminder turned off writes no VALARM");
+        expect(GraphICS::icsForEvent(event({}), ME, START_UTC).find("VALARM") == string::npos, "no reminder, no VALARM");
+
+        // An all-day event's reminder counts back from its midnight start: 18 hours is 06:00 the day before.
+        string allDay = GraphICS::icsForEvent(event({
+            {"isAllDay", true},
+            {"start", {{"dateTime", "2026-10-22T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+            {"end", {{"dateTime", "2026-10-23T00:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+            {"isReminderOn", true}, {"reminderMinutesBeforeStart", 1080},
+        }), ME, START_UTC);
+        expectLine(allDay, "TRIGGER:-PT1080M", "all-day reminder relative to its start");
+
+        // Each exception keeps the reminder Graph holds for it.
+        json master = series(pattern({{"type", "weekly"}, {"interval", 1}, {"daysOfWeek", {"monday"}}, {"firstDayOfWeek", "sunday"}}),
+                             {{"isReminderOn", true}, {"reminderMinutesBeforeStart", 10},
+                              {"exceptionOccurrences", json::array({event({
+                                  {"type", "exception"},
+                                  {"originalStart", "2026-10-19T16:00:00Z"},
+                                  {"start", {{"dateTime", "2026-10-19T10:00:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                                  {"end", {{"dateTime", "2026-10-19T10:30:00.0000000"}, {"timeZone", "Pacific Standard Time"}}},
+                                  {"isReminderOn", true}, {"reminderMinutesBeforeStart", 60},
+                              })})}});
+        string seriesICS = GraphICS::icsForEvent(master, ME, SERIES_START_UTC);
+        size_t exceptionAt = seriesICS.find("RECURRENCE-ID");
+        expect(seriesICS.find("TRIGGER:-PT10M") < exceptionAt, "the series' reminder", seriesICS);
+        expect(seriesICS.find("TRIGGER:-PT60M") > exceptionAt && seriesICS.find("TRIGGER:-PT60M") != string::npos,
+               "the exception's own reminder", seriesICS);
+    }
+    {
         // Text is escaped and stays on one line however long.
         string notes;
         for (int i = 0; i < 40; i++) {
