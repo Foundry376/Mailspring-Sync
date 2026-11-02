@@ -2258,14 +2258,15 @@ static json _graphRecipients(Array * addresses) {
    2026-10-22). An address the mailbox may not send as still fails with ErrorSendAsDenied.
  - `bccRecipients`: the MIME has no Bcc header, which Graph does not document honoring and which
    must never reach the other recipients.
- - PidTagDeleteAfterSubmit (0x0E01), so Exchange deletes the message once it is submitted instead
-   of filing it in Sent Items, as EWS does for MessageDisposition SendOnly.
+ - PidTagDeleteAfterSubmit (0x0E01), when asked, so Exchange deletes the message once it is
+   submitted instead of filing it in Sent Items, as EWS does for MessageDisposition SendOnly.
    https://learn.microsoft.com/en-us/office/client-developer/outlook/mapi/pidtagdeleteaftersubmit-canonical-property
 */
-static void _graphPrepareDraft(shared_ptr<Account> account, const string & messageURL, Address * from, Array * bcc, const json & created) {
-    json payload = {
-        {"singleValueExtendedProperties", {{{"id", "Boolean 0x0E01"}, {"value", "true"}}}},
-    };
+static void _graphPrepareDraft(shared_ptr<Account> account, const string & messageURL, Address * from, Array * bcc, const json & created, bool deleteAfterSubmit) {
+    json payload = json::object();
+    if (deleteAfterSubmit) {
+        payload["singleValueExtendedProperties"] = {{{"id", "Boolean 0x0E01"}, {"value", "true"}}};
+    }
     if (bcc->count() > 0) {
         payload["bccRecipients"] = _graphRecipients(bcc);
     }
@@ -2275,6 +2276,9 @@ static void _graphPrepareDraft(shared_ptr<Account> account, const string & messa
     if (wanted != "" && !equalsIgnoreCase(wanted, actual)) {
         spdlog::get("logger")->info("-- Graph changed From to {}, restoring {}", actual, wanted);
         payload["from"] = {{"emailAddress", {{"name", _mcString(from->displayName())}, {"address", wanted}}}};
+    }
+    if (payload.empty()) {
+        return;
     }
 
     auto resp = PerformGraphRequest("PATCH", messageURL, _graphAccessToken(account), payload.dump());
@@ -2335,14 +2339,12 @@ static bool _graphDraftWasSubmitted(shared_ptr<Account> account, const string & 
     return false;
 }
 
-// Creates, fills and sends a Graph draft. The builder's MIME must not carry Bcc; `bcc` is set on
-// the draft instead.
-static void _sendViaGraph(shared_ptr<Account> account, MessageBuilder & builder, Array * bcc) {
+// Creates a Graph draft from `mime`, fills it and sends it. The MIME must not carry Bcc; `bcc` is
+// set on the draft instead, and `detached` attachments are added to it separately.
+static void _sendMIMEViaGraph(shared_ptr<Account> account, Data * mime, Address * from, Array * bcc, const vector<Attachment *> & detached, bool deleteAfterSubmit) {
     auto logger = spdlog::get("logger");
     string token = _graphAccessToken(account);
 
-    vector<Attachment *> detached = _detachAttachmentsForGraph(builder);
-    Data * mime = builder.data();
     logger->info("-- Creating Graph draft ({} bytes of MIME, {} attachments added separately)", mime->length(), detached.size());
 
     string encoded = MailUtils::toBase64(mime->bytes(), mime->length());
@@ -2354,7 +2356,7 @@ static void _sendViaGraph(shared_ptr<Account> account, MessageBuilder & builder,
     string messageURL = _graphMessageURL(graphId);
 
     try {
-        _graphPrepareDraft(account, messageURL, builder.header()->from(), bcc, created.body);
+        _graphPrepareDraft(account, messageURL, from, bcc, created.body, deleteAfterSubmit);
         for (Attachment * a : detached) {
             _graphAddAttachment(account, messageURL, a);
         }
@@ -2399,6 +2401,13 @@ static void _sendViaGraph(shared_ptr<Account> account, MessageBuilder & builder,
         throw SyncException("send-failed", "The connection to Microsoft was lost while sending. " + UNCONFIRMED + lostConnection, false);
     }
     _throwGraphSendFailed("send the message", sent, UNCONFIRMED);
+}
+
+// Sends a draft through Graph, attachments too large for one request added separately. The
+// builder's MIME must not carry Bcc. Exchange files no Sent Items copy: the caller APPENDs its own.
+static void _sendViaGraph(shared_ptr<Account> account, MessageBuilder & builder, Array * bcc) {
+    vector<Attachment *> detached = _detachAttachmentsForGraph(builder);
+    _sendMIMEViaGraph(account, builder.data(), builder.header()->from(), bcc, detached, true);
 }
 
 /*
