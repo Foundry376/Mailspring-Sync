@@ -742,7 +742,7 @@ bool MicrosoftCalendarWorker::answerEvent(const string & reply, const string & p
         }
     } catch (SyncException & ex) {
         // The client's SyncbackEventTask has already written the answer into the rows.
-        restoreEvent(calendar, graphId, rows);
+        storeEvent(calendar, graphId, rows);
         throw;
     }
     logger->info("- Answered {} on Graph event {}", action->second, graphId);
