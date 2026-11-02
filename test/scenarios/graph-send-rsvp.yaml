@@ -1,0 +1,69 @@
+name: graph-send-rsvp
+description: >
+  An Office 365 account that sends through Graph emails a REPLY and a COUNTER to an organizer
+  whose invitation none of its calendars holds. Both go through Graph as the MIME SMTP would
+  carry, never over SMTP, which the tenant may refuse (535 5.7.139): a multipart/alternative
+  whose text/calendar part names the iTIP method. No copy is APPENDed, so the draft is not marked
+  delete-after-submit and Exchange files the Sent Items copy, as it does for an answer through
+  /accept. A REPLY Graph refuses fails with send-failed, its draft deleted, and is not emailed
+  over SMTP instead.
+source: "RFC 6047 section 2.4 (text/calendar method parameter); https://learn.microsoft.com/en-us/graph/outlook-send-mime-message; https://aka.ms/smtp_auth_disabled"
+servers:
+  - fake: outlook
+    smtp: true
+    graph: true
+    graph_failures:
+      - {route: "/send$", method: POST, status: 403, code: ErrorAccessDenied, message: "Access is denied. Check credentials and try again.", times: 1}
+mailboxes:
+  INBOX: {messages: 2}
+steps:
+  - wait: quiescent
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Declined: Planning review"
+      icsRSVPStatus: DECLINED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-planning\r\nDTSTAMP:20261013T120000Z\r\nDTSTART:20261022T160000Z\r\nDTEND:20261022T170000Z\r\nSUMMARY:Planning review\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;PARTSTAT=DECLINED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: refused
+  - wait: {task: refused, timeout: 60}
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Accepted: Offsite"
+      icsRSVPStatus: ACCEPTED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-offsite\r\nDTSTAMP:20261013T120000Z\r\nDTSTART:20261023T160000Z\r\nDTEND:20261024T000000Z\r\nSUMMARY:Offsite\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: reply
+  - wait: {task: reply, timeout: 60}
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "New time proposed: Weekly sync"
+      method: COUNTER
+      comment: "Could we meet an hour later?"
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:COUNTER\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261029T170000Z\r\nDTSTAMP:20261013T120000Z\r\nDTSTART:20261029T180000Z\r\nDTEND:20261029T183000Z\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: counter
+  - wait: {task: counter, timeout: 60}
+  - wait: {quiescent: true}
+  - sync: pass
+expect:
+  task_error:
+    refused: {key: send-failed, debuginfo: "Access is denied"}
+    reply: null
+    counter: null
+  smtp: {count: 0}
+  graph:
+    count: 2
+    drafts: 0
+    messages:
+      - recipients: ["pat@example.com"]
+        headers: {Subject: "Accepted: Offsite"}
+        calendar: {method: REPLY, ics_has: ["METHOD:REPLY", "UID:uid-offsite", "PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test"]}
+      - recipients: ["pat@example.com"]
+        headers: {Subject: "New time proposed: Weekly sync"}
+        calendar: {method: COUNTER, ics_has: ["METHOD:COUNTER", "RECURRENCE-ID:20261029T170000Z", "DTSTART:20261029T180000Z", "PARTSTAT=TENTATIVE"]}
+  server_counts: {Sent Items: 2}
+  counts: {Sent Items: 2}
+  db_matches_server: {}
+  running: true
