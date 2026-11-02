@@ -262,8 +262,9 @@ static string partstatFor(const string & response) {
     return "NEEDS-ACTION";
 }
 
-// The mailbox's own answer; its `attendees` entry may not reflect it. A Maybe on one occurrence of an unanswered
-// series makes Exchange report the series tentative with no response time, though Outlook shows it unanswered.
+// The mailbox's own answer; its `attendees` entry may not reflect it. Accept or Maybe on one occurrence of an
+// unanswered series makes Exchange report the series tentative with no response time, though Outlook shows it
+// unanswered (seen on Office 365, Mailspring-Sync#194).
 static string mailboxResponse(const json & event) {
     const json & status = JSONObject(event, "responseStatus");
     string response = JSONString(status, "response");
