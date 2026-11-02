@@ -28,6 +28,7 @@ public:
 	class Query;
     list<ICalendarEvent *> Events;
 	map<string, shared_ptr<const TimeZone>> TimeZones; // the object's VTIMEZONEs, by TZID
+	void AttachTimeZone(Date &Value) const;
 
 private:
 	// The colon that ends a content line's name and parameters. A quoted parameter value may
@@ -71,7 +72,6 @@ private:
 		}
 		return "";
 	}
-	void AttachTimeZone(Date &Value) const;
 
 	string GetProperty(const string &Line) const {
 		// if VALUE=DATE or VALUE=DATE-TIME used, then the date is not directly

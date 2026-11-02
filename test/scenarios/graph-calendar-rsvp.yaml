@@ -1,0 +1,245 @@
+name: graph-calendar-rsvp
+description: >
+  The client answers an invitation with a REPLY (EventRSVPTask). On an Outlook calendar it goes
+  through Graph's accept, tentativelyAccept or decline, which tells the organizer, and no REPLY is
+  emailed beside it: that would be a second answer. A REPLY naming an occurrence answers that
+  occurrence, in whatever zone it names it, even one only the invitation defines, which Graph would
+  refuse. A series whose occurrence alone was answered Maybe stays unanswered, as Outlook shows it,
+  though Exchange then reports it tentatively accepted with no response time; a series answer leaves
+  an answered occurrence alone. Graph's copy is then read back into the rows, except that a declined
+  meeting's rows go at once, since Graph no longer holds it. A refused answer, which is not retried
+  unless throttled since a second would be a second email, gives the rows Graph's unanswered copy back
+  in place of the answer the client already wrote. An invitation none of the user's own calendars
+  holds is emailed, as is one only a colleague's calendar holds, and a COUNTER.
+source: "https://learn.microsoft.com/en-us/graph/api/event-accept; https://learn.microsoft.com/en-us/graph/api/event-tentativelyaccept; https://learn.microsoft.com/en-us/graph/api/event-decline (sendResponse)"
+env:
+  CALENDAR_SYNC_NOW: 1791936000 # 2026-10-14T00:00Z
+servers:
+  - fake: outlook
+    smtp: true
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_calendars:
+      - {id: "AAMkADefault=", name: Calendar, isDefaultCalendar: true, owner: {name: Harness Test, address: test@example.test}}
+      - {id: "AAMkADKim=", name: Kim Lee, owner: {name: Kim Lee, address: kim@example.com}}
+    graph_failures:
+      - {route: "^calendars/AAMkADefault=/events/AAMkEvLunch=/accept$", method: POST, status: 503, code: ServiceUnavailable, times: 1}
+    graph_events:
+      AAMkADefault=:
+        - id: "AAMkEvSync="
+          changeKey: "ck-sync-1"
+          iCalUId: "uid-weekly-sync"
+          type: seriesMaster
+          isOrganizer: false
+          subject: Weekly sync
+          start: {dateTime: "2026-10-08T10:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-08T10:30:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          organizer: {emailAddress: {name: Pat Lee, address: pat@example.com}}
+          responseStatus: {response: notResponded}
+          attendees:
+            - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: test@example.test}}
+          recurrence:
+            pattern: {type: weekly, interval: 1, daysOfWeek: [thursday], firstDayOfWeek: sunday}
+            range: {type: noEnd, startDate: "2026-10-08", recurrenceTimeZone: Pacific Standard Time}
+          cancelledOccurrences: []
+          exceptionOccurrences: []
+        - id: "AAMkEvOffsite="
+          changeKey: "ck-offsite-1"
+          iCalUId: "uid-offsite"
+          type: singleInstance
+          isOrganizer: false
+          subject: Offsite
+          start: {dateTime: "2026-10-23T09:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-23T17:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          organizer: {emailAddress: {name: Pat Lee, address: pat@example.com}}
+          responseStatus: {response: notResponded}
+          attendees:
+            - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: test@example.test}}
+        - id: "AAMkEvLunch="
+          changeKey: "ck-lunch-1"
+          iCalUId: "uid-lunch"
+          type: singleInstance
+          isOrganizer: false
+          subject: Team lunch
+          start: {dateTime: "2026-10-27T12:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-27T13:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          organizer: {emailAddress: {name: Pat Lee, address: pat@example.com}}
+          responseStatus: {response: notResponded}
+          attendees:
+            - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: test@example.test}}
+      AAMkADKim=:
+        - id: "AAMkEvKimReview="
+          changeKey: "ck-kim-review-1"
+          iCalUId: "uid-kim-review"
+          type: singleInstance
+          isOrganizer: false
+          subject: Design review
+          start: {dateTime: "2026-10-28T14:00:00.0000000", timeZone: Pacific Standard Time}
+          end: {dateTime: "2026-10-28T15:00:00.0000000", timeZone: Pacific Standard Time}
+          originalStartTimeZone: Pacific Standard Time
+          isAllDay: false
+          lastModifiedDateTime: "2026-10-02T12:00:00Z"
+          organizer: {emailAddress: {name: Sam Diaz, address: sam@example.com}}
+          responseStatus: {response: notResponded}
+          attendees:
+            - {type: required, status: {response: none}, emailAddress: {name: Kim Lee, address: kim@example.com}}
+            - {type: required, status: {response: none}, emailAddress: {name: Harness Test, address: test@example.test}}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft calendar sync complete: 2 calendars", timeout: 90}
+  # One occurrence of the unanswered series, from the calendar, which names it in the series' zone.
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Tentative: Weekly sync"
+      icsRSVPStatus: TENTATIVE
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID;TZID=Pacific Standard Time:20261022T100000\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261022T100000\r\nDTEND;TZID=Pacific Standard Time:20261022T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: maybe_occurrence
+  - wait: {task: maybe_occurrence, timeout: 60}
+  - assert:
+      events:
+        "uid-weekly-sync|":
+          ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test"]
+        "uid-weekly-sync|20261022T170000Z":
+          ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:test@example.test"]
+        "uid-offsite|": {}
+        "uid-lunch|": {}
+        "uid-kim-review|": {}
+  # The whole series, its answered occurrence's VEVENT first. The occurrence keeps its own answer.
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Accepted: Weekly sync"
+      icsRSVPStatus: ACCEPTED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261022T170000Z\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261022T100000\r\nDTEND;TZID=Pacific Standard Time:20261022T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261008T100000\r\nDTEND;TZID=Pacific Standard Time:20261008T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: accept_series
+  - wait: {task: accept_series, timeout: 60}
+  - assert:
+      events:
+        "uid-weekly-sync|":
+          ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test", "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:test@example.test"]
+        "uid-weekly-sync|20261022T170000Z": {}
+        "uid-offsite|": {}
+        "uid-lunch|": {}
+        "uid-kim-review|": {}
+  # The same occurrence, now an exception, from an emailed invitation in a custom zone Graph would refuse.
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Accepted: Weekly sync"
+      icsRSVPStatus: ACCEPTED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Microsoft Corporation//Outlook 16.0 MIMEDIR//EN\r\nMETHOD:REPLY\r\nBEGIN:VTIMEZONE\r\nTZID:Customized Time Zone\r\nBEGIN:STANDARD\r\nDTSTART:16010101T000000\r\nTZOFFSETFROM:-0400\r\nTZOFFSETTO:-0400\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID;TZID=Customized Time Zone:20261022T130000\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Customized Time Zone:20261022T130000\r\nDTEND;TZID=Customized Time Zone:20261022T133000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: accept_exception
+  - wait: {task: accept_exception, timeout: 60}
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Declined: Offsite"
+      icsRSVPStatus: DECLINED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-offsite\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261023T090000\r\nDTEND;TZID=Pacific Standard Time:20261023T170000\r\nSUMMARY:Offsite\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=DECLINED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: decline
+  - wait: {task: decline, timeout: 60}
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Declined: Weekly sync"
+      icsRSVPStatus: DECLINED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID;TZID=Pacific Standard Time:20261029T100000\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261029T100000\r\nDTEND;TZID=Pacific Standard Time:20261029T103000\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=DECLINED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: decline_occurrence
+  - wait: {task: decline_occurrence, timeout: 60}
+  # As the calendar answers: the row first, then the REPLY, which Graph refuses.
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-lunch|"
+      ics_replace:
+        - ["PARTSTAT=NEEDS-ACTION;CN=Harness Test", "PARTSTAT=ACCEPTED;CN=Harness Test"]
+      rsvp: {email: test@example.test, status: ACCEPTED}
+    as: answer_lunch_row
+  - wait: {task: answer_lunch_row, timeout: 60}
+  - assert:
+      events:
+        "uid-weekly-sync|": {}
+        "uid-weekly-sync|20261022T170000Z": {}
+        "uid-lunch|":
+          ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test"]
+        "uid-kim-review|": {}
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Accepted: Team lunch"
+      icsRSVPStatus: ACCEPTED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-lunch\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261027T120000\r\nDTEND;TZID=Pacific Standard Time:20261027T130000\r\nSUMMARY:Team lunch\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: refused
+  - wait: {task: refused, timeout: 60}
+  # Emailed: Exchange never filed it.
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "Accepted: Planning review"
+      icsRSVPStatus: ACCEPTED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:planning-review@example.com\r\nDTSTAMP:20261013T120000Z\r\nDTSTART:20261027T170000Z\r\nDTEND:20261027T180000Z\r\nSUMMARY:Planning review\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: not_filed
+  - wait: {task: not_filed, timeout: 60}
+  # Emailed: only a colleague's calendar holds it, and answering there would speak for them.
+  - client.task:
+      __cls: EventRSVPTask
+      to: sam@example.com
+      subject: "Accepted: Design review"
+      icsRSVPStatus: ACCEPTED
+      method: REPLY
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:REPLY\r\nBEGIN:VEVENT\r\nUID:uid-kim-review\r\nDTSTAMP:20261013T120000Z\r\nDTSTART;TZID=Pacific Standard Time:20261028T140000\r\nDTEND;TZID=Pacific Standard Time:20261028T150000\r\nSUMMARY:Design review\r\nORGANIZER;CN=Sam Diaz:mailto:sam@example.com\r\nATTENDEE;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: colleagues
+  - wait: {task: colleagues, timeout: 60}
+  # Emailed: Graph proposes a time only with a tentative or declined answer.
+  - client.task:
+      __cls: EventRSVPTask
+      to: pat@example.com
+      subject: "New time proposed: Weekly sync"
+      method: COUNTER
+      comment: "Could we meet an hour later?"
+      ics: "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Mailspring//Calendar//EN\r\nMETHOD:COUNTER\r\nBEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261105T180000Z\r\nDTSTAMP:20261013T120000Z\r\nDTSTART:20261105T190000Z\r\nDTEND:20261105T193000Z\r\nSUMMARY:Weekly sync\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    as: counter
+  - wait: {task: counter, timeout: 60}
+expect:
+  task_error: {accept_series: null, maybe_occurrence: null, accept_exception: null, decline: null, decline_occurrence: null, answer_lunch_row: null,
+               refused: "Invalid Response Code: 503", not_filed: null, colleagues: null, counter: null}
+  graph:
+    event_writes:
+      - [POST, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvSync=\\.2026-10-22/tentativelyAccept$", [sendResponse]]
+      - [POST, "^calendars/AAMkADefault=/events/AAMkEvSync=/accept$", [sendResponse]]
+      - [POST, "^calendars/AAMkADefault=/events/AAMkExc\\.AAMkEvSync=\\.2026-10-22/accept$", [sendResponse]]
+      - [POST, "^calendars/AAMkADefault=/events/AAMkEvOffsite=/decline$", [sendResponse]]
+      - [POST, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvSync=\\.2026-10-29/decline$", [sendResponse]]
+    responses_sent: 5
+  smtp:
+    count: 3
+    messages:
+      - {recipients: ["pat@example.com"], headers: {Subject: "Accepted: Planning review"}}
+      - {recipients: ["sam@example.com"], headers: {Subject: "Accepted: Design review"}}
+      - {recipients: ["pat@example.com"], headers: {Subject: "New time proposed: Weekly sync"}}
+  events:
+    "uid-weekly-sync|":
+      ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test", "EXDATE;TZID=Pacific Standard Time:20261029T100000"]
+    "uid-weekly-sync|20261022T170000Z": {}
+    "uid-lunch|":
+      ics_has: ["ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test"]
+    "uid-kim-review|": {}
+  running: true

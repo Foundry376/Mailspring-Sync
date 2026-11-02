@@ -1,8 +1,8 @@
 name: graph-calendar-invitations
 description: >
   Meetings someone else organizes, on the user's Outlook calendar. An answer, here to one
-  occurrence, writes nothing to Graph and isn't read back: it reaches the organizer by email, and
-  the row keeps it until the event changes on Graph. Any other guest edit is refused. A guest who deletes an occurrence, or the whole meeting,
+  occurrence, writes nothing to Graph and isn't read back: the EventRSVPTask beside it answers
+  through Graph, and the row keeps the answer meanwhile. Any other guest edit is refused. A guest who deletes an occurrence, or the whole meeting,
   declines it through Graph with a response to the organizer, as Outlook and Google do, where a
   DELETE would tell the organizer nothing. A meeting or occurrence the organizer cancelled is
   deleted, as Outlook's "Remove from calendar" does: there is no one to answer. An emailed invitation the client adds to the calendar
