@@ -3656,15 +3656,23 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
     Data * messageData = Data::dataWithBytes(messageStr.c_str(), (unsigned int)messageStr.length());
 
     // =========================================================================
-    // Send the RSVP via SMTP
+    // Send the RSVP through Microsoft Graph or SMTP
     // =========================================================================
+
+    logger->info("-- Sending RFC 6047-compliant {} to organizer {}",
+                 method == "REPLY" ? method + " (" + icsRSVPStatus + ")" : method, organizer);
+
+    if (account->sendsViaGraph()) {
+        // Nothing APPENDs a copy of an RSVP, so Exchange keeps its own in Sent Items, as it does
+        // for an answer sent through /accept.
+        _sendMIMEViaGraph(account, messageData, me, Array::array(), {}, false);
+        logger->info("-- {} sent successfully", method);
+        return;
+    }
 
     SMTPSession smtp;
     SMTPProgress sprogress;
     MailUtils::configureSessionForAccount(smtp, account);
-
-    logger->info("-- Sending RFC 6047-compliant {} to organizer {}",
-                 method == "REPLY" ? method + " (" + icsRSVPStatus + ")" : method, organizer);
     smtp.sendMessage(messageData, &sprogress, &err);
 
     if (err != ErrorNone) {
