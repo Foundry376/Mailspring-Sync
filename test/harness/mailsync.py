@@ -503,6 +503,12 @@ class MailsyncProcess:
             out[r["path"]] = {"id": r["id"], "role": r["role"], "localStatus": data.get("localStatus", {})}
         return out
 
+    def db_roles(self) -> dict:
+        """path -> role of every Folder and Label (Gmail's Inbox, Sent Mail and user labels)."""
+        with self.db() as c:
+            rows = c.execute("SELECT path, role FROM Folder UNION ALL SELECT path, role FROM Label").fetchall()
+        return {r["path"]: r["role"] for r in rows}
+
     # -- waiting --------------------------------------------------------------------------
 
     def wait_for(self, predicate: Callable[[], bool], timeout: float, what: str = "condition",

@@ -1308,9 +1308,11 @@ String * String::lowercaseString()
     UErrorCode err;
     String * result = (String *) copy()->autorelease();
     err = U_ZERO_ERROR;
+    // Root locale, not the process default: with a Turkish or Azeri default, "I" lowercases
+    // to dotless "ı" and "i" uppercases to "İ", so "INBOX" stops matching "inbox".
     u_strToLower(result->mUnicodeChars, result->mLength,
         result->mUnicodeChars, result->mLength,
-        NULL, &err);
+        "", &err);
     return result;
 #endif
 }
@@ -1331,9 +1333,11 @@ String * String::uppercaseString()
     UErrorCode err;
     String * result = (String *) copy()->autorelease();
     err = U_ZERO_ERROR;
+    // Root locale, not the process default: with a Turkish or Azeri default, "I" lowercases
+    // to dotless "ı" and "i" uppercases to "İ", so "INBOX" stops matching "inbox".
     u_strToUpper(result->mUnicodeChars, result->mLength,
         result->mUnicodeChars, result->mLength,
-        NULL, &err);
+        "", &err);
     return result;
 #endif
 }

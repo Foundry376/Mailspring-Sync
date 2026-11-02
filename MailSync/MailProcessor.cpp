@@ -573,8 +573,7 @@ void MailProcessor::retrievedMessageBody(Message * message, MessageParser * pars
 
 
 bool MailProcessor::retrievedFileData(File * file, Data * data) {
-    string root = MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "files";
-    string path = MailUtils::pathForFile(root, file, true);
+    string path = MailUtils::pathForFile(MailUtils::filesRootPath(), file, true);
 #ifdef _MSC_VER
     wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
     return (data->writeToFile(AS_WIDE_MCSTR(convert.from_bytes(path))) == ErrorNone);

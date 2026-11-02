@@ -38,6 +38,7 @@
 #include <exception>
 #include <iomanip>
 #include <thread>
+#include <filesystem>
 #include <chrono>
 #include <mutex>
 
@@ -1744,6 +1745,8 @@ void TaskProcessor::performLocalSyncbackEvent(Task * task) {
         // UPDATE: Merge client changes into existing event
         if (eventJSON.count("ics")) {
             _keepPreviousIcs(account, task, existing.get());
+            // The server copy the edit was made on, which a sync can replace before the remote phase.
+            task->data()["baseEtag"] = existing->etag();
             existing->setIcsData(eventJSON["ics"].get<string>());
             // Re-parse ICS to update recurrence fields
             ICalendar cal(existing->icsData());
@@ -1859,12 +1862,13 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
         throw SyncException("not-found", "Event not found for syncback", false);
     }
 
+    // An edit comes from its task: a sync, or an earlier task's read-back, can store the server's copy
+    // over the row after this task's local phase, as when Undo follows a move. A new event comes from
+    // its row, which neither replaces and which holds any edit made since.
+    string ics = event->href() == "" ? event->icsData() : task->data()["event"]["ics"].get<string>();
+
     if (account->syncsCalendarsViaGraph()) {
         string previousIcs = task->data().count("previousIcs") ? task->data()["previousIcs"].get<string>() : "";
-        // An edit comes from its task: an earlier task's read-back can store Graph's copy over the row
-        // after this task's local phase, as when Undo follows a move. A new event comes from its row,
-        // which no read-back replaces and which holds any edit made since.
-        string ics = event->href() == "" ? event->icsData() : task->data()["event"]["ics"].get<string>();
         string writtenId = MicrosoftCalendarWorker(account).writeEvent(event, previousIcs, ics);
         if (writtenId != eventId) {
             lock_guard<mutex> lock(replacedEventIdsMtx);
@@ -1874,7 +1878,13 @@ void TaskProcessor::performRemoteSyncbackEvent(Task * task) {
         return;
     }
     auto dav = make_shared<DAVWorker>(account);
-    dav->writeAndResyncEvent(event);
+    string baseEtag = task->data().count("baseEtag") ? task->data()["baseEtag"].get<string>() : event->etag();
+    // The address a new copy of an invitation was answered as can be one of the account's aliases.
+    set<string> ownAddresses{account->emailAddress()};
+    if (task->data().count("createdAnswer")) {
+        ownAddresses.insert(task->data()["createdAnswer"]["email"].get<string>());
+    }
+    dav->writeAndResyncEvent(event, ics, baseEtag, ownAddresses);
 }
 
 void TaskProcessor::performLocalDestroyEvent(Task * task) {
@@ -2499,12 +2509,20 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
     logger->info("- Sending draft {}", draft.headerMessageId());
 
     // find the sent folder: folder OR label
+    bool isGmail = session->storedCapabilities()->containsIndex(IMAPCapabilityGmail);
+    bool sentIsGmailAllMail = false;
     auto sent = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "sent"));
     if (sent == nullptr) {
         sent = store->find<Label>(Query().equal("accountId", account->id()).equal("role", "sent"));
-        if (sent == nullptr) {
-            throw SyncException("no-sent-folder", "Mailspring doesn't know which folder to use for sent mail. Visit Preferences > Folders to assign a sent folder.", false);
-        }
+    }
+    if (sent == nullptr && isGmail) {
+        // The user can hide Sent Mail from IMAP. Gmail's SMTP still files the copy in All Mail
+        // with \Sent, and a copy appended there gets \Sent below.
+        sent = store->find<Folder>(Query().equal("accountId", account->id()).equal("role", "all"));
+        sentIsGmailAllMail = sent != nullptr;
+    }
+    if (sent == nullptr) {
+        throw SyncException("no-sent-folder", "Mailspring doesn't know which folder to use for sent mail. Visit Preferences > Folders to assign a sent folder.", false);
     }
     String * sentPath = AS_MCSTR(sent->path());
     logger->info("-- Identified `sent` folder: {}", sent->path());
@@ -2587,15 +2605,22 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
 
     for (json & fileJSON : draft.files()) {
         File file{fileJSON};
-        string root = MailUtils::getEnvUTF8("CONFIG_DIR_PATH") + FS_PATH_SEP + "files";
-        string path = MailUtils::pathForFile(root, &file, false);
-        
+        string path = MailUtils::pathForFile(MailUtils::filesRootPath(), &file, false);
+        // attachmentWithContentsOfFile reads a missing file as an empty attachment, which would go out as 0 bytes.
+        std::error_code ec;
+        if (!std::filesystem::exists(std::filesystem::u8path(path), ec)) {
+            throw SyncException("send-failed", "The attachment \"" + file.filename() + "\" is missing from Mailspring's files. Remove it from the draft and attach it again.", false);
+        }
+
 #ifdef _MSC_VER
         wstring_convert<codecvt_utf8<wchar_t>, wchar_t> convert;
         Attachment * a = Attachment::attachmentWithContentsOfFile(AS_WIDE_MCSTR(convert.from_bytes(path)));
 #else
         Attachment * a = Attachment::attachmentWithContentsOfFile(AS_MCSTR(path));
 #endif
+
+        // mailcore names the attachment after the path, whose last part is the name on disk.
+        a->setFilename(AS_MCSTR(file.filename()));
 
         if (file.contentId().is_string()) {
             a->setContentID(AS_MCSTR(file.contentId().get<string>()));
@@ -2708,11 +2733,14 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
         // If the user is on Gmail and the thread had labels, apply those same
         // labels to the new sent message. Otherwise the thread moves /only/ to
         // the sent folder.
-        if (session->storedCapabilities()->containsIndex(IMAPCapabilityGmail)) {
+        if (isGmail && sentFolderMessageUID != 0) {
+            Array * xgmValues = Array::array();
+            if (sentIsGmailAllMail) {
+                xgmValues->addObject(MCSTR("\\Sent"));
+            }
             if (draft.threadId() != "") {
                 auto thread = store->find<Thread>(Query().equal("id", draft.threadId()));
                 if (thread) {
-                    Array * xgmValues = Array::array();
                     for (auto & l : thread->labels()) {
                         string role = l["role"].get<string>();
                         if (role == "inbox" || role == "sent" || role == "drafts") { continue; }
@@ -2720,11 +2748,13 @@ void TaskProcessor::performRemoteSendDraft(Task * task) {
                         logger->info("-- Will add label to new message: {}", xgm);
                         xgmValues->addObject(AS_MCSTR(xgm));
                     }
-                    session->storeLabelsByUID(sentPath, IndexSet::indexSetWithIndex(sentFolderMessageUID), IMAPStoreFlagsRequestKindAdd, xgmValues, &err);
-                    if (err != ErrorNone) {
-                        logger->error("-X IMAP Error: {}. Could not add labels to new message in sent folder. This means the thread may disappear from the inbox.", ErrorCodeToTypeMap[err]);
-                        err = ErrorNone;
-                    }
+                }
+            }
+            if (xgmValues->count() > 0) {
+                session->storeLabelsByUID(sentPath, IndexSet::indexSetWithIndex(sentFolderMessageUID), IMAPStoreFlagsRequestKindAdd, xgmValues, &err);
+                if (err != ErrorNone) {
+                    logger->error("-X IMAP Error: {}. Could not add labels to new message in sent folder. This means the thread may disappear from the inbox.", ErrorCodeToTypeMap[err]);
+                    err = ErrorNone;
                 }
             }
         }
@@ -3597,10 +3627,11 @@ void TaskProcessor::performRemoteSendRSVP(Task * task) {
         if (!line.empty() && line.back() == '\r') {
             line.pop_back();
         }
-        // Skip Content-Type and Content-Transfer-Encoding headers (we'll add our own)
+        // Skip the MIME headers we write below for the multipart body
         string lowerLine = line;
         transform(lowerLine.begin(), lowerLine.end(), lowerLine.begin(), ::tolower);
-        if (lowerLine.find("content-type:") == 0 || lowerLine.find("content-transfer-encoding:") == 0) {
+        if (lowerLine.find("content-type:") == 0 || lowerLine.find("content-transfer-encoding:") == 0 ||
+            lowerLine.find("mime-version:") == 0) {
             continue;
         }
         newHeaders += line + "\r\n";

@@ -1,0 +1,95 @@
+name: search-remote-fetch-newest-first
+description: >
+  Candidates are fetched newest first, a window at a time, whichever folder each is in, so the
+  first rows a client re-running its query sees are the top of its list. A window is the next
+  candidates up to the batch limits, grouped by folder: with mail alternating between INBOX and
+  Archive by date and four-message windows, each window sends one UID FETCH per folder. A folder is sized the first time a window reaches it, so
+  a folder holding only older candidates is sized after the newer ones' bodies are fetched. A
+  newer search arriving while a window's first folder is being sized or fetched stops the search
+  before the window's next folder.
+source: "MailSync/SearchWorker.cpp (candidatesToFetch, fetchCandidates); the reviews of Mailspring-Sync #173 and #185"
+servers:
+  - {fake: dovecot}
+env:
+  SEARCH_FETCH_BATCH_MESSAGES: "4"
+setup:
+  - server.create_mailbox: {name: Notes}
+  - server.create_mailbox: {name: Lists}
+  - server.create_mailbox: {name: Left}
+  - server.create_mailbox: {name: Right}
+  - server.create_mailbox: {name: Up}
+  - server.create_mailbox: {name: Down}
+  # Messages 1-6, each three minutes newer than the one before.
+  - server.append: {mailbox: INBOX, messages: {count: 1, age_days: 120}}
+  - server.append: {mailbox: Archive, messages: {count: 1, age_days: 120}}
+  - server.append: {mailbox: INBOX, messages: {count: 1, age_days: 120}}
+  - server.append: {mailbox: Archive, messages: {count: 1, age_days: 120}}
+  - server.append: {mailbox: INBOX, messages: {count: 1, age_days: 120}}
+  - server.append: {mailbox: Archive, messages: {count: 1, age_days: 120}}
+  # Messages 7-11: Lists holds the oldest, Notes the four newer.
+  - server.append: {mailbox: Lists, messages: {count: 1, age_days: 120}}
+  - server.append: {mailbox: Notes, messages: {count: 4, age_days: 120}}
+  # Messages 12-15, alternating.
+  - server.append: {mailbox: Left, messages: {count: 1, age_days: 120}}
+  - server.append: {mailbox: Right, messages: {count: 1, age_days: 120}}
+  - server.append: {mailbox: Left, messages: {count: 1, age_days: 120}}
+  - server.append: {mailbox: Right, messages: {count: 1, age_days: 120}}
+  # Messages 16-17: Down older, Up newer.
+  - server.append: {mailbox: Down, messages: {count: 1, age_days: 120}}
+  - server.append: {mailbox: Up, messages: {count: 1, age_days: 120}}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [subject, Message], folders: [INBOX, Archive], fetchLimit: 100}
+    as: interleaved
+  - wait: {quiescent: true}
+  - client.search: {criteria: [subject, Message], folders: [Notes, Lists], fetchLimit: 100}
+    as: sized_lazily
+  - wait: {quiescent: true}
+  - server.pause: {at: {hook: before_fetch_body, mailbox: Right, delay: 3}}
+  - client.search: {criteria: [subject, Message], folders: [Left, Right], fetchLimit: 100, wait: false}
+    as: superseded
+  - wait: {log: 'Search search-\d+-2: 4 candidate\(s\), 0 stored, 4 to fetch', timeout: 30}
+  - client.search: {criteria: [subject, Message], folders: [Left, Right], fetchLimit: 100}
+    as: newer
+  - wait: {quiescent: true}
+  # Superseded while sizing the window's first folder: the second folder is never sized.
+  - server.pause: {at: {hook: before_command, command: "^UID FETCH [0-9:,]+ \\(UID RFC822\\.SIZE\\)", mailbox: Up, delay: 3}}
+  - client.search: {criteria: [subject, Message], folders: [Up, Down], fetchLimit: 100, wait: false}
+    as: superseded_sizing
+  - wait: {log: 'Search search-\d+-4: 2 candidate\(s\), 0 stored, 2 to fetch', timeout: 30}
+  - client.search: {criteria: [subject, Message], folders: [Up, Down], fetchLimit: 100}
+    as: newer_sizing
+  - wait: {log: 'Search search-\d+-5: fetched 1 message\(s\) .* 2 of 2 stored', timeout: 30}
+expect:
+  search:
+    interleaved: {candidates: 6, fetched: 6, skipped: 0, phase: done, folder_errors: 0, fetch_events: {min: 2}}
+    sized_lazily: {candidates: 5, fetched: 5, skipped: 0, phase: done, folder_errors: 0}
+    newer: {candidates: 4, fetched: 4, skipped: 0, phase: done}
+    newer_sizing: {candidates: 2, fetched: 2, skipped: 0, phase: done}
+  search_not_done: [superseded, superseded_sizing]
+  log_order:
+    # interleaved: messages 6, 5, 4, 3 (Archive and INBOX UIDs 3 and 2), then 2, 1 (UID 1 of each).
+    - 'Search search-\d+-0: 6 candidate'
+    - 'sent \d+ UID FETCH 2:3 BODY\.PEEK\[\]'
+    - 'Search search-\d+-0: fetched 2 message\(s\) .* from Archive'
+    - 'sent \d+ UID FETCH 2:3 BODY\.PEEK\[\]'
+    - 'Search search-\d+-0: fetched 2 message\(s\) .* from INBOX'
+    - 'sent \d+ UID FETCH 1 BODY\.PEEK\[\]'
+    - 'Search search-\d+-0: fetched 1 message\(s\) .* from Archive'
+    - 'sent \d+ UID FETCH 1 BODY\.PEEK\[\]'
+    - 'Search search-\d+-0: fetched 1 message\(s\) .* from INBOX'
+    # sized_lazily: Lists is sized only after Notes' four bodies are in.
+    - 'Search search-\d+-1: 5 candidate'
+    - 'sent \d+ UID FETCH 1:4 \(UID RFC822\.SIZE\)'
+    - 'sent \d+ UID FETCH 1:4 BODY\.PEEK\[\]'
+    - 'sent \d+ UID FETCH 1 \(UID RFC822\.SIZE\)'
+    - 'sent \d+ UID FETCH 1 BODY\.PEEK\[\]'
+  log_count:
+    # Each folder once per search: interleaved 2, sized_lazily 2, superseded 2, newer 1 (Left;
+    # Right's bodies are stored), superseded_sizing 1 (Up), newer_sizing 2.
+    '^sent \d+ UID FETCH [0-9:,]+ \(UID RFC822\.SIZE\)$': 10
+    'Search search-\d+-0: fetched \d+ message\(s\)': 4
+    'Search search-\d+-1: fetched \d+ message\(s\)': 2
+    'Search search-\d+-2: fetched \d+ message\(s\)': 1
+    'Search search-\d+-3: 4 candidate\(s\), 2 stored, 2 to fetch': 1
+  running: true

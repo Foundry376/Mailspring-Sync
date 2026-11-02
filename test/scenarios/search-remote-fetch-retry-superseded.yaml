@@ -1,0 +1,32 @@
+name: search-remote-fetch-retry-superseded
+description: >
+  A newer search arriving while a refused batch is being retried one message at a time stops
+  the retry between messages, as it stops the batches: the first search fetches no further
+  message and never reports done, and the one body it stored stays, so the second search
+  counts it as stored and fetches the other two. The server holds the first single fetch for
+  three seconds so the second request lands mid-retry.
+source: "MailSync/SearchWorker.cpp (fetchCandidates, superseded); the review of Mailspring-Sync #184"
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 3, age_days: 120}}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, command: "^UID FETCH 1:3 BODY\\.PEEK", mailbox: INBOX}, code: SERVERBUG, text: "Fetch failed"}
+  - server.pause: {at: {hook: before_fetch_body, delay: 3}}
+  - client.search: {criteria: [subject, Message], fetchLimit: 100, wait: false}
+    as: first
+  - wait: {log: 'Search search-\S+: retrying 3 message\(s\) from INBOX one at a time', timeout: 30}
+  - client.search: {criteria: [subject, Message], fetchLimit: 100}
+    as: second
+  - wait: {log: 'Search search-\d+-1: fetched 2 message\(s\) .* 3 of 3 stored', timeout: 30}
+expect:
+  search_not_done: [first]
+  search:
+    second: {candidates: 3, fetched: 3, skipped: 0, phase: done}
+  log_count:
+    'Search search-\S+ superseded': 1
+    'Search search-\d+-1: 3 candidate\(s\), 1 stored, 2 to fetch': 1
+  local_search:
+    '"body of message 3"': [Message 3]
+  running: true

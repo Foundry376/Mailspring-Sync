@@ -60,6 +60,8 @@ public:
     // Builds queries over MessageFolder (folderId, remoteUID) covering every UID in the set.
     static vector<Query> queriesForUIDRangesInIndexSet(string folderId, IndexSet * set);
 
+    static string filesRootPath();
+    static string directoryForFile(string root, string fileId);
     static string pathForFile(string root, File * file, bool create);
 
     static string namespacePrefixOrBlank(IMAPSession * session);
@@ -69,6 +71,9 @@ public:
     static bool isDuplicateAllMail(Account * account, Folder * folder, bool isGmail);
     static string roleForFolderViaFlags(string mainPrefix, IMAPFolder * folder);
     static string roleForFolderViaPath(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
+    static string roleForMailspringFolder(string containerFolderPath, string mainPrefix, IMAPFolder * folder);
+    static vector<string> rolesForGmailFolders(string containerFolderPath, string mainPrefix, Array * folders);
+    static string roleForGmailLabelName(const string & xgmLabel);
 
     static void setBaseIDVersion(time_t identityCreationDate);
 

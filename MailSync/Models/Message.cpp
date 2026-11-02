@@ -16,7 +16,6 @@
 #include "File.hpp"
 #include "Thread.hpp"
 #include "Placement.hpp"
-#include "constants.h"
 
 using namespace std;
 
@@ -418,14 +417,13 @@ bool Message::_isIn(MailStore * store, string role) {
 }
 
 // The roles of the Gmail system labels this message's All Mail copy carries. They come
-// from the X-GM-LABELS names, not the account's Labels: Sent Mail may be hidden from IMAP,
-// and a user label can take a role from its name ("Sent Items").
+// from the X-GM-LABELS names, not the account's Labels: Sent Mail may be hidden from IMAP.
 set<string> Message::_labelRoles() {
     set<string> roles;
     for (auto & l : labels()) {
-        auto role = GMAIL_SYSTEM_LABEL_ROLES.find(l.get<string>());
-        if (role != GMAIL_SYSTEM_LABEL_ROLES.end()) {
-            roles.insert(role->second);
+        string role = MailUtils::roleForGmailLabelName(l.get<string>());
+        if (role != "") {
+            roles.insert(role);
         }
     }
     return roles;

@@ -134,7 +134,7 @@ mailboxes that delta must list, `fetched` whether it is the delta that fetched t
 `folder_roles: {path: role}`, `contacts: {mail: {email: name}, carddav: {id: {email, name}}}`
 (Contact rows and the ContactSearch content autocomplete matches), `calendars: {name: {path,
 color, read_only, owner}}` (Calendar rows by name, and no others), `events: {"icsuid|rid": {href,
-etag, ics_has: [lines]}}` (Event rows by UID and RECURRENCE-ID, and no others), `event_count: n`, `connection_error: {reported: true, cleared: true}`
+etag, ics_has: [lines], ics_lacks: [text]}}` (Event rows by UID and RECURRENCE-ID, and no others), `event_count: n`, `connection_error: {reported: true, cleared: true}`
 (the ProcessState stream behind the client's offline state), `migrate_output: regex` (the
 last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], log_absent:
 [regex]}` (runs `--mode test`, the client's account-add check, and compares its JSON),

@@ -63,13 +63,14 @@ MessageAttributes MessageAttributesForMessage(IMAPMessage * msg) {
     if (labels != nullptr) {
         for (unsigned int ii = 0; ii < labels->count(); ii ++) {
             string str = ((String *)labels->objectAtIndex(ii))->UTF8Characters();
+            string role = MailUtils::roleForGmailLabelName(str);
             // Gmail exposes Trash and Spam as folders and labels. We want them
             // to be folders so we ignore their presence as labels.
-            if ((str == "\\Trash") || (str == "\\Spam")) {
+            if (role == "trash" || role == "spam") {
                 trashSpamLabelPresent = true;
                 continue;
             }
-            if ((str == "\\Draft")) {
+            if (role == "drafts") {
                 draftLabelPresent = true;
             }
             m.labels.push_back(str);

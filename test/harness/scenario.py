@@ -15,6 +15,8 @@ runs against it, and what must be true afterwards. See test/README.md for the vo
       db_matches_server: {}
       stable: {passes: 1}
 """
+import email
+import email.utils
 import hashlib
 import json
 import os
@@ -363,7 +365,12 @@ class ScenarioRun:
         if "quiescent" in arg:
             self.ms.wait_quiescent(timeout=float(arg.get("timeout", 180)), settle=float(arg.get("settle", 2.0)),
                                    ignore_busy=self.ignore_busy)
-        if "log" in arg:
+        if "log" in arg and "count" in arg:
+            # The nth match, for a line the engine logs again on each pass (an idle disconnect).
+            n = int(arg["count"])
+            self.ms.wait_for(lambda: len(self.ms.grep(arg["log"])) >= n, float(arg.get("timeout", 60)),
+                             f"{n} log lines /{arg['log']}/")
+        elif "log" in arg:
             self.ms.wait_for_log(arg["log"], timeout=float(arg.get("timeout", 60)))
         if "counts" in arg:
             self.ms.wait_for(lambda: not self.expect_counts(arg["counts"]), float(arg.get("timeout", 60)),
@@ -510,6 +517,8 @@ class ScenarioRun:
                     session.reject_next = (arg.get("code"), arg.get("text", "Command failed."), bool(arg.get("close")))
                 elif op == "desync":
                     session.desynced = True
+                elif op == "garble":
+                    session.garble_next = True
                 else:
                     self._server_op(op, arg)
                 if delay:
@@ -714,19 +723,22 @@ class ScenarioRun:
         return found[-1] if found else None
 
     def _attachment_file(self, spec: dict) -> dict:
-        """A draft attachment given as {filename, bytes, contentType?, contentId?}: write that
-        many pseudo-random bytes where the engine's MailUtils::pathForFile looks for the file
-        and return the File JSON the client would send."""
+        """A draft attachment given as {filename, bytes, localFilename?, contentType?, contentId?}:
+        write that many pseudo-random bytes in the file's directory under `localFilename` (the
+        name the client records for what it wrote), or `filename` without one, and return the
+        File JSON the client would send."""
         if "bytes" not in spec:
             return spec
         file_id = spec.get("id") or hashlib.sha1(spec["filename"].encode()).hexdigest()[:24]
         folder = self.ms.config_dir / "files" / file_id[0:2] / file_id[2:4] / file_id
         folder.mkdir(parents=True, exist_ok=True)
         data = random.Random(file_id).randbytes(int(spec["bytes"]))
-        (folder / spec["filename"]).write_bytes(data)
+        (folder / spec.get("localFilename", spec["filename"])).write_bytes(data)
         out = {"id": file_id, "__cls": "File", "aid": self.ms.account["id"], "v": 0,
                "filename": spec["filename"], "size": len(data),
                "contentType": spec.get("contentType", "application/octet-stream")}
+        if "localFilename" in spec:
+            out["localFilename"] = spec["localFilename"]
         if spec.get("contentId"):
             out["contentId"] = spec["contentId"]
         return out
@@ -897,6 +909,20 @@ class ScenarioRun:
     def expect_log_present(self, patterns) -> list:
         return [f"log does not contain /{p}/" for p in patterns if not self.ms.grep(p)]
 
+    def expect_log_order(self, patterns) -> list:
+        """[regex, ...]: a line matching each pattern, each after the line the one before matched,
+        e.g. the order of the commands a loop sends."""
+        lines = [l.msg for l in self.ms.log()]
+        i = 0
+        for n, pattern in enumerate(patterns):
+            rx = re.compile(pattern)
+            while i < len(lines) and not rx.search(lines[i]):
+                i += 1
+            if i == len(lines):
+                return [f"log order: no /{pattern}/ after /{patterns[n - 1]}/" if n else f"log order: no /{pattern}/"]
+            i += 1
+        return []
+
     def expect_log_count(self, arg: dict) -> list:
         """{regex: n} or {regex: {min: a, max: b}}: how many log lines match, which bounds a
         loop the engine is meant to take a known number of times (e.g. a draining backlog)."""
@@ -934,9 +960,10 @@ class ScenarioRun:
         return out
 
     def expect_folder_roles(self, arg: dict) -> list:
-        folders = self._named(self.ms.db_folders())
-        return [f"folder {path} has role {folders.get(path, {}).get('role')!r}, expected {role!r}"
-                for path, role in arg.items() if folders.get(path, {}).get("role") != role]
+        """{mailbox: role}: the role of that Folder or Label; "" for none, null for no row."""
+        roles = self._named(self.ms.db_roles())
+        return [f"folder {path} has role {roles.get(path)!r}, expected {role!r}"
+                for path, role in arg.items() if roles.get(path) != role]
 
     def expect_server_counts(self, arg: dict) -> list:
         truth = self.server.truth()
@@ -949,10 +976,12 @@ class ScenarioRun:
                 if sorted(truth.get(mb, {})) != sorted(uids)]
 
     def expect_server_has(self, arg: dict) -> list:
-        """{mailbox: [Message-ID | {message_id, flags}]}: each message is in that mailbox on
-        the server, whatever the engine believes - what proves a task moved the message it was
+        """{mailbox: [Message-ID | {message_id, flags, labels}]}: each message is in that mailbox
+        on the server, whatever the engine believes - what proves a task moved the message it was
         asked to. With `flags`, some copy there carries exactly those tracked flags, which is
-        what tells a message's copies apart when they differ only in unread or starred."""
+        what tells a message's copies apart when they differ only in unread or starred. With
+        `labels` (Gmail), some copy carries at least those X-GM-LABELS, which is how to tell a
+        message is in a label hidden from IMAP."""
         truth = self.server.truth()
         problems = []
         for mb, wanted in arg.items():
@@ -965,6 +994,11 @@ class ScenarioRun:
                 elif isinstance(want, dict) and "flags" in want and set(want["flags"]) not in copies:
                     problems.append(f"server has {mid} in {mb} with flags {[sorted(c) for c in copies]}, "
                                     f"expected {sorted(want['flags'])}")
+                elif isinstance(want, dict) and "labels" in want:
+                    labelled = [set(v.get("labels", ())) for v in held if v["message_id"] == mid]
+                    if not any(set(want["labels"]) <= l for l in labelled):
+                        problems.append(f"server has {mid} in {mb} with labels {[sorted(l) for l in labelled]}, "
+                                        f"expected {sorted(want['labels'])}")
         return problems
 
     def expect_bodies(self, arg: dict) -> list:
@@ -993,6 +1027,27 @@ class ScenarioRun:
                 for where, text in texts:
                     out += [f"{mid} {where} lacks {s!r}" for s in want.get("contains", []) if s not in text]
                     out += [f"{mid} {where} contains {s!r}" for s in want.get("lacks", []) if s in text]
+        return out
+
+    def expect_files(self, arg: dict) -> list:
+        """{mailbox: {uid: bool}}: whether every attachment file of that message is on disk, in
+        the files/<id[0:2]>/<id[2:4]>/<id>/ directory MailUtils::pathForFile writes and the
+        client's AttachmentStore reads."""
+        out = []
+        for mb, wanted in arg.items():
+            uids = list(wanted)
+            for uid, mid in zip(uids, self._resolve_messages({"mailbox": mb, "uids": uids})):
+                with self.ms.db() as c:
+                    files = json.loads(c.execute("SELECT data FROM Message WHERE id = ?", (mid,)).fetchone()["data"]).get("files") or []
+                if not files:
+                    out.append(f"{mb} UID {uid} has no attachment to check")
+                for f in files:
+                    fid = f["id"].lower()   # pathForFile lowercases the id
+                    folder = self.ms.config_dir / "files" / fid[0:2] / fid[2:4] / fid
+                    present = folder.is_dir() and any(folder.iterdir())
+                    if present != bool(wanted[uid]):
+                        out.append(f"{mb} UID {uid} {f['filename']}: {'present' if present else 'missing'}, "
+                                   f"expected {'present' if wanted[uid] else 'missing'}")
         return out
 
     def expect_unfetched_bodies(self, arg: dict) -> list:
@@ -1024,7 +1079,8 @@ class ScenarioRun:
         return [f"placements changed since snapshot {name}: " + "; ".join(changes[:6])] if changes else []
 
     def expect_smtp(self, arg: dict) -> list:
-        """What the fake SMTP server received: count, recipients, headers."""
+        """What the fake SMTP server received: count, recipients, headers, and `attachments`
+        ({filename: decoded size}, every MIME part that names a file)."""
         smtp = getattr(self.server, "smtp", None)
         if smtp is None:
             return ["scenario expects SMTP but the server has no SMTP endpoint"]
@@ -1042,6 +1098,15 @@ class ScenarioRun:
             for h, v in (want.get("headers") or {}).items():
                 if m.header(h) != v:
                     out.append(f"SMTP message {i} header {h} = {m.header(h)!r}, expected {v!r}")
+            if "attachments" in want:
+                got = {}
+                for part in email.message_from_bytes(m.raw).walk():
+                    # Not get_filename(): it strips whitespace, which hides a trailing space the engine sent.
+                    raw = part.get_param("filename", None, "content-disposition") or part.get_param("name")
+                    if raw:
+                        got[email.utils.collapse_rfc2231_value(raw)] = len(part.get_payload(decode=True) or b"")
+                if got != want["attachments"]:
+                    out.append(f"SMTP message {i} attachments {got} != {want['attachments']}")
         return out
 
     def expect_graph(self, arg: dict) -> list:
@@ -1231,8 +1296,8 @@ class ScenarioRun:
         return out
 
     def expect_events(self, arg: dict) -> list:
-        """Event rows, and no others: `{"<icsuid>|<recurrenceId>": {key: value, ics_has: [lines]}}`
-        checks keys of the row's JSON (`href`, `etag`, `status`) and lines its ICS must hold."""
+        """Event rows, and no others: `{"<icsuid>|<recurrenceId>": {key: value, ics_has: [lines], ics_lacks: [text]}}`
+        checks keys of the row's JSON (`href`, `etag`, `status`), lines its ICS must hold and text it must not."""
         with self.ms.db() as c:
             rows = [json.loads(r[0]) for r in c.execute("SELECT data FROM Event").fetchall()]
         keys = sorted(f"{row.get('icsuid')}|{row.get('rid', '')}" for row in rows)
@@ -1249,6 +1314,9 @@ class ScenarioRun:
             for line in want.pop("ics_has", []):
                 if line not in lines:
                     out.append(f"event {key}: no ICS line {line!r} in {lines}")
+            for text in want.pop("ics_lacks", []):
+                if text in (row.get("ics") or ""):
+                    out.append(f"event {key}: ICS holds {text!r}: {lines}")
             for k, v in want.items():
                 if row.get(k) != v:
                     out.append(f"event {key}: {k} {row.get(k)!r}, expected {v!r}")
