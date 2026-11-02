@@ -202,6 +202,7 @@ class MailsyncProcess:
         self._t0 = 0.0
         self._threads: list = []
         self._log_pos = 0
+        self._log_ino = None   # inode of the file _log_pos counts into
         self._log_lock = threading.Lock()
         self._stopped = threading.Event()
         self.wait_reason = ""
@@ -416,27 +417,35 @@ class MailsyncProcess:
         if not self.log_path.exists():
             return
         with self._log_lock:   # the tailer thread and waiters both drain
-            # spdlog rotates at 5 MB (mailsync-<id>.log -> mailsync-<id>.log.1). --verbose
-            # logs every received IMAP line, so a large mailbox rotates several times per run.
-            if self.log_path.stat().st_size < self._log_pos:
-                rotated = self.log_path.with_name(self.log_path.name + ".1")
-                if rotated.exists():
-                    with open(rotated, "rb") as f:
-                        f.seek(self._log_pos)
-                        tail = f.read()
-                    cut = tail.rfind(b"\n")
-                    if cut >= 0:
-                        self._ingest_log(tail[:cut])
+            # spdlog rotates at 5 MB and keeps three files (main.cpp): the live file becomes
+            # .1, .1 becomes .2, and a new live file starts. --verbose logs every IMAP line, and
+            # one APPEND of an 8.8 MB message rotates twice inside the tailer's 0.1 s poll, so
+            # the file this tailer was reading may now be .1 or .2: finish it where it went,
+            # take every rotated file younger than it whole, then start on the new live file.
+            st = self.log_path.stat()
+            if self._log_ino is not None and (st.st_ino != self._log_ino or st.st_size < self._log_pos):
+                rotated = [p for p in (self.log_path.with_name(f"{self.log_path.name}.{i}") for i in range(1, 4)) if p.exists()]
+                ours = next((i for i, p in enumerate(rotated) if p.stat().st_ino == self._log_ino), None)
+                if ours is not None:
+                    self._ingest_file(rotated[ours], self._log_pos)
+                    for p in reversed(rotated[:ours]):
+                        self._ingest_file(p, 0)
+                # else: rotated out past the third file; its tail is gone
                 self._log_pos = 0
-            with open(self.log_path, "rb") as f:
-                f.seek(self._log_pos)
-                chunk = f.read()
-            # only consume complete lines; a line the engine is still writing waits for next time
-            cut = chunk.rfind(b"\n")
-            if cut < 0:
-                return
-            self._log_pos += cut + 1
-            self._ingest_log(chunk[:cut])
+            self._log_ino = st.st_ino
+            self._log_pos += self._ingest_file(self.log_path, self._log_pos)
+
+    def _ingest_file(self, path: Path, pos: int) -> int:
+        """Ingests the complete lines of `path` from byte `pos`; returns how many bytes they took.
+        A line the engine is still writing waits for the next drain."""
+        with open(path, "rb") as f:
+            f.seek(pos)
+            chunk = f.read()
+        cut = chunk.rfind(b"\n")
+        if cut < 0:
+            return 0
+        self._ingest_log(chunk[:cut])
+        return cut + 1
 
     def _ingest_log(self, chunk: bytes):
         t = self.elapsed()
