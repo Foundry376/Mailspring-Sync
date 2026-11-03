@@ -126,7 +126,8 @@ steps:
   - client.task:
       __cls: SyncbackEventTask
       event_of: "uid-weekly-sync|"
-      ics_replace: [["SUMMARY:Weekly sync\r\nSTATUS:CONFIRMED", "SUMMARY:Weekly sync (moved)\r\nSTATUS:CONFIRMED"]]
+      # With a Show as beside it, so the change is refused whole.
+      ics_replace: [["SUMMARY:Weekly sync\r\nSTATUS:CONFIRMED\r\nTRANSP:OPAQUE", "SUMMARY:Weekly sync (moved)\r\nSTATUS:CONFIRMED\r\nTRANSP:TRANSPARENT"]]
     as: retitle
   - wait: {task: retitle, timeout: 60}
   # As the client writes a guest's Show as for one occurrence: an override VEVENT at its own times.
@@ -143,6 +144,13 @@ steps:
       ics_replace: [["SUMMARY:Weekly sync\r\nSTATUS:CONFIRMED\r\nTRANSP:OPAQUE", "SUMMARY:Weekly sync\r\nSTATUS:CONFIRMED\r\nTRANSP:TRANSPARENT"]]
     as: show_as_all
   - wait: {task: show_as_all, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-weekly-sync|"
+      ics_replace:
+        - ["END:VCALENDAR", "BEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261022T170000Z\r\nDTSTART;TZID=Pacific Standard Time:20261022T100000\r\nDTEND;TZID=Pacific Standard Time:20261022T103000\r\nSUMMARY:Weekly sync (moved)\r\nSTATUS:CONFIRMED\r\nTRANSP:TRANSPARENT\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR"]
+    as: retitle_one
+  - wait: {task: retitle_one, timeout: 60}
   - client.task:
       __cls: SyncbackEventTask
       event_of: "uid-weekly-sync|"
@@ -177,7 +185,7 @@ steps:
     as: add_invitation
   - wait: {task: add_invitation, timeout: 60}
 expect:
-  task_error: {answer: null, retitle: not-organizer, show_as_one: null, show_as_all: null, decline_one: null,
+  task_error: {answer: null, retitle: not-organizer, show_as_one: null, show_as_all: null, retitle_one: not-organizer, decline_one: null,
                decline_all: null, remove_cancelled_one: null, remove_cancelled: null, remove_cancelled_series_one: null,
                add_invitation: null}
   graph:
