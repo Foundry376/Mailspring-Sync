@@ -2151,7 +2151,7 @@ void TaskProcessor::removeLateSentCopies(Folder & sent) {
 // Exchange Online can refuse SMTP AUTH for a whole tenant (5.7.139), so accounts that consented
 // to Graph Mail.Send send through Graph instead. The message is created as a draft from our own
 // MIME (so Message-ID, References and the body are exactly what SMTP would have sent), oversized
-// attachments are added to the draft separately, and the draft is sent. The draft is marked
+// attachments are added to the draft separately, and the draft is sent. A composed draft is marked
 // delete-after-submit, so Exchange files no Sent Items copy and the engine APPENDs its own, as
 // it does for SMTP servers that keep none: that copy has the sender's `self` body, without the
 // tracking pixel and rewritten links recipients get.
@@ -2340,7 +2340,7 @@ static bool _graphDraftWasSubmitted(shared_ptr<Account> account, const string & 
 }
 
 // Creates a Graph draft from `mime`, fills it and sends it. The MIME must not carry Bcc; `bcc` is
-// set on the draft instead, and `detached` attachments are added to it separately.
+// set on the draft instead.
 static void _sendMIMEViaGraph(shared_ptr<Account> account, Data * mime, Address * from, Array * bcc, const vector<Attachment *> & detached, bool deleteAfterSubmit) {
     auto logger = spdlog::get("logger");
     string token = _graphAccessToken(account);
@@ -2403,8 +2403,7 @@ static void _sendMIMEViaGraph(shared_ptr<Account> account, Data * mime, Address 
     _throwGraphSendFailed("send the message", sent, UNCONFIRMED);
 }
 
-// Sends a draft through Graph, attachments too large for one request added separately. The
-// builder's MIME must not carry Bcc. Exchange files no Sent Items copy: the caller APPENDs its own.
+// Sends a composed draft through Graph. The builder's MIME must not carry Bcc.
 static void _sendViaGraph(shared_ptr<Account> account, MessageBuilder & builder, Array * bcc) {
     vector<Attachment *> detached = _detachAttachmentsForGraph(builder);
     _sendMIMEViaGraph(account, builder.data(), builder.header()->from(), bcc, detached, true);
