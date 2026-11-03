@@ -2392,11 +2392,13 @@ static bool isOwnWrite(shared_ptr<Event> event, const string & etag) {
 bool DAVWorker::answerHiddenInvitation(shared_ptr<Calendar> calendar, shared_ptr<Event> event, const string & icsData, const set<string> & ownAddresses) {
     if (account->provider() != "gmail") return false;
 
-    set<string> own;
-    for (const auto & address : ownAddresses) own.insert(lowercased(address));
+    // The series' answer, given to every copy Google returns. An invitation to one occurrence has none
+    // and keeps the refusal: answering its copies here would answer the whole series.
+    auto answers = answersIn(icsData);
     string status;
-    for (const auto & [key, partstat] : answersIn(icsData)) {
-        if (own.count(key.substr(key.find(' ') + 1)) && (partstat == "accepted" || partstat == "tentative")) status = partstat;
+    for (const auto & address : ownAddresses) {
+        auto it = answers.find(" " + lowercased(address));
+        if (it != answers.end() && (it->second == "accepted" || it->second == "tentative")) status = it->second;
     }
     if (status == "") return false;
 
