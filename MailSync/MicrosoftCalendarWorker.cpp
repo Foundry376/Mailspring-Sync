@@ -366,6 +366,9 @@ static bool staysOnGuestCopy(const GraphEventChange & change) {
     if (change.kind == GraphEventChange::Kind::CancelOccurrence) {
         return true;
     }
+    if (change.fields.empty()) {
+        return false; // only its times changed, and writeEvent left them out
+    }
     for (const auto & field : change.fields.items()) {
         if (!GUEST_COPY_FIELDS.count(field.key())) {
             return false;
