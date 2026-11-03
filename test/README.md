@@ -139,7 +139,7 @@ etag, ics_has: [lines], ics_lacks: [text]}}` (Event rows by UID and RECURRENCE-I
 last `--mode migrate` stdout), `test_auth: {error, error_service, log: [regex], log_absent:
 [regex]}` (runs `--mode test`, the client's account-add check, and compares its JSON),
 `task_error: {label: key or null or {key, debuginfo: regex}}` (how a labelled task finished), `graph: {count, messages:
-[{recipients, headers, attachments}], drafts, upload_sessions, graph_mail_token_requests,
+[{recipients, headers, attachments, calendar: {method, ics_has: [lines]}}], drafts, upload_sessions, graph_mail_token_requests,
 graph_calendar_token_requests, distinct_tokens, requests: {regex: n}, max_request_bytes,
 event_writes: [[method, route regex, [field names]]], created_subjects, responses_sent}` (what the fake Graph server sent and still holds; `event_writes` every event POST, PATCH, DELETE and answer in order, `created_subjects` the subject each new event was POSTed with, `responses_sent` the answers that told the organizer), `local_search: {FTS5 query:
 [thread subjects]}` (the threads a local search finds in `ThreadSearch`),

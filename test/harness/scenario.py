@@ -1112,7 +1112,9 @@ class ScenarioRun:
     def expect_graph(self, arg: dict) -> list:
         """What the fake Graph server sent: `count`; per message `recipients` (To, Cc and the
         draft's bccRecipients), `headers` (null for one that must be absent), `body_contains` /
-        `body_lacks` strings and `attachments` (file names, wherever they ended up); `drafts` unsent drafts left on the
+        `body_lacks` strings, `attachments` (file names, wherever they ended up) and `calendar`
+        (`method`, the text/calendar part's method parameter, and `ics_has`, lines its decoded
+        iCalendar holds); `drafts` unsent drafts left on the
         server; `upload_sessions` attachments that went through an upload session;
         `graph_mail_token_requests` / `graph_calendar_token_requests` refreshes that asked for
         Graph mail / calendar scopes; `distinct_tokens` two path regexes whose requests used
@@ -1140,6 +1142,17 @@ class ScenarioRun:
             out += [f"Graph message {i} contains {s!r}" for s in want.get("body_lacks", []) if s in sent_mime]
             if "attachments" in want and m.attachment_names() != sorted(want["attachments"]):
                 out.append(f"Graph message {i} attachments {m.attachment_names()} != {sorted(want['attachments'])}")
+            if "calendar" in want:
+                parts = [p for p in m.parsed.walk() if p.get_content_type() == "text/calendar"]
+                if len(parts) != 1:
+                    out.append(f"Graph message {i} has {len(parts)} text/calendar parts, expected 1")
+                else:
+                    if parts[0].get_param("method") != want["calendar"]["method"]:
+                        out.append(f"Graph message {i} calendar method {parts[0].get_param('method')!r}, "
+                                   f"expected {want['calendar']['method']!r}")
+                    lines = parts[0].get_payload(decode=True).decode("utf-8").split("\r\n")
+                    out += [f"Graph message {i}: no ICS line {line!r} in {lines}" for line in want["calendar"].get("ics_has", [])
+                            if line not in lines]
         if "drafts" in arg and len(graph.drafts()) != arg["drafts"]:
             out.append(f"expected {arg['drafts']} unsent Graph drafts, found {len(graph.drafts())}")
         if "upload_sessions" in arg and len(graph.uploads) != arg["upload_sessions"]:
