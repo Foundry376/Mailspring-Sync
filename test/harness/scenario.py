@@ -1113,7 +1113,7 @@ class ScenarioRun:
         """What the fake Graph server sent: `count`; per message `recipients` (To, Cc and the
         draft's bccRecipients), `headers` (null for one that must be absent), `body_contains` /
         `body_lacks` strings, `attachments` (file names, wherever they ended up) and `calendar`
-        (`method`, the text/calendar part's method parameter, and `ics_has`, text its decoded
+        (`method`, the text/calendar part's method parameter, and `ics_has`, lines its decoded
         iCalendar holds); `drafts` unsent drafts left on the
         server; `upload_sessions` attachments that went through an upload session;
         `graph_mail_token_requests` / `graph_calendar_token_requests` refreshes that asked for
@@ -1150,9 +1150,9 @@ class ScenarioRun:
                     if parts[0].get_param("method") != want["calendar"]["method"]:
                         out.append(f"Graph message {i} calendar method {parts[0].get_param('method')!r}, "
                                    f"expected {want['calendar']['method']!r}")
-                    ics = parts[0].get_payload(decode=True).decode("utf-8")
-                    out += [f"Graph message {i} calendar part lacks {s!r}" for s in want["calendar"].get("ics_has", [])
-                            if s not in ics]
+                    lines = parts[0].get_payload(decode=True).decode("utf-8").split("\r\n")
+                    out += [f"Graph message {i}: no ICS line {line!r} in {lines}" for line in want["calendar"].get("ics_has", [])
+                            if line not in lines]
         if "drafts" in arg and len(graph.drafts()) != arg["drafts"]:
             out.append(f"expected {arg['drafts']} unsent Graph drafts, found {len(graph.drafts())}")
         if "upload_sessions" in arg and len(graph.uploads) != arg["upload_sessions"]:

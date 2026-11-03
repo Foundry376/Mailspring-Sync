@@ -59,10 +59,10 @@ expect:
     messages:
       - recipients: ["pat@example.com"]
         headers: {Subject: "Accepted: Offsite"}
-        calendar: {method: REPLY, ics_has: ["METHOD:REPLY", "UID:uid-offsite", "PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test"]}
+        calendar: {method: REPLY, ics_has: ["METHOD:REPLY", "UID:uid-offsite", "ATTENDEE;PARTSTAT=ACCEPTED;CN=Harness Test:mailto:test@example.test"]}
       - recipients: ["pat@example.com"]
         headers: {Subject: "New time proposed: Weekly sync"}
-        calendar: {method: COUNTER, ics_has: ["METHOD:COUNTER", "RECURRENCE-ID:20261029T170000Z", "DTSTART:20261029T180000Z", "PARTSTAT=TENTATIVE"]}
+        calendar: {method: COUNTER, ics_has: ["METHOD:COUNTER", "RECURRENCE-ID:20261029T170000Z", "DTSTART:20261029T180000Z", "ATTENDEE;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:test@example.test"]}
   server_counts: {Sent Items: 2}
   counts: {Sent Items: 2}
   db_matches_server: {}
