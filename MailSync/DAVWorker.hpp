@@ -94,6 +94,7 @@ public:
     bool runForCalendarWithSyncToken(string calendarId, string url, shared_ptr<Calendar> calendar, int retryCount = 0);
 
     bool storeServerCopy(const string & calendarId, const string & calendarUrl, const string & href);
+    bool answerHiddenInvitation(shared_ptr<Calendar> calendar, shared_ptr<Event> event, const string & icsData, const set<string> & ownAddresses);
     void writeAndResyncEvent(shared_ptr<Event> event, const string & icsData, const string & baseEtag, const set<string> & ownAddresses);
     void deleteEvent(shared_ptr<Event> event);
 
