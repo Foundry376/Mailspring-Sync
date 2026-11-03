@@ -359,6 +359,24 @@ static bool declinesOnDelete(bool guest, const json & event) {
     return guest && !JSONBool(event, "isCancelled");
 }
 
+// What Outlook lets a guest set on their own copy; the rest is the organizer's (RFC 5546 section 2.1).
+static const set<string> GUEST_COPY_FIELDS = {"showAs"};
+
+static bool staysOnGuestCopy(const GraphEventChange & change) {
+    if (change.kind == GraphEventChange::Kind::CancelOccurrence) {
+        return true;
+    }
+    if (change.fields.empty()) {
+        return false; // only its times changed, and writeEvent left them out
+    }
+    for (const auto & field : change.fields.items()) {
+        if (!GUEST_COPY_FIELDS.count(field.key())) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // A write as $batch takes it, to `path` from eventPath.
 static json writeRequest(const string & method, const string & path, const json & body = json()) {
     json request = {{"method", method}, {"url", path},
@@ -528,17 +546,21 @@ void MicrosoftCalendarWorker::writeOccurrences(const string & calendarPath, cons
     }
     vector<json> occurrences = findOccurrences(calendarPath, fetchSeries(calendarPath, graphId), anchors, failures);
     vector<json> writes {};
+    bool declines = false;
     for (size_t i = 0; i < changes.size(); i++) {
         if (occurrences[i].is_null()) {
             continue;
         }
         string path = eventPath(calendarPath, JSONString(occurrences[i], "id"));
-        writes.push_back(changes[i].kind == GraphEventChange::Kind::UpdateOccurrence
-                             ? writeRequest("PATCH", path, changes[i].fields)
-                             : removalRequest(path, declinesOnDelete(guest, occurrences[i])));
+        if (changes[i].kind == GraphEventChange::Kind::UpdateOccurrence) {
+            writes.push_back(writeRequest("PATCH", path, changes[i].fields));
+        } else {
+            bool decline = declinesOnDelete(guest, occurrences[i]);
+            declines = declines || decline;
+            writes.push_back(removalRequest(path, decline));
+        }
     }
-    // A guest's writes are all removals.
-    vector<GraphResponse> responses = PerformGraphBatch(writes, tokenProvider(), guest ? GraphRetry::ThrottledOnly : GraphRetry::ThrottledOrUnavailable);
+    vector<GraphResponse> responses = PerformGraphBatch(writes, tokenProvider(), declines ? GraphRetry::ThrottledOnly : GraphRetry::ThrottledOrUnavailable);
     for (size_t i = 0; i < writes.size(); i++) {
         if (!responses[i].ok()) {
             string url = MicrosoftGraphURL() + JSONString(writes[i], "url");
@@ -619,8 +641,12 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
         }
         vector<GraphEventChange> changes = GraphICS::changesBetween(graphId == "" ? "" : previousIcs, ics, startUTC);
         for (auto & change : changes) {
-            // A guest's only edit is removing an occurrence, which declines it.
-            if (guest && change.kind != GraphEventChange::Kind::CancelOccurrence) {
+            if (guest && change.kind == GraphEventChange::Kind::UpdateOccurrence) {
+                // A new override always names its times; a guest's copy keeps the organizer's.
+                change.fields.erase("start");
+                change.fields.erase("end");
+            }
+            if (guest && !staysOnGuestCopy(change)) {
                 throw GraphEditRefused("not-organizer", "Only the organizer can change this meeting");
             }
             if (onlineMeeting && change.fields.count("body")) {

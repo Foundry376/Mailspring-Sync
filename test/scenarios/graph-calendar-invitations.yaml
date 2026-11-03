@@ -2,7 +2,8 @@ name: graph-calendar-invitations
 description: >
   Meetings someone else organizes, on the user's Outlook calendar. An answer, here to one
   occurrence, writes nothing to Graph and isn't read back: the EventRSVPTask beside it answers
-  through Graph, and the row keeps the answer meanwhile. Any other guest edit is refused. A guest who deletes an occurrence, or the whole meeting,
+  through Graph, and the row keeps the answer meanwhile. A guest's Show as is their own, written to their copy
+  of one occurrence or the whole meeting, without the occurrence's times. Any other guest edit is refused, a moved occurrence included. A guest who deletes an occurrence, or the whole meeting,
   declines it through Graph with a response to the organizer, as Outlook and Google do, where a
   DELETE would tell the organizer nothing. A meeting or occurrence the organizer cancelled is
   deleted, as Outlook's "Remove from calendar" does: there is no one to answer. An emailed invitation the client adds to the calendar
@@ -125,9 +126,38 @@ steps:
   - client.task:
       __cls: SyncbackEventTask
       event_of: "uid-weekly-sync|"
-      ics_replace: [["SUMMARY:Weekly sync\r\nSTATUS:CONFIRMED", "SUMMARY:Weekly sync (moved)\r\nSTATUS:CONFIRMED"]]
+      # With a Show as beside it, so the change is refused whole.
+      ics_replace: [["SUMMARY:Weekly sync\r\nSTATUS:CONFIRMED\r\nTRANSP:OPAQUE", "SUMMARY:Weekly sync (moved)\r\nSTATUS:CONFIRMED\r\nTRANSP:TRANSPARENT"]]
     as: retitle
   - wait: {task: retitle, timeout: 60}
+  # As the client writes a guest's Show as for one occurrence: an override VEVENT at its own times.
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-weekly-sync|"
+      ics_replace:
+        - ["END:VCALENDAR", "BEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261015T170000Z\r\nDTSTART;TZID=Pacific Standard Time:20261015T100000\r\nDTEND;TZID=Pacific Standard Time:20261015T103000\r\nSUMMARY:Weekly sync\r\nSTATUS:CONFIRMED\r\nTRANSP:TRANSPARENT\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR"]
+    as: show_as_one
+  - wait: {task: show_as_one, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-weekly-sync|"
+      ics_replace: [["SUMMARY:Weekly sync\r\nSTATUS:CONFIRMED\r\nTRANSP:OPAQUE", "SUMMARY:Weekly sync\r\nSTATUS:CONFIRMED\r\nTRANSP:TRANSPARENT"]]
+    as: show_as_all
+  - wait: {task: show_as_all, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-weekly-sync|"
+      ics_replace:
+        - ["END:VCALENDAR", "BEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261022T170000Z\r\nDTSTART;TZID=Pacific Standard Time:20261022T100000\r\nDTEND;TZID=Pacific Standard Time:20261022T103000\r\nSUMMARY:Weekly sync (moved)\r\nSTATUS:CONFIRMED\r\nTRANSP:TRANSPARENT\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR"]
+    as: retitle_one
+  - wait: {task: retitle_one, timeout: 60}
+  - client.task:
+      __cls: SyncbackEventTask
+      event_of: "uid-weekly-sync|"
+      ics_replace:
+        - ["END:VCALENDAR", "BEGIN:VEVENT\r\nUID:uid-weekly-sync\r\nRECURRENCE-ID:20261022T170000Z\r\nDTSTART;TZID=Pacific Standard Time:20261022T110000\r\nDTEND;TZID=Pacific Standard Time:20261022T113000\r\nSUMMARY:Weekly sync\r\nSTATUS:CONFIRMED\r\nTRANSP:TRANSPARENT\r\nORGANIZER;CN=Pat Lee:mailto:pat@example.com\r\nATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR"]
+    as: move_one
+  - wait: {task: move_one, timeout: 60}
   - client.task:
       __cls: SyncbackEventTask
       event_of: "uid-weekly-sync|"
@@ -162,10 +192,13 @@ steps:
     as: add_invitation
   - wait: {task: add_invitation, timeout: 60}
 expect:
-  task_error: {answer: null, retitle: not-organizer, decline_one: null, decline_all: null, remove_cancelled_one: null,
-               remove_cancelled: null, remove_cancelled_series_one: null, add_invitation: null}
+  task_error: {answer: null, retitle: not-organizer, show_as_one: null, show_as_all: null, retitle_one: not-organizer, move_one: not-organizer, decline_one: null,
+               decline_all: null, remove_cancelled_one: null, remove_cancelled: null, remove_cancelled_series_one: null,
+               add_invitation: null}
   graph:
     event_writes:
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvSync=\\.2026-10-15$", [showAs]]
+      - [PATCH, "^calendars/AAMkADefault=/events/AAMkEvSync=$", [showAs]]
       - [POST, "^calendars/AAMkADefault=/events/AAMkOcc\\.AAMkEvSync=\\.2026-10-29/decline$", [sendResponse]]
       - [POST, "^calendars/AAMkADefault=/events/AAMkEvOffsite=/decline$", [sendResponse]]
       - [DELETE, "^calendars/AAMkADefault=/events/AAMkEvSyncX1=$", []]
@@ -179,6 +212,8 @@ expect:
         - "EXDATE;TZID=Pacific Standard Time:20261029T100000"
         - "EXDATE;TZID=Pacific Standard Time:20261105T100000"
         - "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=Harness Test:mailto:test@example.test"
+      ics_lacks: ["TRANSP:OPAQUE"]
+    "uid-weekly-sync|20261015T170000Z": {}
     "uid-design-sync|":
       ics_has: ["EXDATE;TZID=Pacific Standard Time:20261020T150000"]
   running: true
