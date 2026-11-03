@@ -6,7 +6,9 @@ description: >
   whose text/calendar part names the iTIP method. No copy is APPENDed, so the draft is not marked
   delete-after-submit and Exchange files the Sent Items copy, as it does for an answer through
   /accept. A REPLY Graph refuses fails with send-failed, its draft deleted, and is not emailed
-  over SMTP instead.
+  over SMTP instead. Graph answers the next REPLY's /send with 503 although Exchange took it; that
+  draft is not deleted after submit, so the engine finds it in Sent Items as no longer a draft and
+  reports the send as complete.
 source: "RFC 6047 section 2.4 (text/calendar method parameter); https://learn.microsoft.com/en-us/graph/outlook-send-mime-message; https://aka.ms/smtp_auth_disabled"
 servers:
   - fake: outlook
@@ -14,6 +16,7 @@ servers:
     graph: true
     graph_failures:
       - {route: "/send$", method: POST, status: 403, code: ErrorAccessDenied, message: "Access is denied. Check credentials and try again.", times: 1}
+      - {route: "/send$", method: POST, status: 503, code: ServiceUnavailable, message: "The service is temporarily unavailable.", times: 1, after: true}
 mailboxes:
   INBOX: {messages: 2}
 steps:
@@ -65,5 +68,6 @@ expect:
         calendar: {method: COUNTER, ics_has: ["METHOD:COUNTER", "RECURRENCE-ID:20261029T170000Z", "DTSTART:20261029T180000Z", "ATTENDEE;PARTSTAT=TENTATIVE;CN=Harness Test:mailto:test@example.test"]}
   server_counts: {Sent Items: 2}
   counts: {Sent Items: 2}
+  log_present: ["Exchange accepted the message despite HTTP 503"]
   db_matches_server: {}
   running: true
