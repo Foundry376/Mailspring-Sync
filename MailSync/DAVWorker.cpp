@@ -2382,6 +2382,58 @@ static bool isOwnWrite(shared_ptr<Event> event, const string & etag) {
 }
 
 /*
+ Gmail keeps an emailed invitation that the account's "Add invitations to my calendar" setting holds
+ back as a hidden private copy. CalDAV neither lists it nor takes a new resource with its UID (a 400
+ with an empty DAV:error, measured November 2026); only the Calendar API's showHiddenInvitations finds
+ it. Answering it there, as Gmail's own RSVP buttons do, puts it on the calendar. The client has
+ emailed its REPLY already, so Google is asked not to send one too. Returns whether a copy took the
+ answer `icsData` gives us.
+*/
+bool DAVWorker::answerHiddenInvitation(shared_ptr<Calendar> calendar, shared_ptr<Event> event, const string & icsData, const set<string> & ownAddresses) {
+    if (account->provider() != "gmail") return false;
+
+    set<string> own;
+    for (const auto & address : ownAddresses) own.insert(lowercased(address));
+    string status;
+    for (const auto & [key, partstat] : answersIn(icsData)) {
+        if (own.count(key.substr(key.find(' ') + 1)) && (partstat == "accepted" || partstat == "tentative")) status = partstat;
+    }
+    if (status == "") return false;
+
+    // A Google calendar's CalDAV path is /caldav/v2/<calendar id, percent-encoded>/events/.
+    const string prefix = "/caldav/v2/";
+    string path = calendar->path();
+    string calendarId = path.substr(prefix.size(), path.find('/', prefix.size()) - prefix.size());
+    string eventsUrl = "https://www.googleapis.com/calendar/v3/calendars/" + calendarId + "/events";
+
+    bool answered = false;
+    try {
+        string authorization = "Bearer " + SharedXOAuth2TokenManager()->partsForAccount(account).accessToken;
+        json found = PerformJSONRequest(CreateJSONRequest(eventsUrl + "?showHiddenInvitations=true&iCalUID=" + URLEscape(event->icsUID()), "GET", authorization));
+        for (auto & item : found["items"]) {
+            json attendees = item["attendees"];
+            bool invited = false;
+            for (auto & attendee : attendees) {
+                if (attendee.value("self", false)) {
+                    attendee["responseStatus"] = status;
+                    invited = true;
+                }
+            }
+            if (!invited) continue;
+            string patch = json{{"attendees", attendees}}.dump();
+            PerformJSONRequest(CreateJSONRequest(eventsUrl + "/" + item["id"].get<string>() + "?sendUpdates=none", "PATCH", authorization, patch.c_str()));
+            answered = true;
+        }
+    } catch (std::exception & ex) {
+        logger->warn("-X Could not answer a hidden invitation for {}: {}", event->icsUID(), ex.what());
+    }
+    if (answered) {
+        logger->info("- Answered the hidden invitation for {} through the Calendar API ({})", event->icsUID(), status);
+    }
+    return answered;
+}
+
+/*
  Writes `icsData`, the edit a task made on the server copy with etag `baseEtag`. A PUT replaces the
  whole resource, so it goes over that copy or over one our own earlier write left (the second of two
  quick edits is made on the first, before the first's read-back). Any other copy holds a change the
@@ -2415,28 +2467,31 @@ void DAVWorker::writeAndResyncEvent(shared_ptr<Event> event, const string & icsD
     try {
         performICSRequest(fullUrl, "PUT", icsData, existingEtag);
     } catch (SyncException & e) {
-        // The rows still hold the edit the server refused, and a refusal leaves the calendar's ctag
-        // unchanged, so no sync would replace them. They take the server's copy back; when the server
-        // refused a new event, rows it never held are removed, which no sync would do. Rows with an
-        // href or etag came from the server: a new occurrence row can join a series held at an href
-        // other than the one tried. A new event that failed for another reason keeps its rows.
-        try {
-            bool held = storeServerCopy(event->calendarId(), calendarUrl, href);
-            if (!held && refusedByServer(e) && event->href() == "" && existingEtag == "") {
-                MailStoreTransaction transaction{store, "writeAndResyncEvent"};
-                for (auto & row : store->findAll<Event>(Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()))) {
-                    if (row->href() == "" && row->etag() == "") store->remove(row.get());
+        bool refusedNewEvent = refusedByServer(e) && event->href() == "" && existingEtag == "";
+        if (!refusedNewEvent || !answerHiddenInvitation(calendar, event, icsData, ownAddresses)) {
+            // The rows still hold the edit the server refused, and a refusal leaves the calendar's ctag
+            // unchanged, so no sync would replace them. They take the server's copy back; when the server
+            // refused a new event, rows it never held are removed, which no sync would do. Rows with an
+            // href or etag came from the server: a new occurrence row can join a series held at an href
+            // other than the one tried. A new event that failed for another reason keeps its rows.
+            try {
+                bool held = storeServerCopy(event->calendarId(), calendarUrl, href);
+                if (!held && refusedNewEvent) {
+                    MailStoreTransaction transaction{store, "writeAndResyncEvent"};
+                    for (auto & row : store->findAll<Event>(Query().equal("calendarId", event->calendarId()).equal("icsuid", event->icsUID()))) {
+                        if (row->href() == "" && row->etag() == "") store->remove(row.get());
+                    }
+                    transaction.commit();
                 }
-                transaction.commit();
+            } catch (std::exception & ex) {
+                logger->warn("-X Could not read event {} back: {}", href, ex.what());
             }
-        } catch (std::exception & ex) {
-            logger->warn("-X Could not read event {} back: {}", href, ex.what());
+            if (e.key.find("412") != string::npos) {
+                // Precondition failed - etag conflict, throw a more descriptive error
+                throw SyncException("etag-conflict", "Event was modified by another client. Please refresh and try again.", false);
+            }
+            throw;
         }
-        if (e.key.find("412") != string::npos) {
-            // Precondition failed - etag conflict, throw a more descriptive error
-            throw SyncException("etag-conflict", "Event was modified by another client. Please refresh and try again.", false);
-        }
-        throw;
     }
 
     // 4. Read back the server's version (with its new etag) into every row of the series, so the
