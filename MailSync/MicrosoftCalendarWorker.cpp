@@ -528,17 +528,21 @@ void MicrosoftCalendarWorker::writeOccurrences(const string & calendarPath, cons
     }
     vector<json> occurrences = findOccurrences(calendarPath, fetchSeries(calendarPath, graphId), anchors, failures);
     vector<json> writes {};
+    bool declines = false;
     for (size_t i = 0; i < changes.size(); i++) {
         if (occurrences[i].is_null()) {
             continue;
         }
         string path = eventPath(calendarPath, JSONString(occurrences[i], "id"));
-        writes.push_back(changes[i].kind == GraphEventChange::Kind::UpdateOccurrence
-                             ? writeRequest("PATCH", path, changes[i].fields)
-                             : removalRequest(path, declinesOnDelete(guest, occurrences[i])));
+        if (changes[i].kind == GraphEventChange::Kind::UpdateOccurrence) {
+            writes.push_back(writeRequest("PATCH", path, changes[i].fields));
+        } else {
+            bool decline = declinesOnDelete(guest, occurrences[i]);
+            declines = declines || decline;
+            writes.push_back(removalRequest(path, decline));
+        }
     }
-    // A guest's writes are all removals.
-    vector<GraphResponse> responses = PerformGraphBatch(writes, tokenProvider(), guest ? GraphRetry::ThrottledOnly : GraphRetry::ThrottledOrUnavailable);
+    vector<GraphResponse> responses = PerformGraphBatch(writes, tokenProvider(), declines ? GraphRetry::ThrottledOnly : GraphRetry::ThrottledOrUnavailable);
     for (size_t i = 0; i < writes.size(); i++) {
         if (!responses[i].ok()) {
             string url = MicrosoftGraphURL() + JSONString(writes[i], "url");
