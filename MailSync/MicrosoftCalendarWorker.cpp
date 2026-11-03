@@ -359,12 +359,9 @@ static bool declinesOnDelete(bool guest, const json & event) {
     return guest && !JSONBool(event, "isCancelled");
 }
 
-// What a guest sets on their own copy of a meeting, as Outlook lets them; the rest is the
-// organizer's (RFC 5546 section 2.1.4).
+// What Outlook lets a guest set on their own copy; the rest is the organizer's (RFC 5546 section 2.1).
 static const set<string> GUEST_COPY_FIELDS = {"showAs"};
 
-// A guest's edit that changes only their copy: removing an occurrence, which declines it, or
-// GUEST_COPY_FIELDS.
 static bool staysOnGuestCopy(const GraphEventChange & change) {
     if (change.kind == GraphEventChange::Kind::CancelOccurrence) {
         return true;
@@ -642,7 +639,7 @@ string MicrosoftCalendarWorker::writeEvent(shared_ptr<Event> event, const string
         vector<GraphEventChange> changes = GraphICS::changesBetween(graphId == "" ? "" : previousIcs, ics, startUTC);
         for (auto & change : changes) {
             if (guest && change.kind == GraphEventChange::Kind::UpdateOccurrence) {
-                // An occurrence's first override names its times, which a guest's copy keeps as the organizer set them.
+                // A new override always names its times; a guest's copy keeps the organizer's.
                 change.fields.erase("start");
                 change.fields.erase("end");
             }
