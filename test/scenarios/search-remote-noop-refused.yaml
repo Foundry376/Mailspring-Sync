@@ -1,0 +1,28 @@
+name: search-remote-noop-refused
+description: >
+  A refused NOOP before searching the already-selected folder is handled like a refused
+  SEARCH: the search retries once on a fresh connection, through connect() and its login
+  backoff, and finds the folder's mail. It never searches on after the NOOP failed, which
+  would let mailcore log in again on its own.
+source: "MailSync/SearchWorker.cpp (searchFolder)"
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: {count: 2, age_days: 120}}
+steps:
+  - wait: quiescent
+  - client.search: {criteria: [subject, Message], folders: [INBOX]}
+    as: first
+  - wait: {quiescent: true}
+  - server.reject: {at: {hook: before_command, command: "^NOOP", mailbox: INBOX}, code: SERVERBUG, text: "Noop failed"}
+  - client.search: {criteria: [subject, Message], folders: [INBOX]}
+    as: refused
+  - wait: {quiescent: true}
+expect:
+  search:
+    first: {phase: done, folder_errors: 0}
+    refused: {phase: done, folder_errors: 0}
+  log_count:
+    'Search \S+ in INBOX: 2 match\(es\)': 2
+    'Search \S+ in INBOX failed: \S+, retrying on a fresh connection': 1
+  running: true

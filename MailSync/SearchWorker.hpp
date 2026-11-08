@@ -94,6 +94,7 @@ private:
     void connect();
     void disconnect();
     void disconnectAfterParseError(ErrorCode err);
+    IndexSet * searchFolder(shared_ptr<Folder> folder, IMAPSearchExpression * expression, ErrorCode * err);
     vector<shared_ptr<Folder>> foldersToSearch(const json & request, bool gmail);
     void collectLocalMessages(string folderId, IndexSet * uids, SearchResults & results);
     vector<SearchMatch> candidatesToFetch(SearchResults & results, size_t fetchLimit, FetchProgress & progress);
