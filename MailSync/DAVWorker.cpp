@@ -27,6 +27,9 @@
 
 #include <string>
 #include <set>
+#include <optional>
+#include <algorithm>
+#include <sstream>
 #include <curl/curl.h>
 
 
@@ -744,6 +747,45 @@ string DAVWorker::resolvedCalendarURL(const string & calPath) {
         throw SyncException("no-caldav", "CalDAV is not available for this account", false);
     }
     return replacePath(cachedCalendarHomeURL, calPath);
+}
+
+// The compliance classes `url` lists in its OPTIONS response. Every DAV header counts (RFC 4918
+// section 10.1): Cyrus and DAViCal spread the list across several, and over HTTP/2 the field
+// name arrives lowercase.
+set<string> DAVWorker::davComplianceClasses(const string & _url) {
+    string url = _url.find("http") != 0 ? "https://" + _url : _url;
+    string authorization = getAuthorizationHeader();
+    CurlRequestData *requestData = new CurlRequestData();
+    requestData->headers = curl_slist_append(requestData->headers, authorization.c_str());
+
+    CURL * curl_handle = CreateCurlHandle();
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_handle, CURLOPT_CONNECTTIMEOUT, 40);
+    curl_easy_setopt(curl_handle, CURLOPT_CUSTOMREQUEST, "OPTIONS");
+    curl_easy_setopt(curl_handle, CURLOPT_HTTPHEADER, requestData->headers);
+    curl_easy_setopt(curl_handle, CURLOPT_PRIVATE, requestData);
+    capturedHeaders.clear();
+    curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, headerCallback);
+    PerformRequest(curl_handle);
+    CleanupCurlRequest(curl_handle);
+
+    set<string> classes;
+    istringstream lines(capturedHeaders);
+    string line;
+    while (getline(lines, line)) {
+        line.erase(remove_if(line.begin(), line.end(), [](unsigned char c) { return isspace(c); }), line.end());
+        string name = line.substr(0, 4);
+        transform(name.begin(), name.end(), name.begin(), ::tolower);
+        if (name != "dav:") {
+            continue;
+        }
+        istringstream items(line.substr(4));
+        string item;
+        while (getline(items, item, ',')) {
+            classes.insert(item);
+        }
+    }
+    return classes;
 }
 
 void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
@@ -1503,6 +1545,21 @@ void DAVWorker::runCalendars() {
         throw;
     }
 
+    // A server that schedules answers an invitation's organizer itself when we write our
+    // PARTSTAT, so the client must not email a REPLY too. Thunderbird asks the home the same way.
+    optional<bool> homeAutoSchedules;
+    try {
+        auto classes = davComplianceClasses(calendarHomeURL);
+        homeAutoSchedules = classes.count("calendar-auto-schedule") > 0;
+        string listed;
+        for (auto & c : classes) {
+            listed += (listed.empty() ? "" : ", ") + c;
+        }
+        logger->info("Calendar home DAV classes: {}", listed);
+    } catch (SyncException & e) {
+        logger->warn("Calendar home OPTIONS failed ({}); keeping what each calendar recorded", e.key);
+    }
+
     auto local = store->findAllMap<Calendar>(Query().equal("accountId", account->id()), "id");
     // `local` is indexed with operator[] below, which adds an entry for every calendar this pass
     // creates, so the set of calendars held before the pass is taken now.
@@ -1620,6 +1677,10 @@ void DAVWorker::runCalendars() {
                 calendar->setOwnership(ownership);
                 metadataChanged = true;
             }
+            if (homeAutoSchedules.has_value() && calendar->autoSchedule() != *homeAutoSchedules) {
+                calendar->setAutoSchedule(*homeAutoSchedules);
+                metadataChanged = true;
+            }
             if (!orderStr.empty()) {
                 try {
                     int order = std::stoi(orderStr);
@@ -1645,6 +1706,7 @@ void DAVWorker::runCalendars() {
             calendar->setDescription(description);
             calendar->setReadOnly(readOnly);
             calendar->setOwnership(ownership);
+            calendar->setAutoSchedule(homeAutoSchedules.value_or(false));
             const char * writability = readOnly ? "read-only"
                                      : advertisedPrivileges ? "writable"
                                      : "writable, server advertises no privilege set";

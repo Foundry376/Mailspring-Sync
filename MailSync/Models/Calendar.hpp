@@ -58,6 +58,11 @@ public:
     string ownership();
     void setOwnership(string ownership);
 
+    // Whether the server sends this calendar's scheduling messages itself: its home's OPTIONS
+    // listed calendar-auto-schedule (RFC 6638 section 2). Stored under "auto_schedule".
+    bool autoSchedule();
+    void setAutoSchedule(bool autoSchedule);
+
     int order();
     void setOrder(int order);
 

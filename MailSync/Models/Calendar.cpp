@@ -103,6 +103,14 @@ void Calendar::setOwnership(string ownership) {
     _data["owner"] = ownership;
 }
 
+bool Calendar::autoSchedule() {
+    return _data.count("auto_schedule") ? _data["auto_schedule"].get<bool>() : false;
+}
+
+void Calendar::setAutoSchedule(bool autoSchedule) {
+    _data["auto_schedule"] = autoSchedule;
+}
+
 int Calendar::order() {
     return _data.count("order") ? _data["order"].get<int>() : 0;
 }

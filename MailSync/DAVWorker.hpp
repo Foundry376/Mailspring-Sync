@@ -25,6 +25,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <set>
 
 #include "spdlog/spdlog.h"
 
@@ -72,6 +73,7 @@ public:
     
     shared_ptr<ContactBook> resolveAddressBook();
     string resolveCalendarHomeURL();
+    set<string> davComplianceClasses(const string & url);
 
     // Returns the full https:// URL for a calendar collection path.
     // For Gmail, prepends calHost. For all other accounts, resolves
