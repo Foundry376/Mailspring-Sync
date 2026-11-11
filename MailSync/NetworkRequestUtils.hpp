@@ -45,9 +45,9 @@ CURL * CreateCalDavRequest(string url, string method = "GET", const char * paylo
 
 // Microsoft issues access tokens per resource: one refresh token yields either a token for
 // IMAP/SMTP (outlook.office.com) or one for Microsoft Graph, never both at once. Graph calendars
-// get their own token: accounts authorized before Graph sending granted the calendar scopes but
-// not the mail ones, and a refresh asking for any ungranted scope is refused outright.
-enum class OAuthTokenAudience { Mail, MicrosoftGraphMail, MicrosoftGraphCalendars };
+// and contacts get their own tokens: accounts authorized before Graph sending granted those scopes
+// but not the mail ones, and a refresh asking for any ungranted scope is refused outright.
+enum class OAuthTokenAudience { Mail, MicrosoftGraphMail, MicrosoftGraphCalendars, MicrosoftGraphContacts };
 
 const json MakeOAuthRefreshRequest(string provider, string clientId, string refreshToken, OAuthTokenAudience audience = OAuthTokenAudience::Mail);
 

@@ -146,5 +146,17 @@ def contact(conn: sqlite3.Connection, source: str, *, email: Optional[str] = Non
             "hidden": bool(row["hidden"]), "search": search[0] if search else None}
 
 
+def graph_contact(conn: sqlite3.Connection, graph_id: str) -> Optional[dict]:
+    """The Contact row holding Graph contact `graph_id`, shaped like contact(), with the row's
+    JSON (`json`) as the engine streams it."""
+    row = conn.execute("SELECT id, email, json_extract(data, '$.name') AS name, refs, hidden, data FROM Contact "
+                       "WHERE source = 'graph' AND json_extract(data, '$.info.id') = ?", (graph_id,)).fetchone()
+    if not row:
+        return None
+    search = conn.execute("SELECT content FROM ContactSearch WHERE content_id = ?", (row["id"],)).fetchone()
+    return {"id": row["id"], "email": row["email"], "name": row["name"], "refs": row["refs"],
+            "hidden": bool(row["hidden"]), "search": search[0] if search else None, "json": json.loads(row["data"])}
+
+
 def thread_counts(conn: sqlite3.Connection) -> dict:
     return {r[0]: (r[1], r[2]) for r in conn.execute("SELECT categoryId, unread, total FROM ThreadCounts")}

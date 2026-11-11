@@ -1,0 +1,107 @@
+name: graph-contacts-tasks
+description: >
+  Contact edits on an Office 365 account go to Graph. A new contact is POSTed with the fields the
+  client filled in and its row takes Graph's id and changeKey. An edit PATCHes only the fields it
+  changed, with displayName beside them so Graph doesn't compose a new one; a cleared address is
+  sent as {}, since Graph answers null there with a 500. An edit Graph refuses (a fourth email)
+  fails its task and the row is read back from Graph. A deleted contact is DELETEd. Contact groups
+  are refused: Graph has none. A later pass finds the contact the engine created already stored.
+source: "contact-update and the 3-address limit (ErrorInvalidProperty), null address (500) and {} (cleared) observed on an Office 365 tenant, 2026-11-11; https://learn.microsoft.com/en-us/graph/api/resources/contact (displayName)"
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_contacts:
+      - id: "AAkALg/ada+Contact="
+        title: "Dr."
+        givenName: Ada
+        surname: Lovelace
+        emailAddresses: [{name: Ada Lovelace, address: ada@example.com}]
+        homeAddress: {street: 1 St James Sq, city: London, countryOrRegion: UK, postalCode: SW1}
+      - id: "AAkALg/grace+Contact="
+        givenName: Grace
+        surname: Hopper
+        emailAddresses: [{name: Grace Hopper, address: grace@example.com}]
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft contact sync complete", timeout: 90}
+  - client.task:
+      __cls: SyncbackContactTask
+      contact:
+        s: graph
+        name: Katherine Johnson
+        email: katherine@example.com
+        info:
+          displayName: Katherine Johnson
+          givenName: Katherine
+          surname: Johnson
+          emailAddresses: [{name: Katherine Johnson, address: katherine@example.com}]
+          mobilePhone: "+1 555 0123"
+    as: create
+  - wait: {task: create, timeout: 60}
+  - client.task:
+      __cls: SyncbackContactTask
+      contact_of: "AAkALg/ada+Contact="
+      info_set: {surname: King, displayName: Dr. Ada King, jobTitle: Programmer}
+    as: edit
+  - wait: {task: edit, timeout: 60}
+  - client.task:
+      __cls: SyncbackContactTask
+      contact_of: "AAkALg/ada+Contact="
+      info_set: {homeAddress: null}
+    as: clear
+  - wait: {task: clear, timeout: 60}
+  - client.task:
+      __cls: SyncbackContactTask
+      contact_of: "AAkALg/1+Contact="
+      info_set:
+        emailAddresses: [{address: g1@example.com}, {address: g2@example.com}, {address: g3@example.com}, {address: g4@example.com}]
+    as: refused
+  - wait: {task: refused, timeout: 60}
+  - client.task:
+      __cls: SyncbackContactGroupTask
+      group: {name: Friends}
+    as: group
+  - wait: {task: group, timeout: 60}
+  - client.task:
+      __cls: DestroyContactTask
+      contacts_of: ["AAkALg/grace+Contact="]
+    as: delete
+  - wait: {task: delete, timeout: 60}
+  - restart: {}
+  - wait: {log: "Microsoft contact sync complete", count: 2, timeout: 90}
+expect:
+  task_error:
+    create: null
+    edit: null
+    clear: null
+    refused: {key: "Invalid Response Code: 400", debuginfo: "ErrorInvalidProperty"}
+    group: unsupported
+    delete: null
+  graph:
+    contact_writes:
+      - [POST, "AAkALg/1+Contact=", [displayName, emailAddresses, givenName, mobilePhone, surname]]
+      - [PATCH, "AAkALg/ada+Contact=", [displayName, jobTitle, surname]]
+      - [PATCH, "AAkALg/ada+Contact=", [displayName, homeAddress]]
+      - [DELETE, "AAkALg/grace+Contact=", []]
+    contacts_on_server:
+      "AAkALg/1+Contact=": {displayName: Katherine Johnson, mobilePhone: "+1 555 0123"}
+      "AAkALg/ada+Contact=": {displayName: Dr. Ada King, surname: King, jobTitle: Programmer, homeAddress: {}}
+      "AAkALg/grace+Contact=": null
+  contacts:
+    graph_count: 2
+    graph:
+      "AAkALg/1+Contact=":
+        name: Katherine Johnson
+        email: katherine@example.com
+        info:
+          id: "AAkALg/1+Contact="
+          parentFolderId: "AAMkAG/Contacts="
+          emailAddresses: [{name: Katherine Johnson, address: katherine@example.com}]
+          createdDateTime: null
+          primaryEmailAddress: null
+      "AAkALg/ada+Contact=": {name: Dr. Ada King, info: {jobTitle: Programmer, homeAddress: {}}}
+      "AAkALg/grace+Contact=": null
+  running: true

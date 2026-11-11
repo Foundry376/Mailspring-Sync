@@ -64,6 +64,7 @@ public:
     bool createHelperFolders();
     bool sendsViaGraph();
     bool syncsCalendarsViaGraph();
+    bool syncsContactsViaGraph();
 
     string tableName();
     string constructorName();

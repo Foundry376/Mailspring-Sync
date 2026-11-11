@@ -40,6 +40,7 @@
 #include "DAVWorker.hpp"
 #include "GoogleContactsWorker.hpp"
 #include "MicrosoftCalendarWorker.hpp"
+#include "MicrosoftContactsWorker.hpp"
 #include "SearchWorker.hpp"
 #include "SyncException.hpp"
 #include "Task.hpp"
@@ -71,6 +72,7 @@ shared_ptr<SyncWorker> fgWorker = nullptr;
 shared_ptr<DAVWorker> davWorker = nullptr;
 shared_ptr<GoogleContactsWorker> contactsWorker = nullptr;
 shared_ptr<MicrosoftCalendarWorker> microsoftCalendarWorker = nullptr;
+shared_ptr<MicrosoftContactsWorker> microsoftContactsWorker = nullptr;
 shared_ptr<SearchWorker> searchWorker = nullptr;
 
 shared_ptr<MetadataWorker> metadataWorker = nullptr;
@@ -319,6 +321,24 @@ void runBackgroundSyncWorker() {
     }
 }
 
+// Graph contacts take their own token, so a contacts consent the account lacks (or an admin
+// revoked) stops contact sync alone. Thrown on, runCalContactsSyncWorker would read the refusal
+// as a failed sign-in and stop Graph calendar sync with it.
+void runMicrosoftContactsWorker() {
+    try {
+        microsoftContactsWorker->run();
+    } catch (SyncException & ex) {
+        if (ex.isOffline()) {
+            throw;
+        }
+        spdlog::get("logger")->warn("-X Microsoft contact sync failed: {} {}", ex.key, ex.debuginfo);
+        if (!ex.isRetryable()) {
+            spdlog::get("logger")->info("Stopping Microsoft contact sync for this session.");
+            microsoftContactsWorker = nullptr;
+        }
+    }
+}
+
 void runCalContactsSyncWorker() {
     // wait a few seconds before launching calendar / contact sync. This gives
     // mailsync a minute to kick off and avoids database locking caused by many
@@ -350,6 +370,9 @@ void runCalContactsSyncWorker() {
                 lastContactSync = now;
                 if (contactsWorker) {
                     contactsWorker->run();
+                }
+                if (microsoftContactsWorker) {
+                    runMicrosoftContactsWorker();
                 }
                 davWorker->runContacts();
             }
@@ -1350,6 +1373,9 @@ string exectuablePath = argv[0];
             }
             if (account->syncsCalendarsViaGraph()) {
                 microsoftCalendarWorker = make_shared<MicrosoftCalendarWorker>(account);
+            }
+            if (account->syncsContactsViaGraph()) {
+                microsoftContactsWorker = make_shared<MicrosoftContactsWorker>(account);
             }
             davWorker = make_shared<DAVWorker>(account);
             runCalContactsSyncWorker();

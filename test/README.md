@@ -469,7 +469,16 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   come from `/instances` (daily and weekly series); a PATCH to a series' times drops its
   exceptions and cancellations. A calendar is writable (`canEdit`) and an event the mailbox's own
   (`isOrganizer`) unless the fixture says otherwise (`graph-calendar-event-*`,
-  `graph-calendar-invitations`, `graph-calendar-rsvp*`). It also answers the identity server's DAV host lookup as
+  `graph-calendar-invitations`, `graph-calendar-rsvp*`). Contacts live in the default folder and
+  `graph_contact_folders: [{id, displayName}]` inside it, seeded with `graph_contacts: [Graph
+  contact resources, `parentFolderId` for another folder]` and read through per-folder delta
+  rounds (`Prefer: odata.maxpagesize`, capped by `graph_contacts_page_size`); POST, PATCH and
+  DELETE write them, with Graph's 3-email and 2-phone limits, its 500 on a null address, and
+  its composed displayName; the contacts scope takes its own token, refused with
+  `graph_contacts_consented: false`. Steps `server.graph_contact` / `graph_contact_delete` /
+  `graph_contact_folders` / `graph_contacts_expire_delta` stand in for another client, and
+  `client.task` takes `contact_of: <Graph id>` (with `info_set`) or `contacts_of` for that
+  row as the client sends it (`graph-contacts*`). It also answers the identity server's DAV host lookup as
   production does for a Microsoft account, sending CardDAV discovery to an Outlook on the web
   page that answers 401. The engine reaches it through `MS_GRAPH_URL`, `MS_OAUTH_TOKEN_URL`
   and `IDENTITY_SERVER`, which the server adds to the engine's environment

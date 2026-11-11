@@ -44,6 +44,9 @@ response to the organizer when `sendResponse` is true. Calendar and mail scopes 
 refused by the other's routes with 403, as Graph answers a token missing the permission a request
 needs.
 
+Contacts (contact folders, per-folder delta queries and contact writes) are modelled in
+graph_contacts.py, with their own token: a token for mail or calendars is refused on their routes.
+
 The server also stands in for the Mailspring identity server's DAV host lookup, which sends a
 Microsoft account's CardDAV discovery to Outlook on the web: its /owa/ answers 401, as observed
 on an Outlook.com account.
@@ -59,13 +62,16 @@ from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage, Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from .graph_contacts import DEFAULT_FOLDER_ID, GraphContacts
 
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 UPLOAD_CHUNK_MULTIPLE = 320 * 1024
 GRAPH_SCOPE = "https://graph.microsoft.com/"
 CALENDARS_SCOPE = GRAPH_SCOPE + "Calendars."
+CONTACTS_SCOPE = GRAPH_SCOPE + "Contacts."
 MAIL_SCOPE = "https://outlook.office.com/"
 SENT_ITEMS_ID = "AQMkAGSentItems="
 DRAFTS_ID = "AQMkAGDrafts="
@@ -306,10 +312,11 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(413, "RequestEntityTooLarge", "The request is larger than 4 MB.")
         route = path[len("/v1.0/me/"):]
         token = (self.headers.get("Authorization") or "")[len("Bearer "):]
-        calendar_route = route.split("/")[0] == "calendars"
-        tokens = srv.calendar_tokens if calendar_route else srv.graph_tokens
+        area = route.split("/")[0]
+        tokens = (srv.calendar_tokens if area == "calendars"
+                  else srv.contact_tokens if area in ("contacts", "contactFolders") else srv.graph_tokens)
         if token not in tokens:
-            if token in srv.calendar_tokens or token in srv.graph_tokens:
+            if token in srv.calendar_tokens or token in srv.contact_tokens or token in srv.graph_tokens:
                 return self._error(403, "ErrorAccessDenied", "Access is denied. Check credentials and try again.")
             return self._error(401, "InvalidAuthenticationToken", "Access token is empty or invalid.")
         if tokens[token] < time.time():
@@ -322,6 +329,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._reply(failure.get("status", 500), {"error": {"code": failure.get("code", "ErrorInternalServerError"),
                                "message": failure.get("message", "Injected failure")}}, headers)
 
+        if area in ("contacts", "contactFolders"):
+            return self._contacts_route(route, body)
         if route == "calendars" and self.command == "GET":
             return self._calendars()
         m = re.match(r"^calendars/([^/]+)/events$", route)
@@ -405,7 +414,16 @@ class _Handler(BaseHTTPRequestHandler):
             srv.calendar_tokens[token] = time.time() + srv.token_lifetime
             return self._reply(200, {"token_type": "Bearer", "scope": scope, "expires_in": srv.token_lifetime,
                                      "access_token": token, "refresh_token": srv.refresh_token})
-        graph_requests = sum(1 for sc in srv.token_scopes if GRAPH_SCOPE in sc and CALENDARS_SCOPE not in sc)
+        if CONTACTS_SCOPE in scope:
+            if not srv.contacts_consented:
+                return self._reply(400, {"error": "invalid_grant", "error_description":
+                                         "AADSTS65001: The user or administrator has not consented to use the application."})
+            token = f"contact-token-{len(srv.token_scopes)}"
+            srv.contact_tokens[token] = time.time() + srv.token_lifetime
+            return self._reply(200, {"token_type": "Bearer", "scope": scope, "expires_in": srv.token_lifetime,
+                                     "access_token": token, "refresh_token": srv.refresh_token})
+        graph_requests = sum(1 for sc in srv.token_scopes
+                             if GRAPH_SCOPE in sc and CALENDARS_SCOPE not in sc and CONTACTS_SCOPE not in sc)
         dropped = srv.drop_graph_token or (srv.drop_graph_token_after is not None and graph_requests > srv.drop_graph_token_after)
         if GRAPH_SCOPE in scope and dropped:
             self.close_connection = True   # no response at all: curl reports CURLE_GOT_NOTHING
@@ -425,6 +443,79 @@ class _Handler(BaseHTTPRequestHandler):
             srv.mail_tokens.add(token)
         return self._reply(200, {"token_type": "Bearer", "scope": scope, "expires_in": srv.token_lifetime,
                                  "access_token": token, "refresh_token": srv.refresh_token})
+
+    def _contacts_route(self, route: str, body: bytes):
+        srv: "FakeGraphServer" = self.server.owner
+        contacts = srv.contacts
+        query = parse_qs(urlparse(self.path).query)
+        select = query.get("$select", [""])[0]
+        if route == "contactFolders/contacts" and self.command == "GET":
+            return self._reply(200, _selected(contacts.folders[DEFAULT_FOLDER_ID], select))
+        if route == "contactFolders" and self.command == "GET":
+            with contacts.lock:
+                folders = [f for f in contacts.folders.values() if f["id"] != DEFAULT_FOLDER_ID]
+            return self._reply(200, {"value": [_selected(f, select) for f in folders]})
+        m = re.match(r"^contactFolders/([^/]+)/contacts/delta$", route)
+        if m and self.command == "GET":
+            return self._contacts_delta(unquote(m.group(1)), query)
+        if route == "contacts" and self.command == "POST":
+            fields = json.loads(body or b"{}")
+            refused = contacts.validate(fields)
+            if refused:
+                return self._error(*refused)
+            contact = contacts.put({k: v for k, v in fields.items() if k != "id"})
+            contacts.writes.append({"method": "POST", "id": contact["id"], "fields": sorted(fields)})
+            return self._reply(201, {"@odata.etag": f'W/"{contact["changeKey"]}"', **contact,
+                                     "createdDateTime": "2026-11-11T00:00:00Z",
+                                     "primaryEmailAddress": (contact["emailAddresses"] or [{}])[0]})
+        m = re.match(r"^contacts/([^/]+)$", route)
+        if not m:
+            return self._error(404, "ResourceNotFound", f"no route for {route}")
+        contact_id = unquote(m.group(1))
+        if contact_id not in contacts.contacts:
+            return self._error(404, "ErrorItemNotFound", "The specified object was not found in the store.")
+        if self.command == "GET":
+            return self._reply(200, _selected(contacts.contacts[contact_id], select))
+        if self.command == "DELETE":
+            contacts.delete(contact_id)
+            contacts.writes.append({"method": "DELETE", "id": contact_id, "fields": []})
+            return self._reply(204)
+        if self.command == "PATCH":
+            fields = json.loads(body or b"{}")
+            refused = contacts.validate(fields)
+            if refused:
+                return self._error(*refused)
+            contact = contacts.put({**fields, "id": contact_id})
+            contacts.writes.append({"method": "PATCH", "id": contact_id, "fields": sorted(fields)})
+            return self._reply(200, {"@odata.etag": f'W/"{contact["changeKey"]}"', **contact})
+        return self._error(405, "ErrorInvalidRequest", f"{self.command} is not allowed on {route}")
+
+    def _contacts_delta(self, folder_id: str, query: dict):
+        srv: "FakeGraphServer" = self.server.owner
+        contacts = srv.contacts
+        if folder_id not in contacts.folders:
+            return self._error(404, "ErrorItemNotFound", "The specified folder was not found in the store.")
+        skip = query.get("$skiptoken", [None])[0]
+        if skip is not None:
+            _, items, seq = contacts.rounds[skip]
+        else:
+            begun = contacts.begin_round(folder_id, query.get("$deltatoken", [None])[0])
+            if begun is None:
+                return self._error(410, "SyncStateNotFound", "The sync state generation is not found.")
+            items, seq = begun
+            select = query.get("$select", [""])[0]
+            items = [i if "@removed" in i else {"@odata.type": "#microsoft.graph.contact", "@odata.etag": f'W/"{i["changeKey"]}"',
+                                                 **_selected(i, select)} for i in items]
+        size = int(self._preferences().get("odata.maxpagesize") or 10)
+        if contacts.page_size:
+            size = min(size, contacts.page_size)
+        base = f"{srv.url}/me/contactFolders/{quote(folder_id, safe='')}/contacts/delta"
+        body = {"value": items[:size]}
+        if len(items) > size:
+            body["@odata.nextLink"] = f"{base}?$skiptoken={contacts.save_round(folder_id, items[size:], seq)}"
+        else:
+            body["@odata.deltaLink"] = f"{base}?$deltatoken={contacts.end_round(folder_id, seq)}"
+        return self._reply(200, body)
 
     def _calendars(self):
         srv: "FakeGraphServer" = self.server.owner
@@ -748,7 +839,9 @@ class FakeGraphServer:
                  token_lifetime: int = 3599, drop_graph_token_after: Optional[int] = None,
                  calendars: Optional[list] = None, calendars_consented: bool = True,
                  calendars_page_size: int = 0, calendars_delay: float = 0,
-                 events: Optional[dict] = None, events_page_size: int = 0):
+                 events: Optional[dict] = None, events_page_size: int = 0,
+                 contact_folders: Optional[list] = None, contacts: Optional[list] = None,
+                 contacts_consented: bool = True, contacts_page_size: int = 0):
         """sent_copy: optional (Store, mailbox) every sent message's copy is appended to, as
         Exchange files it in Sent Items. sent_copy_delay: seconds between /send and that copy.
         graph_consented: whether the refresh token may be exchanged for Graph mail scopes (an
@@ -764,6 +857,9 @@ class FakeGraphServer:
         asked for since 2020.
         events: {calendar id: [Graph event resources, each in its own zone]}, listed
         `events_page_size` to a page (0: all on one).
+        contact_folders / contacts / contacts_page_size: the mailbox's contacts, as
+        GraphContacts takes them. contacts_consented: whether the refresh token may be exchanged
+        for the contacts scope, which Mailspring has asked for since Microsoft sign-in began.
         mailbox / aliases: the mailbox's primary address and the aliases it may send as. A
         MIME draft whose From is any other address gets the primary address instead, a PATCH
         of `from` sets it, and /send refuses an address outside these with ErrorSendAsDenied
@@ -806,6 +902,9 @@ class FakeGraphServer:
         self.mail_tokens: set = set()
         self.graph_tokens: dict = {}   # Graph mail scopes: token -> expiry
         self.calendar_tokens: dict = {}   # token -> expiry
+        self.contact_tokens: dict = {}   # token -> expiry
+        self.contacts_consented = contacts_consented
+        self.contacts = GraphContacts(contact_folders, contacts, contacts_page_size)
         self.token_lifetime = token_lifetime
         self.token_scopes: list = []
         self.messages: dict = {}   # graph id -> GraphMessage, drafts and filed copies
