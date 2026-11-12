@@ -190,6 +190,21 @@ void MicrosoftContactsWorker::syncFolder(const string & folderId, const string &
     bool full = storedLink == "";
     string url = full ? fullURL : storedLink;
     set<string> seen {};
+    // The rows a full read may prune: those stored before it began. A task can create a contact while
+    // the pages are fetched, and the pages already read can't list it.
+    set<string> prunable {};
+    auto beginFullRead = [&]() {
+        lock_guard<mutex> rows(rowsMtx);
+        refreshContactsIfWritten();
+        for (const auto & [graphId, contact] : contacts) {
+            if (JSONString(contact->info(), "parentFolderId") == folderId) {
+                prunable.insert(graphId);
+            }
+        }
+    };
+    if (full) {
+        beginFullRead();
+    }
     size_t changed = 0;
 
     while (true) {
@@ -201,6 +216,7 @@ void MicrosoftContactsWorker::syncFolder(const string & folderId, const string &
             logger->info("- Contact folder's delta link expired, reading it in full: {}", GraphErrorDescription(resp));
             full = true;
             url = fullURL;
+            beginFullRead();
             continue;
         }
         if (!resp.ok()) {
@@ -252,10 +268,8 @@ void MicrosoftContactsWorker::syncFolder(const string & folderId, const string &
 
     // A full read lists every contact in the folder, so the rows it didn't list are gone.
     if (full) {
-        lock_guard<mutex> rows(rowsMtx);
-        refreshContactsIfWritten();
-        for (auto & [graphId, contact] : contacts) {
-            if (!seen.count(graphId) && JSONString(contact->info(), "parentFolderId") == folderId) {
+        for (const auto & graphId : prunable) {
+            if (!seen.count(graphId)) {
                 removals.push_back({graphId, folderId});
             }
         }
@@ -346,22 +360,29 @@ void MicrosoftContactsWorker::upsertContact(shared_ptr<Contact> contact, const j
 
     string url;
     GraphResponse resp;
-    if (graphId == "") {
-        url = MicrosoftGraphURL() + "/me/contacts";
-        // Created only when throttled: after a 503 the contact may exist, and a second POST would duplicate it.
-        resp = PerformGraphRequest("POST", url, tokenProvider()(), fieldsToCreate(info).dump(), "application/json", {}, GraphRetry::ThrottledOnly);
-    } else {
-        json changes = fieldsToUpdate(previousInfo, info);
-        if (changes.empty()) {
-            logger->info("- Contact {} has no changes to write", row->id());
-            return;
+    try {
+        if (graphId == "") {
+            url = MicrosoftGraphURL() + "/me/contacts";
+            // Created only when throttled: after a 503 the contact may exist, and a second POST would duplicate it.
+            resp = PerformGraphRequest("POST", url, tokenProvider()(), fieldsToCreate(info).dump(), "application/json", {}, GraphRetry::ThrottledOnly);
+        } else {
+            json changes = fieldsToUpdate(previousInfo, info);
+            if (changes.empty()) {
+                logger->info("- Contact {} has no changes to write", row->id());
+                return;
+            }
+            url = MicrosoftGraphURL() + "/me/contacts/" + URLEscape(graphId);
+            resp = PerformGraphRequest("PATCH", url, tokenProvider()(), changes.dump());
         }
-        url = MicrosoftGraphURL() + "/me/contacts/" + URLEscape(graphId);
-        resp = PerformGraphRequest("PATCH", url, tokenProvider()(), changes.dump());
+    } catch (SyncException &) {
+        // The task fails without a retry, and a write that got no answer may not have landed; if it
+        // did, a pass brings it (a create as a new row, so it is never stored twice).
+        restoreContact(row, graphId, previousInfo);
+        throw;
     }
     if (!resp.ok()) {
         // The row holds the refused edit, and no pass will mention a contact Graph didn't change.
-        restoreContact(row, graphId);
+        restoreContact(row, graphId, previousInfo);
         if (resp.status == 404) {
             throw SyncException("not-found", url + " RETURNED " + GraphErrorDescription(resp), false);
         }
@@ -373,23 +394,34 @@ void MicrosoftContactsWorker::upsertContact(shared_ptr<Contact> contact, const j
     contactWrites++;
 }
 
-// Puts Graph's copy of the contact back in its row, or removes a row Graph doesn't hold.
-// Best effort: the caller is about to report the failure that brought it here.
-void MicrosoftContactsWorker::restoreContact(shared_ptr<Contact> row, const string & graphId) {
+// Puts Graph's copy of the contact back in its row, or removes a row Graph doesn't hold. When
+// Graph can't be asked, the row goes back to `previousInfo`, Graph's copy when the task began.
+// Never throws: the caller is about to report the failure that brought it here.
+void MicrosoftContactsWorker::restoreContact(shared_ptr<Contact> row, const string & graphId, const json & previousInfo) {
     if (graphId == "") {
         store->remove(row.get());
         contactWrites++;
         return;
     }
     string url = MicrosoftGraphURL() + "/me/contacts/" + URLEscape(graphId) + "?$select=" + selectedFields();
-    GraphResponse resp = PerformGraphRequest("GET", url, tokenProvider()());
+    GraphResponse resp;
+    try {
+        resp = PerformGraphRequest("GET", url, tokenProvider()());
+    } catch (SyncException & ex) {
+        logger->warn("-X Contact {} could not be read back: {}", row->id(), ex.toJSON().dump());
+    }
     if (resp.status == 404) {
         store->remove(row.get());
     } else if (resp.ok()) {
         applyRemoteContact(row, resp.body);
         store->save(row.get());
+    } else if (previousInfo.is_object() && JSONString(previousInfo, "id") == graphId) {
+        if (resp.status != 0) {
+            logger->warn("-X Contact {} could not be read back: {}", row->id(), GraphErrorDescription(resp));
+        }
+        applyRemoteContact(row, previousInfo);
+        store->save(row.get());
     } else {
-        logger->warn("-X Contact {} could not be read back: {}", row->id(), GraphErrorDescription(resp));
         return;
     }
     contactWrites++;

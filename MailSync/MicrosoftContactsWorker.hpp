@@ -52,7 +52,7 @@ class MicrosoftContactsWorker {
     void syncFolder(const string & folderId, const string & storedLink, const string & bookId,
                     json & nextLinks, vector<pair<string, string>> & removals);
     void applyRemoteContact(shared_ptr<Contact> contact, const json & remote);
-    void restoreContact(shared_ptr<Contact> row, const string & graphId);
+    void restoreContact(shared_ptr<Contact> row, const string & graphId, const json & previousInfo);
 
 public:
     MicrosoftContactsWorker(shared_ptr<Account> account);

@@ -583,6 +583,8 @@ class ScenarioRun:
             self._graph().contacts.delete(arg["id"])
         elif op == "graph_contact_folders":
             self._graph().contacts.set_folders(arg["folders"])
+        elif op == "graph_contacts_page_delay":
+            self._graph().contacts_page_delay = float(arg["seconds"])
         elif op == "graph_contacts_expire_delta":
             self._graph().contacts.expire_delta_links()
         else:

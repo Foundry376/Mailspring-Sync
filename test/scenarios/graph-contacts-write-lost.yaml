@@ -1,0 +1,77 @@
+name: graph-contacts-write-lost
+description: >
+  A contact write whose connection drops fails its task without a retry, so the row must not keep
+  what Graph may never have stored. A create whose POST landed but whose answer was lost removes its
+  row, and the next pass imports Graph's contact once. An edit whose PATCH and read-back both drop
+  goes back to the contact as it was when the task began; a later edit of the same field is then
+  still sent to Graph.
+source: "transport failures surface as SyncException from PerformGraphRequest (NetworkRequestUtils.cpp _throwIfTransportFailed); TaskProcessor::performRemote completes a task that throws"
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_contacts:
+      - id: "AAkALg/ada+Contact="
+        givenName: Ada
+        surname: Lovelace
+        jobTitle: Countess
+        emailAddresses: [{name: Ada Lovelace, address: ada@example.com}]
+    graph_failures:
+      - {route: "^contacts$", method: POST, after: true, drop: true, times: 1}
+      - {route: "^contacts/AAkALg/ada\\+Contact=$", method: PATCH, drop: true, times: 1}
+      - {route: "^contacts/AAkALg/ada\\+Contact=$", method: GET, drop: true, times: 1}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft contact sync complete", timeout: 90}
+  - client.task:
+      __cls: SyncbackContactTask
+      contact:
+        s: graph
+        name: Katherine Johnson
+        email: katherine@example.com
+        info:
+          displayName: Katherine Johnson
+          givenName: Katherine
+          surname: Johnson
+          emailAddresses: [{name: Katherine Johnson, address: katherine@example.com}]
+    as: create
+  - wait: {task: create, timeout: 60}
+  - client.task:
+      __cls: SyncbackContactTask
+      contact_of: "AAkALg/ada+Contact="
+      info_set: {jobTitle: Programmer}
+    as: lost_edit
+  - wait: {task: lost_edit, timeout: 60}
+  - assert:
+      contacts:
+        graph_count: 1
+        graph:
+          "AAkALg/ada+Contact=": {info: {jobTitle: Countess}}
+  - client.task:
+      __cls: SyncbackContactTask
+      contact_of: "AAkALg/ada+Contact="
+      info_set: {jobTitle: Programmer}
+    as: edit
+  - wait: {task: edit, timeout: 60}
+  - restart: {}
+  - wait: {log: "Microsoft contact sync complete", count: 2, timeout: 90}
+expect:
+  task_error:
+    create: {key: "Server returned nothing (no headers, no data)"}
+    lost_edit: {key: "Server returned nothing (no headers, no data)"}
+    edit: null
+  graph:
+    contact_writes:
+      - [POST, "AAkALg/1+Contact=", [displayName, emailAddresses, givenName, surname]]
+      - [PATCH, "AAkALg/ada+Contact=", [displayName, jobTitle]]
+    contacts_on_server:
+      "AAkALg/1+Contact=": {displayName: Katherine Johnson}
+      "AAkALg/ada+Contact=": {jobTitle: Programmer}
+  contacts:
+    graph_count: 2
+    graph:
+      "AAkALg/1+Contact=": {name: Katherine Johnson, email: katherine@example.com}
+      "AAkALg/ada+Contact=": {info: {jobTitle: Programmer}}
+  running: true

@@ -236,6 +236,16 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def _injected(self, failure: dict):
+        """Answers with an injected failure, or closes the connection unanswered when it `drop`s."""
+        if failure.get("drop") and self._captured is None:
+            self.server.owner.log(self.command, self.path, 0)
+            self.close_connection = True
+            return
+        headers = {"Retry-After": str(failure["retry_after"])} if "retry_after" in failure else None
+        return self._reply(failure.get("status", 500), {"error": {"code": failure.get("code", "ErrorInternalServerError"),
+                           "message": failure.get("message", "Injected failure")}}, headers)
+
     def _reply(self, status: int, body=None, headers: Optional[dict] = None):
         if self._captured is not None:
             self._captured.append((status, body, headers))
@@ -325,9 +335,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(400, "HarnessError", "every request must ask for immutable ids")
         failure = srv.failure_for(unquote(route), self.command)
         if failure:
-            headers = {"Retry-After": str(failure["retry_after"])} if "retry_after" in failure else None
-            return self._reply(failure.get("status", 500), {"error": {"code": failure.get("code", "ErrorInternalServerError"),
-                               "message": failure.get("message", "Injected failure")}}, headers)
+            return self._injected(failure)
 
         if area in ("contacts", "contactFolders"):
             return self._contacts_route(route, body)
@@ -465,6 +473,9 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._error(*refused)
             contact = contacts.put({k: v for k, v in fields.items() if k != "id"})
             contacts.writes.append({"method": "POST", "id": contact["id"], "fields": sorted(fields)})
+            failure = srv.failure_for(unquote(route), "POST", after=True)
+            if failure:
+                return self._injected(failure)
             return self._reply(201, {"@odata.etag": f'W/"{contact["changeKey"]}"', **contact,
                                      "createdDateTime": "2026-11-11T00:00:00Z",
                                      "primaryEmailAddress": (contact["emailAddresses"] or [{}])[0]})
@@ -487,6 +498,9 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._error(*refused)
             contact = contacts.put({**fields, "id": contact_id})
             contacts.writes.append({"method": "PATCH", "id": contact_id, "fields": sorted(fields)})
+            failure = srv.failure_for(unquote(route), "PATCH", after=True)
+            if failure:
+                return self._injected(failure)
             return self._reply(200, {"@odata.etag": f'W/"{contact["changeKey"]}"', **contact})
         return self._error(405, "ErrorInvalidRequest", f"{self.command} is not allowed on {route}")
 
@@ -497,6 +511,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(404, "ErrorItemNotFound", "The specified folder was not found in the store.")
         skip = query.get("$skiptoken", [None])[0]
         if skip is not None:
+            time.sleep(srv.contacts_page_delay)
             _, items, seq = contacts.rounds[skip]
         else:
             begun = contacts.begin_round(folder_id, query.get("$deltatoken", [None])[0])
@@ -865,10 +880,11 @@ class FakeGraphServer:
         of `from` sets it, and /send refuses an address outside these with ErrorSendAsDenied
         (outlook.com, 2026-10-22).
         failures: [{route: regex on the unescaped path after /v1.0/me/, method, status, code, message,
-        times, retry_after, after}] - answer matching requests with that error, `times` times
+        times, retry_after, after, drop}] - answer matching requests with that error, `times` times
         (default always), with a Retry-After header when `retry_after` is given. With `after:
-        true` a /send is carried out first and its 202 replaced by the error, as a gateway
-        that times out on a request the mailbox accepted.
+        true` a /send, event create or contact POST/PATCH is carried out first and its answer
+        replaced by the error, as a gateway that times out on a request the mailbox accepted.
+        With `drop: true` the connection is closed with no answer at all.
         token_lifetime: seconds a mail or calendar access token is valid for (its expires_in);
         Graph refuses an expired one with 401.
         honors_delete_after_submit: whether a draft marked PidTagDeleteAfterSubmit is deleted
@@ -895,6 +911,7 @@ class FakeGraphServer:
         self.events = {cid: [dict(e) for e in evs] for cid, evs in (events or {}).items()}
         self.events_page_size = events_page_size
         self.events_delay = 0.0   # seconds each events listing answers late; set by server.graph_events_delay
+        self.contacts_page_delay = 0.0   # seconds each later page of a contact delta round answers late
         self.event_writes: list = []   # {method, route, fields}: each event POST, PATCH, DELETE and answer
         self.created_events = 0
         self.created_subjects: list = []   # each created event's subject, as POSTed

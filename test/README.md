@@ -100,6 +100,7 @@ Steps:
 | `server.smtp_hold` / `server.smtp_release` | queue self-addressed SMTP deliveries, then deliver them, so the INBOX copy of a sent message arrives after the Sent copy; `smtp_release` takes `at:` like any server step (`rules-ready-inbox-copy-first`) |
 | `server.graph_calendars: {calendars: [...]}`, `server.graph_events: {calendar, events: [...]}`, `server.graph_failures: {failures: [...]}` | replace the calendars the fake Graph server lists, one calendar's events, or its injected errors (`graph-calendars-*`, `graph-calendar-events*`) |
 | `server.graph_events_delay: {seconds: n}` | answer each events listing n seconds late, with the events as they stood when it was asked, so a write lands mid-pass (`graph-calendar-event-create-during-pass`) |
+| `server.graph_contacts_page_delay: {seconds: n}` | answer each contact delta page after the first n seconds late, so a write lands mid-read (`graph-contacts-create-during-full-read`) |
 | `force_scans: {}` | backdate `lastDeep`/`lastShallow` in the DB and wake (see Stopgaps) |
 | `db.sql: [statements]` | write the stopped engine's database (only under `restart: {before: [...]}`), to reproduce a stored state whose producing path is unknown; every derived layer must be written consistently |
 | `restart: {binary: path, before: [steps]}` | stop and relaunch on the same database, optionally with another build; `before:` runs steps while the engine is stopped (server state it did not watch happen) |
@@ -455,7 +456,9 @@ The Cyrus admin is `cyrus` / `admin` (e.g. to `SETACL` or create other users ove
   besides the account's own it may send as - a MIME draft from any other address is rewritten
   to the account's, as Exchange does, and /send refuses a From outside them with
   ErrorSendAsDenied; `graph_failures: [{route, method, status, code, message, times,
-  retry_after}]` injects errors (`graph-send-*`). `/me/calendars` lists `graph_calendars:
+  retry_after, after, drop}]` injects errors, after carrying out the write with `after: true`
+  and as a connection closed unanswered with `drop: true` (`graph-send-*`,
+  `graph-contacts-write-lost`). `/me/calendars` lists `graph_calendars:
   [Graph calendar resources]`, `graph_calendars_page_size` to a page (`graph_calendars_delay`
   seconds late each), and each calendar's events come from `graph_events: {calendar id:
   [events in their own zone]}` (`graph_events_page_size` to a page; `graph_generated_events:

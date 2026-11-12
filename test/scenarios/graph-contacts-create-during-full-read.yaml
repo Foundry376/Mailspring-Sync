@@ -1,0 +1,51 @@
+name: graph-contacts-create-during-full-read
+description: >
+  A full read of a contact folder prunes the rows it didn't list, but only those stored before it
+  began: a contact a task creates while the read's later pages are still coming can't be on the
+  pages already read, and pruning it would make it vanish until the next pass brings it back under
+  another id.
+source: "Indent review of Foundry376/Mailspring-Sync#204; delta paging observed on an Office 365 tenant, 2026-11-11"
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_contacts_page_size: 1
+    graph_contacts:
+      - {id: "AAkALg/a+Contact=", givenName: Ada, surname: Lovelace}
+      - {id: "AAkALg/b+Contact=", givenName: Alan, surname: Turing}
+      - {id: "AAkALg/c+Contact=", givenName: Grace, surname: Hopper}
+      - {id: "AAkALg/d+Contact=", givenName: Edsger, surname: Dijkstra}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft contact sync complete", timeout: 90}
+  - server.graph_contacts_expire_delta: {}
+  - server.graph_contacts_page_delay: {seconds: 2}
+  - restart: {}
+  - wait: {log: "Contact folder's delta link expired", timeout: 90}
+  - client.task:
+      __cls: SyncbackContactTask
+      contact:
+        s: graph
+        name: Katherine Johnson
+        email: katherine@example.com
+        info:
+          displayName: Katherine Johnson
+          givenName: Katherine
+          surname: Johnson
+          emailAddresses: [{name: Katherine Johnson, address: katherine@example.com}]
+    as: create
+  - wait: {task: create, timeout: 60}
+  - wait: {log: "Microsoft contact sync complete", count: 2, timeout: 90}
+  - server.graph_contacts_page_delay: {seconds: 0}
+expect:
+  task_error:
+    create: null
+  contacts:
+    graph_count: 5
+    graph:
+      "AAkALg/1+Contact=": {name: Katherine Johnson}
+  deltas:
+    Contact: {unpersist: 0}
+  running: true
