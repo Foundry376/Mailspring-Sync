@@ -1,0 +1,39 @@
+name: graph-contacts-delete-fails
+description: >
+  A delete's local phase hides its contacts at once. When Graph refuses one contact's DELETE, the
+  task fails without a retry, so that contact is shown again rather than staying hidden while Outlook
+  still has it, and the other contacts in the same task are still deleted.
+source: "Code review of Foundry376/Mailspring-Sync#204; TaskProcessor::performRemote completes a task that throws"
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_contacts:
+      - {id: "AAkALg/ada+Contact=", givenName: Ada, surname: Lovelace}
+      - {id: "AAkALg/grace+Contact=", givenName: Grace, surname: Hopper}
+      - {id: "AAkALg/alan+Contact=", givenName: Alan, surname: Turing}
+    graph_failures:
+      - {route: "^contacts/AAkALg/grace\\+Contact=$", method: DELETE, status: 500, times: 1}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft contact sync complete", timeout: 90}
+  - client.task:
+      __cls: DestroyContactTask
+      contacts_of: ["AAkALg/ada+Contact=", "AAkALg/grace+Contact=", "AAkALg/alan+Contact="]
+    as: delete
+  - wait: {task: delete, timeout: 60}
+expect:
+  task_error:
+    delete: {key: "Invalid Response Code: 500"}
+  graph:
+    contacts_on_server:
+      "AAkALg/ada+Contact=": null
+      "AAkALg/grace+Contact=": {displayName: Grace Hopper}
+      "AAkALg/alan+Contact=": null
+  contacts:
+    graph_count: 1
+    graph:
+      "AAkALg/grace+Contact=": {name: Grace Hopper, hidden: false}
+  running: true

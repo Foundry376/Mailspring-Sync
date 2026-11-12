@@ -63,8 +63,12 @@ public:
     // then stores Graph's copy in its row.
     void upsertContact(shared_ptr<Contact> contact, const json & info, const json & previousInfo);
 
-    // Deletes the contact from Graph and removes its row.
+    // Deletes the contact from Graph and removes its row. On failure the row is shown again.
     void deleteContact(shared_ptr<Contact> contact);
+
+    // Called by a task's local phase before it changes the rows of these Graph ids, so that no pass
+    // stores a copy of them from a delta page fetched before the change.
+    static void noteLocalChange(const vector<string> & graphIds);
 };
 
 #endif /* MicrosoftContactsWorker_hpp */

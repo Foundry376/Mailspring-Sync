@@ -1,10 +1,11 @@
-name: graph-contacts-create-during-full-read
+name: graph-contacts-writes-during-full-read
 description: >
-  A full read of a contact folder prunes the rows it didn't list, but only those stored before it
-  began: a contact a task creates while the read's later pages are still coming can't be on the
-  pages already read, and pruning it would make it vanish until the next pass brings it back under
-  another id.
-source: "Indent review of Foundry376/Mailspring-Sync#204; delta paging observed on an Office 365 tenant, 2026-11-11"
+  Tasks that write contacts while a full read of their folder is still fetching pages. A full read
+  prunes the rows it didn't list, but only those stored before it began: a contact a task creates
+  mid-read can't be on the pages already read. A delta round's later pages hold the contacts as they
+  were when it began, so a contact a task edited or deleted since keeps its row as the task left
+  it: the edit isn't reverted and the deleted contact isn't stored again under a new id.
+source: "Code review of Foundry376/Mailspring-Sync#204; delta paging observed on an Office 365 tenant, 2026-11-11"
 servers:
   - fake: outlook
     graph: true
@@ -37,15 +38,28 @@ steps:
           emailAddresses: [{name: Katherine Johnson, address: katherine@example.com}]
     as: create
   - wait: {task: create, timeout: 60}
+  - client.task:
+      __cls: SyncbackContactTask
+      contact_of: "AAkALg/d+Contact="
+      info_set: {jobTitle: Professor}
+    as: edit
+  - wait: {task: edit, timeout: 60}
+  - client.task:
+      __cls: DestroyContactTask
+      contacts_of: ["AAkALg/c+Contact="]
+    as: delete
+  - wait: {task: delete, timeout: 60}
   - wait: {log: "Microsoft contact sync complete", count: 2, timeout: 90}
   - server.graph_contacts_page_delay: {seconds: 0}
 expect:
   task_error:
     create: null
+    edit: null
+    delete: null
   contacts:
-    graph_count: 5
+    graph_count: 4
     graph:
       "AAkALg/1+Contact=": {name: Katherine Johnson}
-  deltas:
-    Contact: {unpersist: 0}
+      "AAkALg/d+Contact=": {name: Edsger Dijkstra, info: {jobTitle: Professor}}
+      "AAkALg/c+Contact=": null
   running: true

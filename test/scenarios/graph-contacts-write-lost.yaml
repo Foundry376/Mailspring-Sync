@@ -65,7 +65,7 @@ expect:
   graph:
     contact_writes:
       - [POST, "AAkALg/1+Contact=", [displayName, emailAddresses, givenName, surname]]
-      - [PATCH, "AAkALg/ada+Contact=", [displayName, jobTitle]]
+      - [PATCH, "AAkALg/ada+Contact=", [jobTitle]]
     contacts_on_server:
       "AAkALg/1+Contact=": {displayName: Katherine Johnson}
       "AAkALg/ada+Contact=": {jobTitle: Programmer}

@@ -2,7 +2,7 @@ name: graph-contacts-tasks
 description: >
   Contact edits on an Office 365 account go to Graph. A new contact is POSTed with the fields the
   client filled in and its row takes Graph's id and changeKey. An edit PATCHes only the fields it
-  changed, with displayName beside them so Graph doesn't compose a new one; a cleared address is
+  changed, with displayName beside a name change so Graph doesn't compose a new one; a cleared address is
   sent as {}, since Graph answers null there with a 500. An edit Graph refuses (a fourth email)
   fails its task and the row is read back from Graph. A deleted contact is DELETEd. Contact groups
   are refused: Graph has none. A later pass finds the contact the engine created already stored.
@@ -84,7 +84,7 @@ expect:
     contact_writes:
       - [POST, "AAkALg/1+Contact=", [displayName, emailAddresses, givenName, mobilePhone, surname]]
       - [PATCH, "AAkALg/ada+Contact=", [displayName, jobTitle, surname]]
-      - [PATCH, "AAkALg/ada+Contact=", [displayName, homeAddress]]
+      - [PATCH, "AAkALg/ada+Contact=", [homeAddress]]
       - [DELETE, "AAkALg/grace+Contact=", []]
     contacts_on_server:
       "AAkALg/1+Contact=": {displayName: Katherine Johnson, mobilePhone: "+1 555 0123"}

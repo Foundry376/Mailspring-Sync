@@ -1476,6 +1476,13 @@ void TaskProcessor::performLocalDestroyContact(Task * task) {
     {
         MailStoreTransaction transaction{store, "performLocalDestroyContact"};
         auto deleted = store->findLargeSet<Contact>("id", contactIds);
+        if (_contactSource(account) == GRAPH_SYNC_SOURCE) {
+            vector<string> graphIds {};
+            for (auto & c : deleted) {
+                graphIds.push_back(JSONString(c->info(), "id"));
+            }
+            MicrosoftContactsWorker::noteLocalChange(graphIds);
+        }
         for (auto & c : deleted) {
             c->setHidden(true);
             store->save(c.get());
@@ -1500,10 +1507,23 @@ void TaskProcessor::performRemoteDestroyContact(Task * task) {
     } else if (source == GRAPH_SYNC_SOURCE) {
         auto deleted = store->findLargeSet<Contact>("id", contactIds);
         MicrosoftContactsWorker graph(account);
+        // One contact Graph refuses doesn't keep the rest from being deleted; the first failure is the task's.
+        std::exception_ptr failure = nullptr;
         for (auto & contact : deleted) {
-            if (contact->source() == GRAPH_SYNC_SOURCE) {
-                graph.deleteContact(contact);
+            // Another account's Graph id means nothing to this mailbox (a 404, read as already deleted).
+            if (contact->source() != GRAPH_SYNC_SOURCE || contact->accountId() != account->id()) {
+                continue;
             }
+            try {
+                graph.deleteContact(contact);
+            } catch (SyncException &) {
+                if (!failure) {
+                    failure = std::current_exception();
+                }
+            }
+        }
+        if (failure) {
+            std::rethrow_exception(failure);
         }
     } else {
 
@@ -1714,6 +1734,7 @@ void TaskProcessor::performLocalSyncbackContact(Task * task) {
         // Graph takes an edit as the fields it changed: performRemote compares the client's
         // contact with the one the row held, which is replaced below.
         task->data()["previousInfo"] = local->info();
+        MicrosoftContactsWorker::noteLocalChange({JSONString(local->info(), "id")});
     }
 
     // Note: The client may not be aware of all of the key/value pairs we store in contact JSON,

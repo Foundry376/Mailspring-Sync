@@ -54,6 +54,34 @@ static string deltaLinksKey(shared_ptr<Account> account) {
 static std::mutex rowsMtx;
 // Rows a write stored; a pass that loaded its contacts at an older count loads them again.
 static std::atomic<unsigned> contactWrites { 0 };
+// The count at each Graph id's latest write by a task. A delta page fetched before it holds an
+// older copy of the contact, or one the task has since deleted. Its own lock: a task's local phase
+// runs on the main thread and must not wait on rowsMtx, which a remote phase holds across requests.
+static std::mutex writtenMtx;
+static map<string, unsigned> contactWrittenAt;
+
+static void noteContactWrite(const string & graphId) {
+    lock_guard<mutex> written(writtenMtx);
+    unsigned count = ++contactWrites;
+    if (graphId != "") {
+        contactWrittenAt[graphId] = count;
+    }
+}
+
+static bool writtenSince(const string & graphId, unsigned count) {
+    lock_guard<mutex> written(writtenMtx);
+    auto it = contactWrittenAt.find(graphId);
+    return it != contactWrittenAt.end() && it->second > count;
+}
+
+void MicrosoftContactsWorker::noteLocalChange(const vector<string> & graphIds) {
+    if (graphIds.empty()) {
+        noteContactWrite("");
+    }
+    for (const auto & graphId : graphIds) {
+        noteContactWrite(graphId);
+    }
+}
 
 MicrosoftContactsWorker::MicrosoftContactsWorker(shared_ptr<Account> account) :
     store(make_unique<MailStore>()),
@@ -207,6 +235,8 @@ void MicrosoftContactsWorker::syncFolder(const string & folderId, const string &
     }
     size_t changed = 0;
 
+    // A round's later pages may hold the contacts as they were when it began.
+    unsigned roundStart = contactWrites;
     while (true) {
         GraphResponse resp = PerformGraphRequest("GET", url, tokenProvider()(), "", "application/json",
                                                  {"Prefer: odata.maxpagesize=" + DELTA_PAGE_SIZE});
@@ -216,6 +246,7 @@ void MicrosoftContactsWorker::syncFolder(const string & folderId, const string &
             logger->info("- Contact folder's delta link expired, reading it in full: {}", GraphErrorDescription(resp));
             full = true;
             url = fullURL;
+            roundStart = contactWrites;
             beginFullRead();
             continue;
         }
@@ -234,6 +265,11 @@ void MicrosoftContactsWorker::syncFolder(const string & folderId, const string &
             for (const auto & remote : page["value"]) {
                 string graphId = JSONString(remote, "id");
                 if (graphId == "") {
+                    continue;
+                }
+                if (writtenSince(graphId, roundStart)) {
+                    // A task wrote or deleted the contact since the round began: its row is newer.
+                    seen.insert(graphId);
                     continue;
                 }
                 if (remote.count("@removed")) {
@@ -342,8 +378,13 @@ static json fieldsToUpdate(const json & previous, const json & info) {
         body[field] = !after.is_null() ? after : before.is_array() ? json::array() : before.is_object() ? json::object() : json();
     }
     // Graph may regenerate displayName from the name fields an update changes, unless it is sent too.
+    // It goes only with those: the row's copy may be a pass old, and another client may have renamed.
     // https://learn.microsoft.com/en-us/graph/api/resources/contact (displayName)
-    if (!body.empty() && !body.count("displayName") && info.count("displayName")) {
+    bool namesChanged = false;
+    for (const auto & field : {"givenName", "middleName", "surname", "title", "generation"}) {
+        namesChanged = namesChanged || body.count(field);
+    }
+    if (namesChanged && !body.count("displayName") && info.count("displayName")) {
         body["displayName"] = info["displayName"];
     }
     return body;
@@ -391,7 +432,7 @@ void MicrosoftContactsWorker::upsertContact(shared_ptr<Contact> contact, const j
     applyRemoteContact(row, resp.body);
     row->setBookId(findOrCreateBook()->id());
     store->save(row.get());
-    contactWrites++;
+    noteContactWrite(JSONString(row->info(), "id"));
 }
 
 // Puts Graph's copy of the contact back in its row, or removes a row Graph doesn't hold. When
@@ -400,7 +441,7 @@ void MicrosoftContactsWorker::upsertContact(shared_ptr<Contact> contact, const j
 void MicrosoftContactsWorker::restoreContact(shared_ptr<Contact> row, const string & graphId, const json & previousInfo) {
     if (graphId == "") {
         store->remove(row.get());
-        contactWrites++;
+        noteContactWrite("");
         return;
     }
     string url = MicrosoftGraphURL() + "/me/contacts/" + URLEscape(graphId) + "?$select=" + selectedFields();
@@ -424,7 +465,7 @@ void MicrosoftContactsWorker::restoreContact(shared_ptr<Contact> row, const stri
     } else {
         return;
     }
-    contactWrites++;
+    noteContactWrite(graphId);
 }
 
 void MicrosoftContactsWorker::deleteContact(shared_ptr<Contact> contact) {
@@ -432,12 +473,24 @@ void MicrosoftContactsWorker::deleteContact(shared_ptr<Contact> contact) {
     string graphId = JSONString(contact->info(), "id");
     if (graphId != "") {
         string url = MicrosoftGraphURL() + "/me/contacts/" + URLEscape(graphId);
-        GraphResponse resp = PerformGraphRequest("DELETE", url, tokenProvider()());
-        // A 404 is a contact already deleted elsewhere, which is what the user asked for.
-        if (!resp.ok() && resp.status != 404) {
-            ThrowForGraphResponse(url, resp);
+        try {
+            GraphResponse resp = PerformGraphRequest("DELETE", url, tokenProvider()());
+            // A 404 is a contact already deleted elsewhere, which is what the user asked for.
+            if (!resp.ok() && resp.status != 404) {
+                ThrowForGraphResponse(url, resp);
+            }
+        } catch (SyncException &) {
+            // The task fails without a retry, so the contact its local phase hid is shown again; if the
+            // DELETE did land, a pass removes it.
+            auto row = store->find<Contact>(Query().equal("id", contact->id()));
+            if (row != nullptr) {
+                row->setHidden(false);
+                store->save(row.get());
+            }
+            noteContactWrite(graphId);
+            throw;
         }
     }
     store->remove(contact.get());
-    contactWrites++;
+    noteContactWrite(graphId);
 }
