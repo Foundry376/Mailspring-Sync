@@ -44,7 +44,9 @@ class FakeServer(Server):
                  graph_calendars_page_size: int = 0, graph_calendars_delay: float = 0,
                  graph_shared_mailbox_owner: Optional[str] = None,
                  graph_events: Optional[dict] = None, graph_events_page_size: int = 0,
-                 graph_generated_events: int = 0, graph_provider: str = "office365", **kw):
+                 graph_generated_events: int = 0, graph_provider: str = "office365",
+                 graph_contact_folders: Optional[list] = None, graph_contacts: Optional[list] = None,
+                 graph_contacts_consented: bool = True, graph_contacts_page_size: int = 0, **kw):
         self.personality_name = personality
         self.imap = FakeImapServer(personality, log_path=log_path, credentials=(self.username, self.password), **kw)
         self.gmail = self.imap.personality.gmail
@@ -80,7 +82,10 @@ class FakeServer(Server):
                                      calendars_consented=graph_calendars_consented,
                                      calendars_page_size=graph_calendars_page_size,
                                      calendars_delay=graph_calendars_delay, events=graph_events,
-                                     events_page_size=graph_events_page_size) if graph else None
+                                     events_page_size=graph_events_page_size,
+                                     contact_folders=graph_contact_folders, contacts=graph_contacts,
+                                     contacts_consented=graph_contacts_consented,
+                                     contacts_page_size=graph_contacts_page_size) if graph else None
         if self.graph and graph_generated_events:
             calendar_id = graph_calendars[0]["id"]
             self.graph.events.setdefault(calendar_id, []).extend(_generated_events(graph_generated_events))

@@ -196,6 +196,11 @@ bool Account::syncsCalendarsViaGraph() {
     return SMTPUsername() == "" || equalsIgnoreCase(SMTPUsername(), emailAddress());
 }
 
+// The same accounts as calendars, for the same reason: /me would be a shared mailbox's owner.
+bool Account::syncsContactsViaGraph() {
+    return syncsCalendarsViaGraph();
+}
+
 string Account::constructorName() {
     return _data["__cls"].get<string>();
 }

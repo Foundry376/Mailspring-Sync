@@ -20,6 +20,7 @@
 #include "MicrosoftCalendarWorker.hpp"
 #include "DAVUtils.hpp"
 #include "GoogleContactsWorker.hpp"
+#include "MicrosoftContactsWorker.hpp"
 #include "File.hpp"
 #include "ContactGroup.hpp"
 #include "Event.hpp"
@@ -1448,6 +1449,24 @@ void TaskProcessor::performRemoteDestroyDraft(Task * task) {
     }
 }
 
+// The service the account's address book syncs with, which is its contacts' `source`.
+static string _contactSource(shared_ptr<Account> account) {
+    if (account->provider() == "gmail") {
+        return GOOGLE_SYNC_SOURCE;
+    }
+    if (account->syncsContactsViaGraph()) {
+        return GRAPH_SYNC_SOURCE;
+    }
+    return CARDDAV_SYNC_SOURCE;
+}
+
+// Outlook's contact lists aren't in Graph's API, so Graph accounts have no contact groups.
+static void _refuseGraphContactGroups(shared_ptr<Account> account) {
+    if (_contactSource(account) == GRAPH_SYNC_SOURCE) {
+        throw SyncException("unsupported", "Contact groups aren't available for Microsoft accounts.", false);
+    }
+}
+
 void TaskProcessor::performLocalDestroyContact(Task * task) {
     vector<string> contactIds {};
     for (json & c : task->data()["contacts"]) {
@@ -1457,6 +1476,13 @@ void TaskProcessor::performLocalDestroyContact(Task * task) {
     {
         MailStoreTransaction transaction{store, "performLocalDestroyContact"};
         auto deleted = store->findLargeSet<Contact>("id", contactIds);
+        if (_contactSource(account) == GRAPH_SYNC_SOURCE) {
+            vector<string> graphIds {};
+            for (auto & c : deleted) {
+                graphIds.push_back(JSONString(c->info(), "id"));
+            }
+            MicrosoftContactsWorker::noteLocalChange(graphIds);
+        }
         for (auto & c : deleted) {
             c->setHidden(true);
             store->save(c.get());
@@ -1471,11 +1497,33 @@ void TaskProcessor::performRemoteDestroyContact(Task * task) {
         contactIds.push_back(c["id"].get<string>());
     }
 
-    if (account->provider() == "gmail") {
+    string source = _contactSource(account);
+    if (source == GOOGLE_SYNC_SOURCE) {
         auto deleted = store->findLargeSet<Contact>("id", contactIds);
         auto gpeople = make_shared<GoogleContactsWorker>(account);
         for (auto & contact : deleted) {
             gpeople->deleteContact(contact);
+        }
+    } else if (source == GRAPH_SYNC_SOURCE) {
+        auto deleted = store->findLargeSet<Contact>("id", contactIds);
+        MicrosoftContactsWorker graph(account);
+        // One contact Graph refuses doesn't keep the rest from being deleted; the first failure is the task's.
+        std::exception_ptr failure = nullptr;
+        for (auto & contact : deleted) {
+            // Another account's Graph id means nothing to this mailbox (a 404, read as already deleted).
+            if (contact->source() != GRAPH_SYNC_SOURCE || contact->accountId() != account->id()) {
+                continue;
+            }
+            try {
+                graph.deleteContact(contact);
+            } catch (SyncException &) {
+                if (!failure) {
+                    failure = std::current_exception();
+                }
+            }
+        }
+        if (failure) {
+            std::rethrow_exception(failure);
         }
     } else {
 
@@ -1491,6 +1539,7 @@ void TaskProcessor::performLocalSyncbackContactGroup(Task * task) {
     string id = task->data()["group"].count("id") ? task->data()["group"]["id"].get<string>() : "";
     string name = task->data()["group"]["name"].get<string>();
     shared_ptr<ContactBook> book = store->find<ContactBook>(Query().equal("accountId", account->id()));
+    _refuseGraphContactGroups(account);
 
     if (account->provider() == "gmail") {
         // Create or update ContactGroup
@@ -1574,7 +1623,8 @@ void TaskProcessor::performLocalDestroyContactGroup(Task * task) {
     string id = task->data()["group"]["id"].get<string>();
     auto deleted = store->find<ContactGroup>(Query().equal("id", id));
     if (!deleted) return;
-    
+    _refuseGraphContactGroups(account);
+
     if (account->provider() == "gmail") {
         task->data()["googleResourceName"] = deleted->googleResourceName();
         store->save(task);
@@ -1609,7 +1659,8 @@ void TaskProcessor::performLocalChangeContactGroupMembership(Task * task) {
     }
     auto direction = task->data()["direction"].get<string>();
     auto groupId = task->data()["group"]["id"].get<string>();
-    
+    _refuseGraphContactGroups(account);
+
     if (account->provider() == "gmail") {
         auto group = store->find<ContactGroup>(Query().equal("id", groupId));
         auto groupMemberIds = group->getMembers(store);
@@ -1667,7 +1718,7 @@ void TaskProcessor::performRemoteChangeContactGroupMembership(Task * task) {
 
 void TaskProcessor::performLocalSyncbackContact(Task * task) {
     auto clientside = make_shared<Contact>(task->data()["contact"]);
-    auto source = account->provider() == "gmail" ? GOOGLE_SYNC_SOURCE : CARDDAV_SYNC_SOURCE;
+    auto source = _contactSource(account);
     if (clientside->source() != "" && clientside->source() != source) {
         logger->error("performLocalSyncbackContact: Client picked incorrect source for new contact: {} != {}", source, clientside->source());
         return;
@@ -1676,6 +1727,15 @@ void TaskProcessor::performLocalSyncbackContact(Task * task) {
     auto local = task->data()["contact"].count("id")
         ? store->find<Contact>(Query().equal("id", clientside->id()))
         : make_shared<Contact>(MailUtils::idRandomlyGenerated(), account->id(), "", CONTACT_MAX_REFS, source);
+    if (local == nullptr) {
+        throw SyncException("not-found", "Contact not found for syncback", false);
+    }
+    if (source == GRAPH_SYNC_SOURCE) {
+        // Graph takes an edit as the fields it changed: performRemote compares the client's
+        // contact with the one the row held, which is replaced below.
+        task->data()["previousInfo"] = local->info();
+        MicrosoftContactsWorker::noteLocalChange({JSONString(local->info(), "id")});
+    }
 
     // Note: The client may not be aware of all of the key/value pairs we store in contact JSON,
     // so it's JSON in the task may omit some properties. To make sure we don't damage the
@@ -1700,9 +1760,14 @@ void TaskProcessor::performRemoteSyncbackContact(Task * task) {
         return;
     }
 
-    if (account->provider() == "gmail") {
+    string source = _contactSource(account);
+    if (source == GOOGLE_SYNC_SOURCE) {
         auto gpeople = make_shared<GoogleContactsWorker>(account);
         gpeople->upsertContact(contact);
+    } else if (source == GRAPH_SYNC_SOURCE) {
+        // The edit comes from the task, not the row: a sync pass may have stored Graph's copy over it.
+        MicrosoftContactsWorker(account).upsertContact(contact, task->data()["contact"]["info"],
+                                                       task->data().value("previousInfo", json::object()));
     } else {
         auto dav = make_shared<DAVWorker>(account);
         dav->writeAndResyncContact(contact);

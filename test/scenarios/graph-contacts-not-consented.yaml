@@ -1,0 +1,24 @@
+name: graph-contacts-not-consented
+description: >
+  When the refresh token cannot be exchanged for the Graph contacts scope (an admin removed the
+  consent), contact sync stops for the session and Graph calendar sync carries on: the contacts
+  token is separate, and the refusal is kept from the calendar thread, which would read it as a
+  failed sign-in and stop calendars too. No ContactBook is created, so the client shows no
+  address book for the account.
+source: "AADSTS65001 on a refresh asking for an ungranted scope (Microsoft identity platform)"
+servers:
+  - {fake: outlook, graph: true, graph_send: false, graph_consented: false, graph_contacts_consented: false,
+     graph_calendars: [{id: "AAMkADefault=", name: Calendar, owner: {name: Harness Test, address: test@example.test}}],
+     graph_events: {AAMkADefault=: []}}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Stopping Microsoft contact sync for this session", timeout: 90}
+  - wait: {log: "Microsoft calendar sync complete: 1 calendars", timeout: 30}
+expect:
+  contacts:
+    books: {graph: 0}
+    graph_count: 0
+  graph: {graph_contact_token_requests: 1, graph_calendar_token_requests: 1}
+  calendars: {Calendar: {}}
+  running: true

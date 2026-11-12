@@ -1,0 +1,32 @@
+name: graph-contacts-delta-expired
+description: >
+  A folder's stored delta link has expired: Graph answers 410 SyncStateNotFound, and the engine
+  reads the folder again in full. That read lists every contact the folder holds, so a contact
+  deleted while the link was stale loses its row even though no delta reported it, and a changed
+  one is updated.
+source: "https://learn.microsoft.com/en-us/graph/delta-query-overview#synchronization-reset (410 Gone)"
+servers:
+  - fake: outlook
+    graph: true
+    graph_send: false
+    graph_consented: false
+    graph_contacts:
+      - {id: "AAkALg/ada+Contact=", givenName: Ada, surname: Lovelace}
+      - {id: "AAkALg/grace+Contact=", givenName: Grace, surname: Hopper}
+mailboxes:
+  INBOX: {messages: 1}
+steps:
+  - wait: {log: "Microsoft contact sync complete", timeout: 90}
+  - server.graph_contact_delete: {id: "AAkALg/ada+Contact="}
+  - server.graph_contact: {contact: {id: "AAkALg/grace+Contact=", givenName: Grace B.}}
+  - server.graph_contacts_expire_delta: {}
+  - restart: {}
+  - wait: {log: "Microsoft contact sync complete", count: 2, timeout: 90}
+expect:
+  contacts:
+    graph_count: 1
+    graph:
+      "AAkALg/ada+Contact=": null
+      "AAkALg/grace+Contact=": {name: Grace B. Hopper}
+  log_count: {"delta link expired, reading it in full": 1, "Microsoft contact sync complete: 1 folders, 1 contacts removed": 1}
+  running: true

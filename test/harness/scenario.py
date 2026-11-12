@@ -577,6 +577,16 @@ class ScenarioRun:
             self._graph().set_events(arg["calendar"], arg["events"])
         elif op == "graph_events_delay":
             self._graph().events_delay = float(arg["seconds"])
+        elif op == "graph_contact":   # {contact: Graph fields, with `id` to change one} - another client's edit
+            self._graph().contacts.put(arg["contact"])
+        elif op == "graph_contact_delete":
+            self._graph().contacts.delete(arg["id"])
+        elif op == "graph_contact_folders":
+            self._graph().contacts.set_folders(arg["folders"])
+        elif op == "graph_contacts_page_delay":
+            self._graph().contacts_page_delay = float(arg["seconds"])
+        elif op == "graph_contacts_expire_delta":
+            self._graph().contacts.expire_delta_links()
         else:
             raise ScenarioFailure(f"unknown server op {op!r}")
 
@@ -608,6 +618,26 @@ class ScenarioRun:
                 raise ScenarioFailure(f"{old!r} is in {whose} ICS {event['ics'].count(old)} times, not once")
             event["ics"] = event["ics"].replace(old, new)
         return event
+
+    def _graph_contact_json(self, graph_id: str, info_set: dict) -> dict:
+        """The Contact row Graph id `graph_id` is stored in, as the client sends it: `info_set`
+        replaces fields of its info (null drops one), and its name and email follow, as the client's
+        editor sets them."""
+        with self.ms.db() as c:
+            row = dbmod.graph_contact(c, graph_id)
+        if row is None:
+            raise ScenarioFailure(f"no Contact row for Graph contact {graph_id!r}")
+        contact = row["json"]
+        for name, value in info_set.items():
+            if value is None:
+                contact["info"].pop(name, None)
+            else:
+                contact["info"][name] = value
+        if "displayName" in info_set:
+            contact["name"] = info_set["displayName"] or ""
+        if "emailAddresses" in info_set:
+            contact["email"] = ((info_set["emailAddresses"] or [{}])[0]).get("address", "")
+        return contact
 
     def _calendar_json(self, name: str) -> dict:
         with self.ms.db() as c:
@@ -645,6 +675,12 @@ class ScenarioRun:
                 calendar = self._calendar_json(task.pop("calendar_of"))
                 task["calendarId"] = calendar["id"]
                 task["event"] = {"__cls": "Event", "aid": self.ms.account["id"], "cid": calendar["id"], **task.get("event", {})}
+            if "contact_of" in task:   # that Graph contact's row as the client sends it, `info_set` fields changed
+                task["contact"] = self._graph_contact_json(task.pop("contact_of"), task.pop("info_set", {}))
+            if "contacts_of" in task:   # DestroyContactTask's rows
+                task["contacts"] = [self._graph_contact_json(graph_id, {}) for graph_id in task.pop("contacts_of")]
+            if isinstance(task.get("contact"), dict) and "id" not in task["contact"]:   # a new contact
+                task["contact"] = {"__cls": "Contact", "aid": self.ms.account["id"], "v": 0, **task["contact"]}
             if "events_of" in task:   # DestroyEventTask's rows
                 task["events"] = [self._event_json(key, []) for key in task.pop("events_of")]
             if "sourceFolders" in task:   # the perspective's folders, as paths -> sourceFolderIds
@@ -1161,6 +1197,25 @@ class ScenarioRun:
             got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com/Mail." in scope)
             if got != arg["graph_mail_token_requests"]:
                 out.append(f"expected {arg['graph_mail_token_requests']} Graph mail token requests, saw {got}")
+        if "graph_contact_token_requests" in arg:
+            got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com/Contacts." in scope)
+            if got != arg["graph_contact_token_requests"]:
+                out.append(f"expected {arg['graph_contact_token_requests']} Graph contact token requests, saw {got}")
+        if "contact_writes" in arg:
+            # [[method, Graph id, [fields sent]], ...], in order: every contact POST, PATCH and DELETE
+            got = [[w["method"], w["id"], w["fields"]] for w in graph.contacts.writes]
+            want = [[w[0], w[1], sorted(w[2])] for w in arg["contact_writes"]]
+            if got != want:
+                out.append(f"Graph contact writes {got}, expected {want}")
+        for graph_id, want in (arg.get("contacts_on_server") or {}).items():
+            have = graph.contacts.contacts.get(graph_id)
+            if want is None:
+                if have is not None:
+                    out.append(f"Graph contact {graph_id} is still on the server")
+            elif have is None:
+                out.append(f"Graph contact {graph_id} is not on the server")
+            else:
+                out += [f"Graph contact {graph_id}: {k} {have.get(k)!r}, expected {v!r}" for k, v in want.items() if have.get(k) != v]
         if "graph_calendar_token_requests" in arg:
             got = sum(1 for scope in graph.token_scopes if "graph.microsoft.com/Calendars." in scope)
             if got != arg["graph_calendar_token_requests"]:
@@ -1343,7 +1398,9 @@ class ScenarioRun:
 
     def expect_contacts(self, arg: dict) -> list:
         """Contact rows. `mail: {email: name}` checks found-in-mail contacts by email (`null`:
-        there must be none); `carddav: {id: {email, name}}` checks address-book contacts by id.
+        there must be none); `carddav: {id: {email, name}}` checks address-book contacts by id;
+        `graph: {Graph id: {email, name, hidden, info: {field: value}}}` Graph contacts by their
+        Graph id, `graph_count` how many there are, and `books: {source: n}` the ContactBooks.
         A dict value may also check `refs` (the autocomplete score) and `hidden`. Each contact
         found must have the ContactSearch row the engine indexes for it (email with `@` as a
         space, then name), which is what composer autocomplete matches."""
@@ -1369,6 +1426,23 @@ class ScenarioRun:
                 check(email, dbmod.contact(c, "mail", email=email), want)
             for cid, want in (arg.get("carddav") or {}).items():
                 check(cid, dbmod.contact(c, "carddav", id=cid), want)
+            for graph_id, want in (arg.get("graph") or {}).items():
+                row = dbmod.graph_contact(c, graph_id)
+                want = dict(want) if isinstance(want, dict) else want
+                info_want = want.pop("info", {}) if isinstance(want, dict) else {}
+                check(graph_id, row, want)
+                for key, value in info_want.items():
+                    if row and row["json"]["info"].get(key) != value:
+                        out.append(f"contact {graph_id}: info.{key} {row['json']['info'].get(key)!r}, expected {value!r}")
+            if "graph_count" in arg:
+                got = c.execute("SELECT COUNT(*) FROM Contact WHERE source = 'graph'").fetchone()[0]
+                if got != arg["graph_count"]:
+                    names = [r[0] for r in c.execute("SELECT json_extract(data, '$.name') FROM Contact WHERE source = 'graph'")]
+                    out.append(f"expected {arg['graph_count']} Graph contacts, found {got}: {names}")
+            for source, want in (arg.get("books") or {}).items():
+                got = c.execute("SELECT COUNT(*) FROM ContactBook WHERE json_extract(data, '$.source') = ?", (source,)).fetchone()[0]
+                if got != want:
+                    out.append(f"expected {want} {source} ContactBooks, found {got}")
         return out
 
     def expect_connection_error(self, arg: dict) -> list:

@@ -21,6 +21,7 @@
 		4348E5DC1F560FAC004CFB15 /* MailStoreTransaction.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4348E5DB1F560FAC004CFB15 /* MailStoreTransaction.cpp */; };
 		43A1C0B02E9E10010000A001 /* Placement.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A1C0B12E9E10010000A002 /* Placement.cpp */; };
 		43B7C1A02F9C00010000C001 /* MicrosoftCalendarWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B7C1A12F9C00010000C002 /* MicrosoftCalendarWorker.cpp */; };
+		43B7C1B02F9C00010000C101 /* MicrosoftContactsWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B7C1B12F9C00010000C102 /* MicrosoftContactsWorker.cpp */; };
 		43B7C1A42F9C00010000C005 /* GraphICS.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43B7C1A52F9C00010000C006 /* GraphICS.cpp */; };
 		43A1C0C02E9E10010000A101 /* SearchWorker.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 43A1C0C12E9E10010000A102 /* SearchWorker.cpp */; };
 		43617D841F3D4DDA00DB566D /* libMailCore.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 43617D731F3D4D4300DB566D /* libMailCore.a */; };
@@ -189,6 +190,8 @@
 		43A1C0B22E9E10010000A003 /* Placement.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = Placement.hpp; sourceTree = "<group>"; };
 		43B7C1A12F9C00010000C002 /* MicrosoftCalendarWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MicrosoftCalendarWorker.cpp; sourceTree = "<group>"; };
 		43B7C1A22F9C00010000C003 /* MicrosoftCalendarWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MicrosoftCalendarWorker.hpp; sourceTree = "<group>"; };
+		43B7C1B12F9C00010000C102 /* MicrosoftContactsWorker.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = MicrosoftContactsWorker.cpp; sourceTree = "<group>"; };
+		43B7C1B22F9C00010000C103 /* MicrosoftContactsWorker.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MicrosoftContactsWorker.hpp; sourceTree = "<group>"; };
 		43B7C1A32F9C00010000C004 /* JSONUtils.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = JSONUtils.hpp; sourceTree = "<group>"; };
 		43B7C1A52F9C00010000C006 /* GraphICS.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = GraphICS.cpp; sourceTree = "<group>"; };
 		43B7C1A62F9C00010000C007 /* GraphICS.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = GraphICS.hpp; sourceTree = "<group>"; };
@@ -402,6 +405,8 @@
 				4385C98C233AA6FE00E5A357 /* GoogleContactsWorker.cpp */,
 				43B7C1A22F9C00010000C003 /* MicrosoftCalendarWorker.hpp */,
 				43B7C1A12F9C00010000C002 /* MicrosoftCalendarWorker.cpp */,
+				43B7C1B22F9C00010000C103 /* MicrosoftContactsWorker.hpp */,
+				43B7C1B12F9C00010000C102 /* MicrosoftContactsWorker.cpp */,
 				43B7C1A32F9C00010000C004 /* JSONUtils.hpp */,
 				43B7C1A62F9C00010000C007 /* GraphICS.hpp */,
 				43B7C1A52F9C00010000C006 /* GraphICS.cpp */,
@@ -751,6 +756,7 @@
 				43A687EB220EB40F000D75CC /* date.cpp in Sources */,
 				4385C98D233AA6FE00E5A357 /* GoogleContactsWorker.cpp in Sources */,
 				43B7C1A02F9C00010000C001 /* MicrosoftCalendarWorker.cpp in Sources */,
+				43B7C1B02F9C00010000C101 /* MicrosoftContactsWorker.cpp in Sources */,
 				43B7C1A42F9C00010000C005 /* GraphICS.cpp in Sources */,
 				432573B71F2F7F9700E7CA4B /* MetadataWorker.cpp in Sources */,
 				4364898B1EF2F905007816EC /* Exception.cpp in Sources */,

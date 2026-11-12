@@ -92,6 +92,7 @@ static string labelForAudience(OAuthTokenAudience audience) {
         case OAuthTokenAudience::Mail: return "";
         case OAuthTokenAudience::MicrosoftGraphMail: return "Graph mail";
         case OAuthTokenAudience::MicrosoftGraphCalendars: return "Graph calendars";
+        case OAuthTokenAudience::MicrosoftGraphContacts: return "Graph contacts";
     }
     return "";
 }
