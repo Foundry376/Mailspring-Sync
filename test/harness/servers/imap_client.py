@@ -78,20 +78,27 @@ class ImapClientServer(Server):
         return self.populate(mailbox, [raw], flags)[0]
 
     def populate(self, mailbox, raws, flags=("\\Seen",)):
+        """Appends `raws` in order as one MULTIAPPEND (RFC 3502) and returns their UIDs, so
+        they land in one commit. One APPEND each takes ~60 ms on Cyrus, and 2300 of them
+        outlast the engine's 120 s background pass, which then sees the mailbox half-filled.
+        Dovecot and Cyrus both advertise MULTIAPPEND and LITERAL+ in every profile."""
         c = self._client()
-        uids = []
         try:
-            flag_str = "(" + " ".join(flags) + ")" if flags else None
+            flag_str = " (" + " ".join(flags) + ")" if flags else ""
+            tag = c._new_tag()
+            command = [tag + b" APPEND " + self._qm(mailbox).encode()]
             for raw in raws:
-                typ, data = c.append(self._qm(mailbox), flag_str, None, raw)
-                if typ != "OK":
-                    raise RuntimeError(f"APPEND to {mailbox} failed: {data}")
-                # b'[APPENDUID 1789... 12] Append completed.'
-                text = data[0].decode()
-                uids.append(int(text.split("APPENDUID")[1].split("]")[0].split()[1]))
+                raw = imaplib.MapCRLF.sub(imaplib.CRLF, raw)
+                # Non-synchronizing literals (RFC 7888): no continuation round trip per message.
+                command.append(flag_str.encode() + b" {%d+}\r\n" % len(raw) + raw)
+            c.send(b"".join(command) + imaplib.CRLF)
+            typ, data = c._command_complete("APPEND", tag)
+            if typ != "OK":
+                raise RuntimeError(f"APPEND to {mailbox} failed: {data}")
+            # b'[APPENDUID 1789... 12:2311] Completed'
+            return _expand_uid_set(data[0].decode().split("APPENDUID")[1].split("]")[0].split()[1])
         finally:
             c.logout()
-        return uids
 
     def _with_selected(self, mailbox, fn):
         c = self._client()
@@ -127,6 +134,14 @@ class ImapClientServer(Server):
 
     def copy(self, mailbox, uids, dest):
         self._with_selected(mailbox, lambda c: c.uid("COPY", uid_set(uids), self._qm(dest)))
+
+
+def _expand_uid_set(text: str) -> list:
+    uids = []
+    for part in text.split(","):
+        lo, _, hi = part.partition(":")
+        uids.extend(range(int(lo), int(hi or lo) + 1))
+    return uids
 
 
 def uid_set(uids: Iterable[int]) -> str:

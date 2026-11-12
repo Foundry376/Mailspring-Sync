@@ -78,7 +78,9 @@ expect:
 Each `servers` entry becomes one pytest case. `mailboxes` populates the server before
 mailsync starts (`messages:` is a count or `{count, html, attachment, thread, self_addressed,
 age_days, ...}` for `harness/mailgen.py`; `flags:`; `duplicate_of: {mailbox, uids}` for
-byte-identical copies). `setup:` steps run before mailsync starts.
+byte-identical copies). `setup:` steps run before mailsync starts. On Dovecot and Cyrus,
+several messages in one `messages:` or `server.append` go up as a single MULTIAPPEND, so they
+land in one commit however slowly the server appends.
 
 Steps:
 
