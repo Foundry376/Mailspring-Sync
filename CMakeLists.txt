@@ -1,15 +1,17 @@
 cmake_minimum_required (VERSION 3.22 FATAL_ERROR)
 project (mailsync) 
 
+option(STATIC_RUNTIME "Link libgcc and libstdc++ statically" ON)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 SET (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unknown-pragmas")
 
-#Set Linker flags
-set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
-
+if(STATIC_RUNTIME)
+  set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
+endif()
 
 find_package (PkgConfig REQUIRED)
 pkg_check_modules (GLIB REQUIRED glib-2.0)
@@ -18,27 +20,6 @@ include_directories (${GLIB_INCLUDE_DIRS})
 link_directories (${GLIB_LIBRARY_DIRS})
 
 IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-
-  # Detect Debian/Ubuntu multiarch library path (e.g. /usr/lib/aarch64-linux-gnu)
-  # so that find_library() works on ARM64 and other non-x86 architectures
-  execute_process(
-    COMMAND dpkg-architecture -qDEB_HOST_MULTIARCH
-    OUTPUT_VARIABLE DEB_HOST_MULTIARCH
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-  )
-  if(DEB_HOST_MULTIARCH)
-    list(APPEND CMAKE_LIBRARY_PATH /usr/lib/${DEB_HOST_MULTIARCH})
-  endif()
-
-  set(additional_includes
-    /usr/include/tidy
-    /usr/include/libxml2
-    /usr/include/curl
-  )
-  
-  set(icu_libraries icudata icui18n icuio icutest icutu icuuc)
-  set(linux_libraries ${icu_libraries} pthread uuid xml2)
 
   link_directories(/opt/openssl/lib)
   link_directories(Vendor/mailcore2/build/src)
