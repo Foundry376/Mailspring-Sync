@@ -1263,7 +1263,10 @@ void TaskProcessor::performRemoteChangeOnMessages(Task * task, bool isMove, Remo
                 clientVisibleChange = true;
             }
 
-            int suc = safe->syncUnsavedChanges() - 1;
+            // performRemote re-inflates the task's threads, so a message that joined one after
+            // performLocal is released here without having been locked. Below zero, the counter
+            // would never return to 0 and the message's next task would leave syncedAt 24h ahead.
+            int suc = std::max(0, safe->syncUnsavedChanges() - 1);
             safe->setSyncUnsavedChanges(suc);
             if (suc == 0) {
                 safe->setSyncedAt(time(0));
