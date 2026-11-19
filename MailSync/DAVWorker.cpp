@@ -445,11 +445,10 @@ void DAVWorker::runContacts() {
                 cachedAddressBook = nullptr;
                 return;
             }
-            // Handle network errors during discovery (DNS resolution failure, connection refused, etc.)
-            // These indicate the CardDAV server is unreachable - skip contact sync rather than crashing.
+            // DNS failure, connection refused, etc. Discovery stays incomplete so it runs again
+            // next cycle; a transient outage must not suppress CardDAV for the whole session.
             if (e.isOffline()) {
-                logger->info("CardDAV server unreachable during discovery ({}), skipping contact sync", e.key);
-                contactsDiscoveryComplete = true;
+                logger->info("CardDAV server unreachable during discovery ({}), will retry next cycle", e.key);
                 cachedAddressBook = nullptr;
                 return;
             }
