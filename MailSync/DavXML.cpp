@@ -26,7 +26,15 @@ DavXML::DavXML(string xml, string url):
     // compatibility with non-compliant servers.
     doc = xmlReadMemory(xml.c_str(), (int)xml.size(), url.c_str(), "utf-8", 0);
     if (doc == nullptr) {
-        throw new SyncException("Unable to parse CalDav XML", xml, false);
+        // An HTML error page, an empty 2xx body, or a resource holding a character XML forbids.
+        // Retryable: the next pass may well get a parseable response. The preview is ASCII-only:
+        // handlers log toJSON().dump(), which throws on invalid UTF-8, and a body libxml2 rejected
+        // (or one cut at 500 bytes) may well not be valid UTF-8.
+        string preview = xml.substr(0, 500);
+        for (char & c : preview) {
+            if ((unsigned char)c >= 0x80) c = '?';
+        }
+        throw SyncException("Unable to parse CalDav XML", url + " (" + to_string(xml.size()) + " bytes): " + preview, true);
     }
 }
 
