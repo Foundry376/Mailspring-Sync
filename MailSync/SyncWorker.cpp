@@ -280,10 +280,21 @@ void SyncWorker::idleCycleIteration()
 
         IMAPFolderStatus remoteStatus = session.folderStatus(&path, &err);
 
+        // A failed STATUS returns a zeroed status; stored, its UIDNEXT 0 / HIGHESTMODSEQ 0 make
+        // the next pass re-fetch the folder. Stream and parse errors drop the session, so they go
+        // to the reconnect path. Anything else is a NO (RFC 3501 §6.3.10 discourages STATUS on the
+        // selected mailbox), which mailcore reports as the non-retryable ErrorNonExistantFolder
+        // that would abort the worker, so the change check is skipped and the IDLE still runs.
+        if (err == ErrorCode::ErrorConnection || err == ErrorCode::ErrorParse) {
+            throw SyncException(err, "folderStatus before IDLE");
+        }
+
         // Note: If we have CONDSTORE but don't have QRESYNC, this if/else may result
         // in us not seeing "vanished" messages until the next shallow sync iteration.
         // Right now I think that's fine.
-        if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
+        if (err != ErrorCode::ErrorNone) {
+            logger->warn("STATUS {} failed ({}); skipping the change check before IDLE", inbox->path(), ErrorCodeToTypeMap[err]);
+        } else if (session.storedCapabilities()->containsIndex(IMAPCapabilityCondstore)) {
             syncFolderChangesViaCondstore(*inbox, remoteStatus, false);
         } else {
             uint32_t uidnext = remoteStatus.uidNext();
