@@ -1734,8 +1734,10 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
         }
     }
 
-    // Remote: href -> etag (from server)
+    // Remote: normalized href -> etag (from server), and the href exactly as the server listed
+    // it, which the multiget must send: normalizeHref's decoding is for comparison only.
     map<string, string> remote {};
+    map<string, string> remoteListedHref {};
     {
         // Request events within the time range. The server expands recurring events
         // and returns any event where at least one instance falls within the range.
@@ -1781,7 +1783,9 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
         eventEtagsDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             auto etag = eventEtagsDoc->nodeContentAtXPath(".//D:getetag/text()", node);
             auto href = eventEtagsDoc->nodeContentAtXPath(".//D:href/text()", node);
-            remote[normalizeHref(href)] = string(etag.c_str());
+            string key = normalizeHref(href);
+            remote[key] = string(etag.c_str());
+            remoteListedHref[key] = href;
         }));
     }
 
@@ -1794,12 +1798,12 @@ void DAVWorker::runForCalendar(string calendarId, string name, string url) {
         auto it = local.find(href);
         if (it == local.end()) {
             // New event - need to fetch
-            neededHrefs.push_back(href);
+            neededHrefs.push_back(remoteListedHref[href]);
             continue;
         }
         if (it->second.second != remoteEtag) {
             // Updated event - etag changed, need to re-fetch
-            neededHrefs.push_back(href);
+            neededHrefs.push_back(remoteListedHref[href]);
         }
     }
     for (auto & pair : local) {
@@ -2046,7 +2050,7 @@ bool DAVWorker::runForCalendarWithSyncToken(string calendarId, string url, share
         for (auto chunk : MailUtils::chunksOfVector(neededHrefs, 90)) {
             string payload = "";
             for (auto & icsHref : chunk) {
-                payload += "<d:href>" + icsHref + "</d:href>";
+                payload += "<d:href>" + xmlEscape(icsHref) + "</d:href>";
             }
 
             auto icsDoc = performXMLRequest(url, "REPORT",
