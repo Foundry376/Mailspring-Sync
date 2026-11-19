@@ -327,6 +327,30 @@ static string xmlEscape(const string & text) {
     return out;
 }
 
+static bool answeredWithRedirect(const SyncException & e) {
+    return e.key.rfind("Invalid Response Code: 3", 0) == 0;
+}
+
+// The current-user-principal PROPFIND that starts discovery at `root` (RFC 6764 section 6).
+// nullptr when `root` is the "/" that section offers as a guess and it answers with a redirect:
+// nothing named a DAV service there, and a website redirects its root. A redirect from a root
+// that .well-known did name is thrown like any other failure, because mailsync does not follow it.
+static shared_ptr<DavXML> principalAtDiscoveryRoot(DAVWorker * worker, const string & root, bool rootIsGuess) {
+    try {
+        return worker->performXMLRequest(root, "PROPFIND",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+            "<A:propfind xmlns:A=\"DAV:\"><A:prop>"
+            "<A:current-user-principal/><A:principal-URL/><A:resourcetype/>"
+            "</A:prop></A:propfind>",
+            "0");
+    } catch (SyncException & e) {
+        if (rootIsGuess && answeredWithRedirect(e)) {
+            return nullptr;
+        }
+        throw;
+    }
+}
+
 // Rate limiting constants (RFC 6585/7231 compliance)
 static const int MAX_BACKOFF_MS = 60000;  // 1 minute max backoff
 static const int MIN_BACKOFF_MS = 100;    // 100ms minimum when backing off
@@ -599,12 +623,14 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     // Use the .well-known convention to try to look up the root path of the carddav service at the host. If this doesn't
     // work, that's fine with us, we just try the root.
     string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
+    bool rootIsGuess = false;
     if (cardRoot == "") {
         cardRoot = PerformExpectedRedirect("http://" + cardHost + "/.well-known/carddav");
         if (cardRoot == "" || cardRoot.find("/.well-known") != string::npos) {
             // if we couldn't find the root or the redirect looks like it was sending us in a circle,
             // (or redirecting us to https://) fall back to the root.
             cardRoot = cardHost + "/";
+            rootIsGuess = true;
         }
     }
     
@@ -614,7 +640,11 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     }
     
     // Fetch the current user principal URL from the CardDav root
-    auto principalDoc = performXMLRequest(cardRoot, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:current-user-principal/><A:principal-URL/><A:resourcetype/></A:prop></A:propfind>", "0");
+    auto principalDoc = principalAtDiscoveryRoot(this, cardRoot, rootIsGuess);
+    if (principalDoc == nullptr) {
+        logger->info("CardDAV: {} redirects and nothing names a service there, skipping contact sync", cardRoot);
+        return nullptr;
+    }
     string cardPrincipal = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
     if (cardPrincipal.find("://") == string::npos) {
         cardPrincipal = replacePath(cardRoot, cardPrincipal);
@@ -679,19 +709,20 @@ string DAVWorker::resolveCalendarHomeURL() {
     if (calRoot == "") {
         calRoot = PerformExpectedRedirect("http://" + caldavHost + "/.well-known/caldav");
     }
+    bool rootIsGuess = false;
     if (calRoot == "" || calRoot.find("/.well-known") != string::npos) {
         // Include scheme so that replacePath() and performXMLRequest() receive a
         // consistent full URL regardless of which branch was taken above.
         calRoot = "https://" + caldavHost + "/";
+        rootIsGuess = true;
     }
 
     // PROPFIND root → current-user-principal (RFC 5397)
-    auto principalDoc = performXMLRequest(calRoot, "PROPFIND",
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-        "<A:propfind xmlns:A=\"DAV:\"><A:prop>"
-        "<A:current-user-principal/><A:principal-URL/><A:resourcetype/>"
-        "</A:prop></A:propfind>",
-        "0");
+    auto principalDoc = principalAtDiscoveryRoot(this, calRoot, rootIsGuess);
+    if (principalDoc == nullptr) {
+        logger->info("CalDAV: {} redirects and nothing names a service there, skipping calendar discovery", calRoot);
+        return "";
+    }
     string calPrincipalURL = principalDoc->nodeContentAtXPath("//D:current-user-principal/D:href/text()");
     if (calPrincipalURL.empty()) {
         logger->info("CalDAV: server returned no current-user-principal, skipping calendar discovery");
