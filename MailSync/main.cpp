@@ -339,6 +339,29 @@ void runMicrosoftContactsWorker() {
     }
 }
 
+// A contacts failure must not cost the pass its calendar sync. A CardDAV server that refuses
+// part of the account (a 401/403 on its root PROPFIND or a directory address book) would
+// otherwise read as a failed sign-in in runCalContactsSyncWorker and stop calendar sync for
+// the session. Contacts are retried on the contact cadence; offline and Google quota errors
+// still go to the loop, whose handling covers calendar sync as well.
+void runContactsWorkers() {
+    try {
+        if (contactsWorker) {
+            contactsWorker->run();
+        }
+        if (microsoftContactsWorker) {
+            runMicrosoftContactsWorker();
+        }
+        davWorker->runContacts();
+    } catch (SyncException & ex) {
+        if (ex.isOffline() || ex.debuginfo.find("dailyLimitExceeded") != string::npos) {
+            throw;
+        }
+        exceptions::logCurrentExceptionWithStackTrace();
+        spdlog::get("logger")->warn("-X Contact sync failed; retrying on the contact cadence: {} {}", ex.key, ex.debuginfo);
+    }
+}
+
 void runCalContactsSyncWorker() {
     // wait a few seconds before launching calendar / contact sync. This gives
     // mailsync a minute to kick off and avoids database locking caused by many
@@ -368,13 +391,7 @@ void runCalContactsSyncWorker() {
             if (syncContacts) {
                 contactsEverSynced = true;
                 lastContactSync = now;
-                if (contactsWorker) {
-                    contactsWorker->run();
-                }
-                if (microsoftContactsWorker) {
-                    runMicrosoftContactsWorker();
-                }
-                davWorker->runContacts();
+                runContactsWorkers();
             }
             if (microsoftCalendarWorker) {
                 microsoftCalendarWorker->run();
