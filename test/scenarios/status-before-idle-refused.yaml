@@ -1,0 +1,52 @@
+name: status-before-idle-refused
+description: >
+  Before every IDLE the foreground worker sends STATUS on the inbox it has selected. Here the
+  server answers that STATUS with NO on the foreground connection, every time after the first
+  IDLE. mailcore hands back a zeroed IMAPFolderStatus with the error; stored, its UIDNEXT 0
+  (and on CONDSTORE a CHANGEDSINCE against HIGHESTMODSEQ 0) made the next pass re-fetch the
+  inbox as new. The engine must log the failure, skip the change check, store nothing from
+  the zeroed status, keep IDLEing (not abort the worker on the non-retryable error mailcore
+  maps the NO to), and the background pass, whose connection is not refused, must still
+  bring in new mail. New mail is delivered while the foreground idles, so the EXISTS wakes it
+  into a cycle whose STATUS is refused before any background pass runs: the mid-scenario
+  check sees exactly what that cycle stored. The refusal is a hook that stays armed
+  (`every: true`), so this is fake-only.
+source: "Mailspring-Sync c11ac48; RFC 3501 6.3.10 (STATUS SHOULD NOT be used on the selected mailbox; Dovecot answers it with OK [CLIENTBUG], a stricter server may refuse it); RFC 5530 3 CLIENTBUG"
+servers:
+  - {fake: dovecot}   # CONDSTORE + QRESYNC: syncFolderChangesViaCondstore; -plain is the non-CONDSTORE twin
+mailboxes:
+  INBOX: {messages: 8}
+  Archive: {messages: 2}
+setup:
+  # session: foreground only matches a connection that has idled, so the first STATUS (before
+  # the first IDLE) is answered and the inbox's counters are stored normally.
+  - server.reject:
+      at: {hook: before_command, session: foreground, mailbox: INBOX, command: "^STATUS \"?INBOX\"? ", every: true}
+      code: CLIENTBUG
+      text: "STATUS on the selected mailbox is not allowed"
+steps:
+  - wait: quiescent
+  - assert: {folder_status: {INBOX: {uidnext: 9, highestmodseq: {min: 1}}}}
+  # Delivered while the foreground idles: the EXISTS ends the IDLE, the next cycle's STATUS
+  # is refused, and the foreground idles again. The background stays asleep.
+  - server.append: {mailbox: INBOX, messages: 1}
+  - wait: {log: "NO \\[CLIENTBUG\\] STATUS on the selected mailbox", timeout: 30}
+  - wait: {log: "Idling on folder INBOX", timeout: 30}
+  - wait: {quiescent: true}
+  # Nothing from the refused STATUS may be stored: still the counters of the first STATUS.
+  - assert: {folder_status: {INBOX: {uidnext: 9, highestmodseq: {min: 1}}}}
+  # The background connection's STATUS is answered: the new message arrives on its pass.
+  - sync: pass
+  - server.append: {mailbox: INBOX, messages: 2}
+  - wait: {seconds: 1}
+  - sync: pass
+expect:
+  running: true
+  db_matches_server: {}
+  counts: {INBOX: 11, Archive: 2}
+  folder_status: {INBOX: {uidnext: 12, highestmodseq: {min: 1}}}
+  log_present: ["STATUS INBOX failed \\(.*\\); skipping the change check before IDLE"]
+  # every refused STATUS is followed by an IDLE; no abort, no crash
+  log_count: {"Idling on folder INBOX": {min: 4}}
+  log_absent: ["\\[critical\\]", "Uncaught", "terminate called"]
+  stable: {passes: 1}

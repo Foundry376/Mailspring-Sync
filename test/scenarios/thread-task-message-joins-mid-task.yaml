@@ -1,0 +1,49 @@
+name: thread-task-message-joins-mid-task
+description: >
+  A ChangeStarredTask for a thread locks every message of the thread in its local phase
+  (Message `_suc` + 1, syncedAt a day ahead) and releases every message it inflates from the
+  same threadIds after its STORE. Here the task's STORE is held on the fake while a reply to
+  the thread arrives and the background pass files it into the thread, so the release meets a
+  message the lock never covered. Its `_suc` must not go below 0 (the message_suc invariant):
+  at -1 it never returned to 0, so after the next task on the reply (marking it unread) its
+  syncedAt stayed a day ahead and MailProcessor ignored the server's changes to it - here
+  another client flagging it. The hold is a fake hook, so this is fake-only.
+source: "Mailspring-Sync 2399b4b (TaskProcessor::performRemoteChangeOnMessages re-inflates the task's threads after the network I/O); MailProcessor 'Ignoring changes to ..., local data is newer'"
+servers:
+  - {fake: dovecot}
+  - {fake: plain}
+mailboxes:
+  INBOX: {messages: 2}
+setup:
+  - server.append: {mailbox: INBOX, messages: {count: 1, message_id: "<lock-root@example.test>", subject: "Lock root"}}
+steps:
+  - wait: quiescent
+  # Hold the star task's STORE (on the foreground connection, which runs remote phases).
+  - server.pause: {at: {hook: before_command, session: foreground, command: "^UID STORE", delay: 5}}
+  - client.task: {__cls: ChangeStarredTask, threads: {mailbox: INBOX, uids: [3]}, starred: true}
+    as: star
+  - wait: {log: "sent \\d+ UID STORE", timeout: 30}
+  # A reply to the thread arrives and the background pass files it while the STORE is held.
+  - server.append:
+      mailbox: INBOX
+      messages: {count: 1, message_id: "<lock-reply@example.test>", subject: "Re: Lock root",
+                 in_reply_to: "<lock-root@example.test>", references: ["<lock-root@example.test>"]}
+  - sync: pass
+  - wait: {task: star, timeout: 60}
+  - wait: {quiescent: true}
+  # The next task on the reply, then another client flags it on the server.
+  - client.task: {__cls: ChangeUnreadTask, messages: {mailbox: INBOX, uids: [4]}, unread: true}
+    as: unread
+  - wait: {task: unread, timeout: 60}
+  - wait: {quiescent: true}
+  - wait: {seconds: 1}
+  - server.flags: {mailbox: INBOX, uids: [4], add: ["\\Flagged"]}
+  - wait: {seconds: 1}
+  - sync: pass
+expect:
+  running: true
+  task_error: {star: null, unread: null}
+  db_matches_server: {flags: true}
+  counts: {INBOX: 4}
+  log_count: {"Ignoring changes to Re: Lock root": 0}
+  stable: {passes: 1}

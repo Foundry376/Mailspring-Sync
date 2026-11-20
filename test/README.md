@@ -93,6 +93,7 @@ Steps:
 | `server.expunge / flags / move / copy / duplicate / append / create_mailbox / delete_mailbox / set_uidvalidity / set_uidnext / drop_connections / pause` | what another client does to the mailbox (`pause` changes nothing: with `at` and `delay` it holds one reply, as in `undo-before-remote-phase`); `at: before_fetch_body|idle_start|idle_tick|before_command` defers it to that protocol moment (fake only) |
 | `at: {hook, session: foreground|background, command: regex, mailbox, delay: s}` | the same, narrowed to one connection (`foreground` = the one that has idled), one command line (`"^UID FETCH 1:\\*"`) and one selected mailbox; `delay` holds that connection's reply so another connection acts on the change first (`mid-pass-foreground-tombstone`) |
 | `server.reject: {at: {hook: before_command, command: regex}, code, text}` | the hooked command is answered `NO [code] text` instead of being run (fake only; commands without literals), as in `move-rejected-by-server` |
+| `server.drop_connection: {at: {...}}` | close only the hooked connection, before it answers (fake only; elsewhere, or without `at`, every connection), as in `status-before-idle-connection-dropped` |
 | `at: {..., every: true}` | keep the hook armed instead of firing once, e.g. a folder whose STATUS fails on every pass (`orphan-sweep-with-unreadable-folder`) |
 | `server.flags: {..., per_message: true}` | one STORE per UID, so HIGHESTMODSEQ advances once per message - how a modseq gap larger than one grows on a real server (used by `modseq-truncation`) |
 | `client.task: {__cls: ChangeFolderTask, messages: {mailbox, uids}, folder: Archive}` | `Actions.queueTask` on stdin; `messages` resolve to engine ids (`{mailbox, uids}`, or `{header_message_ids: [...]}` for rows without a server placement such as a local draft), `threads: {mailbox, uids}` to their `threadIds`, `folder`/`labelsTo*` to Folder JSON, `sourceFolders: [paths]` to `sourceFolderIds` |
@@ -161,7 +162,8 @@ its messages' snapshots), `thread_categories` (`ThreadCategory` from the thread'
 `thread_counts` (`ThreadCounts` from `ThreadCategory`), `orphans` (`MessageOrphan` lists
 exactly the messages with no `MessageFolder` row, which is how the end-of-pass sweep finds them)
 and `thread_search` (each stored plaintext body is in its thread's `ThreadSearch.body`, its
-opening words no more often than the thread's stored texts contain them).
+opening words no more often than the thread's stored texts contain them) and `message_suc` (no
+message's `_suc` task-lock counter is negative).
 A scenario that trips one because of a known engine bug says so rather than skipping it
 silently: `expect: {invariants: {skip: [thread_counts]}}` with a comment naming the bug,
 `invariants: {xfail: reason}`, or `invariants: false` to disable all of them. They also work
@@ -364,6 +366,9 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | body-fetch-connection-dropped | a connection lost mid-batch releases the body fetches not yet attempted | fake |
 | body-fetch-interrupted-by-quit | a quit (SIGTERM) mid-batch: the next launch releases the body fetches not yet attempted | fake ×2 |
 | idle-update-pending-at-start | an expunge pending when the foreground sends IDLE arrives with `+ idling` and is acted on at once | fake ×2 |
+| status-before-idle-refused (+ -plain) | STATUS before IDLE answered NO on the foreground: counters of the zeroed status not stored, IDLE still reached, new mail via the background pass (c11ac48) | fake ×2 |
+| status-before-idle-connection-dropped | foreground connection closed at the STATUS before IDLE: offline, reconnect, the mail that woke it is fetched (c11ac48) | fake ×2 |
+| thread-task-message-joins-mid-task | a reply filed into a thread while the thread's star task's STORE is held: `_suc` never below 0, server flags on it still followed after its next task (2399b4b) | fake ×2 |
 
 Known engine failures are marked `xfail` in the scenario with the reason; `pytest -rxX`
 lists them and an `XPASS` line means the marker can be removed. Each open one gets a write-up

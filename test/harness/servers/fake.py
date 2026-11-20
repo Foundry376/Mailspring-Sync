@@ -188,12 +188,15 @@ class FakeServer(Server):
 
     def drop_connections(self):
         for s in list(self.imap.sessions):
-            if not s.closed:
-                try:
-                    s.connection.shutdown(2)
-                    s.connection.close()
-                except OSError:
-                    pass
+            self.drop_session(s)
+
+    def drop_session(self, s):
+        if not s.closed:
+            try:
+                s.connection.shutdown(2)
+                s.connection.close()
+            except OSError:
+                pass
 
     def truth(self):
         # The store is the truth; reading it back over IMAP is what the conformance suite

@@ -519,6 +519,8 @@ class ScenarioRun:
                     session.desynced = True
                 elif op == "garble":
                     session.garble_next = True
+                elif op == "drop_connection":   # this connection only, closed before it answers
+                    self.server.drop_session(session)
                 else:
                     self._server_op(op, arg)
                 if delay:
@@ -557,6 +559,8 @@ class ScenarioRun:
             s.set_uidnext(arg["mailbox"], int(arg["value"]))
         elif op == "drop_connections":
             s.drop_connections()
+        elif op == "drop_connection":
+            s.drop_connections()  # without a hook (or off the fake) there is no one connection to pick
         elif op == "index":
             s.index()
         elif op == "pause":
@@ -991,7 +995,13 @@ class ScenarioRun:
                 out.append(f"folder {path} missing")
                 continue
             for k, v in wanted.items():
-                if ls.get(k) != v:
+                if isinstance(v, dict):
+                    # {min: a, max: b}: a bound, for values the server picks (HIGHESTMODSEQ)
+                    got = ls.get(k)
+                    lo, hi = v.get("min"), v.get("max")
+                    if not isinstance(got, (int, float)) or (lo is not None and got < lo) or (hi is not None and got > hi):
+                        out.append(f"{path}.localStatus.{k} = {got!r}, expected {v!r}")
+                elif ls.get(k) != v:
                     out.append(f"{path}.localStatus.{k} = {ls.get(k)!r}, expected {v!r}")
         return out
 

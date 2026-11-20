@@ -1,0 +1,41 @@
+name: status-before-idle-connection-dropped
+description: >
+  The foreground connection closes without a BYE while its STATUS on the inbox before IDLE
+  is in flight (a NAT dropping the flow, a server restart). mailcore returns a zeroed
+  IMAPFolderStatus with ErrorConnection; the engine must not store its UIDNEXT 0 /
+  HIGHESTMODSEQ 0, must take the retryable reconnect path, and on the reconnected
+  connection pick up the mail whose EXISTS woke it, then keep idling. Only the foreground
+  connection is closed (the background one is asleep and untouched), so this is fake-only.
+source: "Mailspring-Sync c11ac48 (ErrorConnection / ErrorParse from STATUS before IDLE thrown as retryable); connection-dropped-during-command for the same failure on the background connection"
+servers:
+  - {fake: dovecot}   # CONDSTORE + QRESYNC
+  - {fake: plain}     # no CONDSTORE
+mailboxes:
+  INBOX: {messages: 8}
+  Archive: {messages: 2}
+steps:
+  - wait: quiescent
+  # session: foreground matches only the connection that has idled; once, so the reconnected
+  # connection's STATUS is answered.
+  - server.drop_connection: {at: {hook: before_command, session: foreground, mailbox: INBOX, command: "^STATUS \"?INBOX\"? "}}
+  # The EXISTS ends the IDLE; the next cycle's STATUS meets the closed connection.
+  - server.append: {mailbox: INBOX, messages: 1}
+  - wait: {log: "Idle exited with code", timeout: 30}
+  - wait: {seconds: 0.5}
+  # The foreground sleeps after the retryable error; the quiescence wait wakes it, as the
+  # client does when it comes back online.
+  - wait: {quiescent: true, timeout: 60}
+  - assert: {counts: {INBOX: 9}, folder_status: {INBOX: {uidnext: 10}}}
+  - server.append: {mailbox: INBOX, messages: 1}
+  - wait: {seconds: 1}
+  - sync: pass
+expect:
+  running: true
+  db_matches_server: {}
+  counts: {INBOX: 10, Archive: 2}
+  folder_status: {INBOX: {uidnext: 11}}
+  # The STATUS's ErrorConnection is thrown as an offline, retryable SyncException (logged at
+  # [critical] with its stack, as every SyncException is); the reconnect clears it.
+  connection_error: {reported: true, cleared: true}
+  log_absent: ["Uncaught", "terminate called"]
+  stable: {passes: 1}

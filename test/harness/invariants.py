@@ -280,6 +280,15 @@ def check_orphans(s: _Snapshot) -> list:
     return out
 
 
+def check_message_suc(s: _Snapshot) -> list:
+    """Message.data._suc (syncUnsavedChanges, the count of tasks holding the message's syncedAt
+    lock) is never negative: a task's remote phase releases only what its local phase locked.
+    Below zero it never returns to 0 after a later task, which leaves syncedAt a day ahead and
+    MailProcessor ignoring the server's changes to the message (2399b4b)."""
+    return [f"{_msg(s, mid)}: _suc = {m['data'].get('_suc')}" for mid, m in s.messages.items()
+            if isinstance(m["data"].get("_suc"), int) and m["data"]["_suc"] < 0]
+
+
 def _indexed_text(body: str) -> str:
     """The part of a message's text MailProcessor indexes: mailcore truncates UTF-16."""
     units = body.encode("utf-16-le")[:2 * SEARCH_BODY_MAX_LENGTH]
@@ -327,6 +336,7 @@ CHECKS = {
     "thread_counts": check_thread_counts,
     "orphans": check_orphans,
     "thread_search": check_thread_search,
+    "message_suc": check_message_suc,
 }
 
 

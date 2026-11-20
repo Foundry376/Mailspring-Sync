@@ -1,0 +1,46 @@
+name: status-before-idle-refused-plain
+description: >
+  status-before-idle-refused without CONDSTORE. The foreground's change check here is the
+  UIDNEXT range fetch, and the old engine stored the refused STATUS's UIDNEXT 0 as is, so the
+  next background pass re-fetched the whole inbox as new mail. The refused STATUS must leave
+  the stored UIDNEXT alone, the foreground must keep IDLEing, and new mail must still arrive
+  on the background pass. Fake-only (a hook that stays armed, `every: true`).
+source: "Mailspring-Sync c11ac48; RFC 3501 6.3.10 (STATUS SHOULD NOT be used on the selected mailbox; Dovecot answers it with OK [CLIENTBUG], a stricter server may refuse it); RFC 5530 3 CLIENTBUG"
+servers:
+  - {fake: plain}     # no CONDSTORE: the UIDNEXT range fetch
+mailboxes:
+  INBOX: {messages: 8}
+  Archive: {messages: 2}
+setup:
+  # session: foreground only matches a connection that has idled, so the first STATUS (before
+  # the first IDLE) is answered and the inbox's counters are stored normally.
+  - server.reject:
+      at: {hook: before_command, session: foreground, mailbox: INBOX, command: "^STATUS \"?INBOX\"? ", every: true}
+      code: CLIENTBUG
+      text: "STATUS on the selected mailbox is not allowed"
+steps:
+  - wait: quiescent
+  - assert: {folder_status: {INBOX: {uidnext: 9}}}
+  # Delivered while the foreground idles: the EXISTS ends the IDLE, the next cycle's STATUS
+  # is refused, and the foreground idles again. The background stays asleep.
+  - server.append: {mailbox: INBOX, messages: 1}
+  - wait: {log: "NO \\[CLIENTBUG\\] STATUS on the selected mailbox", timeout: 30}
+  - wait: {log: "Idling on folder INBOX", timeout: 30}
+  - wait: {quiescent: true}
+  # Nothing from the refused STATUS may be stored: still the counters of the first STATUS.
+  - assert: {folder_status: {INBOX: {uidnext: 9}}}
+  # The background connection's STATUS is answered: the new message arrives on its pass.
+  - sync: pass
+  - server.append: {mailbox: INBOX, messages: 2}
+  - wait: {seconds: 1}
+  - sync: pass
+expect:
+  running: true
+  db_matches_server: {}
+  counts: {INBOX: 11, Archive: 2}
+  folder_status: {INBOX: {uidnext: 12}}
+  log_present: ["STATUS INBOX failed \\(.*\\); skipping the change check before IDLE"]
+  # every refused STATUS is followed by an IDLE; no abort, no crash
+  log_count: {"Idling on folder INBOX": {min: 4}}
+  log_absent: ["\\[critical\\]", "Uncaught", "terminate called"]
+  stable: {passes: 1}
