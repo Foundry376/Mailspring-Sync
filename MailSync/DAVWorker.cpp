@@ -778,7 +778,7 @@ void DAVWorker::writeAndResyncContact(shared_ptr<Contact> contact) {
         // read the card back to ingest server-side changes and the new etag
         // IMPORTANT: We receive a new copy of this contact with possibly new data.
         // DO NOT SAVE the one in the outer scope!
-        auto abDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop><d:href>"+href+"</d:href></c:addressbook-multiget>");
+        auto abDoc = performXMLRequest(ab->url(), "REPORT", "<c:addressbook-multiget xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:carddav\"><d:prop><d:getetag /><c:address-data /></d:prop><d:href>" + xmlEscape(href) + "</d:href></c:addressbook-multiget>");
         abDoc->evaluateXPath("//D:response", ([&](xmlNodePtr node) {
             bool isGroup = false;
             auto serverside = ingestAddressDataNode(abDoc, node, isGroup);
