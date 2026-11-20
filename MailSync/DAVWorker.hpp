@@ -54,6 +54,7 @@ class DAVWorker {
     string cachedCalPrincipalPath = "";
 
     bool validateCachedAddressBook();
+    void removeContactsInBook(shared_ptr<ContactBook> ab);
 
     // Rate limiting state (shared for CalDAV and CardDAV)
     // Implements RFC 6585 (429) and RFC 7231 (Retry-After) compliance

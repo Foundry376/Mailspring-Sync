@@ -176,6 +176,12 @@ static string normalizeHref(const string & href) {
     return result;
 }
 
+static string lowercased(string value) {
+    transform(value.begin(), value.end(), value.begin(),
+              [](unsigned char c) { return (char)tolower(c); });
+    return value;
+}
+
 static CalendarRowEtags etagsByUID(const vector<shared_ptr<Event>> & rows) {
     CalendarRowEtags etags {};
     for (auto & row : rows) {
@@ -565,6 +571,69 @@ bool DAVWorker::validateCachedAddressBook() {
     }
 }
 
+// An address book in the addressbook home's listing, with what preferredAddressBook reads.
+struct AddressBookListing {
+    string url;
+    string displayName;
+    string ctag;
+    string skipReason; // why this is not the user's own writable book, or ""
+    bool markedDefault = false;
+};
+
+/*
+ Whether contacts created in Mailspring could be stored in this address book. Mirrors
+ calendarIsWritable: an absent DAV:current-user-privilege-set (optional, RFC 3744 section 5.4)
+ counts as writable, and the lookup is scoped to the propstat carrying a 200 status. Creating a
+ card needs DAV:bind on the collection, which DAV:write and DAV:all contain; DAV:write-content
+ alone only allows editing existing cards.
+*/
+static bool addressBookAcceptsNewCards(shared_ptr<DavXML> doc, xmlNodePtr responseNode) {
+    const string found =
+        "./D:propstat[contains(./D:status, '200')]/D:prop/D:current-user-privilege-set";
+
+    bool advertised = false;
+    doc->evaluateXPath(found, ([&](xmlNodePtr) { advertised = true; }), responseNode);
+    if (!advertised) {
+        return true;
+    }
+    bool writable = false;
+    doc->evaluateXPath(found + "//D:write|" + found + "//D:bind|" + found + "//D:all",
+                       ([&](xmlNodePtr) { writable = true; }), responseNode);
+    return writable;
+}
+
+/*
+ Picks the one address book contacts sync with. CardDAV defines no primary book (an address
+ book home may hold any number, RFC 6352 section 6), and servers list several:
+
+ - A book with a skipReason is passed over: Nextcloud's generated books
+   (`z-app-generated--contactsinteraction--recent`, "Recently contacted", and the
+   `z-server-generated--system` directory of every user, both listed after the user's own), a
+   directory gateway / GAL (draft-daboo-carddav-directory-gateway: the CARDDAV:directory resource
+   type, as on SOGo's LDAP sources, or named by the principal's CARDDAV:directory-gateway), and a
+   book the user cannot add cards to (another user's read-only share).
+ - Of the rest, the first the server marks as default wins: the home's
+   CARDDAV:default-addressbook-URL (Apple Calendar Server), or a final path segment "default"
+   (Google `lists/default`, Fastmail `Default`).
+ - Otherwise the first listed, which is the user's own book on Nextcloud, SOGo and iCloud.
+
+ Display names are never compared: users and servers name and localise books freely. When every
+ book is passed over, the same preference runs over all of them, so a server whose only book
+ looks read-only still has its contacts synced.
+*/
+static size_t preferredAddressBook(const vector<AddressBookListing> & books) {
+    for (bool requireEligible : {true, false}) {
+        for (bool requireDefault : {true, false}) {
+            for (size_t i = 0; i < books.size(); i++) {
+                if (requireEligible && books[i].skipReason != "") continue;
+                if (requireDefault && !books[i].markedDefault) continue;
+                return i;
+            }
+        }
+    }
+    return 0;
+}
+
 /*
  Performs full address book discovery via DNS SRV + .well-known + PROPFIND chain.
  Currently we load whatever contact book we have saved locally, but still re-run the DNS + well-known
@@ -621,34 +690,112 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     }
     
     // Fetch the address book home set URL from the user principal URL. Depth 0, as for calendars.
-    auto abSetDoc = performXMLRequest(cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>", "0");
+    auto abSetDoc = performXMLRequest(cardPrincipal, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><A:propfind xmlns:A=\"DAV:\"><A:prop><A:displayname/><A:resourcetype/><B:addressbook-home-set xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/><B:directory-gateway xmlns:B=\"urn:ietf:params:xml:ns:carddav\"/></A:prop></A:propfind>", "0");
     auto abSetURL = abSetDoc->nodeContentAtXPath("//carddav:addressbook-home-set/D:href/text()");
     if (abSetURL.find("://") == string::npos) {
         abSetURL = replacePath(cardRoot, abSetURL);
     }
-    
-    // Hit the home address book set to retrieve the individual address books (including ctag)
-    auto abSetContentsDoc = performXMLRequest(abSetURL, "PROPFIND", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\"><d:prop><d:resourcetype /><d:displayname /><cs:getctag /></d:prop></d:propfind>");
-
-    // Iterate over the address books and run a sync on each one
-    // TODO: Pick the primary one somehow!
-
-    abSetContentsDoc->evaluateXPath("//D:response[.//carddav:addressbook]", ([&](xmlNodePtr node) {
-        string abHREF = abSetContentsDoc->nodeContentAtXPath(".//D:href/text()", node);
-        string abURL = (abHREF.find("://") == string::npos) ? replacePath(abSetURL, abHREF) : abHREF;
-        string ctag = abSetContentsDoc->nodeContentAtXPath(".//cs:getctag/text()", node);
-        if (!existing) {
-            existing = make_shared<ContactBook>(account->id() + "-default", account->id());
-        }
-        existing->setSource("carddav");
-        existing->setURL(abURL);
-        // Save without ctag - ctag is only persisted after a successful sync.
-        // (Setting it here would cause the first sync to see oldCtag == newCtag and skip.)
-        store->save(existing.get());
-        existing->setCtag(ctag); // set in-memory for comparison, not yet in DB
+    set<string> directoryPaths {};
+    abSetDoc->evaluateXPath("//carddav:directory-gateway/D:href", ([&](xmlNodePtr node) {
+        directoryPaths.insert(normalizeHref(abSetDoc->nodeContentAtXPath("./text()", node)));
     }));
 
+    // Hit the home address book set to retrieve the individual address books (including ctag)
+    auto abSetContentsDoc = performXMLRequest(abSetURL, "PROPFIND",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<d:propfind xmlns:d=\"DAV:\" xmlns:cs=\"http://calendarserver.org/ns/\" xmlns:card=\"urn:ietf:params:xml:ns:carddav\">"
+        "<d:prop><d:resourcetype /><d:displayname /><cs:getctag /><d:current-user-privilege-set />"
+        "<card:default-addressbook-URL /></d:prop></d:propfind>");
+    string defaultPath = abSetContentsDoc->nodeContentAtXPath("//carddav:default-addressbook-URL/D:href/text()");
+    if (defaultPath != "") {
+        defaultPath = normalizeHref(defaultPath);
+    }
+
+    vector<AddressBookListing> books {};
+    abSetContentsDoc->evaluateXPath("//D:response[.//carddav:addressbook]", ([&](xmlNodePtr node) {
+        string abHREF = abSetContentsDoc->nodeContentAtXPath(".//D:href/text()", node);
+        string path = normalizeHref(abHREF);
+        string lastSegment = path.substr(path.find_last_of('/') + 1);
+        bool hasDirectoryType = false;
+        abSetContentsDoc->evaluateXPath(".//D:resourcetype/carddav:directory", ([&](xmlNodePtr) { hasDirectoryType = true; }), node);
+
+        AddressBookListing book;
+        book.url = (abHREF.find("://") == string::npos) ? replacePath(abSetURL, abHREF) : abHREF;
+        book.displayName = abSetContentsDoc->nodeContentAtXPath(".//D:displayname/text()", node);
+        book.ctag = abSetContentsDoc->nodeContentAtXPath(".//cs:getctag/text()", node);
+        book.markedDefault = (path == defaultPath) || (lowercased(lastSegment) == "default");
+        if (lastSegment.find("z-app-generated--") == 0 || lastSegment.find("z-server-generated--") == 0) {
+            book.skipReason = "generated by Nextcloud";
+        } else if (hasDirectoryType || directoryPaths.count(path)) {
+            book.skipReason = "directory";
+        } else if (!addressBookAcceptsNewCards(abSetContentsDoc, node)) {
+            book.skipReason = "read-only";
+        }
+        books.push_back(book);
+    }));
+
+    if (books.empty()) {
+        return existing;
+    }
+
+    // The book already synced is kept while it is still listed and not passed over, so an account
+    // whose server lists several books doesn't switch (and refetch every card) when the listing
+    // order or the preference changes. One passed over, like Nextcloud's "Recently contacted"
+    // synced before the preference existed, is replaced.
+    size_t chosenIndex = preferredAddressBook(books);
+    if (existing && existing->url() != "") {
+        for (size_t i = 0; i < books.size(); i++) {
+            if (books[i].skipReason == "" && normalizeHref(books[i].url) == normalizeHref(existing->url())) {
+                chosenIndex = i;
+                break;
+            }
+        }
+    }
+    const AddressBookListing & chosen = books[chosenIndex];
+    for (auto & book : books) {
+        string role = &book == &chosen ? "selected" : book.skipReason != "" ? "skipped, " + book.skipReason : "not selected";
+        logger->info("- Address book '{}' {}{}: {}", book.displayName, book.url, book.markedDefault ? " (default)" : "", role);
+    }
+
+    if (!existing) {
+        existing = make_shared<ContactBook>(account->id() + "-default", account->id());
+    } else if (existing->url() != "" && existing->url() != chosen.url) {
+        logger->info("- Selected address book changed from {}, syncing it in full", existing->url());
+        removeContactsInBook(existing);
+        existing->setCtag("");
+        existing->setSyncToken("");
+    }
+    existing->setSource(CARDDAV_SYNC_SOURCE);
+    existing->setURL(chosen.url);
+    // Saved without the listed ctag, which is persisted only after a successful sync: the first
+    // sync of this URL would otherwise see oldCtag == newCtag and skip.
+    store->save(existing.get());
+    existing->setCtag(chosen.ctag);
     return existing;
+}
+
+/*
+ Removes every contact and group synced from this book. Called when a different address book is
+ selected: an initial sync-collection only reports the members of the new book (RFC 6578
+ section 3.4), so the previous book's cards would otherwise stay in the contact list.
+*/
+void DAVWorker::removeContactsInBook(shared_ptr<ContactBook> ab) {
+    auto contacts = store->findAll<Contact>(Query().equal("bookId", ab->id()));
+    size_t contactCount = contacts.size(); // chunksOfVector empties it
+    for (auto & chunk : MailUtils::chunksOfVector(contacts, 100)) {
+        MailStoreTransaction transaction{store, "removeContactsInBook"};
+        for (auto & contact : chunk) {
+            store->remove(contact.get());
+        }
+        transaction.commit();
+    }
+    auto groups = store->findAll<ContactGroup>(Query().equal("bookId", ab->id()));
+    MailStoreTransaction transaction{store, "removeContactsInBook:groups"};
+    for (auto & group : groups) {
+        store->remove(group.get());
+    }
+    transaction.commit();
+    logger->info("- Removed {} contacts and {} groups of the previous address book", contactCount, groups.size());
 }
 
 /*
@@ -1388,12 +1535,6 @@ static bool calendarIsWritable(shared_ptr<DavXML> doc, xmlNodePtr responseNode, 
                            "//D:bind|" + found + "//D:all",
                        ([&](xmlNodePtr) { writable = true; }), responseNode);
     return writable;
-}
-
-static string lowercased(string value) {
-    transform(value.begin(), value.end(), value.begin(),
-              [](unsigned char c) { return (char)tolower(c); });
-    return value;
 }
 
 /*
