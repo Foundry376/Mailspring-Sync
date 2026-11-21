@@ -1,0 +1,37 @@
+name: destroy-folder-with-children-retried
+description: >
+  The user deletes Work and the server refuses the DELETE of its child Work/Sub after
+  Work/Sub/Deep is already gone. The task fails with nothing more deleted, and the next
+  folder sync drops only Work/Sub/Deep. Deleting Work again must not trip over the child
+  that is already gone: it reads the children from LIST again and finishes the subtree.
+source: "TaskProcessor::performRemoteDestroyCategory; companion to destroy-folder-with-children"
+servers:
+  - {fake: dovecot}
+mailboxes:
+  INBOX: {messages: 1}
+  Work: {messages: 1}
+  Work/Sub: {messages: 1}
+  Work/Sub/Deep: {messages: 1}
+steps:
+  - wait: quiescent
+  - server.reject: {at: {hook: before_command, session: foreground, command: '^DELETE "?Work/Sub"?$'}, code: CANNOT, text: "Mailbox is in use"}
+  - client.task: {__cls: DestroyCategoryTask, path: Work}
+    as: first
+  - wait: {task: first, timeout: 60}
+  - sync: pass
+  - wait: {quiescent: true}
+  - assert:
+      task_error: {first: ErrorDelete}
+      folder_roles: {Work: "", Work/Sub: "", Work/Sub/Deep: null}
+      counts: {INBOX: 1, Work: 1, Work/Sub: 1, Work/Sub/Deep: 0, total: 3}
+  - client.task: {__cls: DestroyCategoryTask, path: Work}
+    as: second
+  - wait: {task: second, timeout: 60}
+  - sync: pass
+  - wait: {quiescent: true}
+expect:
+  task_error: {second: null}
+  folder_roles: {Work: null, Work/Sub: null, Work/Sub/Deep: null}
+  counts: {INBOX: 1, total: 1}
+  db_matches_server: {}
+  running: true

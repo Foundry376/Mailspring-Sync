@@ -1,0 +1,56 @@
+name: destroy-folder-with-children
+description: >
+  The user deletes Work, which the sidebar shows with Work/Sub, Work/Sub/Deep and
+  Work/Gap/Leaf beneath it (Work/Gap never created, so the server lists it as a \Noselect
+  placeholder, which goes by itself once its child does, or Cyrus creates as a real
+  mailbox). RFC 3501 lets a server refuse a DELETE of a mailbox with children (Cyrus: "NO
+  Mailbox has inferior hierarchical names") or remove only the named one and keep its
+  children (Dovecot), so the engine deletes the children it lists first, deepest first,
+  then Work. Workshop shares
+  Work's leading letters but is not inside it and must stay. Deleting Mailspring, whose
+  Mailspring/Snoozed child holds the snoozed role, must fail without deleting anything.
+source: "TaskProcessor::performRemoteDestroyCategory; RFC 3501 6.3.4; spotted in WojRep's fork (5d68760)"
+servers:
+  - {fake: dovecot}
+  - {dovecot: qresync}
+  - {cyrus: fastmail}
+  - {cyrus: default-ns}
+mailboxes:
+  INBOX: {messages: 2}
+  Work: {messages: 2}
+  Work/Sub: {messages: 1}
+  Work/Sub/Deep: {messages: 1}
+  Work/Gap/Leaf: {messages: 1}
+  Workshop: {messages: 1}
+  Mailspring: {messages: 0}
+  Mailspring/Snoozed: {messages: 1}
+steps:
+  - wait: quiescent
+  - assert:
+      counts: {Work: 2, Work/Sub: 1, Work/Sub/Deep: 1, Work/Gap/Leaf: 1, Workshop: 1}
+      folder_roles: {Mailspring/Snoozed: snoozed}
+  - client.task: {__cls: DestroyCategoryTask, path: Mailspring}
+    as: destroy-container
+  - wait: {task: destroy-container, timeout: 60}
+  - client.task: {__cls: DestroyCategoryTask, path: Work}
+    as: destroy
+  - wait: {task: destroy, timeout: 60}
+  - sync: pass
+  - wait: {quiescent: true}
+expect:
+  task_error:
+    destroy: null
+    destroy-container: {key: folder-has-role-children, debuginfo: "Mailspring.Snoozed|Mailspring/Snoozed"}
+  folder_roles:
+    Work: null
+    Work/Sub: null
+    Work/Sub/Deep: null
+    Work/Gap/Leaf: null
+    Workshop: ""
+    Mailspring: ""
+    Mailspring/Snoozed: snoozed
+  server_counts: {INBOX: 2, Workshop: 1, Mailspring/Snoozed: 1}
+  counts: {INBOX: 2, Workshop: 1, Work: 0, Work/Sub: 0, Work/Sub/Deep: 0, Work/Gap/Leaf: 0, Mailspring/Snoozed: 1, total: 4}
+  db_matches_server: {}
+  stable: {passes: 1}
+  running: true

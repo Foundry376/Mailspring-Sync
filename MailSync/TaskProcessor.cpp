@@ -2122,18 +2122,97 @@ void TaskProcessor::performRemoteSyncbackMetadata(Task * task) {
     logger->info("Syncback of metadata {}:{} = {} succeeded.", id, pluginId, payload.dump());
 }
 
+/*
+ RFC 3501 6.3.4 leaves DELETE of a mailbox with children to the server: Cyrus refuses it
+ ("Mailbox has inferior hierarchical names"), and Dovecot removes the named mailbox's mail
+ but keeps its children under a \Noselect placeholder, orphans the sidebar can no longer
+ nest. The client shows the children under the folder the user deletes, so the subtree
+ goes: the children the server lists under it, deepest first, then the folder. A child that
+ holds a role (Trash, Sent, Snoozed...) is never deleted: the task fails before anything is.
+ Children are read from LIST, not the local rows, so ones not synced yet go too, and a rerun
+ after a partial failure finds only what is left. The local rows go with the next folder
+ sync, as for any folder that leaves the server.
+*/
 void TaskProcessor::performRemoteDestroyCategory(Task * task) {
     json & data = task->data();
     string accountId = task->accountId();
     string path = data["path"].get<string>();
     ErrorCode err = ErrorCode::ErrorNone;
-    
+
+    Array * remoteFolders = session->fetchAllFolders(&err);
+    if (err != ErrorNone) {
+        throw SyncException(err, "deleteFolder - fetchAllFolders");
+    }
+
+    // The folder's own delimiter says how its children are spelled ("Work/x", "INBOX.Work.x").
+    // NIL, or a folder the server does not list, has none.
+    char delimiter = 0;
+    for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
+        IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+        if (string(remote->path()->UTF8Characters()) == path) {
+            delimiter = remote->delimiter();
+            break;
+        }
+    }
+
+    map<string, IMAPFolder *> children {};
+    if (delimiter != 0) {
+        string prefix = path + delimiter;
+        for (unsigned int ii = 0; ii < remoteFolders->count(); ii++) {
+            IMAPFolder * remote = (IMAPFolder *)remoteFolders->objectAtIndex(ii);
+            string remotePath = remote->path()->UTF8Characters();
+            if (remotePath.size() > prefix.size() && remotePath.compare(0, prefix.size(), prefix) == 0) {
+                children[remotePath] = remote;
+            }
+        }
+    }
+
+    if (!children.empty()) {
+        map<string, string> localRoles {};
+        for (auto & folder : store->findAll<Folder>(Query().equal("accountId", accountId))) {
+            localRoles[folder->path()] = folder->role();
+        }
+        for (auto & label : store->findAll<Label>(Query().equal("accountId", accountId))) {
+            localRoles[label->path()] = label->role();
+        }
+        for (auto & child : children) {
+            string role = localRoles.count(child.first) ? localRoles[child.first] : "";
+            if (role == "") {
+                role = MailUtils::roleForFolderViaFlags("", child.second);
+            }
+            if (role != "") {
+                throw SyncException("folder-has-role-children", "Nothing was deleted: '" + child.first + "' inside '" + path + "' is your " + role + " folder.", false);
+            }
+        }
+    }
+
+    // A child's path is longer than its parent's, so longest first is deepest first.
+    vector<string> order {};
+    for (auto & child : children) {
+        order.push_back(child.first);
+    }
+    sort(order.begin(), order.end(), [](const string & a, const string & b) { return a.size() > b.size(); });
+
+    for (auto & childPath : order) {
+        session->deleteFolder(AS_MCSTR(childPath), &err);
+        if (err != ErrorNone) {
+            // A \Noselect placeholder holds no mail, and the server may drop it by itself once
+            // its last child goes. If it is still there, the parent's DELETE below says so.
+            if (err == ErrorDelete && (children[childPath]->flags() & IMAPFolderFlagNoSelect)) {
+                logger->info("Deletion of placeholder '{}' failed; continuing.", childPath);
+                err = ErrorNone;
+                continue;
+            }
+            throw SyncException(err, "deleteFolder - child " + childPath);
+        }
+        logger->info("Deletion of folder/label '{}' (inside '{}') succeeded.", childPath, path);
+    }
+
     session->deleteFolder(AS_MCSTR(path), &err);
-    
     if (err != ErrorNone) {
         throw SyncException(err, "deleteFolder");
     }
-    
+
     logger->info("Deletion of folder/label '{}' succeeded.", path);
 }
 

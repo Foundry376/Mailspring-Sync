@@ -324,6 +324,8 @@ it lists `dovecot:plain`), except `proton-all-mail-duplicates`; four also list
 | remote-move-destination-scanned-first | placements: move seen "present in B" before "gone from A"; never deleted/re-created | fake ×2, dovecot |
 | trash-message-with-two-placements | placements: trash from Inbox takes the Sent copy too; a plain archive does not | fake ×2, dovecot |
 | folder-deleted-with-copies-elsewhere | a folder deleted by another client or DestroyCategoryTask: its only-copies removed, copies elsewhere kept | fake, dovecot, cyrus |
+| destroy-folder-with-children | DestroyCategoryTask deletes the children LIST shows deepest first (Cyrus refuses the parent, Dovecot keeps the children), not Workshop; refuses when a child holds a role | fake, dovecot, cyrus ×2 |
+| destroy-folder-with-children-retried | a child's DELETE refused midway; deleting again finishes the subtree | fake |
 | flag-change-on-second-placement | placements: per-placement flags on the Sent copy of a self-addressed message | fake ×2, dovecot |
 | gmail-send-and-labels | Gmail: no Sent APPEND on send, one All Mail placement; ChangeLabelsTask keeps one placement | fake |
 | migration-from-pre-placements-db | V10 migration of an 0df7864 database + a DB caught mid-sweep | fake, dovecot |
