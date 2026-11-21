@@ -1277,16 +1277,19 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
         logger->warn("- {}: server applied MESSAGELIMIT, only UIDs {} and up were scanned", remotePath, scannedMinUID);
     }
 
-    clock_t lastSleepClock = clock();
+    auto lastSleep = std::chrono::steady_clock::now();
 
     logger->info("- {}: remote={}, local={}, folderId={}", remotePath, remote->count(), local.size(), folder.id());
 
     for (int ii = ((int)remote->count()) - 1; ii >= 0; ii--) {
-        // Never sit in a hard loop inserting things into the database for more than 250ms.
-        // This ensures we don't starve another thread waiting for a database connection
-        if (((clock() - lastSleepClock) * 4) / CLOCKS_PER_SEC > 1) {
+        // Never sit in a hard loop inserting things into the database for more than 500ms.
+        // Each insert is its own write transaction, and the gap between two is too short for
+        // another connection waiting on the write lock (the foreground worker, another
+        // account's mailsync) to get in. Note: this is wall time; clock() is CPU time summed
+        // over every thread of the process on macOS and Linux.
+        if (std::chrono::steady_clock::now() - lastSleep >= std::chrono::milliseconds(500)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            lastSleepClock = clock();
+            lastSleep = std::chrono::steady_clock::now();
         }
         
         IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
