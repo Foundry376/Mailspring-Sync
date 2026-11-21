@@ -37,7 +37,9 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 elif [[ "$OSTYPE" == "linux-gnu" ]]; then
   echo "Building and installing libetpan..."
   cd "$MAILSYNC_DIR/Vendor/libetpan"
-  ./autogen.sh --with-openssl=/opt/openssl
+  # --disable-db: with libdb-dev installed, libetpan's cache code needs -ldb,
+  # which the static link below doesn't pass and the package doesn't ship.
+  ./autogen.sh --with-openssl=/opt/openssl --disable-db
   make >/dev/null
   sudo make install prefix=/usr >/dev/null
 

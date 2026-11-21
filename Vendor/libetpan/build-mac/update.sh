@@ -31,9 +31,21 @@ if test "x$ACTION" = x ; then
   ACTION=build
 fi
 
+# --disable-db: configure runs outside Xcode's SDK sysroot, so it can find a
+# Berkeley DB 3+ db.h (a Homebrew berkeley-db on CPPFLAGS, /usr/local/include)
+# while Xcode compiles mail_cache_db.c against the SDK's DB 1.85 db.h, which
+# fails. Only libetpan's cached storage drivers use it; mailcore uses none.
+configure_flags="--with-expat=no --with-curl=no --enable-debug --disable-db"
+
+# Reconfigure when the autogen output or the configure flags change.
+configure_stamp() {
+  md5 build-mac/autogen-result.tar.gz
+  echo "$configure_flags"
+}
+
 if test "x$ACTION" = xbuild -o "x$ACTION" = xinstall ; then
   
-  md5 build-mac/autogen-result.tar.gz > build-mac/autogen-result.md5.new
+  configure_stamp > build-mac/autogen-result.md5.new
   if ! cmp -s build-mac/autogen-result.md5 build-mac/autogen-result.md5.new ; then
     rm -f Makefile
   fi
@@ -43,7 +55,7 @@ if test "x$ACTION" = xbuild -o "x$ACTION" = xinstall ; then
     tar xzf build-mac/autogen-result.tar.gz
     export SDKROOT=
     export IPHONEOS_DEPLOYMENT_TARGET=
-    ./configure --with-expat=no --with-curl=no --enable-debug > "$logfile" 2>&1
+    ./configure $configure_flags > "$logfile" 2>&1
     if [[ "$?" != "0" ]]; then
       cat "$logfile"
       echo "configure failed"
@@ -52,7 +64,7 @@ if test "x$ACTION" = xbuild -o "x$ACTION" = xinstall ; then
 
     make stamp-prepare-target >> "$logfile" 2>&1
     make libetpan-config.h >> "$logfile" 2>&1
-    md5 build-mac/autogen-result.tar.gz > build-mac/autogen-result.md5
+    configure_stamp > build-mac/autogen-result.md5
   fi
   if test "x$PLATFORM_NAME" = xiphoneos -o "x$PLATFORM_NAME" = xiphonesimulator ; then
     if test ! -d build-mac/libsasl-ios ; then
