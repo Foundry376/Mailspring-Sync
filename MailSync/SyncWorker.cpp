@@ -1277,20 +1277,24 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
         logger->warn("- {}: server applied MESSAGELIMIT, only UIDs {} and up were scanned", remotePath, scannedMinUID);
     }
 
+    // Never sit in a hard loop inserting things into the database for more than 500ms.
+    // Each insert is its own write transaction, and the gap between two is too short for
+    // another connection waiting on the write lock (the foreground worker, another
+    // account's mailsync) to get in. Note: this is wall time; clock() is CPU time summed
+    // over every thread of the process on macOS and Linux. Both insert loops below call
+    // this; the clock restarts after each fetch, so time spent waiting on IMAP never counts.
     auto lastSleep = std::chrono::steady_clock::now();
-
-    logger->info("- {}: remote={}, local={}, folderId={}", remotePath, remote->count(), local.size(), folder.id());
-
-    for (int ii = ((int)remote->count()) - 1; ii >= 0; ii--) {
-        // Never sit in a hard loop inserting things into the database for more than 500ms.
-        // Each insert is its own write transaction, and the gap between two is too short for
-        // another connection waiting on the write lock (the foreground worker, another
-        // account's mailsync) to get in. Note: this is wall time; clock() is CPU time summed
-        // over every thread of the process on macOS and Linux.
+    auto yieldToOtherWriters = [&lastSleep]() {
         if (std::chrono::steady_clock::now() - lastSleep >= std::chrono::milliseconds(500)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             lastSleep = std::chrono::steady_clock::now();
         }
+    };
+
+    logger->info("- {}: remote={}, local={}, folderId={}", remotePath, remote->count(), local.size(), folder.id());
+
+    for (int ii = ((int)remote->count()) - 1; ii >= 0; ii--) {
+        yieldToOtherWriters();
         
         IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
         uint32_t remoteUID = remoteMsg->uid();
@@ -1374,7 +1378,9 @@ SyncWorker::UIDRangeSyncResult SyncWorker::syncFolderUIDRange(Folder & folder, R
         if (err != ErrorNone) {
             throw SyncException(err, "syncFolderUIDRange - fetchMessagesByUID (heavy)");
         }
+        lastSleep = std::chrono::steady_clock::now();
         for (int ii = ((int)remote->count()) - 1; ii >= 0; ii--) {
+            yieldToOtherWriters();
             IMAPMessage * remoteMsg = (IMAPMessage *)(remote->objectAtIndex(ii));
             auto local = processor->insertFallbackToUpdateMessage(remoteMsg, folder, syncDataTimestamp);
             if (syncedMessages != nullptr) {
