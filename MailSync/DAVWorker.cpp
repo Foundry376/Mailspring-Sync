@@ -331,10 +331,20 @@ static bool answeredWithRedirect(const SyncException & e) {
     return e.key.rfind("Invalid Response Code: 3", 0) == 0;
 }
 
+// Whether the server answered the https .well-known probe in a way a retry would repeat: any
+// status but 408, 429 and 5xx. PerformExpectedRedirect reports a timeout or a refused connection
+// as "", the same as a 404, so after one of those the guessed root says nothing about the host:
+// a Nextcloud or SOGo host redirects its root to the web UI, and skipping for the session would
+// stop its contacts and calendars until mailsync restarts.
+static bool wellKnownAnswered(long httpStatus) {
+    return httpStatus >= 200 && httpStatus < 500 && httpStatus != 408 && httpStatus != 429;
+}
+
 // The current-user-principal PROPFIND that starts discovery at `root` (RFC 6764 section 6).
-// nullptr when `root` is the "/" that section offers as a guess and it answers with a redirect:
-// nothing named a DAV service there, and a website redirects its root. A redirect from a root
-// that .well-known did name is thrown like any other failure, because mailsync does not follow it.
+// nullptr when `root` is the "/" that section offers as a guess, after .well-known answered, and it
+// answers with a redirect: nothing named a DAV service there, and a website redirects its root. A
+// redirect from a root that .well-known did name, or one reached because the .well-known probe
+// failed, is thrown like any other failure, because mailsync does not follow it.
 static shared_ptr<DavXML> principalAtDiscoveryRoot(DAVWorker * worker, const string & root, bool rootIsGuess) {
     try {
         return worker->performXMLRequest(root, "PROPFIND",
@@ -622,7 +632,8 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
 
     // Use the .well-known convention to try to look up the root path of the carddav service at the host. If this doesn't
     // work, that's fine with us, we just try the root.
-    string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav");
+    long wellKnownStatus = 0;
+    string cardRoot = PerformExpectedRedirect("https://" + cardHost + "/.well-known/carddav", &wellKnownStatus);
     bool rootIsGuess = false;
     if (cardRoot == "") {
         cardRoot = PerformExpectedRedirect("http://" + cardHost + "/.well-known/carddav");
@@ -640,7 +651,7 @@ shared_ptr<ContactBook> DAVWorker::resolveAddressBook() {
     }
     
     // Fetch the current user principal URL from the CardDav root
-    auto principalDoc = principalAtDiscoveryRoot(this, cardRoot, rootIsGuess);
+    auto principalDoc = principalAtDiscoveryRoot(this, cardRoot, rootIsGuess && wellKnownAnswered(wellKnownStatus));
     if (principalDoc == nullptr) {
         logger->info("CardDAV: {} redirects and nothing names a service there, skipping contact sync", cardRoot);
         return nullptr;
@@ -705,7 +716,8 @@ string DAVWorker::resolveCalendarHomeURL() {
     }
 
     // .well-known/caldav redirect to find service root
-    string calRoot = PerformExpectedRedirect("https://" + caldavHost + "/.well-known/caldav");
+    long wellKnownStatus = 0;
+    string calRoot = PerformExpectedRedirect("https://" + caldavHost + "/.well-known/caldav", &wellKnownStatus);
     if (calRoot == "") {
         calRoot = PerformExpectedRedirect("http://" + caldavHost + "/.well-known/caldav");
     }
@@ -718,7 +730,7 @@ string DAVWorker::resolveCalendarHomeURL() {
     }
 
     // PROPFIND root → current-user-principal (RFC 5397)
-    auto principalDoc = principalAtDiscoveryRoot(this, calRoot, rootIsGuess);
+    auto principalDoc = principalAtDiscoveryRoot(this, calRoot, rootIsGuess && wellKnownAnswered(wellKnownStatus));
     if (principalDoc == nullptr) {
         logger->info("CalDAV: {} redirects and nothing names a service there, skipping calendar discovery", calRoot);
         return "";
