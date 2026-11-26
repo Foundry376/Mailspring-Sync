@@ -107,7 +107,9 @@ int ParseRetryAfter(const string & retryAfter);
 const string PerformRequest(CURL * curl_handle);
 const json PerformJSONRequest(CURL * curl_handle);
 
-const string PerformExpectedRedirect(string url);
+// The Location of a 301, 302, 303, 307 or 308 answer to a GET on `url`, or "" for any other
+// outcome. `httpStatus`, when given, receives the status, or 0 when no response arrived.
+const string PerformExpectedRedirect(string url, long * httpStatus = nullptr);
 
 // Throws on a transport error or a non-2xx status, freeing the handle (and its
 // CurlRequestData) first. On success the caller frees it with CleanupCurlRequest.
